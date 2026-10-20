@@ -103,6 +103,7 @@ export async function shouldSkipAction(
         fn: invocation.hogFlow,
         filters: action.filters,
         filterGlobals: invocation.filterGlobals,
+        caller: 'hogflow_skip_action',
     })
 
     return !filterResults.match

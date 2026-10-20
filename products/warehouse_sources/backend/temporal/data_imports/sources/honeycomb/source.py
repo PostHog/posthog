@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +39,77 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^HONEYCOMB_",
+            "^HONEYCOMBIO_APIKEY$",
+            "^LIBHONEY_API_KEY$",
+            "^LIBHONEY_DATASET$",
+            "^LIBHONEY_API_HOST$",
+            "^BUILDEVENT_APIKEY$",
+            "^BUILDEVENT_DATASET$",
+            "^BUILDEVENT_APIHOST$",
+            "^REFINERY_HONEYCOMB_",
+        ),
+        npm=(
+            "@honeycombio/opentelemetry-node",
+            "honeycomb-beeline",
+            "@honeycombio/opentelemetry-web",
+            "libhoney",
+            "@honeycombio/opentelemetry-react-native",
+            "@honeycombio/experimental-opentelemetry-web",
+            "@cloudflare/workers-honeycomb-logger",
+            "@cloudflare/pages-plugin-honeycomb",
+        ),
+        pypi=(
+            "honeycomb-beeline",
+            "libhoney",
+            "honeycomb-opentelemetry",
+            "honeycomb-pycpp",
+            "opentelemetry-ext-honeycomb",
+        ),
+        cargo=("libhoney-rust", "tracing-honeycomb"),
+        cocoapods=("LibHoney",),
+        go=(
+            "github.com/honeycombio/beeline-go",
+            "github.com/honeycombio/libhoney-go",
+            "github.com/honeycombio/otel-config-go",
+            "github.com/honeycombio/honeycomb-opentelemetry-go",
+            "github.com/honeycombio/opentelemetry-exporter-go",
+            "github.com/honeycombio/opentelemetry-samplers-go",
+            "github.com/honeycombio/opencensus-exporter",
+        ),
+        maven=(
+            "io.honeycomb.libhoney:libhoney-java",
+            "io.honeycomb:honeycomb-opentelemetry-sdk",
+            "io.honeycomb:honeycomb-opentelemetry-javaagent",
+            "io.honeycomb:libhoney-java",
+            "io.honeycomb.android:honeycomb-opentelemetry-android",
+            "io.honeycomb.android:honeycomb-opentelemetry-android-compose",
+            "io.honeycomb.android:honeycomb-opentelemetry-android-interaction",
+            "io.honeycomb.android:honeycomb-proguard-uuid-plugin",
+            "io.honeycomb.beeline:beeline-core",
+            "io.honeycomb.beeline:beeline-spring-boot-starter",
+            "io.honeycomb.beeline:beeline-spring-boot-sleuth-starter",
+            "io.honeycomb.opentelemetry:honeycomb-opentelemetry-exporters",
+            "io.honeycomb.opentelemetry:honeycomb-opentelemetry-samplers",
+        ),
+        rubygems=(
+            "honeycomb-beeline",
+            "libhoney",
+            "honeycomb-opentelemetry",
+            "honeycomb-rails",
+            "rack-honeycomb",
+            "faraday-honeycomb",
+            "sequel-honeycomb",
+            "activerecord-honeycomb",
+            "fluent-plugin-honeycomb",
+            "logstash-output-honeycomb_json_batch",
+        ),
+        swiftpm=("github.com/honeycombio/honeycomb-opentelemetry-swift", "github.com/honeycombio/libhoney-cocoa"),
+        alternative_to=(ProductKey.TRACING,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("1",)  # v1 API, addressed via the /1/ URL path prefix
     default_version = "1"
@@ -54,7 +128,7 @@ class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConf
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter a Honeycomb configuration API key to pull your Honeycomb observability configuration — datasets, SLOs, burn alerts, triggers, markers, boards, and more — into the PostHog Data warehouse.
 
-You can create a configuration key under **Environment settings → API keys** in your [Honeycomb account](https://ui.honeycomb.io/). Grant read access for the resources you want to sync: Manage Queries and Columns, Manage SLOs, Manage Triggers, Manage Markers, Manage Boards, and Manage Recipients.
+You can create a configuration key under **Environment settings → API keys** in your [Honeycomb account](https://ui.honeycomb.io/). Grant read access for the resources you want to sync: Manage Queries and Columns, Manage SLOs, Manage Triggers, Manage Markers, Manage Boards, Manage Recipients, and Manage Signals.
 
 Keys are region-specific — pick the region that matches your Honeycomb account.""",
             iconPath="/static/services/honeycomb.png",
@@ -95,6 +169,7 @@ Keys are region-specific — pick the region that matches your Honeycomb account
             "401 Client Error: Unauthorized for url: https://api.eu1.honeycomb.io": "Your Honeycomb API key is invalid, revoked, or for a different region. Create a configuration key in your Honeycomb environment settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.honeycomb.io": "Your Honeycomb API key is missing a permission needed to sync this data. Grant the matching access (e.g. Manage SLOs, Manage Triggers) on the key, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.eu1.honeycomb.io": "Your Honeycomb API key is missing a permission needed to sync this data. Grant the matching access (e.g. Manage SLOs, Manage Triggers) on the key, then reconnect.",
+            "Honeycomb SLO counts history is unavailable": "Honeycomb SLO counts history needs the Enterprise plan, with the feature turned on for your team by Honeycomb. Ask your Honeycomb account team to turn it on, or stop syncing the slo_counts_history table.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -122,17 +197,30 @@ Keys are region-specific — pick the region that matches your Honeycomb account
                 )
             if endpoint_config.scope is HoneycombScope.PER_SLO:
                 return "One row per burn alert per dataset, fetched by walking every dataset's SLOs."
+            if endpoint_config.scope is HoneycombScope.PER_SLO_TIME_WINDOW:
+                return (
+                    "Hourly good and bad event counts per SLO. Requires the Honeycomb Enterprise plan "
+                    "with SLO counts history enabled for your team."
+                )
+            if endpoint_config.scope is HoneycombScope.ENVIRONMENT_PAGINATED:
+                return "Anomaly Detection Signals. Requires the Manage Signals permission on the API key."
+            if endpoint_config.scope is HoneycombScope.PER_SIGNAL_TIME_WINDOW:
+                return (
+                    "Resolved anomalies for every Anomaly Detection Signal. Requires the Manage Signals "
+                    "permission on the API key."
+                )
             if endpoint_config.include_environment_wide:
                 return "Includes environment-wide rows under the __all__ dataset slug alongside per-dataset rows."
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = HONEYCOMB_ENDPOINTS[endpoint]
-            # Full refresh only: Honeycomb's v1 config endpoints expose no server-side
-            # timestamp filter, so a client-side cursor would still walk every row each run.
+            # Only endpoints with a server-side time filter advertise incremental fields; the
+            # config endpoints have none, so a client-side cursor would still walk every row.
+            # Append stays off: the latest SLO counts bucket is partial and must be merged.
             return SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(endpoint_config.incremental_fields),
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
@@ -169,4 +257,7 @@ Keys are region-specific — pick the region that matches your Honeycomb account
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )

@@ -16,7 +16,7 @@ from temporalio import activity, workflow
 # activity sync helpers touch them at runtime, so pass them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
     from django.db import transaction
-    from django.db.models import F, Max
+    from django.db.models import F
     from django.utils import timezone
     from django.utils.dateparse import parse_datetime
     from django.utils.html import strip_tags
@@ -29,8 +29,15 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
-    from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, ZendeskImportJob
+    from products.conversations.backend.models import (
+        EmailChannel,
+        EmailChannelKind,
+        PurgedTicketThread,
+        Ticket,
+        ZendeskImportJob,
+    )
     from products.conversations.backend.models.constants import Status
+    from products.conversations.backend.models.purged_ticket_thread import ticket_thread_key
     from products.conversations.backend.services.attachments import (
         CONVERSATIONS_MAX_IMAGE_BYTES,
         build_content_with_images,
@@ -278,14 +285,26 @@ def _resolve_email_channels(
 
 
 def _partition_new_tickets(team_id: int, ticket_ids: list[int]) -> _TicketPartition:
+    # all_objects so a soft-deleted import still counts as present. Re-inserting it
+    # would hit the zendesk ticket unique constraint, or reopen a deleted thread.
     existing_ids = {
         tid
-        for tid in Ticket.objects.filter(team_id=team_id)
+        for tid in Ticket.all_objects.filter(team_id=team_id)
         .filter(zendesk_ticket_id__in=ticket_ids)
         .values_list("zendesk_ticket_id", flat=True)
         if tid is not None
     }
-    to_import = [tid for tid in ticket_ids if tid not in existing_ids]
+    # A purged import stays out, so the next import does not bring the deleted ticket back.
+    purged_keys = set(
+        PurgedTicketThread.objects.for_team(team_id)
+        .filter(thread_key__in=[ticket_thread_key(zendesk_ticket_id=tid) for tid in ticket_ids])
+        .values_list("thread_key", flat=True)
+    )
+    to_import = [
+        tid
+        for tid in ticket_ids
+        if tid not in existing_ids and ticket_thread_key(zendesk_ticket_id=tid) not in purged_keys
+    ]
     return _TicketPartition(existing_ids=existing_ids, to_import=to_import, skipped=len(ticket_ids) - len(to_import))
 
 
@@ -563,7 +582,7 @@ def _apply_ticket_timestamps(built: list[_BuiltTicket]) -> None:
 def _link_ticket_tags(built: list[_BuiltTicket], tags_by_name: dict[str, Tag]) -> None:
     # bulk_create skips TaggedItem.save()/full_clean() on purpose — the same no-signals rule as
     # the ticket/comment writes here.
-    tagged_items = [TaggedItem(tag=tags_by_name[name], ticket=b.ticket) for b in built for name in b.tag_names]
+    tagged_items = [TaggedItem.for_content_object(tags_by_name[name], b.ticket) for b in built for name in b.tag_names]
     if tagged_items:
         TaggedItem.objects.bulk_create(tagged_items, ignore_conflicts=True)
 
@@ -632,8 +651,8 @@ def _persist_ticket_batch(team: Team, built: list[_BuiltTicket], tags_by_name: d
     # Comment.objects.create(), or .save() would fire those signals for every imported row —
     # triggering workflows and re-sending replies to real customers for years-old tickets. Don't.
     with transaction.atomic():
-        Ticket.objects.lock_ticket_number_allocation(team.id)
-        max_num = Ticket.objects.filter(team_id=team.id).aggregate(Max("ticket_number"))["ticket_number__max"] or 0
+        Ticket.all_objects.lock_ticket_number_allocation(team.id)
+        max_num = Ticket.all_objects.highest_used_ticket_number(team.id)
         tickets_to_create = [b.ticket for b in built]
         for offset, ticket_to_number in enumerate(tickets_to_create):
             ticket_to_number.ticket_number = max_num + 1 + offset

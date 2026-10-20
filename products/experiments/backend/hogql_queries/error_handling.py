@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
     from posthog.models.user import User
 
-# Map error types to their error codes for the API response
 ERROR_TYPE_TO_CODE: dict[type, str] = {
     ClickHouseQueryMemoryLimitExceeded: "memory_limit_exceeded",
 }
@@ -47,36 +46,28 @@ logger = structlog.get_logger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-# User-friendly error messages for specific error types
-# Note: ValueError and generic Exception are intentionally excluded - they pass through unaltered
-# so the original error message is visible for debugging
+# ValueError and generic Exception are left out on purpose. They pass through unaltered, so that
+# the original error message stays visible for debugging.
 ERROR_TYPE_MESSAGES: dict[type, str] = {
-    # Statistical calculation errors
     StatisticError: "Unable to calculate experiment statistics. Please ensure your experiment has sufficient data and try again.",
-    # HogQL/Query errors
     InternalHogQLError: "Unable to process your experiment query. Please check your metric configuration and try again.",
     ExposedCHQueryError: "Unable to retrieve experiment data. Please try refreshing the page.",
-    # ClickHouse resource errors
     ClickHouseQueryMemoryLimitExceeded: "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
-    # Python built-in errors that can occur during calculation
     ZeroDivisionError: "Unable to calculate results due to insufficient data. Please wait for more experiment data.",
 }
 
 
 def get_user_friendly_message(error: Exception) -> str | None:
-    """Convert technical error messages to user-friendly ones based on error type.
-    Returns None if the error type is not in the mapping (should be re-raised as-is).
-    """
+    """Return None when the error type has no mapping, so that the caller re-raises the error as-is."""
 
     error_type = type(error)
 
-    # If a ValidationError is raised, we can return the message directly
+    # ValidationError messages are already user-facing.
     if error_type is ValidationError:
         validation_error = cast(ValidationError, error)
         if isinstance(validation_error.detail, list) and validation_error.detail:
             return str(validation_error.detail[0])
         elif isinstance(validation_error.detail, dict):
-            # For dict-style errors, get the first error message
             if not validation_error.detail:
                 return "Validation error occurred"
             first_key = next(iter(validation_error.detail))
@@ -88,11 +79,9 @@ def get_user_friendly_message(error: Exception) -> str | None:
         else:
             return str(validation_error.detail)
 
-    # Look for exact type match first
     if error_type in ERROR_TYPE_MESSAGES:
         return ERROR_TYPE_MESSAGES[error_type]
 
-    # Check if error is an instance of any of the registered types
     for registered_type, message in ERROR_TYPE_MESSAGES.items():
         if isinstance(error, registered_type):
             return message
@@ -101,8 +90,8 @@ def get_user_friendly_message(error: Exception) -> str | None:
 
 
 def classify_experiment_query_error(error: Exception) -> str:
-    """Single failure taxonomy for the `experiment metric error` event, derived from the typed
-    exceptions `posthog/errors.py` already produces — never from message parsing or HTTP status.
+    """Failure taxonomy for the `experiment metric error` event. It uses the typed exceptions
+    from `posthog/errors.py`, never message parsing or HTTP status.
 
     Values: timeout · out_of_memory · byte_limit · rate_limited · insufficient_data ·
     validation_error · server_error (catch-all).
@@ -120,8 +109,9 @@ def classify_experiment_query_error(error: Exception) -> str:
     if isinstance(error, ServerException):
         meta = look_up_clickhouse_error_code_meta(error)
         if meta.name == "NOT_AN_AGGREGATE":
-            # Only known producer in experiment queries is user-authored HogQL referencing a
-            # row-level column outside an aggregate — a metric-config error, not a platform one.
+            # In experiment queries, only user-authored HogQL is known to produce this error, by
+            # referencing a row-level column outside an aggregate. This is a metric configuration
+            # error, not a platform error.
             return "validation_error"
         if meta.name in ("TIMEOUT_EXCEEDED", "SOCKET_TIMEOUT"):
             return "timeout"
@@ -185,10 +175,10 @@ def capture_experiment_metric_error_event(
 def _emit_runner_terminal_error_event(runner: Any, error: Exception) -> None:
     """Emit the terminal failure event for a query runner on the direct (in-request) path.
 
-    Gated on the runner's `error_event_context` ("ui"/"agent"; None = silent) AND `user_facing`
-    (internal callers — recalc, canary, warming — own their retries, so a runner-level emit there
-    would count non-terminal attempts). One runner execution is terminal on every direct path:
-    the frontend has no automatic retry loop and the async Celery task swallows failures
+    Emits only when the runner has an `error_event_context` ("ui"/"agent"; None means silent) and is
+    `user_facing`. Internal callers (recalc, canary, warming) own their retries, so an emit from the
+    runner there would count non-terminal attempts. On every direct path one runner execution is
+    terminal: the frontend has no automatic retry loop, and the async Celery task swallows failures
     (no retry passes back through the runner).
     """
     if runner is None:
@@ -230,17 +220,17 @@ def experiment_error_handler(method: F) -> F:
         try:
             return method(*args, **kwargs)
         except (ValidationError, ExposedHogQLError) as e:
-            # ValidationErrors and ExposedHogQLErrors are already user-facing, let them through.
-            # Still terminal user pain (the metric fails to load every time), so still counted.
+            # These errors are already user-facing, so re-raise them unchanged. They still count
+            # as terminal failures, because the metric fails to load on every attempt.
             _emit_runner_terminal_error_event(args[0] if args else None, e)
             raise
         except CHQueryErrorNotAnAggregate as e:
-            # Only known producer in experiment queries is user-authored HogQL (math_hogql /
-            # warehouse math_property) referencing a row-level column outside an aggregate —
-            # builder-generated SQL is snapshot-tested, and every tracked occurrence carried
-            # contains_user_hogql. A metric-config error: give an actionable message, keep it
-            # out of error tracking, and let classify_experiment_query_error's validation_error
-            # mapping make the recalculation worker fail it permanently instead of retrying.
+            # In experiment queries, only user-authored HogQL (math_hogql or warehouse
+            # math_property) is known to produce this error, because builder-generated SQL is
+            # snapshot-tested. Treat it as a metric configuration error: give an actionable
+            # message and keep it out of error tracking. The validation_error mapping in
+            # classify_experiment_query_error makes the recalculation worker fail it permanently
+            # instead of retrying.
             self = args[0] if args else None
             logger.warning(
                 "Experiment metric HogQL references column outside aggregate",
@@ -257,7 +247,6 @@ def experiment_error_handler(method: F) -> F:
                 raise
             raise user_error from e
         except Exception as e:
-            # Get context for logging
             self = args[0] if args else None
 
             experiment_id = getattr(self, "experiment_id", None)
@@ -274,7 +263,6 @@ def experiment_error_handler(method: F) -> F:
 
             query_runner = type(self).__name__ if self is not None else None
 
-            # Log the technical error for engineers
             logger.error(
                 "Experiment calculation error",
                 experiment_id=experiment_id,
@@ -286,7 +274,6 @@ def experiment_error_handler(method: F) -> F:
                 exc_info=True,
             )
 
-            # Capture exception for error tracking
             capture_exception(
                 e,
                 additional_properties={
@@ -299,21 +286,19 @@ def experiment_error_handler(method: F) -> F:
 
             _emit_runner_terminal_error_event(self, e)
 
-            # If this is not user-facing, re-raise the original exception after logging/capturing
             user_facing = True
             if self is not None:
                 user_facing = getattr(self, "user_facing", True)
             if not user_facing:
-                # Preserve original exception for internal callers
+                # Internal callers expect the original exception type.
                 raise
 
-            # Convert to user-friendly error if we have a mapping, otherwise re-raise as-is
             user_message = get_user_friendly_message(e)
             if user_message is None:
                 raise
 
-            # Get error code if available. Chain the original explicitly: the query SLO
-            # classifier reads __cause__ to keep converted technical errors counted as failures.
+            # Chain the original explicitly, because the query SLO classifier reads __cause__ to
+            # keep converted technical errors counted as failures.
             error_code = ERROR_TYPE_TO_CODE.get(type(e))
             raise ValidationError(user_message, code=error_code) from e
 

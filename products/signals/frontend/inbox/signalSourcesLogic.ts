@@ -20,31 +20,38 @@ import {
     engineeringAnalyticsCiSignalsConfigUpdate,
 } from 'products/engineering_analytics/frontend/generated/api'
 import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+import { errorTrackingIssuesExistsRetrieve } from 'products/error_tracking/frontend/generated/api'
 import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
 import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import type { SignalSourceTypeApi } from '../generated/api.schemas'
+import type { SignalSourceTypeApi, SignalSourceConfigSourceTypeEnumApi } from '../generated/api.schemas'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
-import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
+import {
+    SignalSourceToggleFailureReason,
+    captureSignalSourceConfigsLoadFailed,
+    captureSignalSourceConnected,
+    captureSignalSourceDisabled,
+    captureSignalSourceToggleFailed,
+} from './inboxAnalytics'
 import { SOURCE_STEERING_KEY, SignalSourceConfig, ToggleSignalSourceParams } from './types'
 
-/** product_enablement recipe names for tools that back a signal source. */
-export type SourceToolEnablement = 'session_replay' | 'error_tracking' | 'conversations'
+/** product_enablement recipe names for products that back a signal source. */
+export type SourceProductEnablement = 'session_replay' | 'error_tracking' | 'conversations'
 
-export type SourceToolDataStatus = 'unavailable' | 'loading' | 'error' | 'recent' | 'none'
+export type SourceProductDataStatus = 'unavailable' | 'loading' | 'error' | 'recent' | 'none'
 
-export interface SourceToolStatus {
-    toolName: string
+export interface SourceProductStatus {
+    productName: string
     enabled: boolean | null
-    enablement: SourceToolEnablement | null
-    dataStatus: SourceToolDataStatus
+    enablement: SourceProductEnablement | null
+    dataStatus: SourceProductDataStatus
 }
 
-/** Event definitions probed to detect recent data for each source's tool. */
-const TOOL_USAGE_EVENTS = ['$exception', '$ai_generation', '$ai_trace', '$pageview', '$autocapture']
+/** Event definitions probed to detect recent data for each source's product. */
+const PRODUCT_USAGE_EVENTS = ['$exception', '$ai_generation', '$ai_trace', '$pageview', '$autocapture']
 
 /**
  * Cap on the per-source entity lists the roster inlines. Well past the tail: the busiest projects
@@ -74,11 +81,17 @@ function inheritedErrorTrackingConfig(configs: SignalSourceConfig[]): Record<str
 /** Warehouse-backed signal sources, keyed by roster source id. */
 export type WarehouseBackedSource = 'github' | 'linear' | 'zendesk' | 'pganalyze' | 'engineering_analytics'
 
+/** Why the Linear teams picker is open: enabling the source (its save turns it on) or editing the filter. */
+export interface LinearTeamsPickerState {
+    enableOnSave: boolean
+    viaSetupWizard: boolean
+}
+
 type WarehouseSourceCompletion =
     | {
           kind: 'source_config'
           sourceProduct: SignalSourceProduct
-          sourceType: SignalSourceType
+          sourceType: SignalSourceConfigSourceTypeEnumApi
           enableErrorMessage: string
       }
     | { kind: 'ci_signals_bundle' }
@@ -142,6 +155,12 @@ export const WAREHOUSE_SOURCE_SETUP: Record<
         completion: { kind: 'ci_signals_bundle' },
     },
 }
+
+/**
+ * Shown when a toggle runs before the source list has loaded. Without the list an existing source
+ * looks new, and creating it again fails on the unique constraint with a message nobody can act on.
+ */
+const SOURCE_CONFIGS_UNAVAILABLE_MESSAGE = "Couldn't load your signal sources. Reload them and try again."
 
 /** Values subset used by data-warehouse source helpers */
 interface SignalSourcesLogicValuesForDw {
@@ -223,8 +242,9 @@ export interface signalSourcesLogicValues {
     conversationsConfig: SignalSourceConfig | null
     dataSourceSetupSource: WarehouseBackedSource | null
     enabledSourcesCount: number
-    enablingTool: SourceToolEnablement | null
+    enablingProduct: SourceProductEnablement | null
     errorTrackingConfigs: SignalSourceConfig[]
+    errorTrackingHasIssues: boolean | null
     errorTrackingIsFullyEnabled: boolean
     errorTrackingTypeStates: {
         enabled: boolean
@@ -246,16 +266,18 @@ export interface signalSourcesLogicValues {
     isPgAnalyzeIssuesToggling: boolean
     isZendeskTicketsToggling: boolean
     linearIssuesConfig: SignalSourceConfig | null
+    linearTeamsPicker: LinearTeamsPickerState | null
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
+    productDataEvents: Set<string> | null
+    productDataEventsFailed: boolean
+    productDataEventsLoading: boolean
+    productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
+    scannerInventoryKnown: boolean
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoadFailed: boolean
     sourceConfigsLoading: boolean
     sourcesModalOpen: boolean
     togglingSourceKeys: Set<string>
-    toolDataEvents: Set<string> | null
-    toolDataEventsFailed: boolean
-    toolDataEventsLoading: boolean
-    toolStatusBySource: Partial<Record<AgentRosterSource, SourceToolStatus>>
     visionScanners: ReplayScannerApi[] | null
     visionScannersLoading: boolean
     zendeskTicketsConfig: SignalSourceConfig | null
@@ -269,16 +291,19 @@ export interface signalSourcesLogicActions {
     closeDataSourceSetup: () => {
         value: true
     }
+    closeLinearTeamsPicker: () => {
+        value: true
+    }
     closeSourcesModal: () => {
         value: true
     }
     completeDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
     }
-    enableSourceTool: (enablement: SourceToolEnablement) => {
-        enablement: SourceToolEnablement
+    enableSourceProduct: (enablement: SourceProductEnablement) => {
+        enablement: SourceProductEnablement
     }
-    enableSourceToolComplete: () => {
+    enableSourceProductComplete: () => {
         value: true
     }
     initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
@@ -299,6 +324,21 @@ export interface signalSourcesLogicActions {
         ciSignalsConfig: CISignalsConfigApi
         payload?: any
     }
+    loadProductDataEvents: () => any
+    loadProductDataEventsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadProductDataEventsSuccess: (
+        productDataEvents: Set<string>,
+        payload?: any
+    ) => {
+        productDataEvents: Set<string>
+        payload?: any
+    }
     loadSourceConfigs: () => any
     loadSourceConfigsFailure: (
         error: string,
@@ -312,21 +352,6 @@ export interface signalSourcesLogicActions {
         payload?: any
     ) => {
         sourceConfigs: SignalSourceConfig[]
-        payload?: any
-    }
-    loadToolDataEvents: () => any
-    loadToolDataEventsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadToolDataEventsSuccess: (
-        toolDataEvents: Set<string>,
-        payload?: any
-    ) => {
-        toolDataEvents: Set<string>
         payload?: any
     }
     loadVisionScanners: () => any
@@ -350,6 +375,7 @@ export interface signalSourcesLogicActions {
     openDataSourceSetup: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
     }
+    openLinearTeamsPicker: (state: LinearTeamsPickerState) => LinearTeamsPickerState
     openSourcesModal: () => {
         value: true
     }
@@ -383,6 +409,12 @@ export interface signalSourcesLogicActions {
     ) => {
         enabled: boolean
         source: WarehouseBackedSource
+    }
+    setErrorTrackingHasIssues: (hasIssues: boolean | null) => {
+        hasIssues: boolean | null
+    }
+    setScannerInventoryKnown: (known: boolean) => {
+        known: boolean
     }
     startDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
@@ -464,12 +496,13 @@ export interface signalSourcesLogicMeta {
         isEvalReportsToggling: (togglingSourceKeys: Set<string>) => boolean
         anomalyInvestigationConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         isAnomalyInvestigationToggling: (togglingSourceKeys: Set<string>) => boolean
-        toolStatusBySource: (
+        productStatusBySource: (
             currentTeam: TeamPublicType | TeamType | null,
-            toolDataEvents: Set<string> | null,
-            toolDataEventsLoading: boolean,
-            toolDataEventsFailed: boolean
-        ) => Partial<Record<AgentRosterSource, SourceToolStatus>>
+            productDataEvents: Set<string> | null,
+            productDataEventsLoading: boolean,
+            productDataEventsFailed: boolean,
+            errorTrackingHasIssues: boolean | null
+        ) => Partial<Record<AgentRosterSource, SourceProductStatus>>
         errorTrackingIsFullyEnabled: (sourceConfigs: SignalSourceConfig[] | null) => boolean
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
@@ -507,6 +540,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     })),
 
     actions({
+        setScannerInventoryKnown: (known: boolean) => ({ known }),
         openSourcesModal: true,
         closeSourcesModal: true,
         initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
@@ -516,6 +550,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         openDataSourceSetup: (source: WarehouseBackedSource) => ({ source }),
         closeDataSourceSetup: true,
         onDataSourceSetupComplete: true,
+        openLinearTeamsPicker: (state: LinearTeamsPickerState) => state,
+        closeLinearTeamsPicker: true,
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
@@ -530,11 +566,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleEvalReports: true,
         toggleConversations: true,
         toggleAnomalyInvestigation: true,
-        enableSourceTool: (enablement: SourceToolEnablement) => ({ enablement }),
-        enableSourceToolComplete: true,
+        enableSourceProduct: (enablement: SourceProductEnablement) => ({ enablement }),
+        enableSourceProductComplete: true,
+        setErrorTrackingHasIssues: (hasIssues: boolean | null) => ({ hasIssues }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         sourceConfigs: [
             null as SignalSourceConfig[] | null,
             {
@@ -551,15 +588,20 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     engineeringAnalyticsCiSignalsConfigRetrieve(String(teamLogic.values.currentTeamId)),
             },
         ],
-        toolDataEvents: [
+        productDataEvents: [
             null as Set<string> | null,
             {
-                loadToolDataEvents: async (): Promise<Set<string>> => {
-                    const response = await eventDefinitionsList(String(teamLogic.values.currentTeamId), {
-                        exclude_stale: true,
-                        names: TOOL_USAGE_EVENTS,
-                        limit: TOOL_USAGE_EVENTS.length,
-                    })
+                loadProductDataEvents: async (): Promise<Set<string>> => {
+                    const projectId = String(ApiConfig.getCurrentProjectId())
+                    const [response, issues] = await Promise.all([
+                        eventDefinitionsList(projectId, {
+                            exclude_stale: true,
+                            names: PRODUCT_USAGE_EVENTS,
+                            limit: PRODUCT_USAGE_EVENTS.length,
+                        }),
+                        errorTrackingIssuesExistsRetrieve(projectId).catch(() => null),
+                    ])
+                    actions.setErrorTrackingHasIssues(issues?.exists ?? null)
                     return new Set(
                         response.results.filter(({ last_seen_at }) => !!last_seen_at).map(({ name }) => name)
                     )
@@ -580,8 +622,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             enabled: 'enabled',
                             limit: ENTITY_PAGE_SIZE,
                         })
+                        actions.setScannerInventoryKnown(!response.next)
                         return response.results
                     } catch {
+                        actions.setScannerInventoryKnown(false)
                         // Replay Vision 404s when its flag is off, and this source only ever adds to
                         // the count, so a failure reads as "no scanners" rather than stranding every
                         // consumer of the count on a loading state.
@@ -625,6 +669,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     })),
 
     reducers({
+        scannerInventoryKnown: [false, { setScannerInventoryKnown: (_, { known }) => known }],
+        errorTrackingHasIssues: [
+            null as boolean | null,
+            { setErrorTrackingHasIssues: (_, { hasIssues }) => hasIssues },
+        ],
         sourcesModalOpen: [
             false,
             {
@@ -640,19 +689,27 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 closeSourcesModal: () => null,
             },
         ],
-        enablingTool: [
-            null as SourceToolEnablement | null,
+        linearTeamsPicker: [
+            null as LinearTeamsPickerState | null,
             {
-                enableSourceTool: (_, { enablement }) => enablement,
-                enableSourceToolComplete: () => null,
+                openLinearTeamsPicker: (_, state) => state,
+                closeLinearTeamsPicker: () => null,
+                closeSourcesModal: () => null,
             },
         ],
-        toolDataEventsFailed: [
+        enablingProduct: [
+            null as SourceProductEnablement | null,
+            {
+                enableSourceProduct: (_, { enablement }) => enablement,
+                enableSourceProductComplete: () => null,
+            },
+        ],
+        productDataEventsFailed: [
             false,
             {
-                loadToolDataEvents: () => false,
-                loadToolDataEventsSuccess: () => false,
-                loadToolDataEventsFailure: () => true,
+                loadProductDataEvents: () => false,
+                loadProductDataEventsSuccess: () => false,
+                loadProductDataEventsFailure: () => true,
             },
         ],
         sourceConfigsLoadFailed: [
@@ -842,34 +899,49 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (keys: Set<string>): boolean =>
                 keys.has(`${SignalSourceProduct.Analytics}_${SignalSourceType.AnomalyInvestigation}`),
         ],
-        toolStatusBySource: [
-            (s) => [s.currentTeam, s.toolDataEvents, s.toolDataEventsLoading, s.toolDataEventsFailed],
+        productStatusBySource: [
+            (s) => [
+                s.currentTeam,
+                s.productDataEvents,
+                s.productDataEventsLoading,
+                s.productDataEventsFailed,
+                s.errorTrackingHasIssues,
+            ],
             (
                 currentTeam: TeamPublicType | TeamType | null,
-                toolDataEvents: Set<string> | null,
-                toolDataEventsLoading: boolean,
-                toolDataEventsFailed: boolean
-            ): Partial<Record<AgentRosterSource, SourceToolStatus>> => {
+                productDataEvents: Set<string> | null,
+                productDataEventsLoading: boolean,
+                productDataEventsFailed: boolean,
+                errorTrackingHasIssues: boolean | null
+            ): Partial<Record<AgentRosterSource, SourceProductStatus>> => {
                 const team = currentTeam as TeamType | null
-                const dataStatus = (...events: string[]): SourceToolDataStatus => {
-                    if (toolDataEventsLoading || (toolDataEvents === null && !toolDataEventsFailed)) {
+                const dataStatus = (...events: string[]): SourceProductDataStatus => {
+                    if (productDataEvents === null && (productDataEventsLoading || !productDataEventsFailed)) {
                         return 'loading'
                     }
-                    if (toolDataEventsFailed) {
+                    if (productDataEventsFailed) {
                         return 'error'
                     }
-                    return events.some((event) => toolDataEvents?.has(event)) ? 'recent' : 'none'
+                    return events.some((event) => productDataEvents?.has(event)) ? 'recent' : 'none'
                 }
-                const errorTrackingDataStatus = dataStatus('$exception')
+                const exceptionEventStatus = dataStatus('$exception')
+                const errorTrackingDataStatus =
+                    errorTrackingHasIssues && exceptionEventStatus !== 'recent'
+                        ? 'unavailable'
+                        : exceptionEventStatus === 'none' && errorTrackingHasIssues === null
+                          ? 'error'
+                          : exceptionEventStatus
                 const errorTrackingEnabled =
-                    team?.autocapture_exceptions_opt_in === true || errorTrackingDataStatus === 'recent'
+                    team?.autocapture_exceptions_opt_in === true ||
+                    errorTrackingHasIssues === true ||
+                    errorTrackingDataStatus === 'recent'
                         ? true
                         : team && errorTrackingDataStatus === 'none'
                           ? false
                           : null
                 // Both replay sources read recordings, so they stand or fall on the same opt-in.
-                const sessionReplayTool: SourceToolStatus = {
-                    toolName: 'Session Replay',
+                const sessionReplayProduct: SourceProductStatus = {
+                    productName: 'Session replay',
                     enabled: team ? !!team.session_recording_opt_in : null,
                     enablement: 'session_replay',
                     // Recordings never produce event definitions, so there is no cheap signal.
@@ -877,28 +949,27 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 }
                 return {
                     error_tracking: {
-                        toolName: 'Error Tracking',
-                        // Server SDKs capture exceptions without the autocapture opt-in, so recent
-                        // exception data counts as on.
+                        productName: 'Error tracking',
+                        // Server SDKs and manually captured exceptions do not require browser autocapture.
                         enabled: errorTrackingEnabled,
                         enablement: 'error_tracking',
                         dataStatus: errorTrackingDataStatus,
                     },
-                    replay_vision: sessionReplayTool,
+                    replay_vision: sessionReplayProduct,
                     conversations: {
-                        toolName: 'Support',
+                        productName: 'Support',
                         enabled: team ? !!team.conversations_enabled : null,
                         enablement: 'conversations',
                         dataStatus: 'unavailable',
                     },
                     llm_analytics: {
-                        toolName: 'AI Observability',
+                        productName: 'AI observability',
                         enabled: true,
                         enablement: null,
                         dataStatus: dataStatus('$ai_generation', '$ai_trace'),
                     },
                     analytics: {
-                        toolName: 'Product Analytics',
+                        productName: 'Product analytics',
                         enabled: true,
                         enablement: null,
                         dataStatus: dataStatus('$pageview', '$autocapture'),
@@ -1035,7 +1106,22 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             )
         }
 
+        function failSignalSourceToggle(
+            sourceProduct: SignalSourceProduct,
+            sourceType: SignalSourceType,
+            enabled: boolean,
+            errorMessage: string,
+            reason: SignalSourceToggleFailureReason
+        ): void {
+            captureSignalSourceToggleFailed({ sourceProduct, sourceType, enabled, reason, errorMessage })
+            lemonToast.error(errorMessage)
+            actions.loadSourceConfigs()
+        }
+
         return {
+            loadSourceConfigsFailure: ({ error, errorObject }) => {
+                captureSignalSourceConfigsLoadFailed(errorObject?.detail || error || 'Failed to load signal sources')
+            },
             loadCiSignalsConfigFailure: ({ error, errorObject }) => {
                 // Silent failure would leave the card claiming setup is required for an armed source.
                 lemonToast.error(errorObject?.detail || error || 'Failed to load CI signals status')
@@ -1074,6 +1160,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     if ((currentConfig?.enabled ?? false) === desiredEnabled) {
                         return
                     }
+                    // Linear asks which teams to read before it turns on; the picker's save does the toggle.
+                    if (source === 'linear' && desiredEnabled) {
+                        actions.openLinearTeamsPicker({ enableOnSave: true, viaSetupWizard: false })
+                        return
+                    }
                     actions.setDataWarehouseSourceEnabled(source, desiredEnabled)
                     downstreamToggleStarted = true
                 } catch (error: any) {
@@ -1095,6 +1186,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.toggleCiSignals(true)
                     return
                 }
+                if (source === 'linear') {
+                    actions.openLinearTeamsPicker({ enableOnSave: true, viaSetupWizard: true })
+                    return
+                }
                 actions.toggleSignalSource({
                     sourceProduct: completion.sourceProduct,
                     sourceType: completion.sourceType,
@@ -1102,10 +1197,23 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     viaSetupWizard: true,
                 })
             },
-            toggleSignalSource: async ({ params }, breakpoint) => {
+            // No breakpoint here: every call settles its own source, and a breakpoint would let a
+            // toggle on another source cancel this one, leaving its spinner up and its error unshown.
+            toggleSignalSource: async ({ params }) => {
                 const { sourceProduct, sourceType, enabled, config } = params
+                if (values.sourceConfigs === null) {
+                    actions.toggleSignalSourceFailure(params, SOURCE_CONFIGS_UNAVAILABLE_MESSAGE)
+                    failSignalSourceToggle(
+                        sourceProduct,
+                        sourceType,
+                        enabled,
+                        SOURCE_CONFIGS_UNAVAILABLE_MESSAGE,
+                        'configs_unavailable'
+                    )
+                    return
+                }
                 try {
-                    const configs = values.sourceConfigs ?? []
+                    const configs = values.sourceConfigs
                     const existing = configs.find(
                         (c: SignalSourceConfig) => c.source_product === sourceProduct && c.source_type === sourceType
                     )
@@ -1124,7 +1232,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             config: config ?? {},
                         })
                     }
-                    breakpoint()
                     actions.toggleSignalSourceSuccess(params)
                     if (
                         sourceProduct === SignalSourceProduct.LlmAnalytics &&
@@ -1151,18 +1258,27 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     actions.loadSourceConfigs()
                 } catch (error: any) {
-                    breakpoint()
                     const errorMessage = error?.detail || error?.message || 'Failed to toggle signal source'
                     actions.toggleSignalSourceFailure(params, errorMessage)
-                    actions.loadSourceConfigs()
-                    lemonToast.error(errorMessage)
+                    failSignalSourceToggle(sourceProduct, sourceType, enabled, errorMessage, 'request_failed')
                 }
             },
             toggleErrorTracking: async (_, breakpoint) => {
                 // The row switch reads "on" as soon as one type is armed, so turning it off has to
                 // stand every type down rather than arm the remaining ones.
                 const desiredEnabled = !values.errorTrackingTypeStates.some(({ enabled }) => enabled)
-                const configs = values.sourceConfigs ?? []
+                if (values.sourceConfigs === null) {
+                    actions.toggleErrorTrackingComplete()
+                    failSignalSourceToggle(
+                        SignalSourceProduct.ErrorTracking,
+                        SignalSourceType.IssueCreated,
+                        desiredEnabled,
+                        SOURCE_CONFIGS_UNAVAILABLE_MESSAGE,
+                        'configs_unavailable'
+                    )
+                    return
+                }
+                const configs = values.sourceConfigs
                 const inheritedConfig = inheritedErrorTrackingConfig(values.errorTrackingConfigs)
                 // First connection when no persisted error-tracking config existed before this enable.
                 const wasConnected = configs.some(
@@ -1205,12 +1321,29 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     breakpoint() // re-throws if superseded, skipping the lines below
                     actions.toggleErrorTrackingComplete()
                     const errorMessage = error?.detail || error?.message || 'Failed to toggle Error tracking signals'
-                    lemonToast.error(errorMessage)
-                    actions.loadSourceConfigs()
+                    failSignalSourceToggle(
+                        SignalSourceProduct.ErrorTracking,
+                        SignalSourceType.IssueCreated,
+                        desiredEnabled,
+                        errorMessage,
+                        'request_failed'
+                    )
                 }
             },
-            toggleErrorTrackingType: async ({ sourceType }, breakpoint) => {
-                const configs = values.sourceConfigs ?? []
+            // No breakpoint here either: each signal type is its own row, so a click on another type
+            // must not cancel this one or swallow its error.
+            toggleErrorTrackingType: async ({ sourceType }) => {
+                const configs = values.sourceConfigs
+                if (configs === null) {
+                    failSignalSourceToggle(
+                        SignalSourceProduct.ErrorTracking,
+                        sourceType,
+                        true,
+                        SOURCE_CONFIGS_UNAVAILABLE_MESSAGE,
+                        'configs_unavailable'
+                    )
+                    return
+                }
                 const inheritedConfig = inheritedErrorTrackingConfig(values.errorTrackingConfigs)
                 const existing = configs.find(
                     (c) => c.source_product === SignalSourceProduct.ErrorTracking && c.source_type === sourceType
@@ -1227,10 +1360,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             config: inheritedConfig,
                         })
                     }
-                    breakpoint()
                 } catch (error: any) {
-                    breakpoint()
-                    lemonToast.error(error?.detail || error?.message || 'Failed to toggle this signal type')
+                    failSignalSourceToggle(
+                        SignalSourceProduct.ErrorTracking,
+                        sourceType,
+                        desiredEnabled,
+                        error?.detail || error?.message || 'Failed to toggle this signal type',
+                        'request_failed'
+                    )
+                    return
                 }
                 actions.loadSourceConfigs()
             },
@@ -1333,17 +1471,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     enabled: desiredEnabled,
                 })
             },
-            enableSourceTool: async ({ enablement }) => {
+            enableSourceProduct: async ({ enablement }) => {
                 try {
                     await productEnablementCreate(String(teamLogic.values.currentTeamId), {
                         products: [enablement],
                     })
-                    // Refresh the cached team so the tool reads back as on.
+                    // Refresh the cached team so the product reads back as on.
                     await teamLogic.asyncActions.loadCurrentTeam()
                 } catch (error: any) {
                     lemonToast.error(error?.detail || error?.message || "Couldn't turn this on. Please try again.")
                 } finally {
-                    actions.enableSourceToolComplete()
+                    actions.enableSourceProductComplete()
                 }
             },
             setDataWarehouseSourceEnabled: ({ source, enabled }) => {

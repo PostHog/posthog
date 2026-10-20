@@ -3,8 +3,8 @@ import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
 import { HogFunctionDeliveryType, getHogFunctionDeliveryType } from '../hog-function-utils'
 
-// Batch exports vs realtime destinations (hog functions). Shared by the destinations list and the
-// new-destination picker so the colour/icon/label stay in one place.
+// Batch exports vs realtime destinations (hog functions) in the new-destination picker, which
+// is the one list that still mixes both kinds of templates.
 export function DeliveryTypeTag({ item }: { item: { id: string } }): JSX.Element {
     return getHogFunctionDeliveryType(item) === 'batch' ? (
         <LemonTag type="completion" icon={<IconClock />} className="text-xs">

@@ -1,11 +1,18 @@
 import {
+    ActivityChange,
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
+import { describeRepeat } from '../../SendCalendar/sendCalendarUtils'
+import { isOneTimeSchedule } from '../hogflows/steps/components/rrule-helpers'
 
 const nameOrLinkToWorkflow = (id?: string | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(empty string)'
@@ -77,6 +84,136 @@ function processArrayChanges<T extends ArrayChangeItem>(
     return changes
 }
 
+function describeWorkflowItems(change: ActivityChange, itemType: 'action' | 'variable'): JSX.Element[] {
+    const before = asItemArray(change.before)
+    const after = asItemArray(change.after)
+    if (!before || !after) {
+        return [<>updated {change.field}</>]
+    }
+    return itemType === 'action'
+        ? processArrayChanges(
+              before,
+              after,
+              (item) => item.id || '',
+              (item) => item.name || item.id || 'unnamed',
+              itemType
+          )
+        : processArrayChanges(
+              before,
+              after,
+              (item) => item.key || '',
+              (item) => item.key || item.label || 'unnamed',
+              itemType
+          )
+}
+
+interface ScheduleTiming {
+    rrule: string
+    starts_at: string
+    timezone: string
+}
+
+function describeScheduleTiming(timing: ScheduleTiming): string {
+    const start = dayjs(timing.starts_at).tz(timing.timezone || 'UTC')
+    if (isOneTimeSchedule(timing.rrule)) {
+        return `${start.format('MMM D, YYYY [at] h:mm A')} (${timing.timezone})`
+    }
+    const repeat = describeRepeat(timing)
+    return `${repeat.charAt(0).toLowerCase()}${repeat.slice(1)} at ${start.format('h:mm A')} (${timing.timezone})`
+}
+
+function describeScheduleChange(change: ActivityChange): JSX.Element {
+    const before = change.before as ScheduleTiming | null
+    const after = change.after as ScheduleTiming | null
+    if (change.action === 'created' && after) {
+        return (
+            <>
+                added a schedule: <strong>{describeScheduleTiming(after)}</strong>
+            </>
+        )
+    }
+    if (change.action === 'deleted' && before) {
+        return (
+            <>
+                removed a schedule: <strong>{describeScheduleTiming(before)}</strong>
+            </>
+        )
+    }
+    if (before && after) {
+        return (
+            <>
+                moved a schedule from <strong>{describeScheduleTiming(before)}</strong> to{' '}
+                <strong>{describeScheduleTiming(after)}</strong>
+            </>
+        )
+    }
+    return <>updated a schedule</>
+}
+
+function describeWorkflowField(change: ActivityChange): JSX.Element[] {
+    switch (change.field) {
+        case 'name':
+            return [
+                <>
+                    renamed from <strong>{String(change.before)}</strong> to <strong>{String(change.after)}</strong>
+                </>,
+            ]
+        case 'description':
+            return [<>updated description</>]
+        case 'status':
+            return [<>{`${change.after === 'active' ? 'enabled' : 'disabled'} the workflow`}</>]
+        case 'actions':
+            return describeWorkflowItems(change, 'action')
+        case 'variables':
+            return describeWorkflowItems(change, 'variable')
+        case 'schedule':
+            return [describeScheduleChange(change)]
+        default:
+            return [<>updated {change.field}</>]
+    }
+}
+
+function describeWorkflowUpdate(logItem: ActivityLogItem): HumanizedChange {
+    const objectNoun = 'workflow'
+    const verb = logItem.activity == 'published' ? 'published' : 'updated'
+    const changes: JSX.Element[] = []
+    let preview: string | undefined
+    for (const change of logItem.detail.changes ?? []) {
+        if (change.field === 'description') {
+            preview = typeof change.after === 'string' ? change.after : undefined
+        }
+        changes.push(...describeWorkflowField(change))
+    }
+    const workflowName = nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)
+
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <SentenceList
+                listParts={
+                    logItem.activity === 'published'
+                        ? [`Published the ${objectNoun}`, ...changes]
+                        : changes.length
+                          ? changes
+                          : [`Updated the ${objectNoun}`]
+                }
+            />,
+            workflowName,
+            preview
+        ),
+        description: (
+            <div>
+                <ActivityLogUserName logItem={logItem} /> {verb} the {objectNoun}: {workflowName}
+                <ul className="ml-5 list-disc">
+                    {changes.map((c, i) => (
+                        <li key={i}>{c}</li>
+                    ))}
+                </ul>
+            </div>
+        ),
+    }
+}
+
 export function workflowActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'HogFlow') {
         console.error('Workflow describer received a non-HogFlow activity')
@@ -87,6 +224,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the workflow',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created the {objectNoun}:{' '}
@@ -98,6 +240,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the workflow', logItem.detail.name || 'Workflow'),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the {objectNoun}: {logItem.detail.name}
@@ -108,6 +251,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'revision_restored') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Staged an earlier version for review',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> restored a past version into the staged draft of the{' '}
@@ -117,8 +265,62 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
+    if (logItem.activity == 'optimization_enabled' || logItem.activity == 'optimization_disabled') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                logItem.activity == 'optimization_enabled' ? 'Turned on suggestions' : 'Turned off suggestions',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} />{' '}
+                    {logItem.activity == 'optimization_enabled' ? 'turned on' : 'turned off'} suggestions for the{' '}
+                    {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'proposal_approved') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Approved a suggested change',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> approved a suggested change into the staged draft of the{' '}
+                    {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'proposal_rejected') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Rejected a suggested change',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> rejected a suggested change to the {objectNoun}:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'draft_discarded') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Discarded the staged draft',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> discarded the staged draft of the {objectNoun}:{' '}
@@ -130,6 +332,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'email_sending_resumed') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Resumed email sending',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> resumed email sending for the {objectNoun}:{' '}
@@ -139,88 +346,24 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
-    if (logItem.activity == 'updated' || logItem.activity == 'published') {
-        const verb = logItem.activity == 'published' ? 'published' : 'updated'
-        const changes: JSX.Element[] = []
-        for (const change of logItem.detail.changes ?? []) {
-            switch (change.field) {
-                case 'name': {
-                    changes.push(
-                        <>
-                            renamed from <strong>{String(change.before)}</strong> to{' '}
-                            <strong>{String(change.after)}</strong>
-                        </>
-                    )
-                    break
-                }
-                case 'description': {
-                    changes.push(<>updated description</>)
-                    break
-                }
-                case 'status': {
-                    const statusChange = change.after === 'active' ? 'enabled' : 'disabled'
-                    changes.push(<>{`${statusChange} the ${objectNoun}`}</>)
-                    break
-                }
-                case 'actions': {
-                    const actionsBefore = asItemArray(change.before)
-                    const actionsAfter = asItemArray(change.after)
-                    if (!actionsBefore || !actionsAfter) {
-                        changes.push(<>updated {change.field}</>)
-                        break
-                    }
-                    changes.push(
-                        ...processArrayChanges(
-                            actionsBefore,
-                            actionsAfter,
-                            (a) => a.id || '',
-                            (a) => a.name || a.id || 'unnamed',
-                            'action'
-                        )
-                    )
-                    break
-                }
-                case 'variables': {
-                    const variablesBefore = asItemArray(change.before)
-                    const variablesAfter = asItemArray(change.after)
-                    if (!variablesBefore || !variablesAfter) {
-                        changes.push(<>updated {change.field}</>)
-                        break
-                    }
-                    changes.push(
-                        ...processArrayChanges(
-                            variablesBefore,
-                            variablesAfter,
-                            (v) => v.key || '',
-                            (v) => v.key || v.label || 'unnamed',
-                            'variable'
-                        )
-                    )
-                    break
-                }
-                case 'trigger':
-                case 'edges': {
-                    changes.push(<>updated {change.field}</>)
-                    break
-                }
-                default:
-                    changes.push(<>updated {change.field}</>)
-            }
-        }
-        const workflowName = nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)
-
+    if (logItem.activity == 'converted_to_broadcast') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Moved to broadcasts',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
-                <div>
-                    <ActivityLogUserName logItem={logItem} /> {verb} the {objectNoun}: {workflowName}
-                    <ul className="ml-5 list-disc">
-                        {changes.map((c, i) => (
-                            <li key={i}>{c}</li>
-                        ))}
-                    </ul>
-                </div>
+                <>
+                    <ActivityLogUserName logItem={logItem} /> moved the {objectNoun} to broadcasts:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
             ),
         }
+    }
+
+    if (logItem.activity == 'updated' || logItem.activity == 'published') {
+        return describeWorkflowUpdate(logItem)
     }
     return defaultDescriber(logItem, asNotification, nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name))
 }

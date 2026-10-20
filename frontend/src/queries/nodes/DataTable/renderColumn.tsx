@@ -42,7 +42,8 @@ import {
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { aiObservabilityColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityColumnRenderers'
+import { aiObservabilityGlobalColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityGlobalColumns'
+import { HarnessLabel } from 'products/mcp_analytics/frontend/dashboard/HarnessLabel'
 import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'products/persons/frontend/components/PersonDisplay'
 import { pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
@@ -63,9 +64,11 @@ function JSONCell(props: ReactJsonViewProps): JSX.Element {
 }
 
 // Registry for product-specific column renderers
-// Products can add their custom column renderers here to have them automatically applied across all DataTable instances
+// Products can add their custom column renderers here to have them automatically applied across all DataTable instances.
+// An entry wins over the core renderer for that column name in every DataTable, so a product registers only namespaced
+// keys here and passes the rest through its own scene's QueryContext.
 const productColumnRenderers: Record<string, QueryContextColumn> = {
-    ...aiObservabilityColumnRenderers,
+    ...aiObservabilityGlobalColumnRenderers,
     ...sessionColumnRenderers,
 }
 
@@ -93,7 +96,8 @@ export function renderColumn(
     rowCount: number,
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
-    context?: QueryContext<DataTableNode>
+    context?: QueryContext<DataTableNode>,
+    columnFormat?: string | null
 ): JSX.Element | string {
     const { queryContextColumnName, queryContextColumn } = getContextColumn(key, context?.columns)
     const originalKey = key
@@ -109,6 +113,8 @@ export function renderColumn(
         return <Spinner />
     } else if (value === errorColumn) {
         return <LemonTag className="text-danger">Error</LemonTag>
+    } else if (columnFormat === 'mcp_harness' && typeof value === 'string') {
+        return <HarnessLabel category={value} />
     } else if (queryContextColumnName && queryContextColumn?.render) {
         const Component = queryContextColumn?.render
         return (
@@ -182,6 +188,14 @@ export function renderColumn(
                 // do nothing
             }
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
+                // ClickHouse returns the epoch for min() or max() over no rows, because DateTime is not Nullable
+                if (new Date(value).getTime() === 0 && !/\.\d*[1-9]/.test(value)) {
+                    return (
+                        <Tooltip title="Unix epoch. An aggregate like min() or max() returns this when no rows match.">
+                            <span className="cursor-default">{value}</span>
+                        </Tooltip>
+                    )
+                }
                 return (
                     <TZLabel
                         time={value}
@@ -335,6 +349,22 @@ export function renderColumn(
 
         if (isEventsQuery(query.source)) {
             displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
+            // The query runner resolves this column against Postgres by distinct ID, so a row without
+            // `properties` has no profile behind it. The popover would repeat that same lookup to show
+            // an empty card, so the cell says it in place instead.
+            if (!value?.properties) {
+                return (
+                    <Tooltip
+                        title="This distinct ID has no person profile."
+                        docLink="https://posthog.com/docs/data/persons#capturing-person-profiles"
+                        openOnClick
+                    >
+                        <span>
+                            <PersonDisplay {...displayProps} />
+                        </span>
+                    </Tooltip>
+                )
+            }
             displayProps.noPopover = false // If we are in an events list, the popover experience is better
         }
 
@@ -357,15 +387,20 @@ export function renderColumn(
 
         return <PersonDisplay {...displayProps} />
     } else if (key === 'person_display_name') {
-        // Hide the popover on people list only
-        const noPopover = isActorsQuery(query.source)
+        // The column coalesces the display-name properties down to the distinct ID, so a name of its own
+        // is the only evidence the row reached a person profile. An event captured without person
+        // processing carries a placeholder person ID that links to "Person not found", and a `properties`
+        // key is what makes PersonDisplay render that link. The popover stays on either way, because it
+        // looks the person up by distinct ID and so still finds a profile created after the event.
+        const nameCameFromProfile = value.display_name !== value.distinct_id
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            // `properties: {}` marks this row as an identified profile so PersonDisplay still renders the link;
-            // the server-side `person_display_name` column omits `properties` even though these rows are profiled.
-            person: { id: value.id, distinct_id: value.distinct_id, properties: {} },
+            person: nameCameFromProfile
+                ? { id: value.id, distinct_id: value.distinct_id, properties: {} }
+                : { id: value.id, distinct_id: value.distinct_id },
             displayName: value.display_name,
-            noPopover,
+            // Hide the popover on people list only
+            noPopover: isActorsQuery(query.source),
         }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {

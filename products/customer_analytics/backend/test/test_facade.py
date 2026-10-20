@@ -96,7 +96,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         ignored_at = timezone.now()
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123", ignored_at=ignored_at)
         tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
-        TaggedItem.objects.create(tag=tag, account=account)
+        account.tagged_items.create(tag=tag)
         notebook = Notebook.objects.create(
             team=self.team,
             created_by=self.user,
@@ -242,7 +242,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
             ).model_dump(mode="json"),
         )
         tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
-        TaggedItem.objects.create(tag=tag, account=account)
+        account.tagged_items.create(tag=tag)
 
         result = facade.get_external_account(self.team.id, "acme-1")
 
@@ -415,7 +415,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
         kwargs.setdefault("name", "Acme Corp")
         return contracts.CreateAccountInput(**kwargs)
 
-    def _create(self, **kwargs) -> contracts.AccountView:
+    def _create(self, **kwargs) -> contracts.AccountDetails:
         return facade.create_account_for_view(
             team=self.team,
             input=self._create_account_input(**kwargs),
@@ -428,7 +428,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
     def test_create_account_returns_view_and_persists(self):
         view = self._create(name="Acme", external_id="acme-1", properties={"stripe_customer_id": "cus_1"})
 
-        assert isinstance(view, contracts.AccountView)
+        assert isinstance(view, contracts.AccountDetails)
         assert view.name == "Acme"
         assert view.external_id == "acme-1"
         assert view.properties == {"stripe_customer_id": "cus_1"}
@@ -444,7 +444,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
     def test_create_account_sets_tags(self):
         view = self._create(name="Tagged", tags=["enterprise", "priority"])
         account = Account.objects.unscoped().get(id=str(view.id))
-        assert sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)) == [
+        assert sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True)) == [
             "enterprise",
             "priority",
         ]

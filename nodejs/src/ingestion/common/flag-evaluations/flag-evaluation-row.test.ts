@@ -1,3 +1,4 @@
+import { pick } from 'lodash'
 import { DateTime } from 'luxon'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -28,32 +29,25 @@ describe('mapProcessedEventToFlagEvaluationRow', () => {
         const row = mapProcessedEventToFlagEvaluationRow(processedEvent)
         const eventsRow = serializeEvent(processedEvent)
 
-        expect(row.uuid).toBe('event-uuid-1')
-        expect(row.event).toBe('$feature_flag_called')
-        expect(row.team_id).toBe(42)
-        expect(row.distinct_id).toBe('distinct-1')
-        expect(row.person_id).toBe('person-uuid-1')
+        // Both rows derive created_at and person_created_at from the event, so they agree.
+        // Reading the wall clock per serialization instead would stamp two different values.
+        expect(row).toStrictEqual(
+            pick(eventsRow, [
+                'uuid',
+                'event',
+                'properties',
+                'timestamp',
+                'team_id',
+                'distinct_id',
+                'created_at',
+                'person_id',
+                'person_properties',
+                'person_created_at',
+                'person_mode',
+            ])
+        )
         expect(row.timestamp).toBe('2024-01-15 10:30:00.123')
-        expect(row.properties).toBe(eventsRow.properties)
-        // Both rows derive created_at from the event, so they agree. Reading the
-        // wall clock per serialization instead would stamp two different values.
-        expect(row.created_at).toBe(eventsRow.created_at)
         expect(row.created_at).toBe('2024-01-15 10:31:00.456')
         expect(parseJSON(row.properties!).$feature_flag).toBe('my-flag')
-    })
-
-    it('omits person properties from the flag evaluation wire format', () => {
-        const row = mapProcessedEventToFlagEvaluationRow(processedEvent)
-
-        expect(Object.keys(row).sort()).toEqual([
-            'created_at',
-            'distinct_id',
-            'event',
-            'person_id',
-            'properties',
-            'team_id',
-            'timestamp',
-            'uuid',
-        ])
     })
 })

@@ -11,6 +11,7 @@ import structlog
 from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
@@ -180,7 +181,7 @@ def automated_targets(team_id: int, report_id: str) -> list[ImplementationTarget
             receipt is None
             or run.task_id in active_tasks
             or latest_runs[run.task_id] != run.id
-            or run.status != "completed"
+            or run.status not in {"completed", "failed"}
             or run.environment != "cloud"
             or run.mode != "background"
         ):
@@ -192,9 +193,23 @@ def automated_targets(team_id: int, report_id: str) -> list[ImplementationTarget
             or run.state.get("self_driving_head_branch") != content.automation_branch
         ):
             continue
+        verified_urls = (
+            {
+                canonical_pr_url(raw_url)
+                for raw_url in (run.state.get("verified_pr_urls") or [])
+                if isinstance(raw_url, str)
+            }
+            if run.status == "failed" and run.state.get("timed_out_wall_clock") is True
+            else set()
+        )
         for raw_url in tasks_facade.read_pr_urls(run.output):
             url = canonical_pr_url(raw_url)
-            if not url or url not in eligible_urls or url in targets:
+            if (
+                not url
+                or url not in eligible_urls
+                or url in targets
+                or (run.status == "failed" and url not in verified_urls)
+            ):
                 continue
             targets[url] = ImplementationTarget(
                 task_id=run.task_id,
@@ -220,7 +235,9 @@ def verify_target(team_id: int, target: ImplementationTarget, *, check_sha: bool
     tasks = tasks_facade.get_tasks_by_ids([target.task_id], [team_id])
     if not tasks or (tasks[0].repository or "").lower() != parsed.repository.lower():
         return None
-    github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.CRITICAL
+    )
     if github is None:
         raise TargetVerificationUnavailable("GitHub integration unavailable")
     pr = github.get_pull_request(parsed.repository, parsed.number)
@@ -268,7 +285,9 @@ def _target_already_closed(team_id: int, target: ImplementationTarget) -> bool:
 
     parsed = GitHubIntegrationBase.parse_pull_request_url(target.pr_url)
     assert parsed is not None
-    github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.BATCH
+    )
     current = github.get_pull_request(parsed.repository, parsed.number) if github else {}
     if not current.get("success"):
         raise RuntimeError("Could not verify predecessor state")
@@ -280,10 +299,11 @@ def _target_already_closed(team_id: int, target: ImplementationTarget) -> bool:
     return closed
 
 
-def latest_handover(replacement: SignalReportArtefact) -> ImplementationHandover | None:
+def latest_handover(replacement: SignalReportArtefact, *, using: str | None = None) -> ImplementationHandover | None:
     if replacement.task_id is None:
         return None
-    for row in SignalReportArtefact.objects.filter(
+    artefacts = SignalReportArtefact.objects.using(using) if using else SignalReportArtefact.objects
+    for row in artefacts.filter(
         team_id=replacement.team_id,
         report_id=replacement.report_id,
         task_id=replacement.task_id,
@@ -295,13 +315,16 @@ def latest_handover(replacement: SignalReportArtefact) -> ImplementationHandover
     return None
 
 
-def pending_replacement(team_id: int, report_id: str) -> SignalReportArtefact | None:
-    for row in SignalReportArtefact.objects.filter(
-        team_id=team_id, report_id=report_id, type="implementation_replacement"
-    ).order_by("-created_at", "-id"):
+def pending_replacement(team_id: int, report_id: str, *, using: str | None = None) -> SignalReportArtefact | None:
+    """The replacement still in flight for this report, if any. Pass `using="default"` when the
+    answer gates a terminal decision, so a replica's lag cannot miss a just-started replacement."""
+    artefacts = SignalReportArtefact.objects.using(using) if using else SignalReportArtefact.objects
+    for row in artefacts.filter(team_id=team_id, report_id=report_id, type="implementation_replacement").order_by(
+        "-created_at", "-id"
+    ):
         if row.task_id is None:
             continue
-        progress = latest_handover(row)
+        progress = latest_handover(row, using=using)
         if progress is None or progress.status == "processing":
             return row
     return None
@@ -390,7 +413,13 @@ def reconcile_replacement(team_id: int, replacement_id: str) -> bool:
         run = tasks_facade.get_task_run(content.run_id, team_id)
         claim = get_active_claim(team_id=team_id, report_id=report.id)
         if (
-            report.status in {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED}
+            report.status
+            in {
+                SignalReport.Status.DELETED,
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.RESOLVED,
+                SignalReport.Status.MONITORING,
+            }
             or not claim
             or claim.claim_id != replacement.claim_id
             or claim.actor_task_id != replacement.task_id

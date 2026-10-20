@@ -14,8 +14,14 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import STRIPPED_EMAIL_EXPRESSION, EmailLookupHandler, EmailNormalizer
+from posthog.helpers.email_utils import (
+    GMAIL_CANONICAL_LOCAL_EXPRESSION,
+    STRIPPED_EMAIL_EXPRESSION,
+    EmailLookupHandler,
+    EmailNormalizer,
+)
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization_notification_lock import GovernedSetting, effective_notification_settings
@@ -52,11 +58,16 @@ class Notifications(TypedDict, total=False):
         float  # Failure rate threshold (0.0 to 1.0) - only notify if failure rate exceeds this
     )
     project_api_key_exposed: bool
+    ai_evaluation_disabled: bool  # One email each time an AI observability evaluation is auto-disabled
+    workflow_suggestions: bool  # Email when PostHog suggests a change to a workflow the user opted in or created
     materialized_view_sync_failed: bool
     materialized_view_sync_failed_daily: bool  # One digest a day summarizing failing views
     materialized_view_sync_failed_immediate: bool  # One email each time a view starts failing
     web_analytics_weekly_digest: bool
     web_analytics_weekly_digest_project_enabled: dict[str, bool]
+    data_catalog_weekly_digest: bool
+    approval_requested: bool  # Email to each approver when a change request needs their sign-off
+    approval_resolved: bool  # Email to the requester when their change request is decided, expires, or is applied
     organization_member_join_email_disabled: dict[
         str, bool
     ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
@@ -78,10 +89,15 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
     "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
+    "ai_evaluation_disabled": True,  # Auto-disabled evaluation emails enabled by default
+    "workflow_suggestions": True,
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
     "materialized_view_sync_failed_daily": True,  # Digest is the default delivery once failures are turned on
     "materialized_view_sync_failed_immediate": False,
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
+    "data_catalog_weekly_digest": True,  # Data catalog pending-review digest enabled by default
+    "approval_requested": True,
+    "approval_resolved": True,
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
     "realtime_notifications_disabled": {},  # No opt-outs by default
     "pipeline_notifications_disabled": {},  # No per-pipeline opt-out until user configures
@@ -125,7 +141,6 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
-        extra_fields.setdefault("ui_configuration", default_ui_configuration_for_new_users())
         user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
@@ -199,22 +214,6 @@ class UserManager(BaseUserManager):
 
 def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
-
-
-# New users start with a slimmer sidebar. Existing users keep ui_configuration NULL, which the
-# frontend resolves as "everything shown" (their pre-customization experience). Absent keys also
-# mean "shown", so this only lists the elements hidden by default for new accounts. The shape must
-# stay valid against the UserUIConfiguration schema (see frontend/src/queries/schema/schema-general.ts).
-def default_ui_configuration_for_new_users() -> dict[str, Any]:
-    return {
-        "version": 1,
-        "sidebar": {
-            "items": {
-                "files": {"visible": False},
-                "starred": {"visible": False},
-            },
-        },
-    }
 
 
 class ThemeMode(models.TextChoices):
@@ -292,13 +291,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
-    # No field default on purpose: existing rows must stay NULL so long-time users keep seeing
-    # everything. New accounts get default_ui_configuration_for_new_users() via UserManager.create_user.
     ui_configuration = models.JSONField(
         null=True,
         blank=True,
-        help_text="Per-user UI customization (currently sidebar element visibility), shaped like the "
-        "UserUIConfiguration schema. NULL means the user has no customization and every element shows.",
+        help_text="Per-user UI customization, such as SQL editor settings, shaped like the "
+        "UserUIConfiguration schema. NULL means the user has no customization.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
@@ -344,6 +341,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         verbose_name_plural = _("users")
         indexes = [
             models.Index(STRIPPED_EMAIL_EXPRESSION, name="user_stripped_alias_idx"),
+            models.Index(GMAIL_CANONICAL_LOCAL_EXPRESSION, name="user_gmail_canonical_idx"),
             # Serves the `LOWER(email)` fold `EmailLookupHandler.get_user_by_email` resolves on.
             models.Index(Lower("email"), name="posthog_user_lower_email_idx"),
         ]
@@ -372,100 +370,22 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         return self.is_staff
 
     @cached_property
-    def teams(self):
+    def teams(self) -> models.QuerySet[Team]:
         """
         All teams the user has access to on any organization, taking into account project based permissioning
         """
-        teams = Team.objects.filter(organization__members=self)
-        org_available_product_features = (
-            Organization.objects.filter(members=self).values_list("available_product_features", flat=True).first()
-        )
-        if org_available_product_features and len(org_available_product_features) > 0:
-            org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
-            if AvailableFeature.ACCESS_CONTROL in org_available_product_feature_keys:
-                from products.access_control.backend.models.access_control import AccessControl
+        from posthog.constants import AvailableFeature  # noqa: PLC0415
+        from posthog.user_permissions import UserPermissions  # noqa: PLC0415 - circular, user_permissions imports User
 
-                # Get organization memberships for this user to check access levels
-                org_memberships = OrganizationMembership.objects.filter(user=self).select_related("organization")
+        user_perms = UserPermissions(self)
+        # Fast path: when every organization this user belongs to lacks access control, no project
+        # restriction can apply beyond organization membership. Return a lazy queryset so callers
+        # such as `.filter(id=X).exists()` answer in Postgres without materializing a candidate list.
+        orgs = user_perms.organizations
+        if orgs and not any(org.is_feature_available(AvailableFeature.ACCESS_CONTROL) for org in orgs.values()):
+            return Team.objects.filter(organization_id__in=orgs.keys()).order_by("id")
 
-                # Get teams that are private (have access_level="none" restrictions)
-                private_team_ids = set(
-                    AccessControl.objects.filter(
-                        resource="project", access_level="none", organization_member=None, role=None
-                    ).values_list("team_id", flat=True)
-                )
-
-                # Get teams where user has explicit access
-                accessible_private_team_ids = set(
-                    AccessControl.objects.filter(
-                        resource="project",
-                        access_level__in=["member", "admin"],
-                        organization_member__in=[membership.id for membership in org_memberships],
-                    ).values_list("team_id", flat=True)
-                )
-
-                # Get teams where user has role-based access. Only honored when the
-                # org has ROLE_BASED_ACCESS — same gate as the UI's "Roles" block on
-                # the project access settings page (and as resource-level role overrides).
-                role_based_access_supported = AvailableFeature.ROLE_BASED_ACCESS in org_available_product_feature_keys
-                if role_based_access_supported:
-                    try:
-                        from products.access_control.backend.models.role import RoleMembership
-
-                        user_roles = (
-                            RoleMembership.objects.filter(
-                                user=self, organization_member__in=[membership.id for membership in org_memberships]
-                            )
-                            .valid_for_authorization()
-                            .values_list("role_id", flat=True)
-                        )
-
-                        role_accessible_team_ids = set(
-                            AccessControl.objects.filter(
-                                resource="project", access_level__in=["member", "admin"], role__in=user_roles
-                            ).values_list("team_id", flat=True)
-                        )
-                    except ImportError:
-                        role_accessible_team_ids = set()
-                else:
-                    role_accessible_team_ids = set()
-
-                # Get organizations where user is admin or owner (have implicit access to all teams)
-                organizations_where_user_is_admin = OrganizationMembership.objects.filter(
-                    user=self, level__gte=OrganizationMembership.Level.ADMIN
-                ).values_list("organization_id", flat=True)
-
-                # Filter teams to include:
-                # - Teams that are not private (not in private_team_ids) OR
-                # - Teams where user has explicit access OR
-                # - Teams where user has role-based access OR
-                # - Teams in organizations where user is admin/owner
-                accessible_team_ids = accessible_private_team_ids | role_accessible_team_ids
-
-                # Build the list of all accessible team IDs
-                all_accessible_team_ids: set[int] = set()
-
-                # Add teams from organizations where user is admin
-                admin_teams = Team.objects.filter(
-                    organization__pk__in=organizations_where_user_is_admin, organization__members=self
-                ).values_list("pk", flat=True)
-                all_accessible_team_ids.update(admin_teams)
-
-                # Add teams that are not private
-                non_private_teams = (
-                    Team.objects.filter(organization__members=self)
-                    .exclude(pk__in=private_team_ids)
-                    .values_list("pk", flat=True)
-                )
-                all_accessible_team_ids.update(non_private_teams)
-
-                # Add teams with explicit access
-                all_accessible_team_ids.update(accessible_team_ids)
-
-                # Apply the final filter
-                teams = teams.filter(pk__in=all_accessible_team_ids)
-
-        return teams.order_by("id")
+        return Team.objects.filter(pk__in=user_perms.team_ids_visible_for_user).order_by("id")
 
     @cached_property
     def organization(self) -> Optional[Organization]:
@@ -485,16 +405,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 self.save(update_fields=["current_team"])
         return self.current_team
 
-    def get_github_login(self) -> str | None:
-        """Resolve this user's GitHub login.
-
-        Precedence:
-        1. `UserIntegration` (kind=github) — user's own GitHub integration
-        2. `UserSocialAuth` (provider=github) — OAuth login linkage when no GitHub user integration exists
-        3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
-           team's GitHub integration (e.g. captured at install). Still a supported integration path,
-           lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
-        """
+    def _get_github_login_from_user_integration(self) -> str | None:
         from posthog.models.user_integration import UserGitHubIntegration
 
         prefetched_user_integrations = getattr(self, "_prefetched_github_user_integrations", None)
@@ -504,10 +415,15 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             user_integrations = self.integrations.filter(kind="github")[:1]
 
         for user_integration in user_integrations:
-            login = UserGitHubIntegration(user_integration).github_login
+            login = UserGitHubIntegration(
+                user_integration, source="user_github_login", priority=Priority.NORMAL
+            ).github_login
             if login:
                 return login
 
+        return None
+
+    def _get_github_login_from_social_auth(self) -> str | None:
         for sa in self.social_auth.all():
             if sa.provider != "github":
                 continue
@@ -519,26 +435,42 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 if login:
                     return str(login)
 
-        # Team-level GitHub integration: connecting_user_github_login from install / configuration.
+        return None
+
+    def _get_github_login_from_team_integration(self) -> str | None:
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
-        if prefetched_integrations is not None:
-            for integration in prefetched_integrations:
-                login = (integration.config or {}).get("connecting_user_github_login")
+        team_github_integrations = (
+            prefetched_integrations
+            if prefetched_integrations is not None
+            else self.integration_set.filter(kind="github")
+            .exclude(config__connecting_user_github_login=None)
+            .only("config")
+            .order_by("id")[:1]
+        )
+        for integration in team_github_integrations:
+            if isinstance(integration.config, dict):
+                login = integration.config.get("connecting_user_github_login")
                 if login:
                     return str(login)
-        else:
-            team_github_integration = (
-                self.integration_set.filter(kind="github")
-                .exclude(config__connecting_user_github_login=None)
-                .only("config")
-                .first()
-            )
-            if team_github_integration and isinstance(team_github_integration.config, dict):
-                login_val = team_github_integration.config.get("connecting_user_github_login")
-                if login_val:
-                    return str(login_val)
 
         return None
+
+    def get_github_login(self, *, include_team_fallback: bool = True) -> str | None:
+        """Resolve this user's GitHub login.
+
+        Precedence:
+        1. `UserIntegration` (kind=github) — user's own GitHub integration
+        2. `UserSocialAuth` (provider=github) — OAuth login linkage when no GitHub user integration exists
+        3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
+           team's GitHub integration (e.g. captured at install). Still a supported integration path,
+           lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
+
+        Set `include_team_fallback=False` when a member's personal GitHub identity is required.
+        """
+        login = self._get_github_login_from_user_integration() or self._get_github_login_from_social_auth()
+        if login or not include_team_fallback:
+            return login
+        return self._get_github_login_from_team_integration()
 
     def join(
         self,
@@ -584,11 +516,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
         # After role assignment, so role-granted project access is included. Covers joins
         # that don't go through an invite (e.g. domain/SSO auto-join).
-        from posthog.models.file_system.user_product_list import (  # noqa: PLC0415 - avoids a circular import
-            add_default_products_for_accessible_teams,
+        from posthog.models.file_system.starred_products import (  # noqa: PLC0415 - avoids a circular import
+            star_default_products_for_accessible_teams,
         )
 
-        add_default_products_for_accessible_teams(self, organization)
+        star_default_products_for_accessible_teams(self, organization)
 
         return membership
 
@@ -693,27 +625,3 @@ def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **
         from posthog.session.activity import revoke_other_sessions  # noqa: PLC0415 — avoids a circular import
 
         revoke_other_sessions(instance, keep_session_key=None)
-
-
-@receiver(pre_save, sender=User)
-def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
-    """Pause every loop owned by a user when they are deactivated (is_active True->False).
-
-    Loops execute as their owner for GitHub authorship and MCP identity (see
-    products/tasks/docs/LOOPS.md "Lifecycle and reconciliation"); deactivation is often the
-    security response and must not leave a loop still scheduled, or a sandbox still running,
-    under that owner's identity. Deferred to `transaction.on_commit` since pausing a loop's
-    Temporal schedule is an irreversible external side effect.
-    """
-    if instance._state.adding or instance.is_active:
-        return
-    was_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
-    if not was_active:
-        return
-
-    from products.tasks.backend.facade.loops import (  # noqa: PLC0415 (keeps loops/Temporal deps off the User model import path)
-        pause_loops_for_deactivated_user,
-    )
-
-    user_id = instance.pk
-    transaction.on_commit(lambda: pause_loops_for_deactivated_user(user_id))

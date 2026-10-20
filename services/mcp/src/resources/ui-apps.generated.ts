@@ -17,9 +17,7 @@ export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.ht
 export const FEATURE_FLAG_TESTING_RESOURCE_URI = 'ui://posthog/feature-flag-testing.html'
 export const INLINE_SCAN_RESOURCE_URI = 'ui://posthog/inline-scan.html'
 export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
-export const INVITE_EMAIL_PREVIEW_RESOURCE_URI = 'ui://posthog/invite-email-preview.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
-export const LOOPS_REVIEW_RESOURCE_URI = 'ui://posthog/loops-review.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 export const RENDER_UI_RESOURCE_URI = 'ui://posthog/render-ui.html'
 export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
@@ -32,7 +30,9 @@ export const TRACE_SPAN_LIST_RESOURCE_URI = 'ui://posthog/trace-span-list.html'
 export const VISION_OBSERVATION_LIST_RESOURCE_URI = 'ui://posthog/vision-observation-list.html'
 export const VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI = 'ui://posthog/visual-review-snapshots.html'
 export const WORKFLOW_RESOURCE_URI = 'ui://posthog/workflow.html'
+export const WORKFLOW_DATA_SUGGESTIONS_RESOURCE_URI = 'ui://posthog/workflow-data-suggestions.html'
 export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
+export const WORKFLOW_SETUP_STATUS_RESOURCE_URI = 'ui://posthog/workflow-setup-status.html'
 
 export type UiAppKey =
     | 'action'
@@ -52,9 +52,7 @@ export type UiAppKey =
     | 'feature-flag-testing'
     | 'inline-scan'
     | 'insight-actors'
-    | 'invite-email-preview'
     | 'llm-costs'
-    | 'loops-review'
     | 'query-results'
     | 'render-ui'
     | 'session-recording'
@@ -67,7 +65,9 @@ export type UiAppKey =
     | 'vision-observation-list'
     | 'visual-review-snapshots'
     | 'workflow'
+    | 'workflow-data-suggestions'
     | 'workflow-list'
+    | 'workflow-setup-status'
 
 export const URI_MAP: Record<UiAppKey, string> = {
     action: ACTION_RESOURCE_URI,
@@ -87,9 +87,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'feature-flag-testing': FEATURE_FLAG_TESTING_RESOURCE_URI,
     'inline-scan': INLINE_SCAN_RESOURCE_URI,
     'insight-actors': INSIGHT_ACTORS_RESOURCE_URI,
-    'invite-email-preview': INVITE_EMAIL_PREVIEW_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
-    'loops-review': LOOPS_REVIEW_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
     'render-ui': RENDER_UI_RESOURCE_URI,
     'session-recording': SESSION_RECORDING_RESOURCE_URI,
@@ -102,7 +100,9 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'vision-observation-list': VISION_OBSERVATION_LIST_RESOURCE_URI,
     'visual-review-snapshots': VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
     workflow: WORKFLOW_RESOURCE_URI,
+    'workflow-data-suggestions': WORKFLOW_DATA_SUGGESTIONS_RESOURCE_URI,
     'workflow-list': WORKFLOW_LIST_RESOURCE_URI,
+    'workflow-setup-status': WORKFLOW_SETUP_STATUS_RESOURCE_URI,
 }
 
 /**
@@ -126,7 +126,6 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'feature-flag-testing',
     'inline-scan',
     'insight-actors',
-    'invite-email-preview',
     'llm-costs',
     'query-results',
     'session-recording',
@@ -139,6 +138,7 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'vision-observation-list',
     'workflow',
     'workflow-list',
+    'workflow-setup-status',
 ]
 
 export const UI_APPS: Array<{
@@ -146,6 +146,7 @@ export const UI_APPS: Array<{
     uri: string
     description: string
     appDir: string
+    resourceDomains?: string[]
 }> = [
     {
         name: 'PostHog Action',
@@ -250,22 +251,10 @@ export const UI_APPS: Array<{
         appDir: 'generated/insight-actors',
     },
     {
-        name: 'PostHog Invite Email Preview',
-        uri: INVITE_EMAIL_PREVIEW_RESOURCE_URI,
-        description: 'Invite Email Preview detail view',
-        appDir: 'generated/invite-email-preview',
-    },
-    {
         name: 'PostHog Llm Costs',
         uri: LLM_COSTS_RESOURCE_URI,
         description: 'Llm Costs detail view',
         appDir: 'generated/llm-costs',
-    },
-    {
-        name: 'PostHog Loop Review',
-        uri: LOOPS_REVIEW_RESOURCE_URI,
-        description: 'Review card for a loop before creation, with a Create loop action.',
-        appDir: 'loops-review',
     },
     {
         name: 'Query Results',
@@ -332,6 +321,10 @@ export const UI_APPS: Array<{
         uri: VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
         description: 'Visual review run snapshots — diff viewer with approve/tolerate actions',
         appDir: 'visual-review-snapshots',
+        resourceDomains: [
+            'https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/',
+            'http://localhost:19000/posthog/visual_review/',
+        ],
     },
     {
         name: 'PostHog Workflow',
@@ -340,9 +333,21 @@ export const UI_APPS: Array<{
         appDir: 'generated/workflow',
     },
     {
+        name: 'PostHog Workflow Suggestions',
+        uri: WORKFLOW_DATA_SUGGESTIONS_RESOURCE_URI,
+        description: 'Suggested workflows built from the events a project sends, each with a Create workflow action.',
+        appDir: 'workflow-data-suggestions',
+    },
+    {
         name: 'PostHog Workflow List',
         uri: WORKFLOW_LIST_RESOURCE_URI,
         description: 'Workflow List view',
         appDir: 'generated/workflow-list',
+    },
+    {
+        name: 'PostHog Messaging Setup',
+        uri: WORKFLOW_SETUP_STATUS_RESOURCE_URI,
+        description: 'The messaging setup checklist, with a link to finish each open step.',
+        appDir: 'generated/workflow-setup-status',
     },
 ]

@@ -27,7 +27,7 @@ export function buildAddWidgetPayloads(selectedTypes: Iterable<string>): AddWidg
 
     for (const widgetType of selectedTypes) {
         const catalogEntry = DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey]
-        if (!catalogEntry) {
+        if (!catalogEntry || ('hideFromPicker' in catalogEntry && catalogEntry.hideFromPicker)) {
             continue
         }
         payloads.push({ widgetType, config: catalogEntry.defaultConfig })

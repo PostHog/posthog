@@ -5,6 +5,7 @@ import { OriginPolicyReason, ResponseOptOutReason, responseOptOutReason } from '
 import { HttpCacheMetadata } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
 import { canonicalizeUrl } from './politeness-key'
+import { REQUEST_IDENTITY_HEADERS } from './request-identity'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 /**
@@ -12,8 +13,12 @@ import { WebBotAuthRequestSigner } from './web-bot-auth'
  *
  * SVG is absent on purpose. It is a text format that can carry the page's own data, so its redaction
  * belongs on the inline path rather than on an image model.
+ *
+ * AVIF is absent because the image scrubber unblocks only the PNG, JPEG, GIF and WebP loaders
+ * (`sharp.unblock` in the sidecar's image-input.ts), so it would reject every AVIF image that this
+ * lane fetched.
  */
-const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'] as const
+const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 
 export type ImageContentType = (typeof ALLOWED_CONTENT_TYPES)[number]
 
@@ -103,10 +108,8 @@ export interface ImageFetcher {
     fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult>
 }
 
-const USER_AGENT = 'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)'
-
 const REQUEST_HEADERS: Record<string, string> = {
-    'user-agent': USER_AGENT,
+    ...REQUEST_IDENTITY_HEADERS,
     accept: 'image/*',
     'accept-encoding': 'gzip, deflate, br, zstd',
 }
@@ -114,9 +117,10 @@ const REQUEST_HEADERS: Record<string, string> = {
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
 /**
- * This sends no user credential: no cookie, no `Authorization`, and no `Referer`. This lane must not
- * reach an image behind a login, and a `Referer` would tell the origin which page of the customer's
- * site the image sat on. Web Bot Auth identifies PostHog as the operator of the request.
+ * This sends no user credential: no cookie and no `Authorization`, because this lane must not reach an
+ * image behind a login. The `Referer` names PostHog and never the page that showed the image, because
+ * that page would tell the origin where on the customer's site the image sat. Web Bot Auth identifies
+ * PostHog as the operator of the request.
  *
  * Every refusal is an outcome rather than a throw. This runs inside a Kafka batch, one URL at a
  * time, and a throw would abandon the URLs after it in the same batch.

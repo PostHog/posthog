@@ -33,6 +33,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.facade.api import export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
@@ -41,6 +42,7 @@ from products.exports.backend.tasks.failure_handler import (
     BrowserlessUnavailable,
     InvalidExportContext,
     classify_failure_type,
+    is_reportable_export_failure,
 )
 from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
@@ -306,7 +308,8 @@ def _export_to_png(
             page_load_timeout = 100
         else:
             raise InvalidExportContext(
-                "Export is missing required dashboard, insight ID, session_recording_id, or query source in export_context"
+                "Export is missing required dashboard, insight ID, session_recording_id, or query source in export_context",
+                reportable=True,
             )
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
@@ -504,7 +507,10 @@ def _screenshot_asset_browserless(
                 int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render, final=True
             )
 
-            page.set_viewport_size({"width": width, "height": final_height})
+            if final_height != height:
+                page.set_viewport_size({"width": width, "height": final_height})
+                # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
+                page.wait_for_timeout(500)
             page.screenshot(path=image_path)
         except BrowserlessUnavailable:
             raise
@@ -591,10 +597,11 @@ def export_image(
                         analytics_props=export_analytics_props,
                     )
                 elif exported_asset.insight.query is None:
-                    # Nothing to warm: the insight stores only legacy filters, which the render
-                    # converts in the browser. Failing here would lose an export the browser can
-                    # still produce, so the render just starts without a warm cache. The dashboard
-                    # branch below skips such a tile for the same reason.
+                    # Nothing to warm: the insight stores only legacy filters, and nothing converts
+                    # those into a query, so the insight renders blank. Raising here would fail the
+                    # whole export instead of producing it with one blank insight, so the render
+                    # starts without a warm cache. The dashboard branch below skips such a tile for
+                    # the same reason.
                     logger.info(
                         "export_image.skip_warming_insight_without_query",
                         insight_id=exported_asset.insight.id,
@@ -703,6 +710,23 @@ def export_image(
                         "dashboard_id": exported_asset.dashboard_id,
                     },
                 )
-            else:
+            # The creator is still a member but has no access to a resource the query needs (e.g. web analytics).
+            elif isinstance(e, UserAccessControlError):
+                report_creator_access_revoked(
+                    user=exported_asset.created_by,
+                    team=exported_asset.team,
+                    source="export",
+                    error=e,
+                    reason="missing_resource_access",
+                    properties={
+                        "exported_asset_id": exported_asset.id,
+                        "insight_id": exported_asset.insight_id,
+                        "dashboard_id": exported_asset.dashboard_id,
+                        "resource": e.resource,
+                        "required_level": e.required_level,
+                    },
+                )
+            # A broken saved query is the user's to fix, and the asset already records it.
+            elif is_reportable_export_failure(e):
                 capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             raise

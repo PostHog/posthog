@@ -14,8 +14,8 @@ import re
 import time
 import collections
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from datetime import date
+from contextlib import ExitStack, contextmanager
+from datetime import UTC, date, datetime, timezone
 from typing import Any, Literal, LiteralString, Optional, TypeVar, cast
 
 import psycopg
@@ -24,6 +24,7 @@ import structlog
 from psycopg import pq, sql
 from psycopg.adapt import Loader
 from psycopg.pq import TransactionStatus
+from psycopg.types.datetime import TimestampLoader, TimestamptzLoader
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -83,6 +84,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
     RedshiftSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    ClientDeadlineExceededError,
+    client_side_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -91,6 +96,8 @@ __all__ = [
     "RedshiftColumn",
     "RedshiftImplementation",
     "SafeDateLoader",
+    "SafeTimestampLoader",
+    "SafeTimestamptzLoader",
     "filter_redshift_incremental_fields",
 ]
 
@@ -110,6 +117,52 @@ __all__ = [
 # keepalives a dead peer is detected in ~30-60s and raised as a fast,
 # retryable `OperationalError` instead. These only fire when the peer stops
 # responding, so they never interrupt a healthy long-running streaming sync.
+# Session statement timeout for a connection that reads metadata. The keepalives below end a query
+# whose peer went away. This ends a catalog query that the cluster accepts and then never answers,
+# for example one that waits behind a lock. Schema discovery must end before the 10 minute
+# `start_to_close_timeout` of its Temporal activity.
+METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 5
+
+# Client-side limits on the wait for one batch of rows. The connection that reads the rows has no
+# session statement timeout, because that limit covers the statement as a whole and would end a
+# long read that is in good health. These limits cover one silent wait, and each batch starts a new
+# one. The first batch includes the query, which sorts the full result of an incremental read
+# before it returns a row.
+STREAM_FIRST_BATCH_DEADLINE_SECONDS = 30 * 60
+STREAM_NEXT_BATCH_DEADLINE_SECONDS = 10 * 60
+
+# Stable prefix, matched by `RedshiftSource.get_retryable_errors`.
+REDSHIFT_READ_TIMEOUT_ERROR = "Redshift sent no rows"
+
+_END_OF_BATCHES: Any = object()
+
+
+class RedshiftReadTimeoutError(Exception):
+    """Redshift sent no batch of rows before the deadline. A later attempt can succeed."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__(f"{REDSHIFT_READ_TIMEOUT_ERROR} for {timeout_seconds:g} seconds, so PostHog ended the read")
+
+
+def _batches_with_idle_deadline(connection: psycopg.Connection, batches: Iterator[Any]) -> Iterator[Any]:
+    """Yield `batches`, and end the statement when one batch does not come in time.
+
+    At the deadline the statement gets a cancel request, and the socket is shut down if that has
+    no effect (see `client_side_deadline`).
+    """
+    timeout_seconds: float = STREAM_FIRST_BATCH_DEADLINE_SECONDS
+    while True:
+        try:
+            with client_side_deadline(connection, timeout_seconds):
+                batch = next(batches, _END_OF_BATCHES)
+        except ClientDeadlineExceededError as e:
+            raise RedshiftReadTimeoutError(timeout_seconds) from e
+        if batch is _END_OF_BATCHES:
+            return
+        yield batch
+        timeout_seconds = STREAM_NEXT_BATCH_DEADLINE_SECONDS
+
+
 _REDSHIFT_CONNECT_OPTS: dict[str, Any] = {
     "sslmode": "require",
     "connect_timeout": 15,
@@ -160,6 +213,62 @@ _CATALOG_COLUMNS_SQL = """
 """
 
 _TYPE_MODIFIER_PATTERN = re.compile(r"\((\d+)(?:,\s*(\d+))?\)")
+
+
+# `information_schema.table_constraints` is filtered on the connecting role's privileges, the same
+# way `information_schema.columns` is, and a Redshift materialized view never appears in it at all.
+# A key read from there is therefore missing for exactly the relations that most need one, so the
+# declared key comes from `pg_catalog` instead — the catalog the Postgres source already reads.
+_CATALOG_PRIMARY_KEYS_SQL = sql.SQL("""
+    SELECT n.nspname, c.relname, con.conkey
+    FROM pg_catalog.pg_constraint con
+    JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE con.contype = 'p' AND {where}""")
+
+# Redshift holds the key as column numbers and has neither `array_position` nor `unnest`, so the
+# names are resolved and put back in declared order in Python.
+_CATALOG_KEY_COLUMN_NAMES_SQL = sql.SQL("""
+    SELECT n.nspname, c.relname, a.attnum, a.attname
+    FROM pg_catalog.pg_attribute a
+    JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE a.attnum > 0 AND NOT a.attisdropped AND {where}""")
+
+_CONSTRAINT_KEY_POSITION_PATTERN = re.compile(r"\d+")
+
+
+def _parse_constraint_key(raw: Any) -> list[int]:
+    """Column numbers of a primary key, in declared order.
+
+    `conkey` arrives as a sequence when the driver knows the array type, and as the catalog's own
+    text form (`1 2`) when it does not, so both are read the same way.
+    """
+    if isinstance(raw, list | tuple):
+        return [int(position) for position in raw]
+    return [int(position) for position in _CONSTRAINT_KEY_POSITION_PATTERN.findall(str(raw or ""))]
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- the pair keys the mapping, so no caller reads it positionally
+def _primary_keys_from_catalog(cursor: psycopg.Cursor, where: sql.Composable) -> dict[tuple[str, str], list[str]]:
+    """Declared primary keys of the relations `where` selects, each in declared column order."""
+    cursor.execute(_CATALOG_PRIMARY_KEYS_SQL.format(where=where))
+    key_positions = {(schema, table): _parse_constraint_key(conkey) for schema, table, conkey in cursor.fetchall()}
+    if not key_positions:
+        return {}
+
+    cursor.execute(_CATALOG_KEY_COLUMN_NAMES_SQL.format(where=where))
+    names_by_relation: dict[tuple[str, str], dict[int, str]] = {}
+    for schema, table, attnum, attname in cursor.fetchall():
+        names_by_relation.setdefault((schema, table), {})[int(attnum)] = attname
+
+    keys: dict[tuple[str, str], list[str]] = {}
+    for relation, positions in key_positions.items():
+        names = names_by_relation.get(relation, {})
+        columns = [names[position] for position in positions if position in names]
+        if columns:
+            keys[relation] = columns
+    return keys
 
 
 @frozen
@@ -322,6 +431,57 @@ class SafeDateLoader(Loader):
         return date(year, month, day)
 
 
+def _clamp_out_of_range_timestamp(data, *, tzinfo: timezone | None) -> datetime:
+    """Map a Redshift timestamp value outside Python's datetime range onto datetime.min/max.
+
+    Redshift's timestamp range spans 4713 BC to 294276 AD, far wider than Python's datetime
+    (year 1 to 9999). We pick the boundary by sign so values 'before year 1' (BC dates,
+    '-infinity', negative years) clamp low and everything else clamps high, mirroring
+    `SafeDateLoader`. `tzinfo` keeps the result aware/naive to match the column's Arrow type.
+    """
+    s = bytes(data).decode("utf-8", "replace").strip().lower()
+    if s == "-infinity" or s.startswith("-") or "bc" in s:
+        return datetime.min.replace(tzinfo=tzinfo)
+    return datetime.max.replace(tzinfo=tzinfo)
+
+
+class SafeTimestampLoader(TimestampLoader):
+    """Load Redshift timestamps, handling values beyond Python's datetime range.
+
+    psycopg's default loader raises `DataError` on timestamps outside Python's datetime
+    range (BC dates, 'infinity'/'-infinity'), which aborts the whole table sync. We defer
+    to the default loader for in-range values and clamp the rest, mirroring `SafeDateLoader`.
+    `timestamp` columns map to a naive Arrow type, so the clamp stays naive.
+    """
+
+    # psycopg short-circuits SQL NULL before the loader, so `data` is never None in practice;
+    # the guard mirrors SafeDateLoader's defensive parity, hence the widened return + override ignore.
+    def load(self, data) -> datetime | None:  # type: ignore[override]
+        if data is None:
+            return None
+        try:
+            return super().load(data)
+        except psycopg.DataError:
+            return _clamp_out_of_range_timestamp(data, tzinfo=None)
+
+
+class SafeTimestamptzLoader(TimestamptzLoader):
+    """`timestamptz` counterpart of `SafeTimestampLoader` (see its docstring).
+
+    `timestamptz` columns map to a UTC-aware Arrow type, so the clamp is made tz-aware to
+    avoid mixing naive and aware datetimes in the same Arrow column.
+    """
+
+    # See SafeTimestampLoader.load for why the override is widened/ignored.
+    def load(self, data) -> datetime | None:  # type: ignore[override]
+        if data is None:
+            return None
+        try:
+            return super().load(data)
+        except psycopg.DataError:
+            return _clamp_out_of_range_timestamp(data, tzinfo=UTC)
+
+
 def _redshift_select_clause(
     enabled_columns: Optional[list[str]],
     primary_keys: Optional[list[str]],
@@ -466,6 +626,22 @@ def _rollback_if_aborted(connection: psycopg.Connection) -> None:
         connection.rollback()
 
 
+def _set_session_statement_timeout(connection: psycopg.Connection, timeout_ms: int) -> None:
+    """Set the session statement timeout on a new connection.
+
+    Commits, because a `SET` is undone when its transaction rolls back, and because the callers
+    switch the connection to autocommit, which psycopg refuses inside a transaction. Best-effort:
+    a cluster that rejects the setting keeps its own default.
+    """
+    try:
+        connection.execute(sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(timeout_ms)))
+        connection.commit()
+    except psycopg.Error as e:
+        if _is_transient_connection_drop_error(e):
+            raise
+        _rollback_if_aborted(connection)
+
+
 def _recover_after_failed_probe(connection: psycopg.Connection) -> None:
     """Roll back a best-effort probe's aborted transaction, swallowing a lost connection."""
     try:
@@ -538,38 +714,15 @@ def _retry_on_transient_connection_drop(
             time.sleep(min(2 * attempt, 30))
 
 
-def _reads_primary_keys(cursor: psycopg.Cursor, schema: str) -> bool | None:
-    """Can this connection read primary-key constraints in `schema` at all?
-
-    `information_schema.table_constraints` exposes only the objects the role holds privileges on,
-    so an empty result for one table means either "no key is declared" or "no privilege to see the
-    one that is", and the two need opposite advice. Finding a key on any table in the schema
-    settles it: the role can read the view, so an empty per-table result is a real absence.
-
-    `None` when the probe itself fails, which settles nothing either way.
-    """
-    query = sql.SQL("""
-        SELECT 1
-        FROM information_schema.table_constraints
-        WHERE table_schema = {schema} AND constraint_type = 'PRIMARY KEY'
-        LIMIT 1""").format(schema=sql.Literal(schema))
-    try:
-        return cursor.execute(query).fetchone() is not None
-    except Exception:
-        _recover_after_failed_probe(cursor.connection)
-        return None
-
-
 def _no_primary_key_warning(
-    cursor: psycopg.Cursor,
-    schema: str,
     table_name: str,
     table_type: Literal["table", "view", "materialized_view"] | None,
 ) -> str:
     """The warning for a table whose primary-key lookup came back empty.
 
-    Each branch states only what the empty result actually establishes, so the operator is never
-    sent after a key that cannot exist or that we merely failed to read.
+    The lookup reads `pg_catalog`, which applies no privilege filter, and a failed read raises
+    rather than returning nothing. An empty result is therefore a real absence, so each branch can
+    name the remedies instead of sending the operator after a key we merely failed to read.
     """
     if table_type in ("view", "materialized_view"):
         relation = "materialized view" if table_type == "materialized_view" else "view"
@@ -578,16 +731,9 @@ def _no_primary_key_warning(
             "Select a primary key manually to enable incremental sync, or use full table replication instead."
         )
 
-    if _reads_primary_keys(cursor, schema):
-        return (
-            f"No primary key is set on {table_name}. Select one manually to enable incremental sync, "
-            "or use full table replication instead."
-        )
-
     return (
-        f"Could not determine a primary key for {table_name}. Either none is set, or PostHog's role "
-        f"cannot read constraints in schema {schema}. Check the role has SELECT on the table. You can "
-        "also select a primary key manually, or use full table replication instead."
+        f"No primary key is set on {table_name}. Select one manually to enable incremental sync, "
+        "or use full table replication instead."
     )
 
 
@@ -625,7 +771,6 @@ def _stream_rows_as_arrow_batches(
     chunk_size: int,
     arrow_schema: pa.Schema,
     *,
-    byte_bounded: bool = False,
     primary_keys: list[str] | None = None,
     binary_reporter: BinaryColumnReporter | None = None,
 ) -> Iterator[pa.Table]:
@@ -645,9 +790,7 @@ def _stream_rows_as_arrow_batches(
             binary_reporter=binary_reporter,
         )
 
-    for rows in iter_row_batches(
-        cursor.stream(query, size=_libpq_rows_per_chunk()), max_rows=chunk_size, byte_bounded=byte_bounded
-    ):
+    for rows in iter_row_batches(cursor.stream(query, size=_libpq_rows_per_chunk()), max_rows=chunk_size):
         if not column_names:
             # Only described once the first result arrives, so it can't be read before the loop.
             column_names = [column.name for column in cursor.description or []]
@@ -660,7 +803,6 @@ def _fetch_arrow_batches(
     arrow_schema: pa.Schema,
     fetch_size: int | None = None,
     *,
-    byte_bounded: bool = False,
     primary_keys: list[str] | None = None,
     binary_reporter: BinaryColumnReporter | None = None,
 ) -> Iterator[pa.Table]:
@@ -682,9 +824,7 @@ def _fetch_arrow_batches(
             binary_reporter=binary_reporter,
         )
 
-    for rows in fetch_row_batches(
-        cursor.fetchmany, max_rows=chunk_size, byte_bounded=byte_bounded, max_page_rows=fetch_size or chunk_size
-    ):
+    for rows in fetch_row_batches(cursor.fetchmany, max_rows=chunk_size, max_page_rows=fetch_size or chunk_size):
         yield to_arrow(rows)
 
 
@@ -696,7 +836,6 @@ def _stream_arrow_batches(
     cursor_name: str,
     logger: FilteringBoundLogger,
     *,
-    byte_bounded: bool = False,
     primary_keys: list[str] | None = None,
 ) -> Iterator[pa.Table]:
     """Stream `query` as Arrow tables, holding only `chunk_size` rows in the worker at a time.
@@ -724,18 +863,23 @@ def _stream_arrow_batches(
 
     try:
         with connection.cursor() as stream_cursor:
-            for batch in _stream_rows_as_arrow_batches(
-                stream_cursor,
-                query,
-                chunk_size,
-                arrow_schema,
-                byte_bounded=byte_bounded,
-                primary_keys=primary_keys,
-                binary_reporter=binary_reporter,
+            for batch in _batches_with_idle_deadline(
+                connection,
+                _stream_rows_as_arrow_batches(
+                    stream_cursor,
+                    query,
+                    chunk_size,
+                    arrow_schema,
+                    primary_keys=primary_keys,
+                    binary_reporter=binary_reporter,
+                ),
             ):
                 yielded = True
                 yield batch
         return
+    except RedshiftReadTimeoutError:
+        # The cursor fallback runs the same query on the same silent cluster.
+        raise
     except Exception as e:
         if yielded:
             raise
@@ -751,19 +895,26 @@ def _stream_arrow_batches(
             # `close()` is a no-op while the transaction is aborted (psycopg checks the status
             # first), so this never masks the original failure with a CLOSE error.
             with connection.cursor(name=cursor_name) as server_cursor:
-                server_cursor.execute(query)
-                for batch in _fetch_arrow_batches(
-                    server_cursor,
-                    chunk_size,
-                    arrow_schema,
-                    fetch_size,
-                    byte_bounded=byte_bounded,
-                    primary_keys=primary_keys,
-                    binary_reporter=binary_reporter,
+                with client_side_deadline(connection, STREAM_FIRST_BATCH_DEADLINE_SECONDS):
+                    server_cursor.execute(query)
+                for batch in _batches_with_idle_deadline(
+                    connection,
+                    _fetch_arrow_batches(
+                        server_cursor,
+                        chunk_size,
+                        arrow_schema,
+                        fetch_size,
+                        primary_keys=primary_keys,
+                        binary_reporter=binary_reporter,
+                    ),
                 ):
                     yielded = True
                     yield batch
             return
+        except ClientDeadlineExceededError as e:
+            raise RedshiftReadTimeoutError(STREAM_FIRST_BATCH_DEADLINE_SECONDS) from e
+        except RedshiftReadTimeoutError:
+            raise
         except Exception as e:
             if yielded:
                 raise
@@ -904,7 +1055,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: RedshiftSourceConfig, *, team_id: int | None = None) -> Iterator[psycopg.Connection]:
+    def connect(
+        self,
+        config: RedshiftSourceConfig,
+        *,
+        team_id: int | None = None,
+        statement_timeout_ms: int | None = METADATA_STATEMENT_TIMEOUT_MS,
+    ) -> Iterator[psycopg.Connection]:
         """Open a psycopg connection for the duration of the context.
 
         Opens the SSH tunnel (if configured) and connects with the
@@ -915,6 +1072,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         Redshift speaks the Postgres wire protocol through the same libpq, so it dials the
         addresses it validated the same way: `pinned_host_kwargs` resolves the host once, checks
         that answer against the host policy, and pins it through the `host`/`hostaddr` pair.
+
+        `statement_timeout_ms` is the session statement timeout. The default suits metadata work.
+        Pass None for the connection that reads the rows.
         """
         with open_ssh_tunnel(config, team_id) as (host, port):
             connect_kwargs: dict[str, Any] = {
@@ -929,6 +1089,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             }
             with psycopg.connect(**connect_kwargs) as conn:
                 conn.adapters.register_loader("date", SafeDateLoader)
+                conn.adapters.register_loader("timestamp", SafeTimestampLoader)
+                conn.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
+                if statement_timeout_ms is not None:
+                    _set_session_statement_timeout(conn, statement_timeout_ms)
                 yield conn
 
     # ------------------------------------------------------------------
@@ -1098,17 +1262,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         config: RedshiftSourceConfig,
         tables: list[str],
     ) -> dict[str, list[str] | None]:
-        """Detect primary keys for all tables in a single query, each in declared column order.
+        """Detect primary keys for all tables from `pg_catalog`, each in declared column order.
 
-        Permission-sensitive — some Redshift deployments restrict access
-        to `information_schema.table_constraints`. Swallow and log any
-        failure so schema discovery keeps working without PKs.
+        Swallow and log any failure so schema discovery keeps working without PKs.
 
         A swallowed failure returns every table as `None`, which the base
         contract cannot distinguish from "declares no key". The sync path
-        re-runs the lookup per table and says which it is
-        (`_no_primary_key_warning`); surfacing the difference at discovery
-        needs a channel on `SourceSchema` that does not exist yet.
+        re-runs the lookup per table, where a failure raises instead of being
+        swallowed; surfacing the difference at discovery needs a channel on
+        `SourceSchema` that does not exist yet.
         """
         result: dict[str, list[str] | None] = dict.fromkeys(tables)
         if not tables:
@@ -1117,37 +1279,24 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         selected_schema = normalize_namespace(config.schema)
         index = self._index_display_names(tables, selected_schema)
 
+        where = sql.SQL("n.nspname = ANY({schemas}) AND c.relname = ANY({names})").format(
+            schemas=sql.Literal(index.schemas), names=sql.Literal(index.bare_tables)
+        )
         try:
             with conn.cursor() as cursor:
-                cursor.execute(
-                    sql.SQL("""
-                        SELECT tc.table_schema, tc.table_name, kcu.column_name
-                        FROM information_schema.table_constraints tc
-                        JOIN information_schema.key_column_usage kcu
-                        ON tc.constraint_name = kcu.constraint_name
-                        AND tc.table_schema = kcu.table_schema
-                        AND tc.table_name = kcu.table_name
-                        WHERE tc.table_schema = ANY({schemas})
-                        AND tc.table_name = ANY({names})
-                        AND tc.constraint_type = 'PRIMARY KEY'
-                        ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position
-                    """).format(schemas=sql.Literal(index.schemas), names=sql.Literal(index.bare_tables))
-                )
-                rows = cursor.fetchall()
+                keys_by_relation = _primary_keys_from_catalog(cursor, where)
         except Exception as e:
+            _recover_after_failed_probe(conn)
             structlog.get_logger().warning(
                 "Primary keys for Redshift schemas are undetermined, not absent: the detection query failed",
                 exc_info=e,
             )
             return result
 
-        pks: dict[str, list[str]] = collections.defaultdict(list)
-        for table_schema, table_name, column_name in rows:
-            display = index.display_by_pair.get((table_schema, table_name))
+        for relation, pk_cols in keys_by_relation.items():
+            display = index.display_by_pair.get(relation)
             if display is not None:
-                pks[display].append(column_name)
-        for display, pk_cols in pks.items():
-            result[display] = pk_cols
+                result[display] = pk_cols
         return result
 
     @staticmethod
@@ -1394,35 +1543,21 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
     ) -> list[str] | None:
         """Return the primary-key column names for a single table in declared order, or None.
 
-        `table_type` only shapes the warning on an empty result, which is ambiguous on its own:
-        see `_no_primary_key_warning` for what each case establishes.
+        Reads `pg_catalog`, the same catalog discovery reads, so a key found when the table was
+        listed is still found here. `table_type` only shapes the warning on an empty result: a view
+        holds no key at all, so its message names different remedies.
         """
-        query = sql.SQL("""
-            SELECT
-                kcu.column_name
-            FROM
-                information_schema.table_constraints tc
-            JOIN
-                information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            WHERE
-                tc.table_schema = {schema}
-                AND tc.table_name = {table}
-                AND tc.constraint_type = 'PRIMARY KEY'
-            ORDER BY
-                kcu.ordinal_position""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+        where = sql.SQL("n.nspname = {schema} AND c.relname = {table}").format(
+            schema=sql.Literal(schema), table=sql.Literal(table_name)
+        )
+        if logger is not None:
+            logger.debug(f"Running query: {_CATALOG_PRIMARY_KEYS_SQL.format(where=where).as_string()}")
+        primary_key = _primary_keys_from_catalog(cursor, where).get((schema, table_name))
+        if primary_key:
+            return primary_key
 
         if logger is not None:
-            _explain_query(cursor, query, logger)
-            logger.debug(f"Running query: {query.as_string()}")
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        if len(rows) > 0:
-            return [row[0] for row in rows]
-
-        if logger is not None:
-            logger.warning(_no_primary_key_warning(cursor, schema, table_name, table_type))
+            logger.warning(_no_primary_key_warning(table_name, table_type))
         return None
 
     @staticmethod
@@ -1514,6 +1649,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             # clean, so skip gracefully instead of reporting the expected, non-actionable error to
             # error tracking. Mirrors `get_rows_to_sync`/`fetch_table_stats`.
             logger.debug(f"has_duplicate_primary_keys: no privilege to run duplicate-key probe, skipping check: {e}")
+            return None
+        except psycopg.errors.UndefinedTable as e:
+            # The table existed when schema discovery ran but was dropped or renamed before this
+            # probe executed — the same already-known, non-actionable condition
+            # `get_non_retryable_errors` stops the sync for entirely. The duplicate-key probe is
+            # best-effort, so skip gracefully instead of reporting the expected error to error
+            # tracking. Mirrors `get_rows_to_sync`.
+            logger.debug(f"has_duplicate_primary_keys: table no longer exists, skipping check: {e}")
             return None
         except Exception as e:
             # A Redshift system-requested query abort (error code 1020, "system requested abort")
@@ -1980,9 +2123,21 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return _resolve_projection(fresh_table, primary_keys)
 
         def get_rows() -> Iterator[Any]:
-            with self.connect(config, team_id=inputs.team_id) as streaming_connection:
+            with ExitStack() as stack:
+                # A fresh connection can drop before the first batch is read too, just like during
+                # setup above — retrying only the open is safe here since nothing has been yielded
+                # yet. `ExitStack.enter_context` only registers cleanup after `__enter__` succeeds,
+                # so a failed attempt leaves nothing to tear down and the next attempt opens clean.
+                streaming_connection = _retry_on_transient_connection_drop(
+                    lambda: stack.enter_context(
+                        self.connect(config, team_id=inputs.team_id, statement_timeout_ms=None)
+                    ),
+                    logger,
+                )
                 streaming_connection.adapters.register_loader("json", JsonAsStringLoader)
-                projection = _refreshed_projection(streaming_connection)
+                # This connection has no statement timeout, so the catalog re-read gets a client one.
+                with client_side_deadline(streaming_connection, METADATA_STATEMENT_TIMEOUT_MS / 1000):
+                    projection = _refreshed_projection(streaming_connection)
                 table = projection.table
                 arrow_schema = table.to_arrow_schema()
                 query = _build_query(
@@ -2009,7 +2164,6 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     arrow_schema,
                     f"posthog_{inputs.team_id}_{schema}.{table_name}",
                     logger,
-                    byte_bounded=inputs.byte_bounded_extraction,
                     primary_keys=primary_keys,
                 )
 

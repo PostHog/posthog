@@ -24,8 +24,9 @@ use crate::api::CaptureError;
 /// Five of these reuse types the analytics paths already emit, because the
 /// condition is identical and a reader of the v2 table shouldn't have to learn a
 /// second vocabulary for the same mistake. The AI-specific types cover what has
-/// no analytics equivalent: this endpoint accepts only six event names and
-/// requires `$ai_model`, and its payload is multipart rather than a JSON batch.
+/// no analytics equivalent: this endpoint accepts only `$ai_`-prefixed event
+/// names and requires `$ai_model`, and its payload is multipart rather than a
+/// JSON batch.
 ///
 /// Exhaustive with no catch-all, so a new rejection variant fails to compile
 /// until someone decides whether customers should see a warning for it.
@@ -33,7 +34,7 @@ pub fn warning_for_ai_rejection(rejection: &AiRejection) -> Option<WarningType> 
     match rejection {
         // Sending ordinary analytics to the AI path, or omitting the one
         // property every AI event needs.
-        AiRejection::EventNameNotAllowed(_)
+        AiRejection::EventNameNotAiPrefixed(_)
         | AiRejection::AiModelMissing
         | AiRejection::AiModelNotString
         | AiRejection::AiModelEmpty => Some(WarningType::InvalidAiEvent),
@@ -138,11 +139,11 @@ fn warning_for_ai_failure(
 fn details_for(rejection: &AiRejection) -> Map<String, serde_json::Value> {
     let mut details = Map::new();
     match rejection {
-        AiRejection::EventNameNotAllowed(event_name) => {
+        AiRejection::EventNameNotAiPrefixed(event_name) => {
             details.insert("eventName".to_string(), json!(bounded_detail(event_name)));
             details.insert(
-                "allowed".to_string(),
-                json!(crate::ai_rejection::ALLOWED_AI_EVENTS),
+                "requiredPrefix".to_string(),
+                json!(crate::v0_request::AI_LANE_NAME_PREFIX),
             );
         }
         AiRejection::FirstPartNotEvent(field) | AiRejection::UnknownField(field) => {
@@ -175,7 +176,7 @@ mod tests {
 
     #[rstest]
     #[case::wrong_event_name(
-        AiRejection::EventNameNotAllowed("$pageview".to_string()),
+        AiRejection::EventNameNotAiPrefixed("$pageview".to_string()),
         Some(WarningType::InvalidAiEvent)
     )]
     #[case::no_model(AiRejection::AiModelMissing, Some(WarningType::InvalidAiEvent))]
@@ -260,7 +261,7 @@ mod tests {
         emit_ai_failure_warning(
             Some(&emitter),
             &request(),
-            &AiFailure::Rejected(AiRejection::EventNameNotAllowed("$pageview".to_string())),
+            &AiFailure::Rejected(AiRejection::EventNameNotAiPrefixed("$pageview".to_string())),
         );
 
         let emitted = emitter.emitted();
@@ -273,6 +274,10 @@ mod tests {
         assert_eq!(
             warning.extra_details.get("eventName"),
             Some(&json!("$pageview"))
+        );
+        assert_eq!(
+            warning.extra_details.get("requiredPrefix"),
+            Some(&json!("$ai_"))
         );
         assert_eq!(
             warning.extra_details.get("lib"),
@@ -360,7 +365,7 @@ mod tests {
     // message or its stored row. Truncation is marked and char-safe.
     #[rstest]
     #[case::event_name(
-        AiRejection::EventNameNotAllowed("$".to_string() + &"n".repeat(500)),
+        AiRejection::EventNameNotAiPrefixed("$".to_string() + &"n".repeat(500)),
         "eventName"
     )]
     #[case::part_name(

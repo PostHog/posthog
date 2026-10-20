@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator, UserType } from '~/types'
+import { AvailableFeature, PropertyFilterType, PropertyOperator, UserType } from '~/types'
 
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { GraphsTab, ProductTab, TileId } from './common'
@@ -326,6 +326,54 @@ describe('webAnalyticsLogic precompute payload', () => {
     })
 })
 
+describe('webAnalyticsLogic restricted UI gating', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    const mountWithTeamModifier = (legacyEngineModifier: boolean): void => {
+        localStorage.clear()
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            modifiers: { useWebAnalyticsPreAggregatedTables: legacyEngineModifier },
+        })
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    }
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // Regression guard for the legacy-tables retirement: the restricted-ui flag
+    // must restrict on its own with no team modifier involved — a collapse of
+    // the OR re-exposes tiles that run unservable live queries on billion-event
+    // teams — while the legacy pair must keep working until it is removed, and
+    // neither half of the pair may restrict alone.
+    it.each([
+        ['restricted-ui flag alone', [FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI], false, true],
+        ['no flags, no modifier', [], false, false],
+        [
+            'legacy flag without the modifier',
+            [FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES],
+            false,
+            false,
+        ],
+        ['modifier without the legacy flag', [], true, false],
+        ['legacy flag and modifier', [FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES], true, true],
+    ])('%s → restricted %s', async (_name, flags, legacyEngineModifier, expected) => {
+        mountWithTeamModifier(legacyEngineModifier as boolean)
+        featureFlagLogic.actions.setFeatureFlags(
+            flags as string[],
+            Object.fromEntries((flags as string[]).map((flag) => [flag, true]))
+        )
+        await expectLogic(logic).toMatchValues({ restrictedUiEnabled: expected })
+    })
+})
+
 describe('webAnalyticsLogic compare filter', () => {
     let logic: ReturnType<typeof webAnalyticsLogic.build>
 
@@ -357,6 +405,41 @@ describe('webAnalyticsLogic compare filter', () => {
 
         logic.actions.setDates('-7d', null)
         await expectLogic(logic).toMatchValues({ compareFilter: { compare: true } })
+    })
+})
+
+describe('webAnalyticsLogic conversion goal tiles', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // The replay filter group carries the conversion goal. If the error tracking query inherits it,
+    // selecting a goal silently narrows the errors the tile shows.
+    it('keeps the error tracking tile unfiltered by the conversion goal', async () => {
+        const errorTrackingFilterGroup = (): unknown =>
+            (logic.values.tiles.find((tile) => tile.tileId === TileId.ERROR_TRACKING) as any)?.query.source.filterGroup
+        const withoutGoal = errorTrackingFilterGroup()
+
+        logic.actions.setConversionGoal({ actionId: 42 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(withoutGoal).toBeTruthy()
+        expect(errorTrackingFilterGroup()).toEqual(withoutGoal)
     })
 })
 
@@ -893,5 +976,45 @@ describe('webAnalyticsLogic warmablePresetShortId', () => {
 
         expect(logic.values.appliedPresetShortId).toBe('abc123')
         expect(logic.values.warmablePresetShortId).toBeNull()
+    })
+})
+
+describe('webAnalyticsLogic path cleaning filters', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        featureFlagLogic.mount()
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            organization: {
+                ...MOCK_DEFAULT_USER.organization,
+                available_product_features: [{ key: AvailableFeature.PATHS_ADVANCED, name: 'Paths advanced' }],
+            },
+        } as UserType)
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        [PropertyOperator.Exact, PropertyOperator.IsCleanedPathExact],
+        [PropertyOperator.IsNot, PropertyOperator.IsCleanedPathNotExact],
+        [PropertyOperator.IContains, PropertyOperator.IContains],
+    ])('rewrites a %s path filter to %s', (operator, expectedOperator) => {
+        webAnalyticsFilterLogic.actions.setWebAnalyticsFilters([
+            { key: '$pathname', value: ['/user/:id'], operator, type: PropertyFilterType.Event },
+        ])
+
+        expect(logic.values.webAnalyticsFilters).toEqual([
+            { key: '$pathname', value: ['/user/:id'], operator: expectedOperator, type: PropertyFilterType.Event },
+        ])
     })
 })

@@ -26,6 +26,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
+# `capture_exception` isn't imported in `implementation` anymore — patched here (not at
+# `posthog.exceptions_capture.capture_exception`) so the mock still catches a call if that
+# import, and a call site, are ever reintroduced. A `from X import Y` binding is a separate
+# reference from the source; patching the source wouldn't intercept it.
+_CAPTURE_EXCEPTION_TARGET = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation.capture_exception"
+)
+
 
 @dataclasses.dataclass
 class _FakeConfig(Config):
@@ -94,8 +102,7 @@ class TestGetPartitionSettings:
 
     def test_returns_none_when_fetch_raises(self, logger):
         impl = _FakeImplementation(raises_on_stats=True)
-        module = "products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation"
-        with patch(f"{module}.capture_exception") as mock_capture:
+        with patch(_CAPTURE_EXCEPTION_TARGET, create=True) as mock_capture:
             assert impl.get_partition_settings(MagicMock(), "db", "t", logger) is None
         # We still called through to the driver hook.
         assert len(impl.fetch_table_stats_calls) == 1
@@ -173,6 +180,15 @@ class TestGetChunkSize:
         impl = _FakeImplementation(raises_on_row_size=True)
         assert impl.get_chunk_size(MagicMock(), "db", "t", "SELECT 1", {}, logger, default_chunk_size=99) == 99
 
+    def test_does_not_report_error_to_tracking_on_exception(self, logger):
+        impl = _FakeImplementation(raises_on_row_size=True)
+        with patch(_CAPTURE_EXCEPTION_TARGET, create=True) as mock_capture:
+            impl.get_chunk_size(MagicMock(), "db", "t", "SELECT 1", {}, logger, default_chunk_size=99)
+        # Best-effort probe: a raised row-size query must not flood error tracking — it degrades
+        # to the default chunk size here and resurfaces in the real streaming query if it's a
+        # genuine problem.
+        mock_capture.assert_not_called()
+
     def test_passes_inner_query_through(self, logger):
         impl = _FakeImplementation(row_size=500)
         cursor = MagicMock()
@@ -221,3 +237,13 @@ class TestGetRowsToSync:
         cursor = MagicMock()
         cursor.fetchone.return_value = ("123",)
         assert impl.get_rows_to_sync(cursor, "SELECT 1", None, logger) == 123
+
+    def test_does_not_report_error_to_tracking_on_exception(self, logger):
+        impl = _FakeImplementation()
+        cursor = MagicMock()
+        cursor.execute = MagicMock(side_effect=RuntimeError("connection lost"))
+        with patch(_CAPTURE_EXCEPTION_TARGET, create=True) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, "SELECT 1", None, logger) == 0
+        # Best-effort probe: a raised count query must not flood error tracking — it degrades to
+        # 0 here and resurfaces in the real streaming query if it's a genuine problem.
+        mock_capture.assert_not_called()

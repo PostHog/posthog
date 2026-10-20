@@ -1,0 +1,35 @@
+# Depot CI does not cancel a pull request's runs when the pull request closes. The Trunk merge
+# queue closes a batch's draft pull request whenever it rebuilds the batch, and the full backend
+# matrix of that batch would otherwise run to the end with no reader.
+#
+# This is its own workflow because Depot posts one check for each job of a run, and
+# .depot/workflows/ci-backend.yml would post a skipped check for each of its jobs on every close.
+name: Cancel closed merge queue runs on Depot
+on:
+    pull_request:
+        types: [closed]
+permissions:
+    contents: read
+jobs:
+    cancel:
+        name: Cancel the closed batch's Backend CI runs
+        # Source pull requests are left alone: GitHub Actions does not cancel their relay on close,
+        # and the relay reports a cancelled Depot run as a failure. Trunk cancels a batch's relay itself.
+        if: startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            # Trunk deletes the batch's branch on close, so the script comes from the default branch.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  sparse-checkout: .github/scripts/cancel_superseded_depot_runs.py
+                  sparse-checkout-cone-mode: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - name: Cancel this PR's runs
+              continue-on-error: true
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: python3 .github/scripts/cancel_superseded_depot_runs.py

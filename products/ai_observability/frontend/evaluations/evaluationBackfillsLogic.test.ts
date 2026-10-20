@@ -1,10 +1,12 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -80,7 +82,12 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
         rerun_existing: false,
         total_count: 10,
         dispatched_count: 8,
+        completed_count: null,
+        evaluation_skipped_count: 0,
+        status_reason: '',
         skipped_count: 2,
+        failed_count: 0,
+        remaining_count: null,
         created_by: null,
         created_at: '2024-01-02T00:00:00Z',
         finished_at: '2024-01-02T01:00:00Z',
@@ -91,6 +98,7 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
 function estimate(overrides: Partial<EvaluationBackfillEstimateApi> = {}): EvaluationBackfillEstimateApi {
     return {
         total_units: 42,
+        already_evaluated_units: 0,
         unit: 'generation',
         window_start: '2024-01-01T00:00:00Z',
         window_end: '2024-01-08T00:00:00Z',
@@ -106,6 +114,7 @@ describe('evaluationBackfillsLogic', () => {
         toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -172,6 +181,31 @@ describe('evaluationBackfillsLogic', () => {
             conditions: seededConditions,
             rerun_existing: false,
         })
+    })
+
+    it('reports a view of the tab once when it mounts', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+        await mountAndSettle()
+
+        expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation backfills tab viewed')).toEqual([
+            ['llma evaluation backfills tab viewed', expect.objectContaining({ evaluation_id: EVALUATION_ID })],
+        ])
+    })
+
+    it('reports a click on Start with the count the user saw', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        await mountAndSettle()
+        logic.actions.requestEstimateSuccess(estimate({ total_units: 7 }))
+
+        logic.actions.startClicked()
+
+        expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation backfill start clicked')).toEqual([
+            [
+                'llma evaluation backfill start clicked',
+                { evaluation_id: EVALUATION_ID, units_to_evaluate: 7, rerun_existing: false },
+            ],
+        ])
     })
 
     it('debounces estimate requests and drops a stale response', async () => {
@@ -363,6 +397,20 @@ describe('evaluationBackfillsLogic', () => {
         expect(estimateMock).not.toHaveBeenCalled()
     })
 
+    it.each([
+        [0, 'No generations in this range match these conditions'],
+        // The number carries the formatter's own separators, so the expectation reuses it.
+        [446003, `All ${pluralize(446003, 'generation')} in this range already have a result`],
+    ])('explains an empty count when %s units already have a result', async (alreadyEvaluated, expected) => {
+        await mountAndSettle()
+
+        await expectLogic(logic, () => {
+            logic.actions.requestEstimateSuccess(
+                estimate({ total_units: 0, already_evaluated_units: alreadyEvaluated })
+            )
+        }).toMatchValues({ estimateSummary: expected })
+    })
+
     it('anchors a relative preset on the project timezone', async () => {
         const timezone = 'America/New_York'
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, timezone })
@@ -386,6 +434,23 @@ describe('evaluationBackfillsLogic', () => {
         listMock.mockResolvedValue({ count: 1, results: [backfill({ status: 'completed' })] })
         logic.actions.loadBackfills(true)
 
+        await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
+        expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(false)
+    })
+
+    it('keeps polling a finished run until its coverage lands', async () => {
+        listMock.mockResolvedValueOnce({ count: 1, results: [backfill({ status: 'running' })] })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
+
+        const justFinished = { status: 'completed' as const, finished_at: dayjs().toISOString() }
+        listMock.mockResolvedValue({ count: 1, results: [backfill({ ...justFinished, remaining_count: null })] })
+        logic.actions.loadBackfills(true)
+        await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
+        expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(true)
+
+        listMock.mockResolvedValue({ count: 1, results: [backfill({ ...justFinished, remaining_count: 0 })] })
+        logic.actions.loadBackfills(true)
         await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
         expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(false)
     })
@@ -556,5 +621,83 @@ describe('evaluationBackfillsLogic', () => {
 
         expect(cancelMock).toHaveBeenCalledWith(expect.any(String), EVALUATION_ID, 'backfill-1')
         await expectLogic(logic).toMatchValues({ transitioningIds: [] })
+    })
+
+    it.each(['backfill-1', 'backfill-2'])(
+        'guards a concurrent retry of %s and keeps existing results',
+        async (secondId) => {
+            const previous = backfill({ status: 'interrupted', rerun_existing: true })
+            listMock.mockResolvedValue({
+                count: 2,
+                results: [previous, backfill({ id: 'backfill-2', status: 'interrupted' })],
+            })
+            await mountAndSettle()
+            let finish!: (value: EvaluationBackfillApi) => void
+            createMock.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finish = resolve
+                    })
+            )
+
+            logic.actions.retryBackfill(previous.id)
+            logic.actions.retryBackfill(secondId)
+            expect(createMock).toHaveBeenCalledTimes(1)
+            expect(createMock).toHaveBeenCalledWith(expect.any(String), EVALUATION_ID, {
+                window_start: previous.window_start,
+                window_end: previous.window_end,
+                conditions: previous.conditions.map((condition, index) => ({ ...condition, id: `retry-${index}` })),
+                rerun_existing: false,
+            })
+            expect(new Set(logic.values.transitioningIds)).toEqual(new Set([previous.id]))
+            expect(logic.values.startDisabledReason).toEqual('Wait for the current retry or cancel to finish')
+            finish(backfill({ status: 'running' }))
+            await expectLogic(logic).toDispatchActions(['transitionBackfillDone', 'loadBackfills'])
+            expect(logic.values.transitioningIds).toEqual([])
+        }
+    )
+
+    it('refuses a retry after the evaluation target changed', async () => {
+        listMock.mockResolvedValue({ count: 1, results: [backfill({ status: 'interrupted' })] })
+        await mountAndSettle()
+        saveEvaluation({ target: 'trace' })
+
+        logic.actions.retryBackfill('backfill-1')
+        await expectLogic(logic).toDispatchActions(['transitionBackfillDone'])
+
+        expect(createMock).not.toHaveBeenCalled()
+        expect(logic.values.transitioningIds).toEqual([])
+    })
+
+    it('lets a retry run again after a rejected one and reports each click', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        listMock.mockResolvedValue({
+            count: 1,
+            results: [backfill({ status: 'interrupted', status_reason: 'execution_failed' })],
+        })
+        await mountAndSettle()
+        createMock.mockRejectedValueOnce(new Error('nope'))
+
+        logic.actions.retryBackfill('backfill-1')
+        await expectLogic(logic).toDispatchActions(['transitionBackfillDone'])
+        expect(toastError).toHaveBeenCalled()
+        expect(logic.values.transitioningIds).toEqual([])
+
+        createMock.mockResolvedValueOnce(backfill({ status: 'running' }))
+        logic.actions.retryBackfill('backfill-1')
+        await expectLogic(logic).toDispatchActions(['transitionBackfillDone'])
+
+        expect(createMock).toHaveBeenCalledTimes(2)
+        expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation backfill retry clicked')).toEqual(
+            Array(2).fill([
+                'llma evaluation backfill retry clicked',
+                {
+                    evaluation_id: EVALUATION_ID,
+                    backfill_id: 'backfill-1',
+                    status: 'interrupted',
+                    status_reason: 'execution_failed',
+                },
+            ])
+        )
     })
 })

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,6 +48,13 @@ Free use is licensed CC BY 4.0 and requires attribution to Open-Meteo."""
 
 @SourceRegistry.register
 class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConfig]):
+    codebase_detection = detect(
+        env=("^(OPEN_METEO|OPENMETEO)_",),
+        npm=("openmeteo",),
+        pypi=("openmeteo-requests", "openmeteo-sdk"),
+        swiftpm=("github.com/open-meteo/sdk", "github.com/open-meteo/open-meteo"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # Open-Meteo has only ever served `/v1/` and does not document it as a version users can choose
     # between, so there is nothing meaningful to pin.
@@ -112,6 +120,19 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
             # start date before the archive begins). Retrying can never satisfy it.
             "Open-Meteo rejected the request": "Open-Meteo rejected the request. Check the locations and historical start date on this source, then reconnect.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_with_redacted_errors` has no retry loop of its own — it relies on the tracked
+        # session's urllib3 adapter to retry a connection failure, read timeout, or 429/5xx
+        # response. Once that budget is exhausted, the failure still carries an Open-Meteo host:
+        # a connection/timeout failure escapes with the host baked into urllib3's own message
+        # (`HTTPSConnectionPool(host='...', port=443): ...`), and an exhausted 429/5xx reaches
+        # `_fetch`'s `raise_for_status()` fallback, whose message carries the request URL instead.
+        # Either way Temporal retries the whole activity from the saved window/location checkpoint,
+        # so this is transient and self-recovering rather than a bug. Every Open-Meteo host is one
+        # of our own fixed hosts (never user input), so matching on the bare domain covers both
+        # message shapes without risking an unrelated failure.
+        return {"open-meteo.com"}
 
     def get_schemas(
         self,

@@ -1,14 +1,18 @@
-from datetime import date, datetime, timedelta
+import re
+from datetime import UTC, date, datetime, time, timedelta
 from io import BytesIO
 from json import JSONDecodeError, dumps, loads
 from typing import Any, List, Literal, cast, get_args  # noqa: UP035
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
+from uuid import UUID
 
+from django.conf import settings
 from django.core.exceptions import FieldError
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
 
 import structlog
 import posthoganalytics
@@ -17,7 +21,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from PIL import Image
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
-from rest_framework.exceptions import PermissionDenied, UnsupportedMediaType, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import BasePermission
 from rest_framework.views import APIView
@@ -47,6 +51,7 @@ from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
 from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -67,13 +72,32 @@ from products.access_control.backend.presentation.access_control import (
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.api.heatmaps_utils import (
     DEFAULT_TARGET_WIDTHS,
+    HEATMAP_SNAPSHOT_IMAGE_FORMATS,
     MAX_TARGET_WIDTHS,
     PREWARM_PREVIEW_WIDTH,
     PREWARM_TTL,
+    capture_image_within_limits,
     heatmaps_flag_enabled,
 )
+from products.web_analytics.backend.heatmap_history import (
+    HEATMAP_HISTORY_MANUAL_COOLDOWN,
+    HEATMAP_HISTORY_RETENTION,
+    CaptureCooldown,
+    CaptureDispatchError,
+    HeatmapHistoryService,
+    history_eligible,
+    history_enabled,
+    history_width,
+)
+from products.web_analytics.backend.heatmap_history_storage import Variant, image_exists, read_image
 from products.web_analytics.backend.heatmap_preflight import BlockedBy, Framing, preflight_page
-from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
+from products.web_analytics.backend.models import (
+    HeatmapCaptureConfigVersion,
+    HeatmapCaptureRequest,
+    HeatmapScreenshotHistory,
+    HeatmapSnapshot,
+    SavedHeatmap,
+)
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     HEATMAP_SCREENSHOT_MAX_BYTES,
     _persist_snapshot,
@@ -81,10 +105,8 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
+LAST_VIEWED_WRITE_INTERVAL = timedelta(hours=1)
 
-MAX_CAPTURE_IMAGE_WIDTH = 4000
-MAX_CAPTURE_IMAGE_HEIGHT = 30000
-MAX_CAPTURE_IMAGE_PIXELS = 50_000_000
 MAX_CAPTURE_TOTAL_BYTES = 60 * 1024 * 1024
 
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
@@ -149,15 +171,11 @@ def _requests_event_filter(request: request.Request) -> bool:
 
 def _reject_oversized_capture_image(image_bytes: bytes) -> None:
     try:
-        with Image.open(BytesIO(image_bytes)) as im:
+        with Image.open(BytesIO(image_bytes), formats=HEATMAP_SNAPSHOT_IMAGE_FORMATS) as im:
             width, height = im.size
     except Exception:
         raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
-    if (
-        width > MAX_CAPTURE_IMAGE_WIDTH
-        or height > MAX_CAPTURE_IMAGE_HEIGHT
-        or width * height > MAX_CAPTURE_IMAGE_PIXELS
-    ):
+    if not capture_image_within_limits(width, height):
         raise ValidationError(code="image_too_large", detail="Screenshot dimensions are too large to process")
 
 
@@ -244,6 +262,21 @@ def parse_fold_summary_row(row: Any) -> dict[str, Any]:
     }
 
 
+_UNESCAPED_REGEX_CHARS = re.compile(r"\\.|([.*+?^=!:${}()|\[\]/\\])")
+
+
+def literal_wildcard_url_pattern(value: str) -> str:
+    trimmed = re.sub(r"^\^|\$$", "", value.strip()).replace(".*", "*")
+    return "*".join(
+        _UNESCAPED_REGEX_CHARS.sub(lambda m: f"\\{m.group(1)}" if m.group(1) else m.group(0), segment)
+        for segment in trimmed.split("*")
+    )
+
+
+def capture_allowlist_pattern_to_regex(pattern: str) -> str:
+    return "^" + re.escape(pattern).replace("\\*", ".*") + "$"
+
+
 def anchor_url_pattern(value: str) -> str:
     """Anchor (and loosen unescaped `*`) a raw url_pattern the same way the heatmaps ClickHouse
     query does, so callers matching against it in Python (e.g. permission checks) stay consistent
@@ -311,6 +344,17 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         required=False,
         help_text="End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.",
     )
+    timestamp_from = serializers.DateTimeField(
+        required=False,
+        default_timezone=UTC,
+        help_text="Inclusive UTC instant. Supply with timestamp_to to override date bounds.",
+    )
+    timestamp_to = serializers.DateTimeField(
+        required=False,
+        default_timezone=UTC,
+        help_text="Exclusive UTC instant. Supply with timestamp_from to override date bounds.",
+    )
+
     url_exact = serializers.CharField(
         required=False,
         help_text="Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.",
@@ -458,6 +502,10 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         return anchor_url_pattern(value)
 
     def validate(self, values) -> dict:
+        if ("timestamp_from" in values) != ("timestamp_to" in values):
+            raise serializers.ValidationError("Supply timestamp_from and timestamp_to together.")
+        if "timestamp_from" in values and values["timestamp_from"] >= values["timestamp_to"]:
+            raise serializers.ValidationError("timestamp_from must precede timestamp_to.")
         url_exact = values.get("url_exact", None)
         url_pattern = values.get("url_pattern", None)
         resolved = resolve_url_filter(url_exact, url_pattern)
@@ -683,8 +731,8 @@ def _renderer_heatmap_query(export_context: dict[str, object]) -> dict[str, obje
         "viewport_width_max": int((width + extra_pixels) + 0.5),
         "limit": 0,
     }
-    if any(character in heatmap_data_url for character in "*+?^${}()|[]\\"):
-        query["url_pattern"] = heatmap_data_url
+    if "*" in heatmap_data_url:
+        query["url_pattern"] = literal_wildcard_url_pattern(heatmap_data_url)
     else:
         query["url_exact"] = heatmap_data_url
 
@@ -790,8 +838,13 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if hide_zero_coordinates and not is_scrolldepth_query:
             exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
 
-        date_from: date = request_serializer.validated_data["date_from"]
-        date_to: date | None = request_serializer.validated_data.get("date_to", None)
+        date_from: date | datetime = request_serializer.validated_data.get(
+            "timestamp_from", request_serializer.validated_data["date_from"]
+        )
+        date_to: date | datetime | None = request_serializer.validated_data.get(
+            "timestamp_to", request_serializer.validated_data.get("date_to")
+        )
+        exprs.extend(self._capture_allowlist_predicates(date_from, date_to))
         if request_serializer.validated_data.get("filter_test_accounts") is True:
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
         exprs.extend(
@@ -825,6 +878,44 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         fold = self._compute_fold_summary(exprs)
         return self._return_heatmap_coordinates_response(results, fold, has_more)
 
+    def _capture_allowlist_predicates(
+        self, date_from: date | datetime, date_to: date | datetime | None
+    ) -> List[ast.Expr]:  # noqa: UP006
+        if not settings.HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED:
+            return []
+        config = TeamHeatmapConfig.objects.filter(team_id=self.team.pk).first()
+        if config is None or config.capture_enforcement_started_at is None:
+            return []
+
+        range_start = datetime.combine(date_from - timedelta(days=1), time.min, tzinfo=UTC)
+        versions = HeatmapCaptureConfigVersion.objects.for_team(self.team.pk).filter(
+            Q(effective_to__isnull=True) | Q(effective_to__gt=range_start)
+        )
+        if date_to is not None:
+            range_end = datetime.combine(date_to + timedelta(days=2), time.min, tzinfo=UTC)
+            versions = versions.filter(effective_from__lt=range_end)
+
+        or_terms: list[ast.Expr] = [
+            parse_expr("timestamp < {started}", {"started": Constant(value=config.capture_enforcement_started_at)})
+        ]
+        for version in versions.order_by("effective_from"):
+            window: list[ast.Expr] = [parse_expr("timestamp >= {ef}", {"ef": Constant(value=version.effective_from)})]
+            if version.effective_to is not None:
+                window.append(parse_expr("timestamp < {et}", {"et": Constant(value=version.effective_to)}))
+            if version.mode == TeamHeatmapConfig.CaptureMode.URL_ALLOWLIST:
+                if not version.patterns:
+                    continue
+                url_terms = [
+                    parse_expr(
+                        "match(current_url, {rx})",
+                        {"rx": Constant(value=capture_allowlist_pattern_to_regex(pattern))},
+                    )
+                    for pattern in version.patterns
+                ]
+                window.append(ast.Or(exprs=url_terms) if len(url_terms) > 1 else url_terms[0])
+            or_terms.append(ast.And(exprs=window) if len(window) > 1 else window[0])
+        return [ast.Or(exprs=or_terms) if len(or_terms) > 1 else or_terms[0]]
+
     def _compute_fold_summary(self, exprs: List[ast.Expr]) -> dict[str, Any]:  # noqa: UP006
         stmt = parse_select(FOLD_SUMMARY_QUERY, {"predicates": ast.And(exprs=exprs)})
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
@@ -841,8 +932,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _sessions_seen_in_events(
         self,
-        date_from: date,
-        date_to: date,
+        date_from: date | datetime,
+        date_to: date | datetime,
         *,
         filter_test_accounts: bool = False,
         predicate: ast.Expr | None = None,
@@ -858,8 +949,12 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 HogQLFilters(
                     filterTestAccounts=filter_test_accounts,
                     dateRange=DateRange(
-                        date_from=date_from.strftime("%Y-%m-%d"),
-                        date_to=date_to.strftime("%Y-%m-%dT00:00:00"),
+                        date_from=date_from.isoformat()
+                        if isinstance(date_from, datetime)
+                        else date_from.strftime("%Y-%m-%d"),
+                        date_to=date_to.isoformat()
+                        if isinstance(date_to, datetime)
+                        else date_to.strftime("%Y-%m-%dT00:00:00"),
                     ),
                 ),
                 self.team,
@@ -879,18 +974,20 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             right=events_select,
         )
 
-    def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
+    def _build_test_accounts_filter(
+        self, date_from: date | datetime, date_to: date | datetime | None
+    ) -> ast.CompareOperation:
         # The heatmap predicate treats date_to as an inclusive day via `timestamp <= {date_to} + interval 1 day`.
         # Pass the same bound as an explicit next-day-midnight datetime, which HogQLFilters uses verbatim with a
         # strict `<`, so the events subquery covers the same inclusive days as the main heatmap query. A date-only
         # value would instead snap to the end of that next day and widen the window by a day.
-        events_date_to = (date_to or date.today()) + timedelta(days=1)
+        events_date_to = date_to if isinstance(date_to, datetime) else (date_to or date.today()) + timedelta(days=1)
         return self._session_id_in(self._sessions_seen_in_events(date_from, events_date_to, filter_test_accounts=True))
 
     def _build_event_filters(
         self,
-        date_from: date,
-        date_to: date | None,
+        date_from: date | datetime,
+        date_to: date | datetime | None,
         events: List[dict[str, Any]],  # noqa: UP006
     ) -> List[ast.Expr]:  # noqa: UP006
         """One session subquery per selected event, so a heatmap row survives only when its session
@@ -900,8 +997,12 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         per filter, because the combined form kept producing bugs. The cost here is an extra subquery
         per filter, and a heatmap carries a handful of filters at most.
         """
-        events_date_from = date_from - EVENT_FILTER_SESSION_BUFFER
-        events_date_to = (date_to or date.today()) + timedelta(days=1) + EVENT_FILTER_SESSION_BUFFER
+        events_date_from = date_from if isinstance(date_from, datetime) else date_from - EVENT_FILTER_SESSION_BUFFER
+        events_date_to = (
+            date_to
+            if isinstance(date_to, datetime)
+            else (date_to or date.today()) + timedelta(days=1) + EVENT_FILTER_SESSION_BUFFER
+        )
 
         filters: list[ast.Expr] = []
         for entity in events:
@@ -934,7 +1035,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # Compiled into session subqueries by _build_event_filters, not a heatmaps-table predicate.
                 continue
             placeholders[key] = Constant(value=value)
-        placeholders.setdefault("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
+        if "timestamp_from" in validated_data:
+            placeholders.pop("date_from", None)
+            placeholders.pop("date_to", None)
+        else:
+            placeholders.setdefault("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
         return placeholders
 
     @staticmethod
@@ -943,6 +1048,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         predicate_mapping: dict[str, str] = {
             # should always have values
+            "timestamp_from": "timestamp >= {timestamp_from}",
+            "timestamp_to": "timestamp < {timestamp_to}",
             "date_from": "timestamp >= {date_from}",
             "type": "`type` = {type}",
             # optional
@@ -1068,8 +1175,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         else:
             exprs.append(ast.Or(exprs=point_conditions))
 
-        date_from: date = validated_data["date_from"]
-        date_to: date | None = validated_data.get("date_to", None)
+        date_from: date | datetime = validated_data.get("timestamp_from", validated_data["date_from"])
+        date_to: date | datetime | None = validated_data.get("timestamp_to", validated_data.get("date_to"))
+        exprs.extend(self._capture_allowlist_predicates(date_from, date_to))
         if validated_data.get("filter_test_accounts") is True:
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
         exprs.extend(self._build_event_filters(date_from, date_to, validated_data.get("events") or []))
@@ -1207,6 +1315,111 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
         return snaps
 
 
+class HeatmapCaptureRequestSerializer(serializers.ModelSerializer):
+    request_id = serializers.UUIDField(source="id", help_text="Durable capture request identifier.")
+
+    class Meta:
+        model = HeatmapCaptureRequest
+        fields = ["request_id", "state", "deadline", "failure_cause", "page_status", "completed_at"]
+        read_only_fields = fields
+        extra_kwargs = {
+            "state": {"help_text": "Queued, running, succeeded, failed, or cancelled."},
+            "deadline": {"help_text": "Deadline after which this request cannot publish an image."},
+            "failure_cause": {"help_text": "Reason this capture failed, when known."},
+            "page_status": {"help_text": "HTTP status returned by the rendered page."},
+            "completed_at": {"help_text": "When this request finished."},
+        }
+
+
+class HeatmapScreenshotHistoryItemSerializer(serializers.ModelSerializer):
+    latest_request = HeatmapCaptureRequestSerializer(
+        allow_null=True, help_text="Latest attempt, independent of the available image."
+    )
+    content_url = serializers.SerializerMethodField(help_text="Authenticated, versioned URL of the available JPEG.")
+    thumbnail_url = serializers.SerializerMethodField(help_text="Preview URL, or null when no preview is available.")
+
+    class Meta:
+        model = HeatmapScreenshotHistory
+        fields = [
+            "id",
+            "captured_on",
+            "captured_at",
+            "width",
+            "timezone",
+            "day_start",
+            "day_end",
+            "expires_at",
+            "revision",
+            "trigger",
+            "status",
+            "failure_cause",
+            "page_status",
+            "content_url",
+            "thumbnail_url",
+            "latest_request",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "captured_on": {"help_text": "Project-local calendar day of this capture."},
+            "captured_at": {"help_text": "Time of the last successful capture."},
+            "width": {"help_text": "Actual viewport width of the available image, in CSS pixels."},
+            "timezone": {"help_text": "Project timezone when this image was captured."},
+            "day_start": {"help_text": "Inclusive UTC start of the captured project day."},
+            "day_end": {"help_text": "Exclusive UTC end of the captured project day."},
+            "expires_at": {"help_text": "Time this history item expires."},
+            "revision": {"help_text": "Successful request UUID identifying this image revision."},
+        }
+
+    def _image_url(self, obj: HeatmapScreenshotHistory, variant: str) -> str | None:
+        if (
+            obj.status != HeatmapScreenshotHistory.Status.OK
+            or not obj.has_content
+            or (variant == HeatmapScreenshotHistory.ImageVariant.THUMBNAIL and not obj.has_thumbnail)
+        ):
+            return None
+        params = {"v": str(obj.revision), "variant": variant}
+        return f"/api/projects/{obj.team_id}/saved/{self.context['short_id']}/screenshot_history/{obj.id}/content/?{urlencode(params)}"
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_content_url(self, obj: HeatmapScreenshotHistory) -> str | None:
+        return self._image_url(obj, "full")
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_thumbnail_url(self, obj: HeatmapScreenshotHistory) -> str | None:
+        return self._image_url(obj, "thumbnail")
+
+
+class HeatmapScreenshotHistoryResponseSerializer(serializers.Serializer):
+    width = serializers.IntegerField(
+        help_text="Viewport width (CSS pixels) daily captures of this heatmap are rendered at."
+    )
+    retention_days = serializers.IntegerField(
+        help_text="Captures older than this many days are deleted together with their images."
+    )
+    storage_available = serializers.BooleanField(
+        help_text="Whether object storage is configured on this installation. Captures are only kept when it is."
+    )
+    results = HeatmapScreenshotHistoryItemSerializer(
+        many=True, help_text="Captures within the retention window, newest first."
+    )
+
+
+class HeatmapScreenshotHistoryCaptureResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Initial state of the durable capture request.")
+    request_id = serializers.UUIDField(help_text="Request to poll for the capture outcome.")
+    deadline = serializers.DateTimeField(help_text="Time this request expires if it has not completed.")
+    width = serializers.IntegerField(help_text="Requested viewport width in CSS pixels.")
+
+
+class HeatmapScreenshotHistoryContentQuerySerializer(serializers.Serializer):
+    variant = serializers.ChoiceField(
+        choices=HeatmapScreenshotHistory.ImageVariant.choices,
+        default="full",
+        help_text="Full JPEG or thumbnail. Missing thumbnails return 404.",
+    )
+    v = serializers.UUIDField(help_text="Successful request UUID; stale revisions return 404.")
+
+
 class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Screenshot exports render the heatmap in a headless browser, which authenticates
     # via an EXPORT_RENDERER JWT. Without opting into ExportRendererAuthentication here,
@@ -1312,11 +1525,8 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
 
-_URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
-
-
 def _reject_url_wildcards(value: str) -> None:
-    if any(c in _URL_PATTERN_CHARS for c in value):
+    if "*" in value:
         raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
 
 
@@ -1381,7 +1591,9 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
 
 
 class SavedHeatmapCaptureRequestSerializer(serializers.Serializer):
-    image = serializers.ImageField(
+    # FileField, not ImageField: ImageField opens the upload with every Pillow format before
+    # capture() checks it against HEATMAP_SNAPSHOT_IMAGE_FORMATS.
+    image = serializers.FileField(
         required=False,
         help_text="Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. "
         "Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap.",
@@ -1393,7 +1605,7 @@ class SavedHeatmapCaptureRequestSerializer(serializers.Serializer):
         help_text="Viewport width (CSS pixels) the single 'image' was captured at.",
     )
     images = serializers.ListField(
-        child=serializers.ImageField(),
+        child=serializers.FileField(),
         required=False,
         allow_empty=False,
         max_length=MAX_TARGET_WIDTHS,
@@ -1409,8 +1621,14 @@ class SavedHeatmapCaptureRequestSerializer(serializers.Serializer):
     )
     url = serializers.CharField(
         max_length=2000,
-        help_text="Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both "
-        "the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.",
+        help_text="Exact page URL the screenshot was captured on. Wildcards are not allowed.",
+    )
+    data_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. "
+        "Defaults to the captured page URL when omitted or empty.",
     )
     name = serializers.CharField(
         required=False,
@@ -1553,7 +1771,7 @@ class SavedHeatmapViewSet(
     DEFAULT_ORDER = "-updated_at"
 
     def get_throttles(self):
-        if self.action in ("create", "prewarm", "capture"):
+        if self.action in ("create", "prewarm", "capture", "capture_screenshot_history"):
             # More restrictive rate limiting for expensive screenshot generation
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if self.action == "preflight":
@@ -1717,7 +1935,8 @@ class SavedHeatmapViewSet(
         "the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+"
         "'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page "
         "at each width and captures it, matching the widths the server renders). The image bytes are stored and "
-        "served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.",
+        "served only through the authenticated content endpoint. The optional data URL selects which pages supply "
+        "the overlay data and defaults to the captured URL.",
     )
     @action(
         methods=["POST"],
@@ -1749,11 +1968,12 @@ class SavedHeatmapViewSet(
             image_file.seek(0)
             image_bytes = image_file.read()
             _reject_oversized_capture_image(image_bytes)
-            if not validate_image_file(image_bytes, user=user_id):
+            if not validate_image_file(image_bytes, user=user_id, formats=HEATMAP_SNAPSHOT_IMAGE_FORMATS):
                 raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
             snapshot_bytes.append((width, image_bytes))
 
         url = validated["url"]
+        data_url = validated.get("data_url") or url
         name = validated.get("name") or url
         target_widths = list(dict.fromkeys(width for width, _ in snapshot_bytes))
 
@@ -1762,7 +1982,7 @@ class SavedHeatmapViewSet(
                 team=self.team,
                 name=name,
                 url=url,
-                data_url=url,
+                data_url=data_url,
                 target_widths=target_widths,
                 type=SavedHeatmap.Type.SCREENSHOT,
                 source=SavedHeatmap.Source.TOOLBAR,
@@ -1822,6 +2042,17 @@ class SavedHeatmapViewSet(
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
 
+        now = timezone.now()
+        cutoff = now - LAST_VIEWED_WRITE_INTERVAL
+        if (
+            history_eligible(obj)
+            and (obj.last_viewed_at is None or obj.last_viewed_at < cutoff)
+            and history_enabled(self.team)
+        ):
+            SavedHeatmap.objects.filter(
+                Q(last_viewed_at__isnull=True) | Q(last_viewed_at__lt=cutoff), team_id=self.team.id, id=obj.id
+            ).update(last_viewed_at=now)
+
         if (
             obj.type == SavedHeatmap.Type.SCREENSHOT
             and obj.status == SavedHeatmap.Status.PROCESSING
@@ -1854,6 +2085,177 @@ class SavedHeatmapViewSet(
         self._regenerate(obj)
         response_serializer = HeatmapScreenshotResponseSerializer(obj, context=self.get_serializer_context())
         return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
+    def _page_history_heatmap(self) -> SavedHeatmap:
+        obj = self.get_object()
+        if not history_enabled(self.team) or obj.deleted:
+            raise NotFound()
+        return obj
+
+    @staticmethod
+    def _path_uuid(kwargs: dict[str, Any], name: str) -> UUID:
+        try:
+            return UUID(str(kwargs.get(name)))
+        except ValueError:
+            raise NotFound()
+
+    @extend_schema(
+        responses={
+            200: HeatmapScreenshotHistoryResponseSerializer,
+            404: OpenApiResponse(description="Page history is not enabled for this project"),
+        },
+        description="List the daily screenshot captures kept for a saved heatmap, newest first. Each capture is a "
+        "render of the page on that day at one viewport width, so the clicks of a day or a range can be viewed "
+        "over the background that matches it. Captures older than the retention window are deleted.",
+    )
+    @action(methods=["GET"], detail=True, url_path="screenshot_history", required_scopes=["heatmap:read"])
+    def screenshot_history(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self._page_history_heatmap()
+        rows = list(
+            HeatmapScreenshotHistory.objects.for_team(self.team.id)
+            .filter(heatmap=obj, expires_at__gt=timezone.now())
+            .select_related("latest_request")
+            .order_by("-captured_on", "-captured_at")
+        )
+        serializer = HeatmapScreenshotHistoryResponseSerializer(
+            {
+                "width": history_width(obj),
+                "retention_days": HEATMAP_HISTORY_RETENTION.days,
+                "storage_available": bool(settings.OBJECT_STORAGE_ENABLED),
+                "results": rows,
+            },
+            context={"short_id": obj.short_id},
+        )
+        return response.Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=None,
+        responses={
+            202: HeatmapScreenshotHistoryCaptureResponseSerializer,
+            400: OpenApiResponse(description="Not a server-rendered screenshot heatmap"),
+            404: OpenApiResponse(description="Page history is not enabled for this project"),
+            429: OpenApiResponse(description="A capture was requested for this heatmap in the last 10 minutes"),
+        },
+        description="Render and keep a capture of the page now, instead of waiting for the daily run, for example "
+        "right after a deploy. The render runs in the background; poll the history list for the new capture. A "
+        "capture requested on a day that already has one replaces that day's image.",
+    )
+    @action(methods=["POST"], detail=True, url_path="screenshot_history/capture", required_scopes=["heatmap:write"])
+    def capture_screenshot_history(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self._page_history_heatmap()
+        if obj.type != SavedHeatmap.Type.SCREENSHOT or obj.source != SavedHeatmap.Source.SERVER:
+            return response.Response(
+                {"error": "Only server-rendered screenshot heatmaps keep a page history"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not settings.OBJECT_STORAGE_ENABLED:
+            return response.Response(
+                {"error": "Object storage isn't set up on this installation, so captures can't be kept"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            capture = HeatmapHistoryService.enqueue(
+                team_id=self.team.id, heatmap_id=obj.id, trigger=HeatmapScreenshotHistory.Trigger.MANUAL
+            )
+        except CaptureCooldown:
+            raise Throttled(wait=int(HEATMAP_HISTORY_MANUAL_COOLDOWN.total_seconds()))
+        except CaptureDispatchError:
+            return response.Response({"detail": "Could not queue the capture. Try again."}, status=503)
+        if capture is None:
+            raise ValidationError("This heatmap is not eligible for history captures.")
+        serializer = HeatmapScreenshotHistoryCaptureResponseSerializer(
+            {"status": capture.state, "request_id": capture.id, "deadline": capture.deadline, "width": capture.width}
+        )
+        return response.Response(serializer.data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("request_id", OpenApiTypes.UUID, OpenApiParameter.PATH)],
+        responses={200: HeatmapCaptureRequestSerializer},
+        description="Read the outcome of a capture request.",
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"screenshot_history/requests/(?P<request_id>[^/.]+)",
+        required_scopes=["heatmap:read"],
+    )
+    def screenshot_history_request(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self._page_history_heatmap()
+        request_id = self._path_uuid(kwargs, "request_id")
+        capture = (
+            HeatmapCaptureRequest.objects.for_team(self.team.id)
+            .filter(heatmap=obj, id=request_id, expires_at__gt=timezone.now())
+            .first()
+        )
+        if capture is None:
+            raise NotFound()
+        return response.Response(HeatmapCaptureRequestSerializer(capture).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="history_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the capture, as listed by the screenshot history endpoint.",
+            ),
+            HeatmapScreenshotHistoryContentQuerySerializer,
+        ],
+        responses={
+            (200, "image/jpeg"): OpenApiTypes.BINARY,
+            304: OpenApiResponse(description="Not modified"),
+            404: OpenApiResponse(description="No such capture, or page history is not enabled for this project"),
+        },
+        description="Fetch the JPEG for one daily capture, or its thumbnail. The list endpoint hands out versioned "
+        "URLs, so the response carries a private day-long cache lifetime and an ETag that changes when the day "
+        "is captured again.",
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"screenshot_history/(?P<history_id>[^/.]+)/content",
+        required_scopes=["heatmap:read"],
+    )
+    def screenshot_history_content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        obj = self._page_history_heatmap()
+        query = HeatmapScreenshotHistoryContentQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        history_id = self._path_uuid(kwargs, "history_id")
+        revision: UUID = query.validated_data["v"]
+        variant = query.validated_data["variant"]
+        now = timezone.now()
+        rows = HeatmapScreenshotHistory.objects.for_team(self.team.id).filter(
+            heatmap=obj,
+            id=history_id,
+            status=HeatmapScreenshotHistory.Status.OK,
+            expires_at__gt=now,
+            revision=revision,
+        )
+        if variant == HeatmapScreenshotHistory.ImageVariant.THUMBNAIL:
+            rows = rows.filter(has_thumbnail=True)
+        history = rows.first()
+        if history is None:
+            raise NotFound()
+        etag = f'"{revision}:{variant}"'
+        conditional = get_conditional_response(request._request, etag=etag)
+        content: bytes | None = None
+        try:
+            if conditional is None:
+                content = read_image(self.team.id, revision, cast(Variant, variant))
+                found = content is not None
+            else:
+                found = image_exists(self.team.id, revision, cast(Variant, variant))
+        except Exception:
+            logger.warning("heatmap_history.content_unavailable", history_id=str(history.id), exc_info=True)
+            return response.Response({"detail": "The image is temporarily unavailable."}, status=503)
+        if not found:
+            raise NotFound()
+        http_response = conditional if conditional is not None else HttpResponse(content, content_type="image/jpeg")
+        remaining = max(0, int((history.expires_at - now).total_seconds()))
+        patch_cache_control(http_response, private=True, max_age=min(86400, remaining))
+        http_response["ETag"] = etag
+        patch_vary_headers(http_response, ("Cookie", "Authorization"))
+        return http_response
 
     @validated_request(
         request_serializer=HeatmapPreflightRequestSerializer,
@@ -1904,9 +2306,6 @@ class SavedHeatmapViewSet(
     )
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
-        old_url = obj.url
-        old_block_consent_modals = obj.block_consent_modals
-
         url_fields_changed = any(
             field in request.data and request.data[field] != getattr(obj, field) for field in ("url", "data_url")
         )
@@ -1922,26 +2321,28 @@ class SavedHeatmapViewSet(
 
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
 
-        if obj.source == SavedHeatmap.Source.TOOLBAR:
-            validated = serializer.validated_data
-            render_input_changing = (
-                ("url" in validated and validated["url"] != obj.url)
-                or ("data_url" in validated and validated["data_url"] != obj.data_url)
-                or (
-                    "block_consent_modals" in validated
-                    and validated["block_consent_modals"] != obj.block_consent_modals
-                )
+        with transaction.atomic():
+            locked = SavedHeatmap.objects.select_for_update(of=("self",)).get(team_id=self.team.id, id=obj.id)
+            url_fields_changed = any(
+                field in validated and validated[field] != getattr(locked, field) for field in ("url", "data_url")
             )
-            if render_input_changing:
+            if url_fields_changed and not self.user_access_control.check_access_level_for_resource(
+                "heatmap", required_level="editor"
+            ):
+                raise PermissionDenied("You do not have permission to change the URL of this heatmap.")
+            render_input_changing = ("url" in validated and validated["url"] != locked.url) or (
+                "block_consent_modals" in validated and validated["block_consent_modals"] != locked.block_consent_modals
+            )
+            if locked.source == SavedHeatmap.Source.TOOLBAR and render_input_changing:
                 raise ValidationError(
                     "Toolbar-captured heatmaps can't change their URL or rendering settings; re-capture from the toolbar instead."
                 )
+            serializer.instance = locked
+            updated = serializer.save()
 
-        updated = serializer.save()
-
-        render_input_changed = updated.url != old_url or updated.block_consent_modals != old_block_consent_modals
-        if updated.type == SavedHeatmap.Type.SCREENSHOT and render_input_changed:
+        if updated.type == SavedHeatmap.Type.SCREENSHOT and render_input_changing:
             self._regenerate(updated)
 
         self._log_heatmap_activity(request, updated, "updated")

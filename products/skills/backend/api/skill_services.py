@@ -20,6 +20,7 @@ from ..models.skills import (
     annotate_llm_skill_version_history_metadata,
     category_for_skill_name,
 )
+from .archive_guards import assert_skill_archive_allowed, run_skill_rename_hooks
 
 _DigestModel = TypeVar("_DigestModel", LLMSkill, LLMSkillFile)
 
@@ -433,6 +434,24 @@ def _carry_forward(payload_value: Any, current_value: Any) -> Any:
     return payload_value if payload_value is not None else current_value
 
 
+# Provenance keys a PostHog harness stamps on the rows it seeds, and reads back as proof that a row
+# is still the content it shipped. `metadata` is a free-form dict any project editor can send, so a
+# caller-supplied value for one of these is a forged attestation: dropping `canonical_hash` from a
+# seeded Signals scout, or writing a hash of the caller's own content, makes an edited scout read as
+# PostHog-shipped and mints a permanent billing exemption for its reports.
+HARNESS_OWNED_METADATA_KEYS = frozenset({"seeded_by", "canonical_hash", "source"})
+
+
+def _resolve_published_metadata(payload_value: dict[str, Any] | None, current_value: dict | None) -> dict[str, Any]:
+    """Caller metadata for a new version, with the harness-owned provenance pinned to the current row."""
+    current = dict(current_value or {})
+    if payload_value is None:
+        return current
+    resolved = {k: v for k, v in payload_value.items() if k not in HARNESS_OWNED_METADATA_KEYS}
+    resolved.update({k: v for k, v in current.items() if k in HARNESS_OWNED_METADATA_KEYS})
+    return resolved
+
+
 def apply_skill_file_edits(file_content: str, edits: list[dict[str, str]], *, file_path: str) -> str:
     """Apply sequential find/replace edits to a single bundled skill file.
 
@@ -524,7 +543,7 @@ def publish_skill_version(
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
             allowed_tools=_carry_forward(allowed_tools, current_latest.allowed_tools),
-            metadata=_carry_forward(metadata, current_latest.metadata),
+            metadata=_resolve_published_metadata(metadata, current_latest.metadata),
             # Categorization is a property of the skill, not the version — carry it forward so editing
             # a scout (or any categorized skill) doesn't drop it out of its tab.
             category=current_latest.category,
@@ -879,8 +898,17 @@ def rename_skill_file(
     return _refresh_with_annotations(team, next_skill)
 
 
-def archive_skill(team: Team, skill_name: str) -> list[int]:
+def archive_skill(team: Team, skill_name: str, *, acting_user: User | None, authenticator: object = None) -> list[int]:
+    """Tombstone every version of a logical skill.
+
+    `acting_user` is the person asking, or None for a system path. It is keyword-only and has no
+    default so a new caller has to say which it is: a guard can refuse the archive (see
+    `archive_guards`), and a silent default would let a fresh entrypoint skip that. An endpoint
+    passes its DRF `authenticator` too, so a refusal records how the caller signed in.
+    """
     with transaction.atomic():
+        # Before the select_for_update below, so a refusal costs no row locks.
+        assert_skill_archive_allowed(team=team, skill_name=skill_name, user=acting_user, authenticator=authenticator)
         skill_versions = list(
             LLMSkill.objects.select_for_update()
             .filter(team=team, name=skill_name, deleted=False)
@@ -908,12 +936,21 @@ def _product_owned_name_prefix(name: str) -> str:
     return next((prefix for prefix, _ in CATEGORY_BY_NAME_PREFIX if name.startswith(prefix)), "")
 
 
-def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
+def rename_skill(
+    team: Team,
+    *,
+    skill_name: str,
+    new_name: str,
+    acting_user: User | None,
+    authenticator: object = None,
+) -> LLMSkill:
     """Move a logical skill to `new_name`, keeping its versions, files, and owners.
 
     Every version row carries the name, and owners are keyed on `(team, skill_name)`, so the rename
     has to move all of them together or it loses history and ownership — which is exactly what the
-    duplicate-then-archive workaround did.
+    duplicate-then-archive workaround did. Rows another product keys on the name move through its
+    rename hook (see `archive_guards`), which can also refuse the rename. `acting_user` has no
+    default for the same reason as on `archive_skill`.
     """
     blocked_prefix = _product_owned_name_prefix(skill_name) or _product_owned_name_prefix(new_name)
     if blocked_prefix:
@@ -931,6 +968,9 @@ def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
             return _renamed_skill_or_missing(team, new_name)
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
+        run_skill_rename_hooks(
+            team=team, skill_name=skill_name, new_name=new_name, user=acting_user, authenticator=authenticator
+        )
 
         # Stamp each locked row rather than issuing one `.update()`: the name is the first
         # frontmatter key of the rendered SKILL.md, so a rename changes the bytes a host downloads,

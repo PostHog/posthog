@@ -244,11 +244,12 @@ class LLMSkillViewSet(
         )
         page = self.paginate_queryset(queryset)
         if page is not None:
+            page = [self._apply_trial_skill(request, skill) for skill in page]
             context = self._list_context_with_owners(page)
             serializer = self.get_serializer(page, many=True, context=context)
             return self.get_paginated_response(serializer.data)
 
-        skills = list(queryset)
+        skills = [self._apply_trial_skill(request, skill) for skill in queryset]
         context = self._list_context_with_owners(skills)
         serializer = self.get_serializer(skills, many=True, context=context)
         data = serializer.data

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodesceneSource(ResumableSource[CodesceneSourceConfig, CodesceneResumeConfig]):
+    codebase_detection = detect(env=("^CODESCENE_", "^CS_ACCESS_TOKEN$", "^CS_ONPREM_URL$", "^CS_ONPREM_API_URL$"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -56,7 +59,7 @@ class CodesceneSource(ResumableSource[CodesceneSourceConfig, CodesceneResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CodeScene",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Sync projects, per-file Code Health metrics, and architectural components from CodeScene.
+            caption="""Sync projects, analysis runs, per-file Code Health metrics, architectural components, code health issues, technical debt refactoring targets, and author statistics from CodeScene.
 
 Create a Personal Access Token from the CodeScene API tokens page with an Admin, Architect, or RestApi role. Leave the API base URL blank to use CodeScene Cloud, or enter your on-prem CodeScene server's API URL (for example `https://codescene.yourcompany.com:3003/api/v2`).""",
             iconPath="/static/services/codescene.png",

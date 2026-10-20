@@ -11,8 +11,10 @@ per organization (not per team).
 """
 
 import re
+from collections.abc import Callable
 from datetime import date
-from typing import Literal, TypedDict
+from functools import partial
+from typing import Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -25,7 +27,8 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
+from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG, MANAGED_TRINO_QUERY_FLAG
+from products.managed_warehouse.backend.presentation import hogtower
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +57,25 @@ class PresentedConnection(TypedDict):
     username: str
 
 
+class PresentedTrinoConnection(TypedDict):
+    host: str
+    port: int
+    catalog: str
+    username: str
+
+
+TrinoStatusState = Literal["not_enabled", "pending", "provisioning", "ready", "failed", "unavailable"]
+
+
+class PresentedTrinoStatus(TypedDict):
+    state: TrinoStatusState
+    ready_at: str | None
+    connection: PresentedTrinoConnection | None
+
+
+_TRINO_LIFECYCLE_STATES = frozenset({"pending", "provisioning", "ready", "failed"})
+
+
 ManagedWarehouseMonitoringMetric = Literal[
     "query_rate",
     "error_ratio",
@@ -66,7 +88,19 @@ ManagedWarehouseMonitoringMetric = Literal[
     "storage_bytes",
     "worker_crash_rate",
 ]
+ManagedWarehouseTrinoMonitoringMetric = Literal[
+    "queries_in_flight",
+    "query_rate",
+    "error_ratio",
+    "duration_p50",
+    "duration_p95",
+    "queue_time_p95",
+    "scanned_bytes_rate",
+    "cpu_seconds_rate",
+    "storage_bytes",
+]
 ManagedWarehouseMonitoringWindow = Literal["1h", "6h", "24h", "7d", "30d"]
+DataOpsVariant = Literal["trino", "duckdb"]
 
 
 def managed_warehouse_domain() -> str:
@@ -88,8 +122,8 @@ def validate_warehouse_name(name: str | None) -> str | None:
     return None
 
 
-def is_enabled(organization_id: UUID | str) -> bool:
-    """Evaluate the managed-warehouse flag for the organization.
+def _organization_flag_enabled(flag: str, organization_id: UUID | str) -> bool:
+    """Evaluate one managed-warehouse flag for the organization.
 
     Identity is the organization so every team in the org resolves the same value.
     """
@@ -97,7 +131,7 @@ def is_enabled(organization_id: UUID | str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                DATA_WAREHOUSE_SCENE_FLAG,
+                flag,
                 org_id,
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
@@ -106,8 +140,26 @@ def is_enabled(organization_id: UUID | str) -> bool:
             )
         )
     except Exception:
-        logger.warning("Failed to evaluate managed warehouse feature flag", organization_id=org_id)
+        logger.warning("Failed to evaluate managed warehouse feature flag", organization_id=org_id, flag=flag)
         return False
+
+
+def data_ops_variant(organization_id: UUID | str) -> DataOpsVariant | None:
+    """Which Data ops variant the organization gets, or None when it has neither flag.
+
+    The Trino flag wins when both are on, so an organization never moves between variants
+    because of Trino's state.
+    """
+    if _organization_flag_enabled(MANAGED_TRINO_QUERY_FLAG, organization_id):
+        return "trino"
+    if _organization_flag_enabled(DATA_WAREHOUSE_SCENE_FLAG, organization_id):
+        return "duckdb"
+    return None
+
+
+def is_enabled(organization_id: UUID | str) -> bool:
+    """Whether the organization has the managed warehouse through either flag."""
+    return data_ops_variant(organization_id) is not None
 
 
 def _present_connection(raw: dict) -> PresentedConnection:
@@ -135,13 +187,17 @@ def _request(
     timeout: int = 30,
     require_enabled: bool = True,
 ) -> Response:
-    """Proxy a request to the duckgres provisioning API, gated on the org's feature flag.
+    """Proxy a request to the managed-warehouse control plane, gated on the org's feature flag.
+
+    The control plane is duckgres (`DUCKGRES_API_URL`, /api/v1) unless `HOGTOWER_API_URL`
+    is set, in which case the same call is served by hogtower's /api/v2 through
+    `products.managed_warehouse.backend.presentation.hogtower`, which returns the duckgres v1 body.
 
     An empty path targets the org resource itself (`/api/v1/orgs/{org}`, e.g. to delete it);
     paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
     API paths (`/api/v1/{path}`).
 
-    `require_enabled` gates on the user-facing `data-warehouse-scene` flag and is the right
+    `require_enabled` gates on the user-facing managed warehouse flags and is the right
     default for UI-driven calls. Backend/background callers (e.g. the Dagster duckling
     backfill) must pass `require_enabled=False`: the flag is evaluated only-locally and a
     worker without the flag definition loaded would otherwise get a spurious 403 even when
@@ -150,30 +206,40 @@ def _request(
     if require_enabled and not is_enabled(organization_id):
         return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
-    base_url = getattr(settings, "DUCKGRES_API_URL", None)
-    token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
     org_id = str(organization_id)
+    send: Callable[[], http_requests.Response | hogtower.TranslatedResponse]
+    if hogtower.is_configured():
+        # hogtower serves the same calls from its /api/v2 routes, translated back to the
+        # duckgres v1 bodies below.
+        send = partial(hogtower.request, method, org_id, path, json_body=json_body, params=params, timeout=timeout)
+    else:
+        base_url = getattr(settings, "DUCKGRES_API_URL", None)
+        token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
 
-    if not base_url:
-        logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", organization_id=org_id)
-        return Response(
-            {"error": "Managed warehouse provisioning is not configured"},
-            status=status.HTTP_501_NOT_IMPLEMENTED,
+        if not base_url:
+            logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", organization_id=org_id)
+            return Response(
+                {"error": "Managed warehouse provisioning is not configured"},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
+        if path == "":
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
+        elif path.startswith("/"):
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
+        else:
+            url = f"{base_url.rstrip('/')}/api/v1/{path}"
+
+        headers = {}
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
+
+        send = partial(
+            internal_requests.request, method, url, json=json_body, params=params, headers=headers, timeout=timeout
         )
 
-    if path == "":
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
-    elif path.startswith("/"):
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
-    else:
-        url = f"{base_url.rstrip('/')}/api/v1/{path}"
-
-    headers = {}
-    if token:
-        headers["X-Duckgres-Internal-Secret"] = token
-
     try:
-        resp = internal_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
+        resp = send()
     except http_requests.Timeout:
         logger.warning("Provisioning API timeout", method=method, path=path, organization_id=org_id)
         return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
@@ -254,6 +320,8 @@ def provision(
     team_id: int,
     schema_name: str | None,
     require_enabled: bool = True,
+    *,
+    triggered_by: str,
 ) -> Response:
     pending_deletion = _block_if_pending_deletion(organization_id)
     if pending_deletion is not None:
@@ -293,6 +361,16 @@ def provision(
         },
         require_enabled=require_enabled,
     )
+    if status.is_success(resp.status_code):
+        logger.info(
+            "managed_warehouse_action",
+            action="provision",
+            triggered_by=triggered_by,
+            organization_id=str(organization_id),
+            team_id=team_id,
+            database_name=database_name,
+            schema_name=schema_name,
+        )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
         activated_generation = _activate_managed_source_lifecycle(
             organization_id,
@@ -579,8 +657,8 @@ def update_team(
 
 
 def push_team_earliest_event_date(organization_id: UUID | str, team_id: int, earliest: date | None) -> bool:
-    """Persist a team's resolved earliest event date (incl. the no-history sentinel) onto
-    its duckgres team row — the read source for the backfill sensors.
+    """Persist a team's resolved earliest event date onto its duckgres team row — the
+    read source for the backfill sensors.
 
     A failure is logged and swallowed; returns True when the control plane accepted the
     value, so callers (the provisioning-time task, the full-backfill sensor) can leave
@@ -643,7 +721,12 @@ def _invalidate_team_state_cache(organization_id: UUID | str) -> None:
 
 
 def onboard_team(
-    organization_id: UUID | str, team_id: int, schema_name: str | None, require_enabled: bool = True
+    organization_id: UUID | str,
+    team_id: int,
+    schema_name: str | None,
+    require_enabled: bool = True,
+    *,
+    triggered_by: str,
 ) -> Response:
     """Onboard a team onto the org's existing managed warehouse with its own schema.
 
@@ -722,6 +805,15 @@ def onboard_team(
         if not status.is_success(resp.status_code):
             return resp
 
+    logger.info(
+        "managed_warehouse_action",
+        action="onboard_team",
+        triggered_by=triggered_by,
+        organization_id=str(organization_id),
+        team_id=team_id,
+        schema_name=schema_name,
+        created=existing is None,
+    )
     _ensure_direct_source(team_id, organization_id, source_generation)
     _schedule_earliest_event_date_sync(team_id)
     return Response({"onboarded": True, "schema_name": schema_name}, status=status.HTTP_200_OK)
@@ -845,7 +937,7 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
     return None
 
 
-def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
+def deprovision(organization_id: UUID | str, require_enabled: bool = True, *, triggered_by: str) -> Response:
     expected_generation = _active_managed_source_generation(organization_id)
     inactive_cleanup_generation = _managed_source_generation(organization_id) if expected_generation is None else None
     resp = _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
@@ -870,6 +962,13 @@ def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Re
         resp
         if status.is_success(resp.status_code)
         else Response({"status": "deprovisioning started"}, status=status.HTTP_202_ACCEPTED)
+    )
+    logger.info(
+        "managed_warehouse_action",
+        action="deprovision",
+        triggered_by=triggered_by,
+        organization_id=str(organization_id),
+        status_code=resp.status_code,
     )
     _invalidate_team_state_cache(organization_id)
     cleanup_generation = inactive_cleanup_generation
@@ -936,12 +1035,8 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
 
     # Backend caller: bypass the user-facing feature flag so the deletion never depends on
     # flag evaluation on the Temporal worker.
-    resp = deprovision(organization_id, require_enabled=False)
+    resp = deprovision(organization_id, require_enabled=False, triggered_by="system:organization-deletion")
     if status.is_success(resp.status_code):
-        logger.info(
-            "Managed warehouse deprovisioning started for organization deletion",
-            organization_id=org_id,
-        )
         return
     if resp.status_code == status.HTTP_404_NOT_FOUND:
         logger.info(
@@ -950,9 +1045,10 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
             status_code=resp.status_code,
         )
         return
-    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED:
-        # DUCKGRES_API_URL is not configured (e.g. a dev/env-var-backed DuckgresServer
-        # row): there is no control plane to deprovision against.
+    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED and not hogtower.is_configured():
+        # Neither HOGTOWER_API_URL nor DUCKGRES_API_URL is configured (e.g. a
+        # dev/env-var-backed DuckgresServer row): there is no control plane to deprovision against.
+        # A 501 from the hogtower adapter means an unmapped route instead, and must not skip.
         logger.warning(
             "Managed warehouse deprovisioning skipped: provisioning API not configured",
             organization_id=org_id,
@@ -1009,7 +1105,7 @@ def ensure_direct_connection_tables(team_id: int, organization_id: UUID | str) -
         )
 
 
-def delete_org(organization_id: UUID | str, require_enabled: bool = True) -> Response:
+def delete_org(organization_id: UUID | str, require_enabled: bool = True, *, triggered_by: str) -> Response:
     """Delete the org's provisioning record once teardown has finished, freeing its warehouse name.
 
     `deprovision` tears the warehouse down (status goes deleting → deleted); this removes the
@@ -1017,7 +1113,15 @@ def delete_org(organization_id: UUID | str, require_enabled: bool = True) -> Res
     teardown has no terminal failed state (the provisioner retries indefinitely), so callers
     should only issue this once the warehouse status reports `deleted`.
     """
-    return _request("DELETE", organization_id, "", require_enabled=require_enabled)
+    resp = _request("DELETE", organization_id, "", require_enabled=require_enabled)
+    if status.is_success(resp.status_code):
+        logger.info(
+            "managed_warehouse_action",
+            action="delete_org",
+            triggered_by=triggered_by,
+            organization_id=str(organization_id),
+        )
+    return resp
 
 
 def status_for(organization_id: UUID | str) -> Response:
@@ -1038,6 +1142,64 @@ def status_for(organization_id: UUID | str) -> Response:
     return resp
 
 
+def _present_trino_connection(trino_status: dict) -> PresentedTrinoConnection | None:
+    catalog = trino_status.get("trino_catalog_name") or trino_status.get("catalog")
+    connection = trino_status.get("connection")
+    if not isinstance(catalog, str) or not catalog.strip() or not isinstance(connection, dict):
+        return None
+    host = connection.get("host")
+    username = connection.get("username")
+    port = connection.get("port")
+    if not isinstance(host, str) or not host.strip() or not isinstance(username, str) or not username.strip():
+        return None
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        return None
+    return PresentedTrinoConnection(host=host.strip(), port=port, catalog=catalog.strip(), username=username.strip())
+
+
+def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
+    """Customer-safe summary of the organization's Trino enablement, for the Trino Data ops variant.
+
+    The control plane's Trino status is an operator payload. Only the lifecycle state, the ready
+    time, and the connection target leave this function.
+    """
+    unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None)
+    resp = _request("GET", organization_id, "/trino", timeout=10)
+    if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
+        return unavailable
+    if resp.data.get("enabled") is not True:
+        return PresentedTrinoStatus(state="not_enabled", ready_at=None, connection=None)
+
+    trino_status = resp.data.get("status")
+    if not isinstance(trino_status, dict):
+        return unavailable
+    if str(trino_status.get("org")) != str(organization_id):
+        logger.warning(
+            "refusing_trino_status_for_mismatched_organization",
+            requested_organization_id=str(organization_id),
+            response_organization_id=str(trino_status.get("org")),
+        )
+        return unavailable
+
+    raw_state = trino_status.get("state")
+    # A row that has not been reconciled yet has no state, which means pending.
+    if raw_state is None or raw_state == "":
+        state: TrinoStatusState = "pending"
+    elif isinstance(raw_state, str) and raw_state in _TRINO_LIFECYCLE_STATES:
+        state = cast(TrinoStatusState, raw_state)
+    else:
+        # The control plane has lifecycle states this view does not present, such as deleting. Showing
+        # them as pending would make the scene poll for a setup that never completes.
+        logger.warning("unexpected_trino_lifecycle_state", organization_id=str(organization_id), state=str(raw_state))
+        return unavailable
+    ready_at = trino_status.get("ready_at")
+    return PresentedTrinoStatus(
+        state=state,
+        ready_at=ready_at if isinstance(ready_at, str) else None,
+        connection=_present_trino_connection(trino_status) if state == "ready" else None,
+    )
+
+
 def monitoring_snapshot_for(organization_id: UUID | str) -> Response:
     """Fetch tenant-safe live monitoring data for one organization."""
     return _request("GET", organization_id, "/monitoring/snapshot", timeout=10)
@@ -1053,6 +1215,26 @@ def monitoring_series_for(
         "GET",
         organization_id,
         "/monitoring/series",
+        params={"metric": metric, "window": window},
+        timeout=10,
+    )
+
+
+def trino_monitoring_snapshot_for(organization_id: UUID | str) -> Response:
+    """Fetch tenant-safe live Trino query data for one organization."""
+    return _request("GET", organization_id, "/monitoring/trino/snapshot", timeout=10)
+
+
+def trino_monitoring_series_for(
+    organization_id: UUID | str,
+    metric: ManagedWarehouseTrinoMonitoringMetric,
+    window: ManagedWarehouseMonitoringWindow,
+) -> Response:
+    """Fetch one allow-listed Trino monitoring series for one organization."""
+    return _request(
+        "GET",
+        organization_id,
+        "/monitoring/trino/series",
         params={"metric": metric, "window": window},
         timeout=10,
     )
@@ -1139,8 +1321,15 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
         )
 
 
-def reset_password(organization_id: UUID | str) -> Response:
+def reset_password(organization_id: UUID | str, *, triggered_by: str) -> Response:
     resp = _request("POST", organization_id, "/reset-password")
+    if status.is_success(resp.status_code):
+        logger.info(
+            "managed_warehouse_action",
+            action="reset_password",
+            triggered_by=triggered_by,
+            organization_id=str(organization_id),
+        )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict) and resp.data.get("password"):
         try:
             _update_direct_connection_password(organization_id, resp.data["password"])

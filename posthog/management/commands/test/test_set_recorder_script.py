@@ -148,7 +148,7 @@ class TestSetRecorderScriptCommand(BaseTest):
         # each save is a single UPDATE, which is this test's floor.
         with (
             mock.patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay"),
-            mock.patch("products.workflows.backend.tasks.hog_flows.refresh_affected_hog_flows.delay"),
+            mock.patch("products.workflows.backend.facade.tasks.refresh_affected_hog_flows.delay"),
             mock.patch("posthog.models.team.team.set_team_in_cache"),
         ):
             call_command(

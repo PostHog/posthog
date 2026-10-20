@@ -114,7 +114,9 @@ export function ActivityPanelBody({
 
   const body = () => {
     if (tab === "comments") {
-      return <TaskCommentsList task={task} timeline={timeline} />;
+      return (
+        <TaskCommentsList taskId={task.id} task={task} timeline={timeline} />
+      );
     }
     if (tab === "artifacts") {
       return (

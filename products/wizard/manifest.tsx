@@ -1,6 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-
-import { FileSystemIconType, ProductItemCategory } from '../../frontend/src/queries/schema/schema-general'
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -24,16 +21,5 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {},
     treeItemsNew: [],
-    treeItemsProducts: [
-        {
-            path: 'Wizard',
-            intents: [],
-            category: ProductItemCategory.TOOLS,
-            type: 'wizard',
-            iconType: 'llm_prompts' as FileSystemIconType,
-            href: '/wizard/runs',
-            flag: FEATURE_FLAGS.WIZARD_UI_ENABLED,
-            sceneKey: 'WizardRuns',
-        },
-    ],
+    treeItemsProducts: [],
 }

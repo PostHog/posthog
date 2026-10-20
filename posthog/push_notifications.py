@@ -105,18 +105,37 @@ def _send_batch(
         )
         return 0
     if response.status_code >= 400:
+        error_code = None
+        try:
+            error_body = response.json()
+            errors = error_body.get("errors") if isinstance(error_body, dict) else None
+            if isinstance(errors, list):
+                error_code = next(
+                    (
+                        error.get("code")
+                        for error in errors
+                        if isinstance(error, dict) and isinstance(error.get("code"), str)
+                    ),
+                    None,
+                )
+        except ValueError:
+            pass
+
+        if error_code == "PUSH_TOO_MANY_EXPERIENCE_IDS" and len(tokens) > 1:
+            return sum(_send_batch(user, [token], title=title, body=body, data=data) for token in tokens)
+
         logger.warning(
             "expo_push.client_error",
             status_code=response.status_code,
             token_count=len(tokens),
-            body=response.text[:500],
+            error_code=error_code,
         )
         return 0
 
     try:
         body_json = response.json()
     except ValueError:
-        logger.warning("expo_push.invalid_response", body=response.text[:500])
+        logger.warning("expo_push.invalid_response", status_code=response.status_code)
         return 0
 
     tickets = body_json.get("data", []) if isinstance(body_json, dict) else []
@@ -150,7 +169,6 @@ def _send_batch(
             logger.warning(
                 "expo_push.ticket_error",
                 error=error_code,
-                message=ticket.get("message"),
             )
 
     if invalid_tokens:

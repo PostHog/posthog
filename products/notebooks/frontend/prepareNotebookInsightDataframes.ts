@@ -1,4 +1,5 @@
 import type { BuiltLogic } from 'kea'
+import posthog from 'posthog-js'
 
 import { parseMarkdownNotebook, serializeMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { getSerializableProps } from 'lib/components/MarkdownNotebook/utils'
@@ -74,8 +75,14 @@ export async function prepareNotebookInsightDataframes(
         const unmount = logic.mount()
         try {
             await logic.asyncActions.syncDataframe()
-            if (logic.values.error && (!logic.values.unsupported || names)) {
+            // Discovery can use the remaining dataframes; explicit dependencies must be available.
+            if (logic.values.error && names) {
                 throw new Error(logic.values.error)
+            }
+            if (logic.values.error && !logic.values.unsupported) {
+                posthog.captureException(new Error('Notebook insight dataframe preparation failed'), {
+                    action: 'prepare notebook insight dataframe',
+                })
             }
         } finally {
             unmount()

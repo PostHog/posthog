@@ -22,17 +22,26 @@ Wiring that up here is follow-up work.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from typing import Any, ClassVar, cast
 
 import pyarrow as pa
 from psycopg import sql
+from psycopg.errors import InsufficientPrivilege
 
 from posthog.models.integration import Integration, RedshiftIntegration
 
-from products.batch_exports.backend.temporal.destinations.postgres_batch_export import Fields, PostgreSQLClient
-from products.batch_exports.backend.temporal.destinations.redshift_batch_export import RedshiftClient
+from products.batch_exports.backend.facade.destinations.postgres import Fields, PostgreSQLClient
+from products.batch_exports.backend.facade.destinations.redshift import RedshiftClient
+from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
+    BatchWriteOutcome,
+    DestinationBatchContext,
+    DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.postgres import (
     PostgresDestinationWriter,
 )
@@ -44,6 +53,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 # truncate, so a longer value fails the statement instead of being cut short: batch exports
 # reports the same overflow as `StringLimitExceededError` and never retries it.
 VARCHAR_MAX = "VARCHAR(MAX)"
+
+PERMISSIONS_DETAIL = (
+    "The Redshift user lacks permissions. Grant the user USAGE and CREATE on the schema. "
+    "Grant rights on the tables it syncs, then run the sync again."
+)
+
+
+def _configuration_error_detail(err: Exception) -> str | None:
+    if isinstance(err, InsufficientPrivilege):
+        return PERMISSIONS_DETAIL
+    return None
+
 
 _REDSHIFT_BY_ARROW = {
     pa.bool_(): "BOOLEAN",
@@ -90,6 +111,30 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
 
     integration_kind: ClassVar[str] = RedshiftIntegration.integration_kind
 
+    @contextmanager
+    def _configuration_errors(self) -> Iterator[None]:
+        try:
+            yield
+        except Exception as err:
+            detail = _configuration_error_detail(err)
+            if detail is not None:
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+            raise
+
+    async def write_batch(
+        self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
+    ) -> BatchWriteOutcome:
+        with self._configuration_errors():
+            return await super().write_batch(batches, ctx)
+
+    async def finalize_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await super().finalize_run(ctx)
+
+    async def abort_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await super().abort_run(ctx)
+
     def _client_from_integration(self, integration: Integration) -> PostgreSQLClient:
         return RedshiftClient.from_inputs(RedshiftIntegration(integration), database=self._database)
 
@@ -100,37 +145,41 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
         self, client: PostgreSQLClient, table: str, batch: pa.RecordBatch, column_names: list[str]
     ) -> None:
         """Insert rather than COPY FROM STDIN, which Redshift does not support."""
+        nested = {field.name for field in batch.schema if is_nested_type(field.type)}
         statement = sql.SQL("INSERT INTO {}.{} ({}) VALUES ({})").format(
             sql.Identifier(self._schema),
             sql.Identifier(table),
             sql.SQL(", ").join(sql.Identifier(c) for c in column_names),
-            sql.SQL(", ").join(sql.Placeholder() for _ in column_names),
+            # A JSON string bound straight into a SUPER column is stored as a string scalar,
+            # so `col.key` navigation over it returns NULL. `JSON_PARSE` is what turns the text
+            # into the SUPER structure the column was created to hold.
+            sql.SQL(", ").join(
+                sql.SQL("JSON_PARSE({})").format(sql.Placeholder()) if c in nested else sql.Placeholder()
+                for c in column_names
+            ),
         )
         payload = [[_encode(record.get(name)) for name in column_names] for record in batch.to_pylist()]
 
         async with self._write_cursor(client) as cursor:
             await cursor.executemany(statement, payload)
 
-    @asynccontextmanager
-    async def _merge_stage(
-        self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema
-    ) -> AsyncIterator[str]:
-        """Stage a batch in a copy of the destination table.
+    async def _ensure_merge_stage(self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema) -> None:
+        """Ready the run's stage table as a copy of the destination table.
 
-        `amerge_tables` inserts an unmatched row positionally, so the stage has to carry the
-        destination's own columns in the destination's own order. Copying the destination's
-        definition is the only way to hold that for a table this writer grows column by
-        column. Columns the batch does not carry stay NULL, which is what the row would have
-        held anyway.
+        `amerge_tables` selects the destination's full column list out of the stage and inserts
+        an unmatched row positionally, so the stage has to carry the destination's own columns
+        in the destination's own order. A stage built from the batch alone is short of any
+        column the destination grew on an earlier run, and the merge's `SELECT` then names a
+        column the stage does not have. Copying the destination's definition is the only way to
+        hold that for a table this writer grows column by column. Columns the batch does not
+        carry stay NULL, which is what the row would have held anyway.
+
+        Created once per run and emptied between batches, same as the base writer's stage, and
+        dropped by `abort_run` and `finalize_run`.
         """
         async with self._write_cursor(client) as cursor:
-            # A previous attempt at this batch may have died before dropping the stage, and
-            # its rows are not this batch's.
             await cursor.execute(
-                sql.SQL("DROP TABLE IF EXISTS {}.{}").format(sql.Identifier(self._schema), sql.Identifier(stage))
-            )
-            await cursor.execute(
-                sql.SQL("CREATE TABLE {}.{} (LIKE {}.{})").format(
+                sql.SQL("CREATE TABLE IF NOT EXISTS {}.{} (LIKE {}.{})").format(
                     sql.Identifier(self._schema),
                     sql.Identifier(stage),
                     sql.Identifier(self._schema),
@@ -138,8 +187,13 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
                 )
             )
 
-        async with client.managed_table(self._schema, stage, [], create=False, delete=True) as name:
-            yield name
+        # The stage outlives the batch that created it, so a column the source grew mid-run has
+        # to reach it too, or the insert names a column the stage does not have.
+        await self._evolve_table(client, stage, schema)
+        async with self._write_cursor(client) as cursor:
+            await cursor.execute(
+                sql.SQL("TRUNCATE TABLE {}.{}").format(sql.Identifier(self._schema), sql.Identifier(stage))
+            )
 
     async def _upsert_from_stage(
         self,
@@ -160,13 +214,12 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
         # The stage was created from the destination, so both share this order. Only the name
         # in each field is read, which is why the types are left empty.
         final_table_fields: Fields = [(name, "") for name in await client.aget_table_columns(self._schema, target)]
-        merge_key: Fields = [(key, "") for key in primary_keys]
 
         await cast(RedshiftClient, client).amerge_tables(
             final_table_name=target,
             stage_table_name=stage,
             schema=self._schema,
-            merge_key=merge_key,
+            merge_key=primary_keys,
             # Only read to build the delete that `skip_delete` suppresses.
             update_key=[],
             final_table_fields=final_table_fields,

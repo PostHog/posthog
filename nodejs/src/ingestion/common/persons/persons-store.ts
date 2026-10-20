@@ -110,6 +110,11 @@ export interface MergePersonsRequest {
     createdAtMs: number
 }
 
+/** The trigger id marks a fold request, so a single-pair fold counts as one too. */
+export function isFoldRequest(request: MergePersonsRequest): boolean {
+    return request.sources.length > 1 || request.triggerSourceDistinctId !== undefined
+}
+
 export type MergeFoldAbortReason = 'limit' | 'conflict' | 'refused' | 'deadlock' | 'error'
 
 export interface MergePersonsResult {

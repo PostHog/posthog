@@ -1,14 +1,16 @@
+from base64 import b64encode
+
 from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okendo import OkendoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source import OkendoSource
-
-VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source.validate_okendo_credentials"
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okendo import OkendoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source import OkendoSource
 
 
 class TestOkendoSource:
@@ -38,17 +40,6 @@ class TestOkendoSource:
     def test_non_retryable_errors_do_not_match_unrelated(self, _name, other_error):
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
 
-    def test_get_schemas_are_full_refresh_only(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # No Okendo list endpoint filters by a created/updated timestamp, so advertising incremental
-        # would ship a sync that re-reads everything while claiming a watermark it can't honor.
-        for schema in schemas:
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
     @parameterized.expand(
         [
             ("valid", (True, 200), None, True, None),
@@ -60,8 +51,21 @@ class TestOkendoSource:
             ("forbidden_for_schema", (False, 403), "reviews", False, "Your Okendo API key does not have access"),
         ]
     )
-    def test_validate_credentials(self, _name, probe_result, schema_name, expected_valid, expected_message):
-        with mock.patch(VALIDATE_PATCH, return_value=probe_result) as mock_validate:
+    def test_validate_credentials(
+        self,
+        _name: str,
+        probe_result: tuple[bool, int | None],
+        schema_name: str | None,
+        expected_valid: bool,
+        expected_message: str | None,
+    ) -> None:
+        status_code = probe_result[1]
+        script = (
+            [ScriptedResponse(status=status_code)]
+            if status_code is not None
+            else always(ConnectionError("probe unavailable"))
+        )
+        with scripted_network(script) as network:
             is_valid, error_message = self.source.validate_credentials(
                 self.config, self.team_id, schema_name=schema_name
             )
@@ -71,7 +75,12 @@ class TestOkendoSource:
             assert error_message is None
         else:
             assert error_message is not None and expected_message in error_message
-        mock_validate.assert_called_once_with("user-1", "key-1", "2025-02-01")
+        assert network.requests_log
+        assert all(request.path == "/enterprise/reviews" for request in network.requests_log)
+        assert all(request.param("limit") == "1" for request in network.requests_log)
+        assert all(request.headers["okendo-api-version"] == "2025-02-01" for request in network.requests_log)
+        expected_auth = "Basic " + b64encode(b"user-1:key-1").decode()
+        assert all(request.headers["authorization"] == expected_auth for request in network.requests_log)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source.okendo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_okendo_source):

@@ -53,4 +53,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ipAddress": "The IP address the login attempt was made from.",
         },
     },
+    "Applications": {
+        "description": "FusionAuth applications that users register for and log in to, with their roles and configuration.",
+        "docs_url": "https://fusionauth.io/docs/apis/applications",
+        "columns": {
+            "id": "Unique identifier for the application.",
+            "name": "The name of the application.",
+            "tenantId": "The unique identifier of the tenant the application belongs to.",
+            "active": "Whether the application is active.",
+            "state": "The state of the application (Active or Inactive).",
+            "roles": "The roles defined for the application.",
+            "insertInstant": "The instant (epoch milliseconds) the application was created.",
+            "lastUpdateInstant": "The instant (epoch milliseconds) the application was last updated.",
+        },
+    },
+    "Tenants": {
+        "description": "FusionAuth tenants, the top-level isolation boundary for users, applications and groups.",
+        "docs_url": "https://fusionauth.io/docs/apis/tenants",
+        "columns": {
+            "id": "Unique identifier for the tenant.",
+            "name": "The name of the tenant.",
+            "issuer": "The named issuer used to sign tokens issued for this tenant.",
+            "state": "The state of the tenant (Active or PendingDelete).",
+            "insertInstant": "The instant (epoch milliseconds) the tenant was created.",
+            "lastUpdateInstant": "The instant (epoch milliseconds) the tenant was last updated.",
+        },
+    },
+    "Groups": {
+        "description": "FusionAuth groups that users can be members of, each granting a set of application roles.",
+        "docs_url": "https://fusionauth.io/docs/apis/groups",
+        "columns": {
+            "id": "Unique identifier for the group.",
+            "name": "The name of the group.",
+            "tenantId": "The unique identifier of the tenant the group belongs to.",
+            "roles": "The application roles granted to members of the group, keyed by application id.",
+            "insertInstant": "The instant (epoch milliseconds) the group was created.",
+            "lastUpdateInstant": "The instant (epoch milliseconds) the group was last updated.",
+        },
+    },
+    "GroupMembers": {
+        "description": "Memberships linking FusionAuth users to groups.",
+        "docs_url": "https://fusionauth.io/docs/apis/groups",
+        "columns": {
+            "id": "Unique identifier for the group membership.",
+            "groupId": "The unique identifier of the group.",
+            "userId": "The unique identifier of the user who is a member of the group.",
+            "data": "Custom data stored on the membership.",
+            "insertInstant": "The instant (epoch milliseconds) the user was added to the group.",
+        },
+    },
 }

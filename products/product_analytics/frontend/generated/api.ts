@@ -20,30 +20,32 @@ import type {
     ElementsListParams,
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
+    EventsRetentionApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
     InsightBulkDeleteResponseApi,
     InsightBulkRestoreResponseApi,
     InsightBulkSetTestAccountFilterRequestApi,
     InsightBulkSetTestAccountFilterResponseApi,
+    InsightDataChecksApi,
+    InsightDataChecksRequestApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
-    InsightsAnalyzeRetrieveParams,
     InsightsBulkDeleteCreateParams,
     InsightsBulkRestoreCreateParams,
     InsightsBulkSetTestAccountFilterCreateParams,
     InsightsBulkUpdateTagsCreateParams,
     InsightsCancelCreateParams,
     InsightsCreateParams,
+    InsightsDataChecksCreateParams,
+    InsightsDataChecksRetrieveParams,
     InsightsDestroyParams,
     InsightsGenerateMetadataCreateParams,
     InsightsListParams,
     InsightsMyLastViewedRetrieveParams,
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
-    InsightsSuggestionsCreateParams,
-    InsightsSuggestionsRetrieveParams,
     InsightsTrendingRetrieveParams,
     InsightsUpdateParams,
     InsightsViewedCreateParams,
@@ -346,6 +348,24 @@ export const elementsValuesList = async (
     })
 }
 
+export const getEventsRetentionRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/events_retention/`
+}
+
+/**
+ * Returns how far back events stay queryable for this project. The window comes from the organization's plan and is read-only. Both window fields are null while no retention window applies to the project.
+ * @summary Get the events retention window for a project
+ */
+export const eventsRetentionRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EventsRetentionApi> => {
+    return apiMutator<EventsRetentionApi>(getEventsRetentionRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getInsightsListUrl = (projectId: string, params?: InsightsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -563,10 +583,10 @@ export const insightsActivityRetrieve = async (
     })
 }
 
-export const getInsightsAnalyzeRetrieveUrl = (
+export const getInsightsDataChecksRetrieveUrl = (
     projectId: string,
-    id: number,
-    params?: InsightsAnalyzeRetrieveParams
+    id: number | string,
+    params?: InsightsDataChecksRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -579,86 +599,22 @@ export const getInsightsAnalyzeRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/insights/${id}/analyze/?${stringifiedParams}`
-        : `/api/projects/${projectId}/insights/${id}/analyze/`
+        ? `/api/projects/${projectId}/insights/${id}/data_checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${id}/data_checks/`
 }
 
-export const insightsAnalyzeRetrieve = async (
+/**
+ * Run the data checks on a saved insight, found by its numeric id or its `short_id`. The checks read the query the insight stores, and work the same way as the checks on a query that is not saved. The `status` is `unsupported` for an insight that still stores legacy `filters` and no query. Nothing is stored.
+ */
+export const insightsDataChecksRetrieve = async (
     projectId: string,
-    id: number,
-    params?: InsightsAnalyzeRetrieveParams,
+    id: number | string,
+    params?: InsightsDataChecksRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsAnalyzeRetrieveUrl(projectId, id, params), {
+): Promise<InsightDataChecksApi> => {
+    return apiMutator<InsightDataChecksApi>(getInsightsDataChecksRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getInsightsSuggestionsRetrieveUrl = (
-    projectId: string,
-    id: number,
-    params?: InsightsSuggestionsRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/insights/${id}/suggestions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/insights/${id}/suggestions/`
-}
-
-export const insightsSuggestionsRetrieve = async (
-    projectId: string,
-    id: number,
-    params?: InsightsSuggestionsRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsSuggestionsRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getInsightsSuggestionsCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: InsightsSuggestionsCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/insights/${id}/suggestions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/insights/${id}/suggestions/`
-}
-
-export const insightsSuggestionsCreate = async (
-    projectId: string,
-    id: number,
-    insightApi?: NonReadonly<InsightApi>,
-    params?: InsightsSuggestionsCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsSuggestionsCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(insightApi),
     })
 }
 
@@ -873,6 +829,39 @@ export const insightsCancelCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(insightApi),
+    })
+}
+
+export const getInsightsDataChecksCreateUrl = (projectId: string, params?: InsightsDataChecksCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/data_checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/data_checks/`
+}
+
+/**
+ * Check the events behind an insight for the common ways they mislead: internal and test users, local development traffic, bots and crawlers, and events sent twice. Works for trends, funnels, stickiness and lifecycle insights whose series are events. The checks apply the insight's own filters, and read the newest days of its date range, up to 7. The bot and duplicate checks read a sample of those days. For a token, the internal users check matches the emails of the organization's members only with the `organization_member:read` scope, and its verified domains only with `organization:read`. Nothing is stored. This route runs the query it is sent, so it needs query access as well as insight access. To check a saved insight by its id, send a GET request to `insights/{id}/data_checks/`.
+ */
+export const insightsDataChecksCreate = async (
+    projectId: string,
+    insightDataChecksRequestApi: InsightDataChecksRequestApi,
+    params?: InsightsDataChecksCreateParams,
+    options?: RequestInit
+): Promise<InsightDataChecksApi> => {
+    return apiMutator<InsightDataChecksApi>(getInsightsDataChecksCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightDataChecksRequestApi),
     })
 }
 

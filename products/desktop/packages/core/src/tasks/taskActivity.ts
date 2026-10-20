@@ -31,7 +31,7 @@ export function taskActivityAt(
 export function taskActivityTimestamp(
   task: Pick<
     TaskActivityInput,
-    "created_at" | "updated_at" | "last_activity_at" | "latest_run"
+    "created_at" | "updated_at" | "last_activity_at"
   >,
   sortMode: TaskActivitySortMode,
 ): number {
@@ -39,13 +39,10 @@ export function taskActivityTimestamp(
     return new Date(task.created_at).getTime();
   }
 
-  // The run's own timestamp still counts: it is the one activity signal a client talking to a
-  // backend without `last_activity_at` can see move during a run.
-  const runUpdatedAt = task.latest_run?.updated_at;
-  return Math.max(
-    runUpdatedAt ? new Date(runUpdatedAt).getTime() : 0,
-    new Date(taskActivityAt(task)).getTime(),
-  );
+  // `last_activity_at` first, the field the web list orders by. A run's `updated_at` is not part
+  // of this: it moves when that row is written, which for an imported transcript is the moment the
+  // copy ran, not when the chat happened.
+  return new Date(taskActivityAt(task)).getTime();
 }
 
 export function filterAndSortTasks<TaskType extends TaskActivityInput>(

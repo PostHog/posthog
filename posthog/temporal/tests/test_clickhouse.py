@@ -1,12 +1,17 @@
+import json
 import uuid
 import asyncio
 import datetime as dt
 import contextlib
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import aiohttp
+import pyarrow as pa
 
 from posthog.clickhouse.query_tagging import QueryTags
+from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import (
     ClickHouseAllReplicasAreStaleError,
     ClickHouseCheckQueryStatusError,
@@ -234,6 +239,12 @@ def test_post_query_sends_freshly_read_token(tmp_path):
 @pytest.mark.parametrize(
     "query,query_parameters,expected",
     [
+        (
+            # the empty-object sentinel HogQL prints for a native-JSON property read must not become '{0}'
+            "SELECT if(notEquals(x, '{}'), x, %(fallback)s) FROM t WHERE team_id = {{team_id:Int64}}",
+            {"fallback": "{}"},
+            "SELECT if(notEquals(x, '{}'), x, '{}') FROM t WHERE team_id = {team_id:Int64}",
+        ),
         (
             "select * from events where event = {event}",
             {"event": "hello"},
@@ -551,3 +562,179 @@ async def test_stream_query_as_jsonl_handles_whitespace_only_lines(clickhouse_cl
     assert results[0] == {"id": 1}
     assert results[1] == {"id": 2}
     assert results[2] == {"id": 3}
+
+
+class _FakeStreamReader:
+    def __init__(self, data: bytes, chunk_size: int = 64) -> None:
+        self._chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
+
+    async def readchunk(self) -> tuple[bytes, bool]:
+        if self._chunks:
+            return self._chunks.pop(0), True
+        return b"", False
+
+    def at_eof(self) -> bool:
+        return not self._chunks
+
+
+_MEMORY_LIMIT_ERROR = (
+    "Code: 241. DB::Exception: Query memory limit exceeded: would use 10.00 GiB, maximum: 10.00 GiB. "
+    "(MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))"
+)
+_STD_EXCEPTION_ERROR = (
+    "std::exception. Code: 1001, type: std::bad_alloc, e.what() = std::bad_alloc (version x.x.x.x (official build))"
+)
+_POCO_EXCEPTION_ERROR = (
+    "Poco::Exception. Code: 1000, e.code() = 32, e.displayText() = Broken pipe (version x.x.x.x (official build))"
+)
+_MISSING_COLUMN_ERROR = (
+    "Code: 47. DB::Exception: Missing columns: '__exception__' while processing query. "
+    "(UNKNOWN_IDENTIFIER) (version x.x.x.x (official build))"
+)
+
+
+@pytest.mark.parametrize(
+    "tail,expected_exception,expected_message",
+    [
+        (f"{_MEMORY_LIMIT_ERROR}\n".encode(), ClickHouseMemoryLimitExceededError, _MEMORY_LIMIT_ERROR),
+        (
+            f"\r\n__exception__\r\nabcdefgh\r\n{_MEMORY_LIMIT_ERROR}\r\n{len(_MEMORY_LIMIT_ERROR)} abcdefgh\r\n__exception__\r\n".encode(),
+            ClickHouseMemoryLimitExceededError,
+            _MEMORY_LIMIT_ERROR,
+        ),
+        (
+            f"{_MISSING_COLUMN_ERROR}\n".encode(),
+            ClickHouseError,
+            _MISSING_COLUMN_ERROR,
+        ),
+        (f"{_STD_EXCEPTION_ERROR}\n".encode(), ClickHouseError, _STD_EXCEPTION_ERROR),
+        (
+            f"\r\n__exception__\r\nabcdefgh\r\n{_STD_EXCEPTION_ERROR}\r\n{len(_STD_EXCEPTION_ERROR)} abcdefgh\r\n__exception__\r\n".encode(),
+            ClickHouseError,
+            _STD_EXCEPTION_ERROR,
+        ),
+        (f"{_POCO_EXCEPTION_ERROR}\n".encode(), ClickHouseError, _POCO_EXCEPTION_ERROR),
+        (b"not an arrow message and not an error", InvalidMessageFormat, None),
+    ],
+    ids=[
+        "plain_error_tail",
+        "wrapped_error_tail",
+        "error_names_the_wrapper_token",
+        "plain_std_exception_tail",
+        "wrapped_std_exception_tail",
+        "plain_poco_exception_tail",
+        "no_error_in_tail",
+    ],
+)
+async def test_astream_query_as_arrow_raises_error_appended_to_stream(
+    clickhouse_client, tail, expected_exception, expected_message
+):
+    batch = pa.RecordBatch.from_pylist([{"id": i} for i in range(10)])
+    sink = pa.BufferOutputStream()
+    writer = pa.ipc.new_stream(sink, batch.schema)
+    writer.write_batch(batch)
+    # A failed query never writes the end-of-stream marker, so the error follows the last batch.
+    data = sink.getvalue().to_pybytes() + tail
+
+    mock_response = MagicMock()
+    mock_response.content = _FakeStreamReader(data)
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, **kwargs):
+        yield mock_response
+
+    batches = []
+    with patch.object(clickhouse_client, "apost_query", mock_post):
+        with pytest.raises(expected_exception) as exc_info:
+            async for record_batch in clickhouse_client.astream_query_as_arrow("SELECT 1", query_id="test-query"):
+                batches.append(record_batch)
+
+    assert batches == [batch]
+    if expected_message is not None:
+        assert str(exc_info.value) == expected_message
+        assert exc_info.value.query_id == "test-query"
+
+
+class _TruncatedStreamReader(_FakeStreamReader):
+    async def readchunk(self) -> tuple[bytes, bool]:
+        if self._chunks:
+            return await super().readchunk()
+        raise aiohttp.ClientPayloadError("Response payload is not completed")
+
+
+_TIMEOUT_ERROR = (
+    "Code: 159. DB::Exception: Timeout exceeded: elapsed 600001 ms, maximum: 600000 ms. "
+    "(TIMEOUT_EXCEEDED) (version x.x.x.x (official build))"
+)
+
+
+@pytest.mark.parametrize(
+    "query_log_rows,expected_exception",
+    [
+        ([{"type": "ExceptionWhileProcessing", "exception": _TIMEOUT_ERROR}], ClickHouseQueryTimeoutError),
+        ([], aiohttp.ClientPayloadError),
+    ],
+    ids=["query_log_has_the_error", "query_log_has_no_row"],
+)
+async def test_astream_query_as_arrow_reads_query_log_when_the_response_is_cut(
+    clickhouse_client, query_log_rows, expected_exception
+):
+    batch = pa.RecordBatch.from_pylist([{"id": i} for i in range(10)])
+    sink = pa.BufferOutputStream()
+    writer = pa.ipc.new_stream(sink, batch.schema)
+    writer.write_batch(batch)
+
+    mock_response = MagicMock()
+    mock_response.content = _TruncatedStreamReader(sink.getvalue().to_pybytes())
+    posted_query_ids = []
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, query_id=None, **kwargs):
+        posted_query_ids.append(query_id)
+        yield mock_response
+
+    read_query_log = AsyncMock(return_value=query_log_rows)
+    with (
+        patch.object(clickhouse_client, "apost_query", mock_post),
+        patch.object(clickhouse_client, "read_query_as_jsonl", read_query_log),
+        patch("posthog.temporal.common.clickhouse.QUERY_LOG_LOOKUP_INTERVAL_SECONDS", 0),
+    ):
+        with pytest.raises(expected_exception):
+            async for _ in clickhouse_client.astream_query_as_arrow("SELECT 1"):
+                pass
+
+    assert posted_query_ids[0] is not None
+    assert read_query_log.call_args.kwargs["query_parameters"]["query_id"] == posted_query_ids[0]
+
+
+async def test_apost_query_sends_external_tables(clickhouse_client, django_db_setup):
+    table = {
+        "name": "_jev_result",
+        "structure": [
+            ("my `text`", "String"),
+            ("at", "DateTime64(6, 'America/New_York')"),
+            (
+                "decision",
+                "Tuple(choice Nullable(String), probabilities Array(Tuple(value String, probability Float64)), "
+                "confidence Nullable(Float64))",
+            ),
+        ],
+        "data": [
+            {
+                "my `text`": 'say "refund"',
+                "at": dt.datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=dt.UTC),
+                "decision": ["billing", [["billing", 0.9], ["other", 0.1]], 0.9],
+            }
+        ],
+    }
+    query = (
+        "SELECT `my \\`text\\`` AS text, toString(toTimeZone(at, 'UTC')) AS at, decision.choice AS choice, "
+        "decision.probabilities[1].probability AS p FROM _jev_result FORMAT JSONEachRow"
+    )
+
+    async with clickhouse_client.apost_query(
+        query, query_parameters={}, query_id=str(uuid.uuid4()), external_tables=[table]
+    ) as response:
+        row = json.loads(await response.content.read())
+
+    assert row == {"text": 'say "refund"', "at": "2026-01-02 03:04:05.123456", "choice": "billing", "p": 0.9}

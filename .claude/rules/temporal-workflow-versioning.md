@@ -20,6 +20,12 @@ When adding a new activity or child-workflow start to an existing workflow, gate
    value** (e.g. `enrichment_needed: bool = False` in `create_job_model.py`) — old histories decode
    the missing field to the default, so the new command never fires during replay. Only valid when
    the decision comes from recorded history and skipping is acceptable for in-flight runs.
+   **Not safe on its own for skipping or removing an existing command.** In a rolling deploy, old
+   and new pods share the task queue: a new activity can return "skip" into a history that old
+   workflow code wrote with the command still in it. The new code then replays that answer, skips
+   the command, and every replay of that execution fails. Put `workflow.patched(...)` in front of
+   the field (`if workflow.patched("x") and result.skip_it: ...`) so a history without the marker
+   keeps the old command sequence.
 
 Never gate workflow commands on values computed inside the workflow body (feature flags, settings,
 clock, DB reads) — that is itself non-deterministic. Removing/reordering existing commands needs

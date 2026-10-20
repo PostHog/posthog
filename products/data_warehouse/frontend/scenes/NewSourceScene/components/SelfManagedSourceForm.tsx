@@ -7,6 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ManualLinkSourceType } from '~/types'
 
+import { describeStorageProviderMismatch, storageProviderFromUrl } from '../../../shared/storageProvider'
 import { selfManagedSourceLogic } from '../selfManagedSourceLogic'
 import { sourceWizardLogic } from '../sourceWizardLogic'
 
@@ -38,9 +39,12 @@ const ProviderMappings: Record<
         accessSecretLabel: 'Access secret',
     },
     azure: {
+        // The host names the storage account and the first path segment names the container. They
+        // are two different values, so the example has to keep them visibly distinct. Account names
+        // allow no hyphens, container names do.
         fileUrlPatternPlaceholder:
-            'https://your-storage-container.blob.core.windows.net/airbyte/stripe/invoices/*.parquet',
-        accessKeyPlaceholder: 'your-storage-container',
+            'eg: https://yourstorageaccount.blob.core.windows.net/your-container/stripe/invoices/*.parquet',
+        accessKeyPlaceholder: 'eg: yourstorageaccount',
         accessKeyLabel: 'Storage account name',
         accessSecretLabel: 'Account key',
     },
@@ -54,8 +58,10 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
     const { manualLinkingProvider } = useValues(sourceWizardLogic)
     const { table } = useValues(selfManagedSourceLogic)
 
-    const provider = manualLinkingProvider ?? 'aws'
+    // A saved table stores no provider: the backend reads it from the URL host, so the edit form does too.
+    const provider = (onUpdate ? storageProviderFromUrl(table?.url_pattern) : manualLinkingProvider) ?? 'aws'
     const isCsvFormat = table?.format === 'CSV' || table?.format === 'CSVWithNames'
+    const providerMismatch = describeStorageProviderMismatch(table?.url_pattern, provider)
 
     return (
         <Form
@@ -103,6 +109,7 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                 <div className="mb-4 text-xs text-secondary">
                     You can use <strong>*</strong> to select multiple files.
                 </div>
+                {providerMismatch && <div className="mb-4 text-xs text-warning">{providerMismatch}</div>}
                 <LemonField name="format" label="File format" className="mb-4 w-max">
                     {({ value = '', onChange }) => (
                         <LemonSelect
@@ -133,7 +140,7 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                                         { label: 'RFC 4180 double quotes', value: true },
                                         { label: 'Literal quotes', value: false },
                                     ]}
-                                    value={value ?? false}
+                                    value={value ?? true}
                                     onChange={onChange}
                                 />
                             )}
@@ -175,6 +182,13 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                         />
                     )}
                 </LemonField>
+                {provider === 'azure' && (
+                    <div className="text-xs text-secondary">
+                        Find your storage account name and account key in the Azure portal, under the storage account's{' '}
+                        <strong>Security + networking → Access keys</strong>. The storage account name is the first part
+                        of the blob URL above, and the container is the segment right after it.
+                    </div>
+                )}
                 {provider === 'google-cloud' && (
                     <div className="text-xs text-secondary">
                         We use HMAC keys to access your Google Cloud Storage. Find more about generating them{' '}

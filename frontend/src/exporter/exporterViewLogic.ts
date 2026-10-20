@@ -1,14 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { resolveHeatmapUrlFilter } from 'lib/components/heatmaps/heatmapUrlMatch'
 
 import type { HrefMatchType } from '../lib/components/heatmaps/heatmapDataLogic'
 import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from '../lib/components/heatmaps/types'
 import { ExportType, ExportedData } from './types'
-
-const isUrlPattern = (url: string): boolean => {
-    return /[*+?^${}()|[\]\\]/.test(url)
-}
 
 export const heatmapScreenshotFetchOptions = (heatmapUrl: string, exportToken?: string): RequestInit => {
     const requestUrl = new URL(heatmapUrl, window.location.origin)
@@ -136,12 +133,10 @@ export const exporterViewLogic = kea<exporterViewLogicType>([
                 actions.setIsLoading(false)
             }
             if (props.heatmap_context?.heatmap_data_url) {
-                actions.setHref(props.heatmap_context?.heatmap_data_url)
-                if (isUrlPattern(props.heatmap_context?.heatmap_data_url)) {
-                    actions.setHrefMatchType('pattern')
-                } else {
-                    actions.setHrefMatchType('exact')
-                }
+                const dataUrl = props.heatmap_context.heatmap_data_url
+                const urlFilter = resolveHeatmapUrlFilter(dataUrl)
+                actions.setHref(urlFilter?.href ?? dataUrl)
+                actions.setHrefMatchType(urlFilter?.matchType ?? 'exact')
             }
 
             if (props.heatmap_context?.heatmap_filters) {

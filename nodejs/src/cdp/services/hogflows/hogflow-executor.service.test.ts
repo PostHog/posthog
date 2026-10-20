@@ -55,6 +55,7 @@ const cleanLogs = (logs: string[]): string[] => {
 
 describe('Hogflow Executor', () => {
     let executor: HogFlowExecutorService
+    let cohortMembershipRepository: CohortMembershipRepository
     let hogFlowFunctionsService: HogFlowFunctionsService
     let hub: Hub
     let team: Team
@@ -173,14 +174,14 @@ describe('Hogflow Executor', () => {
 
         await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
 
-        const stubCohortMembershipRepository: CohortMembershipRepository = {
+        cohortMembershipRepository = {
             getMemberCohortIds: () => Promise.resolve([]),
         }
         executor = new HogFlowExecutorService(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            stubCohortMembershipRepository,
+            cohortMembershipRepository,
             hub.integrationManager
         )
     })
@@ -1436,7 +1437,6 @@ describe('Hogflow Executor', () => {
                         },
                     ],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
                 }
 
                 // Person does not match conversion filters yet
@@ -1551,7 +1551,6 @@ describe('Hogflow Executor', () => {
                         },
                     ],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
                 }
 
                 // Person does not match conversion filters yet
@@ -1621,7 +1620,6 @@ describe('Hogflow Executor', () => {
                 hogFlow.conversion = {
                     filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
                 } as any
 
                 const invocation = createExampleHogFlowInvocation(
@@ -1645,7 +1643,6 @@ describe('Hogflow Executor', () => {
                 hogFlow.conversion = {
                     filters: [],
                     bytecode: [],
-                    window_minutes: null,
                     events: [{ filters: { bytecode: ['_H', 1, 29] } }],
                 }
 
@@ -1750,6 +1747,35 @@ describe('Hogflow Executor', () => {
                                 expect.stringContaining('Workflow moved to action [Action:middle_action]'),
                             ])
                         )
+                    })
+
+                    // Steps saved before error handling was configurable, and steps the author never
+                    // touched, carry no on_error. They get the documented default: continue.
+                    it('continues to next action when on_error is not set', async () => {
+                        const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
+                        delete action.on_error
+
+                        const functionHandler = executor['actionHandlers']['function']
+                        jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({
+                            error: new Error('Mocked handler error'),
+                        })
+
+                        const invocation = createExampleHogFlowInvocation(hogFlow, {
+                            event: {
+                                ...createHogExecutionGlobals().event,
+                                properties: { name: 'Test User' },
+                            },
+                        })
+                        invocation.state.currentAction = {
+                            id: 'function_id_1',
+                            startedAtTimestamp: DateTime.now().toMillis(),
+                        }
+
+                        const result = await executor.executeCurrentAction(invocation)
+
+                        expect(result.error).toBe('Mocked handler error')
+                        expect(result.finished).toBe(false)
+                        expect(result.invocation.state.currentAction?.id).toBe('middle_action')
                     })
 
                     it('stores the output variable of a failed step so the next action can branch on it', async () => {
@@ -1897,6 +1923,84 @@ describe('Hogflow Executor', () => {
                             expect.arrayContaining([
                                 expect.stringContaining(
                                     'Workflow is aborting because [Action:delay_1] could not work out the date to wait for'
+                                ),
+                            ])
+                        )
+                    })
+
+                    it('does NOT continue past a branch whose cohort lookup failed on every attempt, despite on_error continue', async () => {
+                        jest.spyOn(cohortMembershipRepository, 'getMemberCohortIds').mockRejectedValue(
+                            new Error('lookup timed out')
+                        )
+                        const flow = new FixtureHogFlowBuilder()
+                            .withWorkflow({
+                                actions: {
+                                    trigger: {
+                                        type: 'trigger',
+                                        config: {
+                                            type: 'event',
+                                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                        },
+                                    },
+                                    branch: {
+                                        type: 'conditional_branch',
+                                        config: {
+                                            conditions: [
+                                                {
+                                                    filters: {
+                                                        bytecode: [
+                                                            '_H',
+                                                            1,
+                                                            33,
+                                                            42,
+                                                            32,
+                                                            'cohort_ids',
+                                                            1,
+                                                            1,
+                                                            2,
+                                                            'inCohort',
+                                                            2,
+                                                        ],
+                                                        properties: [{ key: 'id', type: 'cohort', value: 42 }],
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                    },
+                                    in_cohort: { type: 'exit', config: {} },
+                                    not_in_cohort: { type: 'exit', config: {} },
+                                },
+                                edges: [
+                                    { from: 'trigger', to: 'branch', type: 'continue' },
+                                    { from: 'branch', to: 'in_cohort', type: 'branch', index: 0 },
+                                    { from: 'branch', to: 'not_in_cohort', type: 'continue' },
+                                ],
+                            })
+                            .build()
+                        expect(flow.actions.find((a) => a.id === 'branch')!.on_error).toBe('continue')
+
+                        const invocation = createExampleHogFlowInvocation(flow)
+                        invocation.state.currentAction = {
+                            id: 'branch',
+                            startedAtTimestamp: DateTime.now().toMillis(),
+                            cohortLookupAttempts: 2,
+                        }
+
+                        const result = await executor.execute(invocation)
+
+                        expect(result.error).toContain('lookup timed out')
+                        expect(result.finished).toBe(true)
+                        expect(result.invocation.state.currentAction?.id).toBe('branch')
+                        expect(result.logs.map((l) => l.message)).not.toEqual(
+                            expect.arrayContaining([expect.stringContaining('Workflow moved to action')])
+                        )
+                        expect(result.logs.map((l) => l.message)).toEqual(
+                            expect.arrayContaining([
+                                expect.stringContaining(
+                                    'Workflow is aborting because [Action:branch] could not look up cohort membership'
+                                ),
+                                expect.stringContaining(
+                                    'Workflow encountered an error: Cohort membership lookup failed: Error: lookup timed out'
                                 ),
                             ])
                         )

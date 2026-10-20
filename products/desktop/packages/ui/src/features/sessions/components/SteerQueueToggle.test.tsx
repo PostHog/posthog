@@ -28,13 +28,28 @@ function seedSession(overrides: Partial<AgentSession>): void {
   });
 }
 
-describe("steer tooltip copy follows the session's native-steer capability", () => {
+describe("steer/queue tooltip copy", () => {
   beforeEach(() => {
     useSessionStore.setState((state) => {
       state.sessions = {};
       state.taskIdIndex = {};
     });
   });
+
+  // A narrow composer drops the button's "Queue (3)" label for the icon alone,
+  // so the tooltip is the only place the count is still readable.
+  it.each([
+    { queuedCount: 0, expected: "holds messages until the current turn ends." },
+    { queuedCount: 1, expected: "1 message waiting." },
+    { queuedCount: 3, expected: "3 messages waiting." },
+  ])(
+    "queue tooltip names $queuedCount waiting message(s)",
+    ({ queuedCount, expected }) => {
+      expect(steerQueueTooltip(false, false, "Cmd+S", queuedCount)).toContain(
+        expected,
+      );
+    },
+  );
 
   it.each([
     {

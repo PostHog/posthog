@@ -18,7 +18,10 @@ _ANALYTICS_SHARED_COLUMNS: dict[str, str] = {
     "processing_date": (
         "Date Apple processed the report instance the row came from. Rows in an instance can carry earlier data dates."
     ),
-    "_line": "Position of the row within the report instance's files, unique per app and processing date.",
+    "_line": (
+        "Position of the row within the report instance's files, unique per app and processing date. "
+        "Negative for rows backfilled from the one-time historical snapshot."
+    ),
     "date": "Date the events in the row occurred. The first day of the period for weekly or monthly data.",
     "app_name": "Name of the app as set up in App Store Connect.",
     "app_apple_identifier": "Apple ID of the app.",
@@ -149,6 +152,32 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "type": "JSON:API resource type, always `subscriptionGroups`.",
             "app_id": "Identifier of the app the group belongs to.",
             "referenceName": "Name of the group, visible only in App Store Connect.",
+        },
+    },
+    "performance_overviews": {
+        "description": "Xcode's aggregated performance metrics for an app, such as launch time, hangs, memory, battery and disk writes, with one row per metric, population and app version.",
+        "docs_url": "https://developer.apple.com/documentation/appstoreconnectapi/get-v1-apps-_id_-performanceoverviews",
+        "columns": {
+            "app_id": "Identifier of the app the metrics belong to.",
+            "bundle_id": "Bundle ID of the app.",
+            "platform": "Platform the metrics were collected on.",
+            "latest_version": "Latest version of the app that the overview covers.",
+            "category": "Identifier of the metric category, such as launch, hang, memory, battery or disk.",
+            "category_name": "Display name of the metric category.",
+            "metric": "Identifier of the metric within its category.",
+            "metric_name": "Display name of the metric.",
+            "unit": "Identifier of the unit the metric value is measured in.",
+            "unit_name": "Display name of the unit the metric value is measured in.",
+            "percentile": "Population percentile the value describes, such as typical or high-end usage.",
+            "device": "Device class the value was measured on.",
+            "device_marketing_name": "Marketing name of the device the value was measured on.",
+            "version": "App version the value was measured for.",
+            "value": "Measured value of the metric for this version and population, in `unit`.",
+            "error_margin": "Margin of error of the measured value.",
+            "breakdown_value": "Share of the value attributed to the subsystem in `breakdown_subsystem`.",
+            "breakdown_subsystem": "Subsystem that `breakdown_value` is attributed to.",
+            "recommended_goal_value": "Value Apple recommends the metric stays within for this population.",
+            "recommended_goal_detail": "Explanation of the recommended goal.",
         },
     },
     "sales_reports": {

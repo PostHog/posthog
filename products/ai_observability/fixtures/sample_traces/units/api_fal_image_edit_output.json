@@ -1,0 +1,159 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Cleaning up a seller's product photo for a listing",
+  "scenario": "CatalogTouchup takes a seller's plain-language request and their product photo, has one model plan the edit (operation, style, prompt), then hands that prompt and the photo to an image-editing model that returns the cleaned-up photo plus a short confirmation.",
+  "summary": {
+    "events": {
+      "$ai_generation": 2
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "capture-api"
+    ],
+    "providers": [
+      "fal"
+    ],
+    "frameworks": [],
+    "models": [
+      "fal-ai/nano-banana-2/edit",
+      "google/gemini-3.5-flash-lite"
+    ],
+    "content_types": [
+      "image",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "entry_point": "admin",
+        "module_name": "editor-v2",
+        "session_ref_key": "sess_8f21a943-50f4-74ae-fb48-526c48c0f0",
+        "is_manual": false,
+        "$ai_error": null,
+        "platform": "web",
+        "client_tier": "free",
+        "is_duplicate": false,
+        "account_tier": "enterprise",
+        "org_session_id": "7e5e9975-3fac-743d-7045-06d55eda4cea",
+        "$ai_prompt_name": "catalog_edit",
+        "environment": "production",
+        "$ai_latency": 2.825,
+        "workflow_uuid": "648e8252-0fe9-7403-52dc-31c8ade6e1eb",
+        "region": "sjc1a",
+        "$ai_model": "google/gemini-3.5-flash-lite",
+        "image_hash_value": "aae72925c7b559d47e3df9cfa52db2f520162d9e4894ac5135a5ffd1daef7dbd",
+        "$ai_span_id": "span-catalog-edit-decide-8f21a943-50f4",
+        "userId": "user_8f21a943-50f4-74ae-fb48-526c48",
+        "user_lang": "en-US",
+        "hash_id": "055eda0ea776f936e1695b2159724d10",
+        "resolved_model": "google/gemini-3.5-flash-lite:nitro",
+        "$ai_input_tokens": 3460,
+        "account_plan_type": "starter-v2",
+        "$ai_output_tokens": 99,
+        "$ai_session_id": "sess_8f21a943-50f4-74ae-fb48-526c48c0f0",
+        "$ai_is_error": false,
+        "$ai_prompt_version": 6,
+        "$ai_span_name": "decide_edit",
+        "$ai_http_status": 200,
+        "$ai_trace_id": "648e8252-0fe9-7403-52dc-31c8ade6e1eb",
+        "$ai_provider": "fal",
+        "billing_tier_code": "basic",
+        "$ai_input": [
+          {
+            "content": "You are the request planner for CatalogTouchup, a tool that helps small online sellers clean up product photos for their storefront. A seller sends a short request plus a photo of one product, and your job is to turn that into a structured edit plan for the downstream image model.\n\nReturn JSON with these fields:\n- operation: one of \"edit_image\", \"generate_variant\", or \"no_op\" if the request does not actually require changing the image.\n- output_style: a short label describing the target look, such as \"product_clean\", \"lifestyle_scene\", or \"keep_style\".\n- labels: an array of short tags describing what the edit involves (for example \"cleanup\", \"background_swap\", \"color_correct\").\n- prompt: the actual instruction text to hand to the image editing model. Write this the way you would brief a photo retoucher: specific, concrete, and grounded only in what the seller actually asked for.\n- aspect_ratio: either \"match_source_size\" if the seller did not ask for a different shape, or a specific ratio like \"1:1\" or \"16:9\" if they did.\n- variant: null unless the seller explicitly asked for more than one version of the edit.\n- negative_prompt: null unless there is something specific the model should clearly avoid doing (adding text, changing the product's actual color, etc.).\n\nSellers are usually not photographers and describe what they want in plain, sometimes vague language (\"make it look nicer\", \"get rid of the mess in the background\"). Your job is to translate that into something specific enough for an image model to act on without guessing at details the seller did not actually mention.\n\n## Background requests\nWhen a seller asks to \"clean up the background\" or \"get rid of the mess,\" default to a plain white or very light neutral studio background unless they specifically describe a scene (a wood table, a shelf, an outdoor setting). Do not invent props or a scene the seller never mentioned just because it might look nicer; the safest default for a marketplace listing photo is a plain, distraction-free background.\n\n## Removing stickers and labels\nPrice stickers, shipping labels, and barcode stickers are common things sellers want removed from a product photo before listing it, and this is one of the few edits worth calling out explicitly in the prompt (\"remove any visible price sticker or barcode label\") rather than folding it into a generic cleanup instruction, since a downstream model told only to \"clean up the photo\" sometimes leaves small stickers untouched.\n\n## Color and lighting requests\nIf a seller says a photo looks \"too dark\" or \"washed out,\" translate that into a lighting or exposure instruction rather than a full re-edit; do not change the product's actual color while correcting exposure, and say so explicitly in the prompt (\"correct the exposure without shifting the product's true color\") since exposure and color correction models sometimes drift the hue when brightening an image.\n\n## Requests that do not need an edit\nSome incoming requests are really questions (\"does this photo look okay for the listing?\") rather than edit requests, and some are requests the tool cannot help with (\"can you make my product look more expensive than it is\" in a way that would misrepresent it). Use operation \"no_op\" for these rather than forcing an edit plan, and let the response text explain briefly why no edit was made.\n\n## Multiple asks in one message\nA seller message sometimes bundles several asks together (\"clean the background and also crop it square\"). Capture every distinct ask in the labels array and fold all of them into one coherent prompt for the image model, rather than only acting on the first request mentioned and silently dropping the rest.\n\n## Aspect ratio requests\nMost marketplaces want either a square photo or the same shape as the original upload, so default to match_source_size unless the seller mentions a specific platform with known requirements (a square thumbnail, a wide banner) or explicitly states dimensions or a ratio themselves. Do not guess a ratio from context clues like the marketplace name alone if the seller has not said anything about shape.\n\n## Variants\nA seller occasionally asks for a couple of different looks to compare (\"show me it on white and also on a wood table\"), which should set variant to a short label rather than null, and the labels array should reflect that more than one style is being requested so the downstream system knows to produce more than a single output.\n\n## Negative prompts\nUse negative_prompt sparingly and only for something concrete: do not add text or a logo that was not there, do not change the product's actual color or size, do not add a shadow that misrepresents the product's shape. A vague negative_prompt like \"don't make it look fake\" is not useful to the downstream model and should be left out in favor of specific, checkable instructions.\n\n## Writing the prompt field itself\nWrite the prompt as if briefing a competent photo retoucher who has never seen the seller's message, only the photo and your instruction. Reference specific, visible details from the photo when they matter (\"the small sticker on the lower right corner of the mug\") rather than vague instructions (\"clean it up\") that force the image model to guess which specific thing needs fixing.\n\n## Handling low-quality source photos\nA blurry or poorly lit source photo limits what any edit can realistically achieve; do not promise in the prompt something the edit model cannot actually deliver from a low-quality source, such as sharpening detail that was never captured in the original photo. It is fine for the prompt to include a light sharpening or clarity pass, but do not claim it will fully rescue a badly out-of-focus shot.\n\n## Product categories with special handling\nJewelry, glassware, and other reflective or transparent products need a gentler background-removal instruction than opaque matte products, since aggressive background removal often clips a thin ring band or a glass edge; when the product category looks reflective or transparent from the photo, add a note in the prompt asking the model to preserve fine edges carefully.\n\n## Keeping the seller's product true to life\nThe entire point of a marketplace listing photo is that a buyer can trust what they see, so never write a prompt that would change the product's actual appearance in a way a buyer would notice and feel misled by on arrival: no changing the actual color of the item, no adding features it does not have, no exaggerating its size relative to the frame.\n\n## Seasonal and promotional requests\nA seller sometimes asks for a seasonal touch, such as a subtle holiday accent near the product; this is one of the few cases where adding something not physically present in the photo can be appropriate, but keep it clearly cosmetic and separate from the product itself (a small decorative border or backdrop element) rather than anything that could be mistaken for part of the product.\n\n## Batch requests across multiple photos\nIf a seller's message implies they want the same treatment applied across a whole batch of photos rather than just the one attached, note that in the response but still only plan the edit for the single photo actually provided in this request; do not assume you can see or should plan for photos that were not attached to this specific message.\n\n## When the request conflicts with the photo\nOccasionally a seller's description does not match what is visible in the attached photo (they mention a color or feature that is not there). Trust what is visible in the photo over the seller's description for anything the edit plan depends on, and if the mismatch matters for the edit itself, keep the prompt grounded in what the photo actually shows rather than what the seller said.\n\n## Cropping and framing requests\nWhen a seller asks to \"zoom in\" or \"crop it tighter,\" translate this into a specific framing instruction that keeps the entire product visible with a small margin, rather than a crop so tight it clips part of the product; a marketplace listing photo that cuts off part of the item looks like a mistake rather than a stylistic choice.\n\n## Requests involving text overlays\nSome sellers ask for a price, a discount badge, or a logo to be added directly onto the photo. This tool is meant for photo cleanup, not layout design, so treat any text-overlay request as out of scope: set operation to no_op and explain briefly that text and badges should be added in their listing template rather than burned into the photo itself.\n\n## Consistency across a seller's catalog\nWhen a seller mentions wanting this photo to \"match the others,\" and the photo is part of a session that has processed other images for the same catalog, favor the same background tone and framing style used in those earlier edits rather than introducing a new look, so their storefront reads as one consistent set rather than a mismatched collection.\n\n## Confidence and asking for clarification\nThis planner does not have a way to ask the seller a follow-up question mid-request; if the message is genuinely too vague to act on at all (a single word like \"fix\" with no other context), write the most reasonable generic cleanup prompt you can (plain background, gentle color correction) rather than returning no_op, since a seller who attached a photo almost always wants some kind of improvement even when they did not describe it precisely.",
+            "role": "system"
+          },
+          {
+            "content": "Hey, can you clean this up for\nmy Etsy listing?\n\nThere's a price sticker on the\nbottom of the mug, and the\nbackground is kind of a mess\n(mail, a coffee cup).\n\nCan you put it on a plain\nwhite background and take the\nsticker off?\n\nJust needs to look like a\nnormal product photo.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "{\"operation\": \"edit_image\", \"output_style\": \"product_clean\", \"labels\": [\"cleanup1\"], \"prompt\": \"Remove the price sticker and background clutter; place the mug on a plain white studio background.\", \"aspect_ratio\": \"match_source_size\", \"variant\": null, \"negative_prompt\": null}",
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 2302,
+      "distinct_id": "user-1",
+      "properties": {
+        "environment": "production",
+        "$ai_span_name": "execute_image_edit_via_fal",
+        "is_duplicate": false,
+        "request_uuid": "0d8f91c6-1fa9-73cd-e7e2-5543e3f4a19e",
+        "queue_state": "pending",
+        "account_tier": "enterprise",
+        "inference_region": "us-west-2-gpu",
+        "entry_point": "admin",
+        "$ai_span_id": "span-execute-image-edit-8f21a943-50f4-7",
+        "org_session_id": "7e5e9975-3fac-743d-7045-06d55eda4cea",
+        "client_tier": "free",
+        "callback_url_full": "https://api.example.com/v1/catalog/callbacks/edit-complete",
+        "$ai_latency": 14.079,
+        "user_lang": "en-US",
+        "$ai_provider": "fal",
+        "request_payload": "{\"prompt\": \"Remove the price sticker and background clutter; place the mug on a plain white studio background.\", \"image_urls\": [\"https://cdn.example.com/uploads/catalog/8f21a943-50f4-74ae-fb48-526c48c0f015/original.jpg?sig=a91c3d6e0917254&exp=1782950400&acl=read\"], \"aspect_ratio\": \"16:9\", \"num_images\": 1, \"output_format\": \"png\", \"guidance_scale\": \"6\"}",
+        "system_note": "Retrying with a shorter prompt after the first attempt exceeded the model's token limit.",
+        "module_name": "editor-v2",
+        "platform": "web",
+        "region": "sjc1a",
+        "kind": "image",
+        "workflow_uuid": "648e8252-0fe9-7403-52dc-31c8ade6e1eb",
+        "watermark_added": false,
+        "error_code_ref": null,
+        "$ai_model": "fal-ai/nano-banana-2/edit",
+        "product_catalog_id": "item_oUh3iCum",
+        "userId": "user_8f21a943-50f4-74ae-fb48-526c48",
+        "session_ref_key": "sess_8f21a943-50f4-74ae-fb48-526c48c0f0",
+        "$ai_session_id": "sess_8f21a943-50f4-74ae-fb48-526c48c0f0",
+        "$ai_error": null,
+        "$ai_is_error": false,
+        "$ai_trace_id": "648e8252-0fe9-7403-52dc-31c8ade6e1eb",
+        "providerRequestId": "d3b4f4d8-0445-7ab1-4d63-f1d89d7de3f6",
+        "input_image_url": "https://cdn.example.com/uploads/catalog/8f21a943-50f4-74ae-fb48-526c48c0f015/edited-v2-final.jpg?sig=b6e0917254",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "Remove the price sticker and background clutter; place the mug on a plain white studio background.",
+                "type": "text"
+              },
+              {
+                "image": "data:image/jpeg;base64,⟦media:api_fal_image_edit_output__M3745877.jpg⟧",
+                "type": "image"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "image": "data:image/jpeg;base64,⟦media:api_fal_image_edit_output__M7704951.jpg⟧",
+                "type": "image"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": "Removed the price sticker and replaced the background with plain white, matching your other catalog photos.",
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

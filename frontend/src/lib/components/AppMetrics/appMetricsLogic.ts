@@ -33,9 +33,11 @@ export type AppMetricsCommonParams = {
     /** Match all app_source_ids starting with this prefix (e.g. `<hog flow id>/` for versioned hog flow metrics). */
     appSourceIdPrefix?: string
     instanceId?: string
+    /** Match any of these instance IDs. */
+    instanceIds?: string[]
     metricName?: string | string[]
     metricKind?: string | string[]
-    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id'
+    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id' | 'instance_id'
     interval?: 'day' | 'hour' | 'minute'
     dateFrom?: string
     dateTo?: string
@@ -48,6 +50,8 @@ export type AppMetricsLogicProps = {
     loadOnChanges?: boolean
     /** If true, loads data immediately when logic mounts. Default: false */
     loadOnMount?: boolean
+    /** Set false when the caller never shows the previous-period comparison. Default: true */
+    loadPreviousPeriod?: boolean
 }
 
 export type AppMetricsTimeSeriesRequest = AppMetricsCommonParams
@@ -111,6 +115,9 @@ export const loadAppMetricsTotals = async (
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
+    }
+    if (request.instanceIds) {
+        query = (query + hogql`\nAND instance_id IN ${request.instanceIds}`) as HogQLQueryString
     }
     if (request.metricName) {
         const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]
@@ -224,6 +231,9 @@ export const loadAppMetricsTimeSeries = async (
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
+    }
+    if (request.instanceIds) {
+        query = (query + hogql`\nAND instance_id IN ${request.instanceIds}`) as HogQLQueryString
     }
     if (request.metricName) {
         const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]
@@ -522,7 +532,9 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         // Auto-load data immediately on mount if explicitly requested
         if (props.loadOnMount) {
             actions.loadAppMetricsTrends()
-            actions.loadAppMetricsTrendsPreviousPeriod()
+            if (props.loadPreviousPeriod ?? true) {
+                actions.loadAppMetricsTrendsPreviousPeriod()
+            }
         }
     }),
 
@@ -539,7 +551,9 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             if (props.loadOnChanges ?? true) {
                 if (values.appMetricsTrends !== null) {
                     actions.loadAppMetricsTrends()
-                    actions.loadAppMetricsTrendsPreviousPeriod()
+                    if (props.loadPreviousPeriod ?? true) {
+                        actions.loadAppMetricsTrendsPreviousPeriod()
+                    }
                 }
             }
         },

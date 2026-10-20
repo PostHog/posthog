@@ -1,9 +1,11 @@
+from datetime import date
 from typing import Optional, cast
 
 import structlog
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, INSTAGRAM_OAUTH_SCOPE, InstagramIntegration
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -13,7 +15,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -54,11 +60,14 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class InstagramSource(ResumableSource[InstagramSourceConfig, InstagramResumeConfig], OAuthMixin):
+    codebase_detection = detect(env=("^INSTAGRAM_",))
+
     api_docs_url = "https://developers.facebook.com/docs/instagram-platform"
     # Meta pins the Graph API by URL path segment and keeps each version alive for
     # roughly two years, so the pin is a real choice rather than a constant.
     supported_versions = ("v22.0", "v23.0", "v26.0")
     default_version = "v26.0"
+    deprecated_versions = (VersionDeprecation(version="v22.0", sunset_at=date(2027, 5, 20)),)
 
     lists_tables_without_credentials = True
 
@@ -136,6 +145,14 @@ Connect your Instagram account, then pick the professional account you want to s
                 "The Instagram connection for this source no longer exists. Reconnect your Instagram account."
             ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `instagram.py`'s `InstagramClient.get` already retries these in-process via tenacity
+        # (5 attempts, exponential backoff) before re-raising `InstagramRetryableError`. A
+        # 429/5xx/throttle/transient code that survives all 5 attempts is a momentary Meta Graph
+        # API blip, not a bug — Temporal's activity retry recovers once it clears, so keep it out
+        # of error tracking as noise.
+        return {"Instagram API error (retryable)"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.canonical_descriptions import (  # noqa: PLC0415

@@ -19,7 +19,7 @@ export function MetricChecksPanel({ metricId, newCheckDisabledReason }: MetricCh
             columns={[]}
             hideTitle
             newCheckDisabledReason={newCheckDisabledReason}
-            notice={checks.length > 0 ? <DataQualitySchedule metricId={metricId} /> : undefined}
+            notice={checks.length > 0 ? <DataQualitySchedule subjectType="metric" subjectId={metricId} /> : undefined}
         />
     )
 }

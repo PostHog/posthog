@@ -3,15 +3,21 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.test import override_settings
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
-from temporalio.exceptions import ApplicationError
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
+from temporalio.contrib.opentelemetry import OpenTelemetryInterceptor
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory, CancelledError
 from temporalio.testing import ActivityEnvironment
+from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
@@ -132,6 +138,20 @@ async def _run_prepare_local_wizard(input: ProvisionedWizardWorker) -> None:
 
 async def _run_execute_wizard(input: PreparedGitRepositoryWorkspace) -> None:
     await ActivityEnvironment().run(execute_wizard, input)
+
+
+async def _invoke_activity(input: ExecuteActivityInput) -> None:
+    await input.fn(*input.args)
+
+
+async def _run_traced_execute_wizard(input: PreparedGitRepositoryWorkspace) -> None:
+    downstream = MagicMock(spec=ActivityInboundInterceptor)
+    downstream.execute_activity = AsyncMock(side_effect=_invoke_activity)
+    interceptor = OpenTelemetryInterceptor(add_temporal_spans=True).intercept_activity(downstream)
+    await ActivityEnvironment().run(
+        interceptor.execute_activity,
+        ExecuteActivityInput(fn=execute_wizard, args=[input], executor=None, headers={}),
+    )
 
 
 async def _run_create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
@@ -265,17 +285,34 @@ def test_clone_repository_keeps_transient_clone_failure_retryable(team, user) ->
 
 
 @pytest.mark.parametrize(
-    "worker_error, error_type",
+    "worker_error, error_type, non_retryable",
     (
-        (WizardWorkerTimeoutError(), WIZARD_WORKER_TIMEOUT_ERROR_TYPE),
-        (WizardWorkerExecutionError("execution", 1), WIZARD_WORKER_EXECUTION_ERROR_TYPE),
+        (WizardWorkerTimeoutError(), WIZARD_WORKER_TIMEOUT_ERROR_TYPE, True),
+        (
+            WizardWorkerExecutionError("execution", 1, detail="fake-wizard-api-key-for-test"),
+            WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+            True,
+        ),
         (
             WizardWorkerExecutionError("execution", 1, wizard_error_code="PHW_DETECT_NO_POSTHOG_SDK"),
             "PHW_DETECT_NO_POSTHOG_SDK",
+            True,
+        ),
+        (RuntimeError("fake-wizard-api-key-for-test"), "RuntimeError", False),
+        (
+            ApplicationError(
+                "fake-wizard-api-key-for-test",
+                {"credential": "fake-wizard-api-key-for-test"},
+                type="ProviderUnavailable",
+                next_retry_delay=timedelta(seconds=10),
+                category=ApplicationErrorCategory.BENIGN,
+            ),
+            "ProviderUnavailable",
+            False,
         ),
     ),
 )
-def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: str) -> None:
+def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: str, non_retryable: bool) -> None:
     workspace = PreparedGitRepositoryWorkspace(
         team_id=7,
         run_id=uuid4(),
@@ -285,7 +322,12 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
         github_integration_id=456,
     )
 
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
     with (
+        patch("temporalio.contrib.opentelemetry._otel_interceptor.get_tracer", provider.get_tracer),
         patch("products.wizard.backend.temporal.activities.execution.wizard_facade.update_run_stage"),
         patch("products.wizard.backend.temporal.activities.execution.wizard_facade.get_run") as get_run,
         patch(
@@ -296,7 +338,9 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
     ):
         get_run.return_value.program.command = ()
         get_run.return_value.program.wizard_version = "2.60.0"
-        async_to_sync(_run_execute_wizard)(workspace)
+        async_to_sync(_run_traced_execute_wizard)(workspace)
+
+    provider.shutdown()
 
     execute.assert_called_once_with(
         WizardExecutionRequest(
@@ -308,6 +352,45 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
         )
     )
     assert error.value.type == error_type
+    assert error.value.non_retryable is non_retryable
+    assert error.value.message == "Wizard activity failed."
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    assert not error.value.details
+    if isinstance(worker_error, ApplicationError):
+        assert error.value.next_retry_delay == worker_error.next_retry_delay
+        assert error.value.category == worker_error.category
+
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 1
+    span = spans[0]
+    assert span.name.startswith("RunActivity:")
+    if not isinstance(worker_error, ApplicationError) or worker_error.category != ApplicationErrorCategory.BENIGN:
+        assert span.status.status_code == StatusCode.ERROR
+    assert span.events
+    assert "fake-wizard-api-key-for-test" not in span.to_json()
+
+
+def test_execute_wizard_preserves_cancellation() -> None:
+    workspace = PreparedGitRepositoryWorkspace(
+        team_id=7,
+        run_id=uuid4(),
+        sandbox_id="worker-id",
+        repository="posthog/posthog",
+        root_path="/tmp/workspace/repos/posthog/posthog",
+        github_integration_id=456,
+    )
+    cancellation = CancelledError("Activity cancelled")
+    with (
+        patch(
+            "products.wizard.backend.temporal.activities.execution.wizard_facade.update_run_stage",
+            side_effect=cancellation,
+        ),
+        pytest.raises(CancelledError) as error,
+    ):
+        async_to_sync(_run_execute_wizard)(workspace)
+
+    assert error.value is cancellation
 
 
 @pytest.mark.django_db(transaction=True)

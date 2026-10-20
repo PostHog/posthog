@@ -21,14 +21,16 @@ import structlog
 import posthoganalytics
 
 from posthog.event_usage import groups
+from posthog.models.user import User
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
     render_report_documents,
 )
-from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
+from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 if TYPE_CHECKING:
@@ -36,7 +38,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Status.RESOLVED})
+_SNOOZE_SOURCE_STATUSES = frozenset(
+    {SignalReport.Status.READY, SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
+)
 
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
@@ -116,6 +120,7 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
         # the signals contracts, both forbidden at django.setup() by the startup-import-budget test.
         from products.signals.backend.pull_requests import apply_report_completion
         from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments  # noqa: PLC0415
+        from products.signals.backend.stack_plan import schedule_dependent_layers  # noqa: PLC0415
         from products.signals.backend.tasks import link_report_tracker_issues  # noqa: PLC0415
         from products.tasks.backend.facade.api import read_pr_urls
 
@@ -153,6 +158,7 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
                     )
             for report in reports:
                 apply_report_completion(report)
+            schedule_dependent_layers(team_id=instance.team_id, report_ids=[str(report.id) for report in reports])
     except Exception:
         logger.exception("signals.task_run_pr_assignment_sync_failed", task_run_id=str(instance.id))
 
@@ -263,6 +269,41 @@ def capture_prior_state(
     )
 
 
+def _transition_actor(instance: SignalReport) -> ArtefactAttribution | None:
+    """Who asked for this transition, when the caller set `_transition_actor` before the save."""
+    return getattr(instance, "_transition_actor", None)
+
+
+def _transition_actor_user(instance: SignalReport) -> User | None:
+    """The actor's already-loaded user, when the caller set `_transition_actor_user` before the save."""
+    return getattr(instance, "_transition_actor_user", None)
+
+
+def _actor_properties(actor: ArtefactAttribution | None, actor_user: User | None = None) -> dict[str, Any]:
+    """Actor properties for the status-change label. A transition with no caller-set actor is `system`."""
+    actor = actor or ArtefactAttribution.system()
+    properties: dict[str, Any] = {
+        "actor_kind": actor.kind,
+        "actor_user_uuid": None,
+        "actor_distinct_id": None,
+        "actor_agent": actor.agent_name,
+        "actor_task_id": actor.task_id,
+    }
+    if actor.user_id is None:
+        return properties
+    # The bulk-state endpoint transitions up to 100 reports for one actor, so it passes the request
+    # user to skip a repeat lookup per report.
+    if actor_user is not None and actor_user.id == actor.user_id:
+        properties["actor_user_uuid"] = str(actor_user.uuid)
+        properties["actor_distinct_id"] = actor_user.distinct_id
+        return properties
+    user = User.objects.filter(id=actor.user_id).values("uuid", "distinct_id").first()
+    if user is not None:
+        properties["actor_user_uuid"] = str(user["uuid"])
+        properties["actor_distinct_id"] = user["distinct_id"]
+    return properties
+
+
 def _status_changed_on_this_save(
     instance: SignalReport,
     *,
@@ -333,7 +374,8 @@ def close_pr_when_report_dismissed(
     # The person who asked for this transition, when a caller set it before the save. GitHub
     # credits the App for the close, so the comment left beside it is the only place they appear.
     # Absent on every automated transition (PR webhook, judges, temporal), which stays unattributed.
-    actor_user_id = getattr(instance, "_transition_actor_user_id", None)
+    actor = _transition_actor(instance)
+    actor_user_id = actor.user_id if actor is not None else None
     reason = _pr_close_reason(
         instance,
         created=created,
@@ -374,6 +416,135 @@ def close_pr_when_report_dismissed(
             actor_user_id=actor_user_id,
         )
     )
+
+
+@receiver(post_save, sender=SignalReport)
+def arm_pending_checks_when_report_resolved(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Use the shared status transition so every implementation path starts the same soak clock."""
+    prior_status = getattr(instance, "_prior_status", None)
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=prior_status
+    ):
+        return
+    effective_status = instance.effective_status
+    if effective_status not in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+        if prior_status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+            from products.signals.backend.report_check_execution import park_report_checks_on_reopen
+
+            park_report_checks_on_reopen(team_id=instance.team_id, report_id=str(instance.id), now=timezone.now())
+        return
+    team_id = instance.team_id
+    report_id = str(instance.id)
+    monitoring_started_at = (
+        instance.monitoring_started_at if effective_status == SignalReport.Status.MONITORING else None
+    )
+    if effective_status == SignalReport.Status.MONITORING and monitoring_started_at is None:
+        return
+    resolved_at = monitoring_started_at or timezone.now()
+    # After commit so a rollback cannot start measurement; the callback also verifies the captured period.
+    transaction.on_commit(
+        partial(
+            _arm_pending_checks_safely,
+            team_id=team_id,
+            report_id=report_id,
+            resolved_at=resolved_at,
+            expected_monitoring_started_at=monitoring_started_at,
+        )
+    )
+
+
+# A step that reached one of these is done, so the plans above it are re-read for their verdict.
+# A deleted step is dropped from that verdict, which can leave the rest of them unanimous.
+_PLAN_ROLLUP_CLOSED_STATUSES = frozenset(
+    {
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.DELETED,
+    }
+)
+
+# The statuses a plan's own run lands in that `transition_to` still allows a resolve from. A plan
+# whose steps all closed while it was still running is unresolvable when the last step's close
+# fires, and no later step event retries it, so it is re-read when its own run lands instead.
+_PLAN_ROLLUP_RETRY_STATUSES = frozenset(
+    {
+        SignalReport.Status.READY,
+        SignalReport.Status.PENDING_INPUT,
+        SignalReport.Status.FAILED,
+    }
+)
+
+
+@receiver(post_save, sender=SignalReport)
+def roll_up_plan_parents_when_report_closes(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Close the plans this report is `part_of`, once it closes itself.
+
+    Hooked on the model rather than on each caller for the same reason the pending-check arming is:
+    a step closes through a merged pull request's webhook, a manual resolve, a bulk state change,
+    or an MCP state write, and all of them finish in a ``save``.
+
+    The roll-up walks the whole ancestor chain itself and marks the reports it moved, so this
+    receiver stops on its own writes instead of starting a second walk per level.
+    """
+    if instance.effective_status not in _PLAN_ROLLUP_CLOSED_STATUSES | _PLAN_ROLLUP_RETRY_STATUSES:
+        return
+    if getattr(instance, "_plan_rollup", False):
+        return
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    team_id = instance.team_id
+    report_id = str(instance.id)
+    # After commit, so a rolled-back close never closes a plan, and best-effort: the step's own
+    # verdict is the outcome that matters, and a plan left open is recoverable by hand.
+    transaction.on_commit(
+        partial(
+            _roll_up_plan_parents_safely,
+            team_id=team_id,
+            report_id=report_id,
+            include_report=instance.status in _PLAN_ROLLUP_RETRY_STATUSES,
+        )
+    )
+
+
+def _roll_up_plan_parents_safely(*, team_id: int, report_id: str, include_report: bool = False) -> None:
+    from products.signals.backend.plan_rollup import roll_up_plan_parents  # noqa: PLC0415
+
+    try:
+        roll_up_plan_parents(team_id=team_id, report_id=report_id, include_report=include_report)
+    except Exception:
+        logger.exception("signals.plan_rollup.failed", report_id=report_id, team_id=team_id)
+
+
+def _arm_pending_checks_safely(
+    *, team_id: int, report_id: str, resolved_at: datetime, expected_monitoring_started_at: datetime | None = None
+) -> None:
+    # Function-local: the authoring module reaches the execution module and from there the alerts
+    # facade, which the startup-import-budget test keeps off django.setup().
+    from products.signals.backend.report_check_authoring import arm_pending_checks  # noqa: PLC0415
+
+    try:
+        arm_pending_checks(
+            team_id=team_id,
+            report_id=report_id,
+            resolved_at=resolved_at,
+            expected_monitoring_started_at=expected_monitoring_started_at,
+        )
+    except Exception:
+        logger.exception("signals.report_check.arm_on_resolve_failed", report_id=report_id, team_id=team_id)
 
 
 @receiver(post_save, sender=SignalReport)
@@ -604,6 +775,28 @@ def reconcile_report_embedding_on_verdict_saved(
     _reconcile_report_embedding_with_verdict(instance)
 
 
+def _sync_report_latest_actionability(instance: SignalReportArtefact) -> None:
+    if instance.type != SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
+        return
+    SignalReport.refresh_latest_actionability(team_id=instance.team_id, report_id=instance.report_id)
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def sync_report_latest_actionability_on_save(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Keep the report's cached actionability equal to its newest judgment.
+
+    On the artefact write path rather than at each producer, because a judgment reaches a report
+    from the research pipeline, a custom agent, a scout edit, the artefact REST API and the MCP
+    tools. Not gated on `created`, because `update_content` edits a judgment row in place.
+    """
+    _sync_report_latest_actionability(instance)
+
+
 def _deleted_directly(origin: Any) -> bool:
     """Whether a delete was issued against artefacts themselves rather than cascading from a report.
 
@@ -638,6 +831,40 @@ def reconcile_report_embedding_on_verdict_deleted(
     _reconcile_report_embedding_with_verdict(instance)
 
 
+@receiver(post_delete, sender=SignalReportArtefact)
+def sync_report_latest_actionability_on_delete(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    origin: Any = None,
+    **kwargs: Any,
+) -> None:
+    """Deleting the newest judgment reverts the report to the one before it.
+
+    Skipped for a cascade, where the report itself is going away, so a team teardown does not pay
+    a read and a write per artefact for a row nobody will read.
+    """
+    if not _deleted_directly(origin):
+        return
+    _sync_report_latest_actionability(instance)
+
+
+def _status_change_properties(
+    instance: SignalReport, previous_status: str, *, pending_reason: str | None
+) -> dict[str, Any]:
+    return {
+        "team_id": instance.team_id,
+        "report_id": str(instance.id),
+        "previous_status": previous_status,
+        "status": instance.status,
+        "signal_count": instance.signal_count,
+        "total_weight": instance.total_weight,
+        "run_count": instance.run_count,
+        "report_created_at": instance.created_at.isoformat() if instance.created_at else None,
+        "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
+        "pending_reason": pending_reason,
+    }
+
+
 @receiver(post_save, sender=SignalReport)
 def capture_status_change_analytics(
     sender: type[SignalReport],
@@ -669,18 +896,7 @@ def capture_status_change_analytics(
     )
 
     # Snapshot now — the instance may be mutated again before the commit callback runs.
-    properties = {
-        "team_id": instance.team_id,
-        "report_id": str(instance.id),
-        "previous_status": prior_status,
-        "status": instance.status,
-        "signal_count": instance.signal_count,
-        "total_weight": instance.total_weight,
-        "run_count": instance.run_count,
-        "report_created_at": instance.created_at.isoformat() if instance.created_at else None,
-        "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
-        "pending_reason": pending_reason,
-    }
+    properties = _status_change_properties(instance, prior_status, pending_reason=pending_reason)
     report_id = str(instance.id)
     new_status = instance.status
     team = instance.team
@@ -690,6 +906,8 @@ def capture_status_change_analytics(
     # caller supplied it — a PR-merge resolve from the tasks webhook writes none, and must not pick
     # up an unrelated earlier reason that happens to fall inside the freshness window.
     wrote_dismissal_feedback = bool(getattr(instance, "_wrote_dismissal_feedback", False))
+    actor = _transition_actor(instance)
+    actor_user = _transition_actor_user(instance)
 
     def _capture() -> None:
         try:
@@ -714,6 +932,7 @@ def capture_status_change_analytics(
                 properties={
                     **properties,
                     "previous_status": previous_status,
+                    **_actor_properties(actor, actor_user),
                     **_classification_snapshot(
                         report_id,
                         include_dismissal=wrote_dismissal_feedback
@@ -729,6 +948,39 @@ def capture_status_change_analytics(
 
     # After commit so a rolled-back transition never emits a phantom label. Post-commit also means
     # artefacts written in the same transaction (e.g. the dismissal) are visible to the snapshot.
+    transaction.on_commit(_capture)
+
+
+def capture_verdict_reason_added_analytics(instance: SignalReport) -> None:
+    """Emit `signal_report_status_changed` when a reason lands on a verdict the report already holds.
+
+    The state API skips the save for a repeated verdict, so the receiver above stays quiet. The Today
+    home sets the verdict first and sends the reason in a second call, so without this event the
+    ranking labels never see the reason. `previous_status` equals `status` and `reason_added` is true,
+    so a reader that counts real transitions can filter the event out.
+    """
+    properties = {
+        **_status_change_properties(instance, instance.status, pending_reason=None),
+        "reason_added": True,
+    }
+    report_id = str(instance.id)
+    team = instance.team
+    transition_at = timezone.now()
+
+    def _capture() -> None:
+        try:
+            posthoganalytics.capture(
+                event="signal_report_status_changed",
+                distinct_id=str(team.uuid),
+                properties={
+                    **properties,
+                    **_classification_snapshot(report_id, include_dismissal=True, transition_at=transition_at),
+                },
+                groups=groups(team.organization, team),
+            )
+        except Exception:
+            logger.exception("Failed to capture signal_report_status_changed", report_id=report_id)
+
     transaction.on_commit(_capture)
 
 
@@ -813,6 +1065,70 @@ def mark_scout_suggestions_stale_on_fleet_change(sender: Any, instance: Any, **k
     if update_fields is not None and "enabled" not in update_fields:
         return
     try:
+        # Call-time import inside the guard: scout_harness reaches the tasks facade contracts
+        # (pydantic-heavy), which must not load in every process at django.setup() just to wire
+        # this receiver, and an import failure must not fail the config write either.
+        from products.signals.backend.scout_harness.suggestions import (
+            mark_stale_if_fleet_changed,  # noqa: PLC0415 — keeps the heavy dep off the import path
+        )
+
         mark_stale_if_fleet_changed(instance.team_id)
     except Exception:
         logger.warning("scout_suggestions: failed to mark batch stale", team_id=instance.team_id, exc_info=True)
+
+
+@receiver(post_save, sender="signals.SignalScoutConfig")
+def requeue_report_checks_on_scout_resume(sender: Any, instance: Any, **kwargs: Any) -> None:
+    """A resumed scout answers the report checks its pause deferred on the next coordinator tick.
+    Saves that leave the scout paused, or that cannot change `enabled`, skip the write, and nothing
+    here may fail the config write."""
+    update_fields = kwargs.get("update_fields")
+    if not instance.enabled or (update_fields is not None and "enabled" not in update_fields):
+        return
+    try:
+        from products.signals.backend.report_check_agent import (
+            requeue_checks_waiting_on_scout,  # noqa: PLC0415 — keeps the scout run gates off the django.setup() path
+        )
+
+        requeue_checks_waiting_on_scout(instance.team_id, instance.skill_name)
+    except Exception:
+        logger.warning(
+            "signals.report_check.requeue_on_resume_failed",
+            team_id=instance.team_id,
+            skill_name=instance.skill_name,
+            exc_info=True,
+        )
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def sync_suggested_reviewer_index_on_save(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Rebuild the report's reviewer index whenever a reviewers row is written.
+
+    Not gated on `created`: `update_content` edits a reviewers row in place, and editing the
+    current row changes the report's reviewer set.
+    """
+    if instance.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+        return
+    sync_suggested_reviewer_index(team_id=instance.team_id, report_id=str(instance.report_id))
+
+
+@receiver(post_delete, sender=SignalReportArtefact)
+def sync_suggested_reviewer_index_on_delete(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    origin: Any = None,
+    **kwargs: Any,
+) -> None:
+    """Deleting the current reviewers row reverts the set to the previous one, or to none.
+
+    Skipped for a cascade: the index rows go down with the report that owns them, so rebuilding
+    per artefact on the way down would only spend queries to reach the same empty state.
+    """
+    if instance.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS or not _deleted_directly(origin):
+        return
+    sync_suggested_reviewer_index(team_id=instance.team_id, report_id=str(instance.report_id))

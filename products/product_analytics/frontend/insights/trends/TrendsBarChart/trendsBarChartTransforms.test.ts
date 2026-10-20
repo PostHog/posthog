@@ -113,10 +113,8 @@ describe('buildTrendsBarAggregatedSeries', () => {
 
     it('splits same-label results into separate bands when they come from different series (no breakdown)', () => {
         // Four trends series of the same event surface label="$pageview" each but have
-        // distinct action.order — they should not collapse onto one band.
-        const results = [0, 1, 2, 3].map((order) =>
-            mkResult({ id: `r${order}`, label: '$pageview', action: { order } })
-        )
+        // distinct order — they should not collapse onto one band.
+        const results = [0, 1, 2, 3].map((order) => mkResult({ id: `r${order}`, label: '$pageview', order }))
         const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
         expect(displayLabels).toEqual(['$pageview', '$pageview', '$pageview', '$pageview'])
         expect(new Set(labels).size).toBe(4)
@@ -329,6 +327,34 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
     ])('$name', ({ input, expected }) => {
         const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView: false, isGrouped: false, ...input })
         expect(cfg.xAxis).toEqual(expected)
+    })
+
+    it.each([
+        { name: 'leaves axes visible by default', hideAxes: undefined, expectedHide: undefined },
+        { name: 'hides axes while preserving their configuration', hideAxes: true, expectedHide: true },
+    ])('$name', ({ hideAxes, expectedHide }) => {
+        const tickFormatter = (value: string): string => `tick:${value}`
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: false,
+            isGrouped: false,
+            hideAxes,
+            interval: 'week',
+            timezone: 'UTC',
+            allDays: ['2024-01-01', '2024-01-08'],
+            xAxisLabel: 'Signup date',
+            yAxisLabel: 'Total events',
+            xAxisTickFormatter: tickFormatter,
+        })
+
+        expect(cfg.xAxis).toMatchObject({
+            label: 'Signup date',
+            timezone: 'UTC',
+            interval: 'week',
+            allDays: ['2024-01-01', '2024-01-08'],
+            tickFormatter,
+            hide: expectedHide,
+        })
+        expect(cfg.yAxis).toMatchObject({ label: 'Total events', showGrid: true, hide: expectedHide })
     })
 
     it('forwards the y-axis from buildTrendsYAxisConfig with showGrid: true', () => {

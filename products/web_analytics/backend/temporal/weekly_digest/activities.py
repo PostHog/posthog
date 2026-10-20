@@ -24,12 +24,12 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
+from posthog.temporal.common.digest import OrgBatchPageResult, paginate_index, paginate_keyset
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.user_permissions import UserPermissions
 
 from products.web_analytics.backend import weekly_digest
 from products.web_analytics.backend.recap import recap_url_for_team
-from products.web_analytics.backend.temporal.digest_common import OrgBatchPageResult, paginate_index, paginate_keyset
 from products.web_analytics.backend.temporal.weekly_digest.types import (
     WA_DIGEST_EMAIL_UNAVAILABLE_TYPE,
     DigestBatchInput,
@@ -455,7 +455,8 @@ def _send_test_digest(email: str, team_id: int | None = None) -> None:
             user=user,
             org=team.organization,
             membership=membership,
-            team_digest_data={team.id: weekly_digest.build_team_digest(team)},
+            # No user runs these queries. `_send_digest_for_user` drops the teams that the recipient cannot access.
+            team_digest_data={team.id: weekly_digest.build_team_digest(team, bypass_warehouse_access_control=True)},
             date_suffix=date_suffix,
             test=True,
         )
@@ -481,7 +482,10 @@ def _send_test_digest(email: str, team_id: int | None = None) -> None:
         org_teams = list(Team.objects.filter(organization_id=org.id))
         if not org_teams:
             continue
-        team_digest_data = {t.id: weekly_digest.build_team_digest(t) for t in org_teams}
+        # No user runs these queries. `_send_digest_for_user` drops the teams that the recipient cannot access.
+        team_digest_data = {
+            t.id: weekly_digest.build_team_digest(t, bypass_warehouse_access_control=True) for t in org_teams
+        }
         outcome = _send_digest_for_user(
             user=user,
             org=org,

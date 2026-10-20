@@ -1,3 +1,4 @@
+from .bake_dev_stack_image.activation import ActivateDevStackImageWorkflow, activate_dev_stack_image
 from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
 from .bake_dev_stack_image.workflow import BakeDevStackImageWorkflow
 from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
@@ -11,7 +12,7 @@ from .create_snapshot.activities import (
     setup_repository as snapshot_setup_repository,
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
-from .loops import RunLoopWorkflow, run_loop_trigger_activity
+from .gateway_usage import TaskRunGatewayUsageWorkflow, reconcile_gateway_usage
 from .process_task.activities import (
     await_agent_server_ready,
     checkout_branch_in_sandbox,
@@ -19,12 +20,14 @@ from .process_task.activities import (
     clone_repository_in_sandbox,
     collect_agent_shadow_result,
     complete_run_stream,
+    complete_signal_spend,
     create_resume_snapshot,
     create_sandbox_for_repository,
     emit_progress_activity,
     enforce_self_driving_run_quota,
     execute_task_in_sandbox,
     forward_pending_user_message,
+    get_sandbox_exit_reason,
     get_sandbox_for_repository,
     get_task_processing_context,
     inject_fresh_tokens_on_resume,
@@ -55,6 +58,7 @@ from .process_task.activities import (
 from .process_task.activities.feature_flags import is_slack_app_agent_design_enabled_for_task_activity
 from .process_task.activities.get_pr_babysit_snapshot import get_pr_babysit_snapshot
 from .process_task.activities.get_pr_context import get_pr_context
+from .process_task.activities.mark_pr_ready import mark_pr_ready
 from .process_task.activities.slack_agent_design import (
     append_slack_agent_design_steps,
     start_slack_agent_design_stream,
@@ -65,16 +69,18 @@ from .process_task.workflow import ProcessTaskWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
 WORKFLOWS = [
+    TaskRunGatewayUsageWorkflow,
     ProcessTaskWorkflow,
     SlackAgentDesignRelayWorkflow,
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
-    RunLoopWorkflow,
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
+    ActivateDevStackImageWorkflow,
 ]
 
 ACTIVITIES = [
+    reconcile_gateway_usage,
     # process_task activities
     get_task_processing_context,
     prepare_sandbox_for_repository,
@@ -93,6 +99,7 @@ ACTIVITIES = [
     relay_agent_design_signals,
     relay_sandbox_events,
     relay_sandbox_events_deferred_completion,
+    get_sandbox_exit_reason,
     create_resume_snapshot,
     post_permission_delivery_failure_notice,
     send_permission_denial_guidance,
@@ -114,14 +121,15 @@ ACTIVITIES = [
     start_dev_stack_preview,
     wait_dev_stack_preview,
     update_task_run_status,
+    complete_signal_spend,
     get_pr_context,
     get_pr_babysit_snapshot,
+    mark_pr_ready,
     relay_slack_message,
     is_slack_app_agent_design_enabled_for_task_activity,
     start_slack_agent_design_stream,
     append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
-    run_loop_trigger_activity,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,
@@ -135,4 +143,5 @@ ACTIVITIES = [
     mark_image_build_failed,
     # bake_dev_stack_image activities
     bake_and_publish_dev_stack_image,
+    activate_dev_stack_image,
 ]

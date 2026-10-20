@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TypedDict
 
 from django.db import transaction
@@ -9,13 +10,14 @@ from django.db import transaction
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import TaskRunArtefact, WorkClaim, WorkRelease
+from products.signals.backend.artefact_schemas import Dismissal, TaskRunArtefact, WorkClaim, WorkRelease
 from products.signals.backend.claim_display_name import claim_display_name
 from products.signals.backend.models import (
     InvalidStatusTransition,
@@ -196,7 +198,9 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
         merged=False,
     )
     try:
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, parsed.repository, source="signals_reviewers", priority=Priority.NORMAL
+        )
     except Exception:
         logger.exception(
             "signals.assignment.integration_lookup_failed",
@@ -312,11 +316,14 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:
         target = SignalReport.Status.RESOLVED
     elif pr_state == SignalReportAssignment.PrState.CLOSED:
         target = SignalReport.Status.SUPPRESSED
-    if target is None or report.status == target:
+    if target is None or report.effective_status == target:
         return
     # Resolving a report closes its own pull request, and GitHub reports that close as an unmerged
     # close. Suppressing on it would undo the resolution moments after the person made it.
-    if target == SignalReport.Status.SUPPRESSED and report.status == SignalReport.Status.RESOLVED:
+    if target == SignalReport.Status.SUPPRESSED and report.status in {
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.MONITORING,
+    }:
         return
     try:
         updated_fields = report.transition_to(target)
@@ -331,7 +338,15 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:
     # GitHub already reports this pull request as closed or merged. Without this marker the
     # dismissal receiver queues a redundant close for every report that shares the pull request.
     report._status_from_pr_state = True  # type: ignore[attr-defined]
-    report.save(update_fields=updated_fields)
+    with transaction.atomic():
+        report.save(update_fields=updated_fields)
+        if target == SignalReport.Status.SUPPRESSED:
+            SignalReportArtefact.append_dismissal(
+                team_id=report.team_id,
+                report_id=str(report.id),
+                content=Dismissal(),
+                attribution=ArtefactAttribution.system(),
+            )
 
 
 def claim_report(
@@ -372,7 +387,8 @@ def claim_report(
             release_claim(assignment, actor)
             assignment = None
         else:
-            if locked_report.status not in CLAIMABLE_REPORT_STATUSES:
+            report_status = locked_report.effective_status
+            if report_status not in CLAIMABLE_REPORT_STATUSES:
                 existing_prs = set(
                     SignalReportArtefact.objects.filter(
                         team_id=report.team_id, report_id=report.id, pull_request__isnull=False
@@ -385,7 +401,7 @@ def claim_report(
                     and all((pr.repository, pr.number) in existing_prs for pr in details)
                 ):
                     return assignment
-                raise ReportClaimConflict(f"Reports with status '{locked_report.status}' cannot be claimed.")
+                raise ReportClaimConflict(f"Reports with status '{report_status}' cannot be claimed.")
             if assignment is not None and not actor_owns_claim(assignment, actor):
                 if not takeover:
                     raise ReportClaimConflict(
@@ -450,6 +466,7 @@ def update_assignments_for_pull_request(
     repository: str,
     pr_number: int,
     pr_state: str,
+    merged_at: datetime | None = None,
 ) -> int:
     from products.signals.backend.implementation_pr import (
         fetch_implementation_prs_for_reports,
@@ -487,6 +504,10 @@ def update_assignments_for_pull_request(
                             claim_id=pr.claim_id,
                         )
             updated += update_pull_request_state(
-                team_id=team_id, repository=repository, number=pr_number, state=pr_state
+                team_id=team_id,
+                repository=repository,
+                number=pr_number,
+                state=pr_state,
+                merged_at=merged_at,
             )
     return updated

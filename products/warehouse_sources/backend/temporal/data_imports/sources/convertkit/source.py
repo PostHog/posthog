@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ConvertKitSource(ResumableSource[ConvertKitSourceConfig, ConvertKitResumeConfig]):
+    codebase_detection = detect(env=("^CONVERTKIT_",), script_hosts=("f.convertkit.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v4",)
@@ -57,7 +60,7 @@ class ConvertKitSource(ResumableSource[ConvertKitSourceConfig, ConvertKitResumeC
 You can create a v4 API key in your [Kit account settings](https://app.kit.com/account_settings/developer_settings).""",
             iconPath="/static/services/convertkit.png",
             docsUrl="https://posthog.com/docs/cdp/sources/convertkit",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

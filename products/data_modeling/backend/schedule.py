@@ -35,7 +35,6 @@ from posthog.temporal.common.search_attributes import (
 )
 
 from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
-from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 
 # A schedule id is the bare DAG id, or "{dag_id}:{interval_seconds}" for a per-cadence-tier
@@ -55,12 +54,10 @@ def dag_schedule_search_attributes(*, team_id: int, organization_id: str, dag_id
 
 
 @async_to_sync
-async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = None) -> set[str]:
+async def get_v2_scheduled_dag_ids(
+    candidate_dag_ids: Collection[str] | None = None,
+) -> set[str]:
     """Return the IDs of DAGs that already have a v2 `data-modeling-execute-dag` Temporal schedule.
-
-    A DAG appearing here has been migrated off the frozen v1 backend. Callers performing v1
-    schedule operations must skip these DAGs' saved queries so they never re-create or revive a
-    v1 schedule for a DAG already running on v2.
 
     When `candidate_dag_ids` is given, the listing is scoped server-side to those DAGs via the
     `PostHogDagId` search attribute so we never paginate every schedule in the namespace — a
@@ -94,23 +91,11 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
 
 
 def get_v2_saved_query_ids(
-    candidate_ids: Collection[uuid.UUID] | None = None, *, team_id: int | None = None
+    candidate_ids: Collection[uuid.UUID] | None = None,
 ) -> set[uuid.UUID]:
     """Return saved query IDs whose DAG already runs on a v2 schedule.
 
-    A saved query counts as on v2 when any DAG it belongs to has a v2 schedule, because it can sit
-    in several DAGs and one v1-scheduled placement does not make a v1 schedule safe to mint.
-
-    `team_id` extends that to saved queries with no node, answering from the team's DAGs instead.
-    A node can be absent because `sync_saved_query_to_dag` deletes it when dependency resolution
-    raises, and reading "no node" as "not on v2" mints a v1 per-query schedule beside the team's
-    live tier, which then materializes the query twice on every cycle. Only a caller that is about
-    to create a v1 schedule needs this, so it stays opt-in: it answers about the team rather than
-    about a placement, and such a caller must still check for a node before scheduling. Pass the
-    team the candidates belong to, never one derived from the ids themselves.
-
-    Optionally restrict the lookup to `candidate_ids` to keep the query bounded. These saved
-    queries must be skipped by v1 schedule commands so we never undo migration progress.
+    Optionally restrict the lookup to `candidate_ids` to keep the query bounded.
     """
     if candidate_ids is not None:
         if not candidate_ids:
@@ -124,15 +109,6 @@ def get_v2_saved_query_ids(
             if dag_id is not None:
                 dag_ids_by_saved_query[saved_query_id].add(str(dag_id))
 
-        if team_id is not None:
-            nodeless = set(candidate_ids) - dag_ids_by_saved_query.keys()
-            team_dag_ids = (
-                {str(dag_id) for dag_id in DAG.objects.filter(team_id=team_id).values_list("id", flat=True)}
-                if nodeless
-                else set()
-            )
-            if team_dag_ids:
-                dag_ids_by_saved_query.update(dict.fromkeys(nodeless, team_dag_ids))
         if not dag_ids_by_saved_query:
             return set()
 

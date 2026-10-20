@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CloudbedsSource(ResumableSource[CloudbedsSourceConfig, CloudbedsResumeConfig]):
+    codebase_detection = detect(env=("^CLOUDBEDS_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
     # v1.2 and v1.3 serve the same methods and response shapes; the version is just the
     # `/api/<version>` URL segment, threaded into the request layer via resolve_api_version.
@@ -62,7 +65,7 @@ class CloudbedsSource(ResumableSource[CloudbedsSourceConfig, CloudbedsResumeConf
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Cloudbeds",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Cloudbeds API key to pull your properties, reservations, guests, rooms, room types, and transactions into the PostHog Data warehouse.
+            caption="""Enter your Cloudbeds API key to pull your properties, reservations and their rate details, guests, rooms, room types, transactions, rate plans, and staff users into the PostHog Data warehouse.
 
 You can create an API key under **Settings → API credentials** in [Cloudbeds](https://hotels.cloudbeds.com). Note that Cloudbeds API keys expire after 30 days of inactivity, so a key that has not been used recently may need to be regenerated.
 

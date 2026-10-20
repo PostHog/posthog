@@ -18,6 +18,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -27,6 +28,9 @@ import { userLogic } from 'scenes/userLogic'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
+    signalsReportChecksApproveCreate,
+    signalsReportChecksDestroy,
+    signalsReportChecksList,
     signalsReportPrChecks,
     signalsReportPrComments,
     signalsReportPrReviewCommentDestroy,
@@ -35,7 +39,9 @@ import {
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
     signalsReportsFeedbackCreate,
+    signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
+    signalsReportsPriorityUpdate,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
@@ -43,9 +49,14 @@ import type {
     PullRequestCommentApi,
     PullRequestCommentReactionApi,
     ReportChartApi,
+    ReportPriorityApi,
+    SignalReportCheckApi,
+    SignalReportFeedbackStateApi,
+    SignalReportApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
+import type { SignalReportFeedbackSentimentEnumApi } from '../../generated/api.schemas'
 import {
     deriveTaskPurpose,
     PURPOSE_ORDER,
@@ -61,8 +72,10 @@ import {
     captureInboxReportAction,
     captureInboxReportFeedback,
     captureInboxReportFeedbackNote,
+    InboxReportActionSurface,
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
+import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import {
     EnrichedReviewer,
@@ -73,6 +86,7 @@ import {
 } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
@@ -278,8 +292,10 @@ export interface inboxReportDetailLogicValues {
     personalIntegrations: PersonalGitHubIntegration[] // personalIntegrationsLogic
     actionabilityExplanation: string | null
     addReviewerOptions: AvailableReviewerOption[]
+    approvingCheckIds: string[]
     availableReviewers: AvailableReviewerOption[] | null
     availableReviewersLoading: boolean
+    cancellingCheckIds: string[]
     chartIdsKey: string
     chartPlacements: ChartPlacements
     chartsById: Map<string, ReportChartApi>
@@ -291,11 +307,17 @@ export interface inboxReportDetailLogicValues {
     editingCommentId: string | null
     evidenceExpanded: boolean
     expandedTaskIds: string[]
+    feedbackDisabledReason:
+        | 'Could not load feedback. Refresh the page to try again.'
+        | 'Loading feedback'
+        | 'Saving feedback'
+        | undefined
     feedbackNoteDraft: string
-    feedbackNoteOpen: boolean
     feedbackNoteSent: boolean
     feedbackNoteSubmitting: boolean
-    feedbackSentiment: InboxReportFeedbackSentiment | null
+    feedbackSentNote: string | null
+    feedbackSentiment: SignalReportFeedbackSentimentEnumApi | null
+    feedbackSubmitting: boolean
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
     implementationSlotClaim: ImplementationSlotClaim | null
@@ -317,10 +339,14 @@ export interface inboxReportDetailLogicValues {
     prCommentsLoading: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
+    prioritySaving: boolean
     report: SignalReport | null
     reportArtefacts: SignalReportArtefact[] | null
     reportArtefactsLoading: boolean
     reportCharts: ReportChartApi[]
+    reportChecks: SignalReportCheckApi[] | null
+    reportChecksError: string | null
+    reportChecksLoading: boolean
     reportDiff: CommitDiffResponseApi | null
     reportDiffError: string | null
     reportDiffLoading: boolean
@@ -331,6 +357,8 @@ export interface inboxReportDetailLogicValues {
     reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
     reportTasksLoading: boolean
+    savedFeedback: SignalReportFeedbackStateApi | null
+    savedFeedbackLoading: boolean
     selectedPullRequest: ReportPullRequest
     selectedPullRequestUrl: string | null
     selectedTask: ReportTaskEntry | null
@@ -347,6 +375,18 @@ export interface inboxReportDetailLogicActions {
     discussReportSuccess: () => {
         value: true
     } // inboxTaskKickoffLogic
+    approveReportCheck: (checkId: string) => {
+        checkId: string
+    }
+    approveReportCheckDone: (checkId: string) => {
+        checkId: string
+    }
+    cancelReportCheck: (checkId: string) => {
+        checkId: string
+    }
+    cancelReportCheckDone: (checkId: string) => {
+        checkId: string
+    }
     closeDraftThread: () => {
         value: true
     }
@@ -365,6 +405,9 @@ export interface inboxReportDetailLogicActions {
     }
     expandEvidence: () => {
         value: true
+    }
+    feedbackSaved: (feedback: SignalReportFeedbackStateApi) => {
+        feedback: SignalReportFeedbackStateApi
     }
     loadAvailableReviewers: ({ query }?: { query?: string }) => {
         query?: string
@@ -394,6 +437,21 @@ export interface inboxReportDetailLogicActions {
         payload?: {
             query?: string
         }
+    }
+    loadFeedback: () => any
+    loadFeedbackFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadFeedbackSuccess: (
+        savedFeedback: SignalReportFeedbackStateApi,
+        payload?: any
+    ) => {
+        savedFeedback: SignalReportFeedbackStateApi
+        payload?: any
     }
     loadPrChecks: (_: void) => void
     loadPrChecksFailure: (
@@ -439,6 +497,21 @@ export interface inboxReportDetailLogicActions {
     ) => {
         reportArtefacts: SignalReportArtefact[]
         payload?: any
+    }
+    loadReportChecks: (_: void) => void
+    loadReportChecksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReportChecksSuccess: (
+        reportChecks: SignalReportCheckApi[],
+        payload?: void
+    ) => {
+        reportChecks: SignalReportCheckApi[]
+        payload?: void
     }
     loadReportDiff: ({ artefactId }: { artefactId: string }) => {
         artefactId: string
@@ -494,9 +567,6 @@ export interface inboxReportDetailLogicActions {
     openDraftThread: (draft: DraftThread) => {
         draft: DraftThread
     }
-    openFeedbackNote: () => {
-        value: true
-    }
     postReviewComment: (payload: {
         body: string
         inReplyTo?: string
@@ -518,8 +588,14 @@ export interface inboxReportDetailLogicActions {
     postReviewCommentFinished: () => {
         value: true
     }
-    rateReport: (sentiment: InboxReportFeedbackSentiment) => {
-        sentiment: InboxReportFeedbackSentiment
+    rateReport: (
+        sentiment: InboxReportFeedbackSentiment | null,
+        surface?: InboxReportActionSurface,
+        onSuccess?: () => void
+    ) => {
+        onSuccess: (() => void) | undefined
+        sentiment: InboxReportFeedbackSentiment | null
+        surface: InboxReportActionSurface
     }
     searchAvailableReviewers: (query: string) => {
         query: string
@@ -539,8 +615,14 @@ export interface inboxReportDetailLogicActions {
     setFeedbackNoteSubmitting: (submitting: boolean) => {
         submitting: boolean
     }
+    setFeedbackSubmitting: (submitting: boolean) => {
+        submitting: boolean
+    }
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
+    }
+    setPrioritySaving: (saving: boolean) => {
+        saving: boolean
     }
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
@@ -548,8 +630,12 @@ export interface inboxReportDetailLogicActions {
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
-    submitFeedbackNote: (note: string) => {
+    submitFeedbackNote: (
+        note: string,
+        surface?: InboxReportActionSurface
+    ) => {
         note: string
+        surface: InboxReportActionSurface
     }
     toggleExpandedTask: (taskId: string) => {
         taskId: string
@@ -560,6 +646,9 @@ export interface inboxReportDetailLogicActions {
     ) => {
         commentId: string
         content: string
+    }
+    updatePriority: (priority: ReportPriorityApi) => {
+        priority: ReportPriorityApi
     }
     updateReviewers: (
         content: Record<string, string>[],
@@ -574,6 +663,21 @@ export interface inboxReportDetailLogicActions {
 export interface inboxReportDetailLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        feedbackSentiment: (
+            savedFeedback: SignalReportFeedbackStateApi | null
+        ) => SignalReportFeedbackSentimentEnumApi | null
+        feedbackSentNote: (savedFeedback: SignalReportFeedbackStateApi | null) => string | null
+        feedbackNoteSent: (feedbackSentNote: string | null) => boolean
+        feedbackDisabledReason: (
+            savedFeedback: SignalReportFeedbackStateApi | null,
+            savedFeedbackLoading: boolean,
+            feedbackSubmitting: boolean,
+            feedbackNoteSubmitting: boolean
+        ) =>
+            | 'Could not load feedback. Refresh the page to try again.'
+            | 'Loading feedback'
+            | 'Saving feedback'
+            | undefined
         isUpdatingReviewers: (optimisticReviewers: EnrichedReviewer[] | null) => boolean
         reportReviewers: (reportArtefacts: SignalReportArtefact[] | null) => EnrichedReviewer[] | null
         isReportActive: (report: SignalReport | null) => boolean
@@ -624,8 +728,7 @@ export type inboxReportDetailLogicType = MakeLogicType<
 
 /**
  * Per-selected-report detail logic: artefacts, contributing signals, suggested reviewers, and linked tasks.
- * Keyed by `reportId` so each open report gets its own mounted instance. Does NOT import `inboxSceneLogic`
- * (the report id is passed in as a prop) to avoid a logic cycle.
+ * Keyed by `reportId` so each open report gets its own mounted instance.
  */
 export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxReportDetailLogic']),
@@ -665,6 +768,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setEditingCommentId: (commentId: string | null) => ({ commentId }),
         selectPullRequest: (url: string) => ({ url }),
         setReport: (report: SignalReport | null) => ({ report }),
+        updatePriority: (priority: ReportPriorityApi) => ({ priority }),
+        setPrioritySaving: (saving: boolean) => ({ saving }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
         // Mirrors desktop `useUpdateSuggestedReviewers` optimistic behavior.
@@ -683,18 +788,39 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         toggleExpandedTask: (taskId: string) => ({ taskId }),
         // Thumbs feedback at the end of the report body. Recorded server-side as a report action
         // (consumption evidence) – nothing about the report's state changes.
-        rateReport: (sentiment: InboxReportFeedbackSentiment) => ({ sentiment }),
+        rateReport: (
+            sentiment: InboxReportFeedbackSentiment | null,
+            surface: InboxReportActionSurface = 'detail_footer',
+            onSuccess?: () => void
+        ) => ({
+            sentiment,
+            surface,
+            onSuccess,
+        }),
         // Optional note, offered only after a rating is in. The rating is never held up waiting for it.
-        openFeedbackNote: true,
         setFeedbackNoteDraft: (draft: string) => ({ draft }),
         // The note rides on the payload: the reducers below clear the draft, and listeners run after them.
-        submitFeedbackNote: (note: string) => ({ note }),
+        submitFeedbackNote: (note: string, surface: InboxReportActionSurface = 'detail_footer') => ({ note, surface }),
+        cancelReportCheck: (checkId: string) => ({ checkId }),
+        // Fired whether the cancel succeeded or failed, so the row's button always comes back.
+        cancelReportCheckDone: (checkId: string) => ({ checkId }),
+        approveReportCheck: (checkId: string) => ({ checkId }),
+        approveReportCheckDone: (checkId: string) => ({ checkId }),
         // Driven by the submit listener only, so the re-entrancy guard and the Send button's
         // loading state read the same flag.
         setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
+        setFeedbackSubmitting: (submitting: boolean) => ({ submitting }),
+        feedbackSaved: (feedback: SignalReportFeedbackStateApi) => ({ feedback }),
     }),
 
     loaders(({ props, values }) => ({
+        savedFeedback: [
+            null as SignalReportFeedbackStateApi | null,
+            {
+                loadFeedback: async () =>
+                    await signalsReportsFeedbackStateRetrieve(String(teamLogic.values.currentTeamId), props.reportId),
+            },
+        ],
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {
@@ -715,6 +841,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         props.reportId
                     )
                     return response.signals
+                },
+            },
+        ],
+        reportChecks: [
+            null as SignalReportCheckApi[] | null,
+            {
+                loadReportChecks: async (_: void, breakpoint): Promise<SignalReportCheckApi[]> => {
+                    const response = await signalsReportChecksList(
+                        String(teamLogic.values.currentTeamId),
+                        props.reportId
+                    )
+                    await breakpoint()
+                    return response.results.map((check) => {
+                        const current = values.reportChecks?.find((row) => row.id === check.id)
+                        // A response requested before a mutation must not undo its newer result.
+                        return current && dayjs(current.updated_at).isAfter(dayjs(check.updated_at)) ? current : check
+                    })
                 },
             },
         ],
@@ -788,10 +931,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 },
             },
         ],
-        // The report's branch diff (its `commit` artefact's branch vs the repo default branch), rendered
-        // in the "Files changed" section. Loaded here rather than in the component so the fetch is keyed
-        // to the report and cascades off the artefact load — once artefacts resolve we know the latest
-        // commit artefact, and re-fetch only when a *new* commit lands (not on every 5s activity poll).
+        // The report's pull request or pre-PR branch diff, rendered in the "Files changed" section. Loaded
+        // here rather than in the component so the fetch is keyed to the report and cascades off the
+        // artefact load — once artefacts resolve we know the latest commit artefact, and re-fetch only when
+        // a *new* commit lands (not on every 5s activity poll).
         reportDiff: [
             null as CommitDiffResponseApi | null,
             {
@@ -856,9 +999,30 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         selectedPullRequestUrl: [null as string | null, { selectPullRequest: (_, { url }) => url }],
+        // Checks whose cancel request is in flight, so each row's Stop button disables itself
+        // without blocking a second row.
+        cancellingCheckIds: [
+            [] as string[],
+            {
+                cancelReportCheck: (state: string[], { checkId }: { checkId: string }) =>
+                    state.includes(checkId) ? state : [...state, checkId],
+                cancelReportCheckDone: (state: string[], { checkId }: { checkId: string }) =>
+                    state.filter((id) => id !== checkId),
+            },
+        ],
+        approvingCheckIds: [
+            [] as string[],
+            {
+                approveReportCheck: (state: string[], { checkId }: { checkId: string }) =>
+                    state.includes(checkId) ? state : [...state, checkId],
+                approveReportCheckDone: (state: string[], { checkId }: { checkId: string }) =>
+                    state.filter((id) => id !== checkId),
+            },
+        ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
+        prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
         report: [
             null as SignalReport | null,
             {
@@ -890,7 +1054,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 toggleExpandedTask: (state, { taskId }) =>
                     state.includes(taskId) ? state.filter((id) => id !== taskId) : [...state, taskId],
-                setReport: () => [],
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : []),
             },
         ],
         // Which tab the report column shows. The logic is keyed by report id, so each report keeps its
@@ -901,37 +1065,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setDetailTab: (_, { tab }) => tab,
             },
         ],
-        // The thumbs rating this reader gave the open report, so the row can read the choice back.
-        // The logic is keyed by report id, so each report keeps its own rating for as long as it's open.
-        feedbackSentiment: [
-            null as InboxReportFeedbackSentiment | null,
-            {
-                rateReport: (_, { sentiment }) => sentiment,
-            },
-        ],
-        // Whether the optional note field is showing. Switching the rating closes an unsent note so
-        // the draft can't end up attached to a sentiment the reader has since changed their mind about.
-        feedbackNoteOpen: [
-            false,
-            {
-                openFeedbackNote: () => true,
-                rateReport: () => false,
-                submitFeedbackNote: () => false,
-            },
-        ],
+        savedFeedback: {
+            feedbackSaved: (_, { feedback }) => feedback,
+        },
+        feedbackSubmitting: [false, { setFeedbackSubmitting: (_, { submitting }) => submitting }],
         feedbackNoteDraft: [
             '',
             {
                 setFeedbackNoteDraft: (_, { draft }) => draft,
-                rateReport: () => '',
-                submitFeedbackNote: () => '',
-            },
-        ],
-        feedbackNoteSent: [
-            false,
-            {
-                submitFeedbackNote: () => true,
-                rateReport: () => false,
+                feedbackSaved: () => '',
             },
         ],
         feedbackNoteSubmitting: [
@@ -940,15 +1082,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setFeedbackNoteSubmitting: (_, { submitting }) => submitting,
             },
         ],
-        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
-        // compare usually means the branch was merged, deleted, or force-rewritten away.
+        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag).
         reportDiffError: [
             null as string | null,
             {
                 loadReportDiff: () => null,
                 loadReportDiffSuccess: () => null,
-                loadReportDiffFailure: () =>
-                    "Couldn't load the diff. The branch may have been merged, deleted, or rewritten.",
+                loadReportDiffFailure: () => "Couldn't load the diff. Try again, or open the pull request on GitHub.",
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
@@ -986,13 +1126,21 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
             },
         ],
+        // Cleared only on success, so the error and its retry button stay visible while the retry runs.
+        reportChecksError: [
+            null as string | null,
+            {
+                loadReportChecksSuccess: () => null,
+                loadReportChecksFailure: () => "Couldn't load the measurements.",
+            },
+        ],
         // The one in-progress draft thread on a diff line. Reset when the report changes.
         draftThread: [
             null as DraftThread | null,
             {
                 openDraftThread: (_, { draft }) => draft,
                 closeDraftThread: () => null,
-                setReport: () => null,
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : null),
             },
         ],
         // Which thread's composer has a post in flight — gates its submit button and textarea.
@@ -1008,12 +1156,37 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as string | null,
             {
                 setEditingCommentId: (_, { commentId }) => commentId,
-                setReport: () => null,
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : null),
             },
         ],
-    }),
+    })),
 
     selectors({
+        feedbackSentiment: [
+            (s) => [s.savedFeedback],
+            (feedback: SignalReportFeedbackStateApi | null) => feedback?.sentiment ?? null,
+        ],
+        feedbackSentNote: [
+            (s) => [s.savedFeedback],
+            (feedback: SignalReportFeedbackStateApi | null) => feedback?.note || null,
+        ],
+        feedbackNoteSent: [(s) => [s.feedbackSentNote], (note: string | null) => !!note],
+        feedbackDisabledReason: [
+            (s) => [s.savedFeedback, s.savedFeedbackLoading, s.feedbackSubmitting, s.feedbackNoteSubmitting],
+            (
+                feedback: SignalReportFeedbackStateApi | null,
+                loading: boolean,
+                submitting: boolean,
+                noteSubmitting: boolean
+            ) =>
+                loading
+                    ? 'Loading feedback'
+                    : submitting || noteSubmitting
+                      ? 'Saving feedback'
+                      : !feedback
+                        ? 'Could not load feedback. Refresh the page to try again.'
+                        : undefined,
+        ],
         // Mirrors the optimistic override lifecycle: an update is in flight exactly while the
         // optimistic list is set (cleared once the reload lands or the update fails).
         isUpdatingReviewers: [
@@ -1301,7 +1474,77 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, asyncActions, values, props, selectors }) => ({
+        updatePriority: async ({ priority }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const currentReport = values.report
+            if (!teamId || !currentReport || values.prioritySaving || currentReport.priority === priority) {
+                return
+            }
+            actions.setPrioritySaving(true)
+            let updated: SignalReportApi
+            try {
+                updated = await signalsReportsPriorityUpdate(String(teamId), props.reportId, { priority })
+            } catch {
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setPrioritySaving(false)
+                    lemonToast.error("Couldn't save the priority. Try again.")
+                }
+                return
+            }
+            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            if (!inboxReportDetailLogic.isMounted(props)) {
+                return
+            }
+            const report: SignalReport = {
+                ...(values.report ?? currentReport),
+                priority,
+                updated_at: updated.updated_at,
+            }
+            actions.setReport(report)
+            const scene = inboxSceneLogic.findMounted()
+            if (scene?.values.selectedReportId === props.reportId) {
+                scene.actions.seedSelectedReport(report)
+            }
+            actions.loadReportArtefacts()
+            actions.setPrioritySaving(false)
+        },
+        approveReportCheck: async ({ checkId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.approveReportCheckDone(checkId)
+                return
+            }
+            try {
+                const approved = await signalsReportChecksApproveCreate(String(teamId), props.reportId, checkId)
+                actions.loadReportChecksSuccess(
+                    (values.reportChecks ?? []).map((check) => (check.id === checkId ? approved : check))
+                )
+            } catch {
+                lemonToast.error('Could not approve this check. Please try again.')
+            } finally {
+                actions.approveReportCheckDone(checkId)
+            }
+        },
+        // The endpoint answers with the cancelled row, so the list is patched in place rather than
+        // refetched: the section keeps its scroll position and the other rows never flicker.
+        cancelReportCheck: async ({ checkId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.cancelReportCheckDone(checkId)
+                return
+            }
+            try {
+                const cancelled = await signalsReportChecksDestroy(String(teamId), props.reportId, checkId)
+                actions.loadReportChecksSuccess(
+                    (values.reportChecks ?? []).map((check) => (check.id === checkId ? cancelled : check))
+                )
+            } catch (error: any) {
+                lemonToast.error(error?.detail || "Couldn't stop this check. Try again in a moment.")
+            } finally {
+                actions.cancelReportCheckDone(checkId)
+            }
+        },
         setDetailTab: ({ tab }) => {
             // Reviewing the diff is the deepest engagement a report gets short of acting on it.
             if (tab === 'files' && values.report) {
@@ -1320,52 +1563,50 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 })
             }
         },
-        rateReport: ({ sentiment }) => {
-            if (!values.report) {
+        rateReport: async ({ sentiment, surface, onSuccess }) => {
+            if (!values.report || !values.savedFeedback || values.feedbackSubmitting || values.feedbackNoteSubmitting) {
                 return
             }
-            captureInboxReportFeedback({ report: values.report, sentiment, surface: 'detail_footer' })
-            // Best-effort server-side record of the bare rating: consumption evidence the scout
-            // inactivity sweep reads, so rating a report keeps its scout from being auto-paused.
-            // The analytics event above stays the durable record of the rating itself.
-            void signalsReportsFeedbackCreate(String(teamLogic.values.currentTeamId), values.report.id, {
-                sentiment,
-            }).catch(() => {})
+            actions.setFeedbackSubmitting(true)
+            try {
+                await signalsReportsFeedbackCreate(String(teamLogic.values.currentTeamId), props.reportId, {
+                    sentiment,
+                })
+                actions.feedbackSaved({ sentiment, note: '' })
+                onSuccess?.()
+                if (sentiment) {
+                    captureInboxReportFeedback({ report: values.report, sentiment, surface })
+                } else {
+                    captureInboxReportAction({ report: values.report, actionType: 'clear_feedback', surface })
+                }
+            } catch {
+                lemonToast.error('Could not save your feedback. Please try again.')
+            } finally {
+                actions.setFeedbackSubmitting(false)
+            }
         },
-        // Fires on its own event so the rating stays exactly one `Inbox report feedback` per click.
-        submitFeedbackNote: async ({ note }) => {
+        submitFeedbackNote: async ({ note, surface }) => {
             const trimmed = note.trim()
-            if (!values.report || !values.feedbackSentiment || !trimmed) {
-                return
-            }
-            // Re-entrancy guard: the send button hides on submit, but a double-click within the same
-            // frame can dispatch this twice before React unmounts it. `leave_note` mints a new row per
-            // call, so bail before a second POST leaves the scout a duplicate steering note. The flag
-            // resets in `finally` so a revised note (after re-rating) can still submit, and the Send
-            // button shows it as a loading state in the meantime.
-            if (values.feedbackNoteSubmitting) {
+            if (
+                !values.report ||
+                !values.feedbackSentiment ||
+                !trimmed ||
+                values.feedbackSubmitting ||
+                values.feedbackNoteSubmitting
+            ) {
                 return
             }
             actions.setFeedbackNoteSubmitting(true)
             const sentiment = values.feedbackSentiment
             try {
-                captureInboxReportFeedbackNote({
-                    report: values.report,
+                await signalsReportsFeedbackCreate(String(teamLogic.values.currentTeamId), props.reportId, {
                     sentiment,
                     note: trimmed,
-                    surface: 'detail_footer',
                 })
-                // Best-effort: also carry the note into the scout steering channel so the scout that filed
-                // the report reads it next run. The analytics event above is the durable record, so a
-                // failure here is swallowed rather than surfaced — the note is already captured.
-                try {
-                    await signalsReportsFeedbackCreate(String(teamLogic.values.currentTeamId), values.report.id, {
-                        sentiment,
-                        note: trimmed,
-                    })
-                } catch {
-                    // no-op: forwarding is a convenience on top of the recorded feedback
-                }
+                actions.feedbackSaved({ sentiment, note: trimmed })
+                captureInboxReportFeedbackNote({ report: values.report, sentiment, note: trimmed, surface })
+            } catch {
+                lemonToast.error('Could not save your note. Please try again.')
             } finally {
                 actions.setFeedbackNoteSubmitting(false)
             }
@@ -1377,15 +1618,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Persist a reviewer add/remove. The optimistic list is already in place (set by the action's
         // reducer); on success reload the artefact so we converge on the server's enriched data, and on
         // failure clear the optimistic override so the UI snaps back. Mirrors desktop `useUpdateSuggestedReviewers`.
-        updateReviewers: async ({ content }) => {
+        updateReviewers: async ({ content, optimistic }) => {
+            let saved = false
             try {
                 await api.signalReports.setReviewers(props.reportId, content)
-                await actions.loadReportArtefacts()
+                saved = true
+                await asyncActions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
             } finally {
                 // Clear the optimistic override; the freshly-loaded artefact is now the source of truth.
                 actions.setOptimisticReviewers(null)
+            }
+            // Broadcast last: the list can drop the row that hosts this logic (the context menu picker),
+            // which unmounts it, and kea throws on an action dispatched through an unmounted logic.
+            if (saved) {
+                const reviewerUuids = optimistic
+                    .map((reviewer) => reviewer.user?.uuid ?? reviewer.user_uuid)
+                    .filter((uuid): uuid is string => !!uuid)
+                inboxBulkActionsLogic.findMounted()?.actions.reportReviewersChanged(props.reportId, reviewerUuids)
             }
         },
         // Post an inline review comment as the user. The comment is inserted optimistically (marked
@@ -1609,6 +1860,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 actions.loadReportDiff({ artefactId: commit.id })
             }
         },
+        loadReportTasksSuccess: (_, __, ___, previousState) => {
+            const before = selectors.reportTasks(previousState) ?? []
+            const settled = (values.reportTasks ?? []).some((entry) => {
+                const run = entry.task.latest_run
+                const prior = before.find((row) => row.task.id === entry.task.id)?.task.latest_run
+                return (
+                    !!run &&
+                    TERMINAL_RUN_STATUSES.includes(run.status) &&
+                    (prior?.id !== run.id || prior?.status !== run.status)
+                )
+            })
+            if (settled) {
+                actions.loadReportChecks()
+                const scene = inboxSceneLogic.findMounted()
+                if (scene?.values.selectedReportId === props.reportId) {
+                    scene.actions.loadSelectedReport({ id: props.reportId })
+                }
+            }
+        },
         // A PR task started from this pane is not in the artefact log the gate was computed from, so
         // refresh it. This is also what starts the task poll for a ready report, whose status alone
         // never gets one going.
@@ -1656,9 +1926,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
 
     afterMount(({ actions, props, values, cache }) => {
         // `loadReportTasks` is cascaded from `loadReportArtefactsSuccess`, so it isn't called here.
+        actions.loadFeedback()
         actions.loadReportArtefacts()
         actions.loadReportSignals()
         actions.loadAvailableReviewers()
+        actions.loadReportChecks()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)
         // Register the artefact-log poll once for the lifetime of the mount and let each tick decide

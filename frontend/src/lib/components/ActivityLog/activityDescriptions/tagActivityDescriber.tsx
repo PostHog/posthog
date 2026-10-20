@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -105,6 +106,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the tag', nameOrId(logItem?.detail?.name, logItem?.item_id)),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created the tag{' '}
@@ -116,6 +118,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the tag', nameOrId(logItem?.detail?.name, logItem?.item_id)),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the tag{' '}
@@ -127,6 +130,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 
     if (logItem.activity == 'updated') {
         return {
+            summary: activityLogSummary(logItem, 'Updated the tag', nameOrId(logItem?.detail?.name, logItem?.item_id)),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> updated the tag{' '}
@@ -147,6 +151,13 @@ function taggedItemActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Added tag <strong>{tagName}</strong>
+                </>,
+                relatedObjectDesc
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> tagged {relatedObjectDesc} with tag{' '}
@@ -158,6 +169,13 @@ function taggedItemActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Removed tag <strong>{tagName}</strong>
+                </>,
+                relatedObjectDesc
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> removed tag <strong>{tagName}</strong>{' '}

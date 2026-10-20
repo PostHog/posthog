@@ -43,6 +43,7 @@ from products.access_control.backend.presentation.access_control import AccessCo
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.facade.api import create_flag, set_flag_active, update_flag
+from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
 from products.product_tours.backend.generate_tour_content import ContentGenerationResult, generate_with_gemini
 from products.product_tours.backend.models import ProductTour
@@ -252,7 +253,12 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         conditions = content.get("conditions") or {}
         linked_flag_variant = conditions.get("linkedFlagVariant")
         if linked_flag_variant and linked_flag and linked_flag_variant != "any":
-            available_variants = [variant["key"] for variant in linked_flag.variants]
+            try:
+                available_variants = [variant["key"] for variant in linked_flag.variants]
+            except ConfigFormatError:
+                raise serializers.ValidationError(
+                    "linkedFlagVariant cannot be used with this feature flag's configuration format"
+                )
             if linked_flag_variant not in available_variants:
                 if available_variants:
                     raise serializers.ValidationError(
@@ -906,9 +912,10 @@ class ProductTourViewSet(
             )
 
         tour_id = kwargs["pk"]
-        tour = ProductTour.objects.filter(id=tour_id, team__project_id=self.project_id).first()
-        if not tour:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        tour = self.get_object()
+        # The viewset queryset includes archived tours, which generation never served.
+        if tour.archived:
+            raise exceptions.NotFound()
 
         user = cast(User, self.request.user)
 
@@ -1117,6 +1124,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
 def get_product_tours_response(team: Team) -> dict:
     """Get active product tours for a team."""
     tours = ProductTourAPISerializer(
+        # nosemgrep: environment-model-scoped-by-project -- the project route stores tours on the primary environment, so every environment's SDK reads the project's tours
         ProductTour.objects.filter(
             team__project_id=team.project_id,
             archived=False,

@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -28,6 +29,7 @@ const getDisplayName = (logItem: ActivityLogItem): string => {
 export function batchImportActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the import', getDisplayName(logItem)),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created <strong>{getDisplayName(logItem)}</strong>
@@ -38,6 +40,7 @@ export function batchImportActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the import', getDisplayName(logItem)),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted <strong>{getDisplayName(logItem)}</strong>
@@ -48,6 +51,7 @@ export function batchImportActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity == 'updated') {
         return {
+            summary: activityLogSummary(logItem, 'Updated the import', getDisplayName(logItem)),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> updated <strong>{getDisplayName(logItem)}</strong>

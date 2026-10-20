@@ -151,6 +151,7 @@
                                                                             "in",
                                                                             "not_in",
                                                                             "is_cleaned_path_exact",
+                                                                            "is_cleaned_path_not_exact",
                                                                             "flag_evaluates_to",
                                                                             "semver_eq",
                                                                             "semver_neq",
@@ -257,6 +258,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -357,6 +359,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -458,6 +461,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -557,6 +561,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -656,6 +661,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -769,6 +775,7 @@
                                                                             "in",
                                                                             "not_in",
                                                                             "is_cleaned_path_exact",
+                                                                            "is_cleaned_path_not_exact",
                                                                             "flag_evaluates_to",
                                                                             "semver_eq",
                                                                             "semver_neq",
@@ -857,6 +864,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -956,6 +964,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -1081,6 +1090,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -1180,6 +1190,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -1389,6 +1400,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -1488,6 +1500,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -1587,6 +1600,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -1686,6 +1700,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -1788,6 +1803,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -1887,6 +1903,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -1989,6 +2006,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -2088,6 +2106,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -2188,6 +2207,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -2296,6 +2316,7 @@
                                                                                                         "in",
                                                                                                         "not_in",
                                                                                                         "is_cleaned_path_exact",
+                                                                                                        "is_cleaned_path_not_exact",
                                                                                                         "flag_evaluates_to",
                                                                                                         "semver_eq",
                                                                                                         "semver_neq",
@@ -2402,6 +2423,7 @@
                                                                                                 "in",
                                                                                                 "not_in",
                                                                                                 "is_cleaned_path_exact",
+                                                                                                "is_cleaned_path_not_exact",
                                                                                                 "flag_evaluates_to",
                                                                                                 "semver_eq",
                                                                                                 "semver_neq",
@@ -2508,6 +2530,7 @@
                                                                                                 "in",
                                                                                                 "not_in",
                                                                                                 "is_cleaned_path_exact",
+                                                                                                "is_cleaned_path_not_exact",
                                                                                                 "flag_evaluates_to",
                                                                                                 "semver_eq",
                                                                                                 "semver_neq",
@@ -2607,6 +2630,7 @@
                                                                                                 "in",
                                                                                                 "not_in",
                                                                                                 "is_cleaned_path_exact",
+                                                                                                "is_cleaned_path_not_exact",
                                                                                                 "flag_evaluates_to",
                                                                                                 "semver_eq",
                                                                                                 "semver_neq",
@@ -2810,6 +2834,7 @@
                                                                             "in",
                                                                             "not_in",
                                                                             "is_cleaned_path_exact",
+                                                                            "is_cleaned_path_not_exact",
                                                                             "flag_evaluates_to",
                                                                             "semver_eq",
                                                                             "semver_neq",
@@ -2979,6 +3004,7 @@
                                                                             "in",
                                                                             "not_in",
                                                                             "is_cleaned_path_exact",
+                                                                            "is_cleaned_path_not_exact",
                                                                             "flag_evaluates_to",
                                                                             "semver_eq",
                                                                             "semver_neq",
@@ -3085,6 +3111,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -3185,6 +3212,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -3286,6 +3314,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -3385,6 +3414,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -3484,6 +3514,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -3597,6 +3628,7 @@
                                                                             "in",
                                                                             "not_in",
                                                                             "is_cleaned_path_exact",
+                                                                            "is_cleaned_path_not_exact",
                                                                             "flag_evaluates_to",
                                                                             "semver_eq",
                                                                             "semver_neq",
@@ -3685,6 +3717,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -3784,6 +3817,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -3909,6 +3943,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -4008,6 +4043,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -4217,6 +4253,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -4316,6 +4353,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -4415,6 +4453,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -4514,6 +4553,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -4616,6 +4656,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -4715,6 +4756,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -4817,6 +4859,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -4916,6 +4959,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -5016,6 +5060,7 @@
                                                                     "in",
                                                                     "not_in",
                                                                     "is_cleaned_path_exact",
+                                                                    "is_cleaned_path_not_exact",
                                                                     "flag_evaluates_to",
                                                                     "semver_eq",
                                                                     "semver_neq",
@@ -5124,6 +5169,7 @@
                                                                                                         "in",
                                                                                                         "not_in",
                                                                                                         "is_cleaned_path_exact",
+                                                                                                        "is_cleaned_path_not_exact",
                                                                                                         "flag_evaluates_to",
                                                                                                         "semver_eq",
                                                                                                         "semver_neq",
@@ -5230,6 +5276,7 @@
                                                                                                 "in",
                                                                                                 "not_in",
                                                                                                 "is_cleaned_path_exact",
+                                                                                                "is_cleaned_path_not_exact",
                                                                                                 "flag_evaluates_to",
                                                                                                 "semver_eq",
                                                                                                 "semver_neq",
@@ -5336,6 +5383,7 @@
                                                                                                 "in",
                                                                                                 "not_in",
                                                                                                 "is_cleaned_path_exact",
+                                                                                                "is_cleaned_path_not_exact",
                                                                                                 "flag_evaluates_to",
                                                                                                 "semver_eq",
                                                                                                 "semver_neq",
@@ -5435,6 +5483,7 @@
                                                                                                 "in",
                                                                                                 "not_in",
                                                                                                 "is_cleaned_path_exact",
+                                                                                                "is_cleaned_path_not_exact",
                                                                                                 "flag_evaluates_to",
                                                                                                 "semver_eq",
                                                                                                 "semver_neq",
@@ -5638,6 +5687,7 @@
                                                                             "in",
                                                                             "not_in",
                                                                             "is_cleaned_path_exact",
+                                                                            "is_cleaned_path_not_exact",
                                                                             "flag_evaluates_to",
                                                                             "semver_eq",
                                                                             "semver_neq",
@@ -5884,6 +5934,135 @@
                     "description": "List wrapper for OpenAPI schema generation — the field stores an array of metrics.",
                     "items": {
                         "properties": {
+                            "breakdownAttributionType": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["first_touch", "last_touch", "step"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                            },
+                            "breakdownAttributionValue": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                            },
+                            "breakdownFilter": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "breakdown_limit": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Maximum number of breakdown values to compute results for."
+                                            },
+                                            "breakdowns": {
+                                                "anyOf": [
+                                                    {
+                                                        "items": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "properties": {
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "enum": [
+                                                                                        "event",
+                                                                                        "person",
+                                                                                        "session"
+                                                                                    ],
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ],
+                                                                            "description": "Where the property lives. Defaults to 'event'."
+                                                                        }
+                                                                    },
+                                                                    "required": ["property"],
+                                                                    "type": "object"
+                                                                },
+                                                                {
+                                                                    "properties": {
+                                                                        "group_type_index": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "const": 0,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 1,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 2,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 3,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 4,
+                                                                                    "type": "number"
+                                                                                }
+                                                                            ],
+                                                                            "description": "Which group type the property belongs to."
+                                                                        },
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "group",
+                                                                            "default": "group",
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "required": ["group_type_index", "property"],
+                                                                    "type": "object"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "maxItems": 3,
+                                                        "type": "array"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Properties to break the metric results down by."
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Break the metric results down by up to 3 event, person, session or group properties."
+                            },
                             "completion_event": {
                                 "anyOf": [
                                     {
@@ -6038,6 +6217,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -6128,7 +6308,19 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "Conversion window duration."
+                                "description": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                            },
+                            "conversion_window_unit": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["second", "minute", "hour", "day", "week", "month"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
                             },
                             "denominator": {
                                 "anyOf": [
@@ -6284,6 +6476,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -6413,6 +6606,18 @@
                                     }
                                 ],
                                 "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                            },
+                            "funnel_order_type": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["strict", "unordered", "ordered"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                             },
                             "goal": {
                                 "anyOf": [
@@ -6624,6 +6829,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -6940,6 +7146,7 @@
                                                                                     "in",
                                                                                     "not_in",
                                                                                     "is_cleaned_path_exact",
+                                                                                    "is_cleaned_path_not_exact",
                                                                                     "flag_evaluates_to",
                                                                                     "semver_eq",
                                                                                     "semver_neq",
@@ -7177,6 +7384,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -7285,7 +7493,8 @@
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
-                                                "enum": ["EventsNode", "ActionsNode"],
+                                                "description": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                                                "enum": ["EventsNode", "ActionsNode", "ExperimentExposureNode"],
                                                 "type": "string"
                                             },
                                             "math": {
@@ -7412,6 +7621,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -7491,7 +7701,7 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "For retention metrics: start event."
+                                "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure."
                             },
                             "start_handling": {
                                 "anyOf": [
@@ -7549,7 +7759,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
         },
         "metrics_secondary": {
             "anyOf": [
@@ -7557,6 +7767,135 @@
                     "description": "List wrapper for OpenAPI schema generation — the field stores an array of metrics.",
                     "items": {
                         "properties": {
+                            "breakdownAttributionType": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["first_touch", "last_touch", "step"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                            },
+                            "breakdownAttributionValue": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                            },
+                            "breakdownFilter": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "breakdown_limit": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Maximum number of breakdown values to compute results for."
+                                            },
+                                            "breakdowns": {
+                                                "anyOf": [
+                                                    {
+                                                        "items": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "properties": {
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "enum": [
+                                                                                        "event",
+                                                                                        "person",
+                                                                                        "session"
+                                                                                    ],
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ],
+                                                                            "description": "Where the property lives. Defaults to 'event'."
+                                                                        }
+                                                                    },
+                                                                    "required": ["property"],
+                                                                    "type": "object"
+                                                                },
+                                                                {
+                                                                    "properties": {
+                                                                        "group_type_index": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "const": 0,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 1,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 2,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 3,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 4,
+                                                                                    "type": "number"
+                                                                                }
+                                                                            ],
+                                                                            "description": "Which group type the property belongs to."
+                                                                        },
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "group",
+                                                                            "default": "group",
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "required": ["group_type_index", "property"],
+                                                                    "type": "object"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "maxItems": 3,
+                                                        "type": "array"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Properties to break the metric results down by."
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Break the metric results down by up to 3 event, person, session or group properties."
+                            },
                             "completion_event": {
                                 "anyOf": [
                                     {
@@ -7711,6 +8050,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -7801,7 +8141,19 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "Conversion window duration."
+                                "description": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                            },
+                            "conversion_window_unit": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["second", "minute", "hour", "day", "week", "month"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
                             },
                             "denominator": {
                                 "anyOf": [
@@ -7957,6 +8309,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -8086,6 +8439,18 @@
                                     }
                                 ],
                                 "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                            },
+                            "funnel_order_type": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["strict", "unordered", "ordered"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                             },
                             "goal": {
                                 "anyOf": [
@@ -8297,6 +8662,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -8613,6 +8979,7 @@
                                                                                     "in",
                                                                                     "not_in",
                                                                                     "is_cleaned_path_exact",
+                                                                                    "is_cleaned_path_not_exact",
                                                                                     "flag_evaluates_to",
                                                                                     "semver_eq",
                                                                                     "semver_neq",
@@ -8850,6 +9217,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -8958,7 +9326,8 @@
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
-                                                "enum": ["EventsNode", "ActionsNode"],
+                                                "description": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                                                "enum": ["EventsNode", "ActionsNode", "ExperimentExposureNode"],
                                                 "type": "string"
                                             },
                                             "math": {
@@ -9085,6 +9454,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -9164,7 +9534,7 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "For retention metrics: start event."
+                                "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure."
                             },
                             "start_handling": {
                                 "anyOf": [

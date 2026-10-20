@@ -1,3 +1,6 @@
+import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+
 import { UniversalFiltersGroup } from '~/types'
 
 import { SEVERITY_BAR_COLORS } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
@@ -221,6 +224,41 @@ export const FACETS: FacetConfig[] = [
     NODE_FACET,
     HOST_FACET,
 ]
+
+/**
+ * Return each resource attribute key and alias for these facets once.
+ * The presence probe uses these exact keys. Other resource keys cannot hide a facet.
+ */
+export function presenceProbeKeys(facets: FacetConfig[]): string[] {
+    const keys = facets.flatMap((facet) =>
+        facet.source.type === 'resourceAttribute' ? [facet.source.key, ...(facet.source.aliasKeys ?? [])] : []
+    )
+    return Array.from(new Set(keys))
+}
+
+/** The endpoint uses seven days when the request has no date range. */
+export const PRESENCE_DEFAULT_LOOKBACK_DAYS = 7
+
+/**
+ * Return the probe window for a selected range.
+ * Return null to use the endpoint's default seven-day window.
+ * If the selection starts before that window, use its range to include older keys.
+ * This limits the read to the selected range.
+ */
+export function presenceProbeWindow(range: {
+    date_from?: string | null
+    date_to?: string | null
+}): { date_from: string; date_to?: string } | null {
+    const from = range.date_from
+    if (!from) {
+        return null
+    }
+    const start = dayjs(from).isValid() ? dayjs(from) : dateStringToDayJs(from)
+    if (!start || !start.isBefore(dayjs().subtract(PRESENCE_DEFAULT_LOOKBACK_DAYS, 'day'))) {
+        return null
+    }
+    return range.date_to ? { date_from: from, date_to: range.date_to } : { date_from: from }
+}
 
 /**
  * Resolve the configured facets against the resource-attribute keys a tenant actually emits.

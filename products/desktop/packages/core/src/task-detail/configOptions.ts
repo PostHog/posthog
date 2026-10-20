@@ -1,4 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { PiThinkingLevel } from "@posthog/agent/pi/types";
 import {
   type Adapter,
   adapterForModelId,
@@ -7,7 +8,6 @@ import {
   isSelectGroup,
   selectOptionHarness,
 } from "@posthog/shared";
-import type { PiThinkingLevel } from "../pi-runtime/piSessionController";
 
 type RawOptionItem = {
   value?: string;

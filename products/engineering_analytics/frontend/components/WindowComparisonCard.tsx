@@ -2,8 +2,7 @@
 // window vs the previous window", a comparison of exactly two values, so the graphic is two labeled
 // horizontal bars on a shared zero-based scale rather than a time series: the daily buckets behind
 // these metrics are noise at this grain. Rates use a pass/fail split bar per window, where the
-// status colors are the data; a duration card can pin a p90 tick on each bar to show the tail on
-// the same scale as the median.
+// status colors are the data.
 
 import { ReactNode } from 'react'
 
@@ -11,11 +10,12 @@ import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import type { DoraBand, DoraBenchmark } from '../lib/doraBenchmark'
 import { percent } from '../lib/format'
 import { ComparisonBarRow } from './ComparisonBarRow'
-import { DeltaBadge, percentChange, pointChange, type TileBenchmark } from './MetricTile'
+import { DeltaBadge, percentChange, pointChange } from './MetricTile'
 
-const BENCHMARK_EDGE_CLASS: Record<TileBenchmark['band'], string> = {
+const BENCHMARK_EDGE_CLASS: Record<DoraBand, string> = {
     elite: 'border-l-success',
     high: 'border-l-purple',
     medium: 'border-l-warning',
@@ -40,8 +40,6 @@ function ComparisonRow({
     formatValue,
     share,
     current,
-    marker,
-    markerLabel,
 }: {
     label: string
     value: number
@@ -50,32 +48,41 @@ function ComparisonRow({
     /** Render the value as a pass/fail split of the whole bar instead of a length. */
     share: boolean
     current: boolean
-    marker?: number | null
-    markerLabel?: string
 }): JSX.Element {
     if (share) {
         return (
-            <ComparisonBarRow label={label} value={formatValue(value)} fraction={1}>
+            <ComparisonBarRow label={label} value={value} formatValue={formatValue}>
                 <PassFailSplit rate={value} />
             </ComparisonBarRow>
         )
     }
+    return <ComparisonBarRow label={label} value={value} max={max} formatValue={formatValue} muted={!current} />
+}
+
+function PreviousWindowNote({ text }: { text: string }): JSX.Element {
     return (
-        <ComparisonBarRow
-            label={label}
-            value={formatValue(value)}
-            fraction={max > 0 ? value / max : 0}
-            muted={!current}
-            marker={
-                marker != null && max > 0
-                    ? {
-                          fraction: marker / max,
-                          tooltip: markerLabel ? `${markerLabel} ${formatValue(marker)}` : undefined,
-                      }
-                    : null
-            }
-        />
+        <div className="flex items-center gap-2">
+            <span className="w-24 shrink-0 truncate text-[11px] text-tertiary">Previous window</span>
+            <span className="text-[11px] text-tertiary">{text}</span>
+        </div>
     )
+}
+
+/** Why the previous window can't be compared with this one, or null when it can. */
+function previousWindowGap(
+    previousValue: number | null | undefined,
+    formatValue: (value: number) => string,
+    relative: boolean
+): string | null {
+    if (previousValue == null) {
+        return 'No data'
+    }
+    // A relative change against a value that displays as zero (a 9s median shown as "0m") reads as a
+    // huge swing that the shown numbers can't explain.
+    if (relative && previousValue > 0 && formatValue(previousValue) === formatValue(0)) {
+        return 'Too close to zero to compare'
+    }
+    return null
 }
 
 export function WindowComparisonCard({
@@ -89,16 +96,13 @@ export function WindowComparisonCard({
     deltaPrecision,
     tooltip,
     benchmark,
-    marker,
-    markerPrevious,
-    markerLabel,
     loading = false,
     emptyText,
 }: {
     title: string
     /** This window's value. */
     value: number | null | undefined
-    /** The previous window's value; without one the card shows this window's bar alone. */
+    /** The previous window's value; without one the card says the previous window has no data. */
     previousValue: number | null | undefined
     formatValue: (value: number) => string
     goodWhenDown?: boolean
@@ -110,17 +114,15 @@ export function WindowComparisonCard({
     deltaPrecision?: number
     /** Definition or methodology, shown on title hover. */
     tooltip?: ReactNode
-    benchmark?: TileBenchmark | null
-    /** A companion figure (e.g. p90) pinned as a tick on each magnitude bar, on the same scale as
-     *  the value. Ignored in `share` mode, which has no scale to pin against. */
-    marker?: number | null
-    markerPrevious?: number | null
-    markerLabel?: string
+    /** Where the value lands on its DORA ladder: a colored left edge plus the ladder in the title tooltip. */
+    benchmark?: DoraBenchmark | null
     loading?: boolean
     emptyText: string
 }): JSX.Element {
-    const max = Math.max(...[value, previousValue, marker, markerPrevious].map((number) => number ?? 0))
-    const delta = deltaUnit === 'pt' ? pointChange(value, previousValue) : percentChange(value, previousValue)
+    const previousGap = previousWindowGap(previousValue, formatValue, deltaUnit !== 'pt')
+    const comparablePrevious = previousGap == null ? previousValue : null
+    const max = Math.max(value ?? 0, comparablePrevious ?? 0)
+    const delta = deltaUnit === 'pt' ? pointChange(value, comparablePrevious) : percentChange(value, comparablePrevious)
     const tooltipContent = benchmark ? (
         <div className="flex flex-col gap-1">
             {tooltip}
@@ -167,20 +169,18 @@ export function WindowComparisonCard({
                             formatValue={formatValue}
                             share={share}
                             current
-                            marker={marker}
-                            markerLabel={markerLabel}
                         />
-                        {previousValue != null && (
+                        {comparablePrevious != null ? (
                             <ComparisonRow
                                 label="Previous window"
-                                value={previousValue}
+                                value={comparablePrevious}
                                 max={max}
                                 formatValue={formatValue}
                                 share={share}
                                 current={false}
-                                marker={markerPrevious}
-                                markerLabel={markerLabel}
                             />
+                        ) : (
+                            <PreviousWindowNote text={previousGap ?? 'No data'} />
                         )}
                     </div>
                 </>

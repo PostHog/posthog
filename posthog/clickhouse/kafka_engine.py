@@ -36,6 +36,7 @@ CONSUMER_GROUP_FLAG_EVALUATIONS = "clickhouse_flag_evaluations"
 
 # WarpStream consumer groups (separate from MSK so both can coexist)
 CONSUMER_GROUP_LOG_ENTRIES_WS = "clickhouse_log_entries_ws"
+CONSUMER_GROUP_LOG_ENTRIES_AUX = "clickhouse_log_entries_aux"
 CONSUMER_GROUP_APP_METRICS2_WS = "clickhouse_app_metrics2_ws"
 CONSUMER_GROUP_TOPHOG_WS = "clickhouse_tophog_ws"
 CONSUMER_GROUP_PRECALCULATED_EVENTS_WS = "clickhouse_precalculated_events_ws"
@@ -52,6 +53,8 @@ CONSUMER_GROUP_INGESTION_WARNINGS_WS = "clickhouse_ingestion_warnings_ws"
 CONSUMER_GROUP_INGESTION_WARNINGS_V2 = "clickhouse_ingestion_warnings_v2"
 CONSUMER_GROUP_SESSION_REPLAY_EVENTS_WS = "clickhouse_session_replay_events_ws"
 CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS = "clickhouse_session_replay_features_ws"
+# The ws2 suffix keeps this group distinct from the retired hand-managed pipeline.
+CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS = "clickhouse_raw_sessions_v3_events_json_ws2"
 CONSUMER_GROUP_COHORT_MEMBERSHIP_WS = "clickhouse_cohort_membership_ws"
 
 # WarpStream-shared consumer groups (topics moved to warpstream-shared VC; coexist with MSK

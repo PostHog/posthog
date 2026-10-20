@@ -14,7 +14,6 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.alerts.backend.facade.contracts import AlertDestinationData, DestinationType
 from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
     create_alert_destination_hog_functions,
@@ -23,6 +22,7 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, DestinationType
 
 from ..alert_destinations import (
     BILLING_ALERT_EVENT_IDS,

@@ -27,7 +27,7 @@ function MonoId({ label, value }: { label: string; value: string }): JSX.Element
 
 /**
  * One emitted finding in the scout detail Signals section. Shares the collapse/expand grammar of
- * the run rows: a header (chevron · severity · confidence · timestamp) that stays visible, a 2-line
+ * the run rows: a header (chevron · severity · timestamp) that stays visible, a 2-line
  * markdown preview when collapsed, and the full markdown plus an id/task-run footer when expanded.
  *
  * `isDeepLinked` marks the finding the current `/inbox/scouts/<skill>/<finding>` URL points at — it
@@ -56,7 +56,6 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
     showScout?: boolean
 }): JSX.Element {
     const [expanded, setExpanded] = useState(isDeepLinked)
-    const confidencePercent = Math.round((emission.confidence ?? 0) * 100)
     const cardRef = useRef<HTMLDivElement>(null)
 
     // A deep-linked finding may mount after the URL is already settled (emissions load async), so
@@ -116,9 +115,6 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
                             {prettifyScoutSkillName(skillName)}
                         </span>
                     )}
-                    <span className="whitespace-nowrap text-[11px] text-muted tabular-nums">
-                        {confidencePercent}% confidence
-                    </span>
                     <span className="flex-1" />
                     <ScoutTimestamp time={emission.emitted_at} />
                 </button>

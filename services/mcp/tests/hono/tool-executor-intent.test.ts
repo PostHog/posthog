@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 vi.mock('@/tools', async () => {
     const { default: executeSql } = await import('@/tools/posthogAiTools/executeSql')
@@ -12,7 +13,6 @@ vi.mock('@/resources/internals', () => ({
     fetchContextMillResources: vi.fn().mockRejectedValue(new Error('mocked')),
     filterValidEntries: vi.fn().mockReturnValue([]),
     loadManifestFromArchive: vi.fn().mockReturnValue({ resources: [] }),
-    clearResourceCache: vi.fn(),
 }))
 
 vi.mock('@/resources', () => ({
@@ -30,6 +30,8 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { InstructionsBuilder } from '@/hono/instructions'
+import { toolCallsTotal } from '@/hono/metrics'
+import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { getPostHogClient } from '@/lib/posthog'
@@ -51,20 +53,180 @@ describe('ToolExecutor analytics capture', () => {
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 
-    it('injects the analytics arguments into advertised tools', async () => {
-        const state = makeToolExecutorState([], { useSingleExec: true })
+    it.each(
+        ['direct', 'exec'].flatMap((mode) =>
+            [false, true].flatMap((fails) =>
+                [
+                    ['scout-trial-create', 'private'],
+                    ['scout-trial-get', 'private'],
+                    ['scout-trial-start', 'private'],
+                    ['scout-trial-report', 'private'],
+                    ['scout-trial-list', 'private'],
+                    ['scout-trial-resume', 'private'],
+                    ['scout-trial-archive', 'private'],
+                    ['scout-trial-setup', 'private'],
+                    ['scout-rubric-generate', 'private'],
+                    ['scout-rubric-get', 'private'],
+                    ['scout-rubric-save', 'private'],
+                    ['scout-runs-retrieve', 'ordinary'],
+                    ['signals-scout-runs-retrieve', 'ordinary'],
+                    ['tasks-list', 'ordinary'],
+                    ['tasks-retrieve', 'ordinary'],
+                    ['tasks-runs-list', 'ordinary'],
+                    ['tasks-runs-session-logs-retrieve', 'ordinary'],
+                    ['tasks-runs-retrieve', 'ordinary'],
+                    ['projects-get', 'ordinary'],
+                    ['tasks-list', 'marked'],
+                    ['tasks-runs-session-logs-retrieve', 'marked'],
+                ].map(([name, capture]) => ({ mode, fails, name: name!, capture }))
+            )
+        )
+    )(
+        'keeps $name capture=$capture for ordinary operator $mode calls, fails=$fails',
+        async ({ mode, fails, name, capture }) => {
+            const client = getPostHogClient()
+            const toolCall = vi.spyOn(client, 'captureToolCall').mockImplementation(() => {})
+            const span = vi.spyOn(client, 'capture').mockImplementation(() => {})
+            const exception = vi.spyOn(client, 'captureException').mockImplementation(() => {})
+            const metric = vi.spyOn(toolCallsTotal, 'inc')
+            const output = { reports: [{ title: 'Synthetic report' }], memory: { example: 'Synthetic finding' } }
+            const tool = {
+                name,
+                title: name,
+                description: 'Synthetic tool',
+                scopes: [],
+                annotations: { readOnlyHint: true },
+                schema: z.object({ body: z.string() }),
+                handler: vi.fn(async (context) => {
+                    if (capture === 'marked') {
+                        context.api.config.onPrivateResponse()
+                    }
+                    if (fails) {
+                        throw new Error('Synthetic private report error')
+                    }
+                    return output
+                }),
+            }
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build: () => tool,
+                meta: undefined,
+                rawInputSchema: undefined,
+                definition: undefined,
+            })
+            const state = makeToolExecutorState([tool], { useSingleExec: mode === 'exec', suppressAnalytics: false })
+            await executor.handleToolsList(state)
+            await new Promise((resolve) => setImmediate(resolve))
+            span.mockClear()
+            const body = { body: 'Synthetic candidate prompt' }
+            const args = mode === 'exec' ? { command: `call ${name} ${JSON.stringify(body)}` } : body
+            const result = (await executor.handleToolCall(
+                {
+                    name: mode === 'exec' ? 'exec' : name,
+                    arguments: { ...args, context: 'Compare synthetic scout variants', llm_model: 'example-model' },
+                },
+                state
+            )) as { isError?: boolean }
+            await new Promise((resolve) => setImmediate(resolve))
+
+            expect(result.isError === true).toBe(fails)
+            expect(tool.handler).toHaveBeenCalledOnce()
+            expect(metric).toHaveBeenCalledWith({ tool: name, status: fails ? 'error' : 'success' })
+            expect(state.suppressAnalytics).toBe(false)
+            expect(toolCall).toHaveBeenCalledTimes(capture === 'private' ? 0 : 1)
+            expect(span).toHaveBeenCalledTimes(capture === 'private' ? 0 : 1)
+            if (capture !== 'private') {
+                expect(toolCall.mock.calls[0]![0].intent).toBe('Compare synthetic scout variants')
+            }
+            if (capture !== 'private') {
+                expect(toolCall.mock.calls[0]![0].properties?.suppress_analytics).toBe(capture === 'marked')
+                expect(span.mock.calls[0]![0].properties?.suppress_analytics).toBe(capture === 'marked')
+            }
+            if (fails) {
+                expect(exception).toHaveBeenCalledWith(
+                    expect.any(Error),
+                    state.distinctId,
+                    expect.objectContaining({ suppress_analytics: capture !== 'ordinary' })
+                )
+            } else {
+                expect(exception).not.toHaveBeenCalled()
+                expect(JSON.stringify(result)).toContain('Synthetic report')
+            }
+        }
+    )
+
+    it('keeps parallel ordinary calls visible when another call receives a private response', async () => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const tool = {
+            name: 'tasks-retrieve',
+            title: 'Read task',
+            description: 'Synthetic task read',
+            scopes: [],
+            annotations: { readOnlyHint: true },
+            schema: z.object({ private: z.boolean() }),
+            handler: async (context: any, params: { private: boolean }) => {
+                if (params.private) {
+                    context.api.config.onPrivateResponse()
+                }
+                await new Promise((resolve) => setImmediate(resolve))
+                return { title: 'Synthetic task' }
+            },
+        }
+        vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+            build: () => tool,
+            meta: undefined,
+            rawInputSchema: undefined,
+            definition: undefined,
+        })
+        const state = makeToolExecutorState([tool], { suppressAnalytics: false })
+
+        await Promise.all(
+            [true, false].map((privateResult) =>
+                executor.handleToolCall(
+                    {
+                        name: tool.name,
+                        arguments: { private: privateResult },
+                    },
+                    state
+                )
+            )
+        )
+        await new Promise((resolve) => setImmediate(resolve))
+
+        expect(capture.mock.calls.map(([call]) => call.properties?.suppress_analytics).sort()).toEqual([false, true])
+        expect(state.suppressAnalytics).toBe(false)
+        expect(state.context.api.config.onPrivateResponse).toBeUndefined()
+    })
+
+    it.each([true, false])('isolates intent descriptions with single exec=%s', async (useSingleExec) => {
+        const tool = catalog.getFilteredTools({ scopes: ['*'] }).find((entry) => entry.name === 'projects-get')!
+        const state = makeToolExecutorState([tool], { useSingleExec })
+        const prompt = 'State the task objective before the tool action. Omit identifying details.'
 
         const result = await executor.handleToolsList(state)
+        const treatment = await executor.handleToolsList({
+            ...state,
+            distinctId: 'trial-user',
+            intentPrompt: prompt,
+        })
+        const other = await executor.handleToolsList({ ...state, distinctId: 'another-user' })
+        vi.spyOn(getPostHogClient(), 'prepareToolList').mockImplementationOnce(() => {
+            throw new Error('Synthetic SDK preparation failure')
+        })
+        const fallback = await executor.handleToolsList({ ...state, intentPrompt: prompt })
 
-        const execEntry = result.tools.find((t) => t.name === 'exec')!
-        const properties = execEntry.inputSchema.properties as Record<string, unknown>
-        // The SDK injects `context` (required, to nudge the agent to state intent)
-        // while leaving the existing `command` arg untouched.
+        const entry = result.tools[0]!
+        const properties = entry.inputSchema.properties as Record<string, unknown>
         expect(properties).toHaveProperty('context')
         expect(properties).toHaveProperty('llm_model')
-        expect(properties).toHaveProperty('command')
-        expect(execEntry.inputSchema.required).toContain('context')
-        expect(execEntry.inputSchema.required).toContain('llm_model')
+        expect(entry.inputSchema.required).toContain('context')
+        expect(entry.inputSchema.required).toContain('llm_model')
+        expect(treatment.tools[0]!.inputSchema.properties?.context).toMatchObject({ description: prompt })
+        expect(other.tools[0]!.inputSchema.properties?.context).toEqual(properties.context)
+        expect(properties.context).not.toEqual(treatment.tools[0]!.inputSchema.properties?.context)
+        expect(fallback.tools[0]!.inputSchema.properties).not.toHaveProperty('context')
+        if (useSingleExec) {
+            expect(properties).toHaveProperty('command')
+        }
     })
 
     it.each([
@@ -303,6 +465,116 @@ describe('ToolExecutor analytics capture', () => {
         expect(captureSpy).toHaveBeenCalledTimes(1)
         expect(captureSpy.mock.calls[0]![0].intent).toBeUndefined()
         expect(captureSpy.mock.calls[0]![0].properties?.$mcp_llm_model_missing_reason).toBe('missing')
+
+        captureSpy.mockRestore()
+    })
+
+    // MCP 2026-07-28 carries no session of its own, so the agent's handle is the only one
+    // these calls can group by.
+    const statelessState = (): ReturnType<typeof makeToolExecutorState> =>
+        makeToolExecutorState([], {
+            useSingleExec: true,
+            requestContext: { authMethod: 'personal_api_key', mcpProtocolVersion: '2026-07-28' } as any,
+        })
+
+    const readConversationHandle = (result: unknown): string | undefined => {
+        const content = (result as { content?: { text?: string }[] }).content ?? []
+        for (const part of content) {
+            try {
+                const parsed = JSON.parse(part.text ?? '')
+                if (parsed && typeof parsed.conversation_id === 'string') {
+                    return parsed.conversation_id
+                }
+            } catch {
+                continue
+            }
+        }
+        return undefined
+    }
+
+    it('hands a session handle to a client that carries none, and groups the echoed call with it', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const state = statelessState()
+        await executor.handleToolsList(state)
+
+        const observedHandles: (string | undefined)[] = []
+        const hooks = {
+            beforeExecute: async (callState: ResolvedState): Promise<undefined> => {
+                observedHandles.push(callState.requestContext.mcpConversationId)
+                callState.interviewRecruitmentDiagnostics = {
+                    reason: 'url_unsupported',
+                    urlSupported: false,
+                    formSupported: true,
+                }
+                return undefined
+            },
+            afterExecute: async (): Promise<void> => {},
+        }
+        const first = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state, hooks)
+        const handle = readConversationHandle(first)
+
+        expect(handle).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBe(handle)
+        expect(captureSpy.mock.calls[0]![0].properties).toMatchObject({
+            interview_recruitment_reason: 'url_unsupported',
+            interview_recruitment_url_supported: false,
+            interview_recruitment_form_supported: true,
+        })
+        expect(state.interviewRecruitmentDiagnostics).toBeUndefined()
+
+        const secondState = statelessState()
+        const second = await executor.handleToolCall(
+            { name: 'exec', arguments: { command: 'tools', conversation_id: handle } },
+            secondState,
+            hooks
+        )
+        expect(observedHandles).toEqual([handle, handle])
+        expect(secondState.requestContext.mcpConversationId).toBe(handle)
+
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(2))
+        expect(captureSpy.mock.calls[1]![0].conversationId).toBe(handle)
+        // `RequestContext` holds this same object; a copy would leave its events sessionless.
+        expect(state.requestContext.mcpConversationId).toBe(handle)
+        // Repeating it would spend tokens telling the agent what it just told us.
+        expect(readConversationHandle(second)).toBeUndefined()
+        expect((second as { isError?: boolean }).isError).toBeFalsy()
+
+        captureSpy.mockRestore()
+    })
+
+    it('leaves a client that already has a session untouched', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        // `makeToolExecutorState` carries `sessionId: 'sess-1'`, the wrapper-app id.
+        const state = makeToolExecutorState([], { useSingleExec: true })
+        await executor.handleToolsList(state)
+
+        const result = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
+
+        // Minting here would split the session these clients already group by, and append a
+        // block to every first result, for the majority of today's traffic.
+        expect(readConversationHandle(result)).toBeUndefined()
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBeUndefined()
+
+        captureSpy.mockRestore()
+    })
+
+    it('keeps the handle a wrapper app sent on the conversation header', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const state = makeToolExecutorState([], {
+            useSingleExec: true,
+            requestContext: { authMethod: 'personal_api_key', mcpConversationId: 'conv-from-header' } as any,
+        })
+        await executor.handleToolsList(state)
+
+        const result = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
+
+        // The header is the app's own grouping. Minting over it would replace that app's
+        // conversation with a fresh handle on every call.
+        expect(readConversationHandle(result)).toBeUndefined()
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBe('conv-from-header')
 
         captureSpy.mockRestore()
     })

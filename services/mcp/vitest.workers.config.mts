@@ -28,6 +28,9 @@ export default defineConfig({
                     POSTHOG_ANALYTICS_HOST: '',
                     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: '',
                     POSTHOG_UI_APPS_TOKEN: '',
+                    // The worker ignores X-Forwarded-Host in production. A developer who sets
+                    // this in .env for a tunnel must not change what these tests run.
+                    MCP_TRUST_FORWARDED_HOST: '',
                     // Generic test marker. Code can short-circuit features
                     // that need real network (e.g. context-mill GitHub
                     // fetch in src/resources/index.ts).

@@ -4,7 +4,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 
 from django.db import connection
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -15,7 +15,10 @@ from rest_framework.test import APIClient
 
 from posthog.models import ActivityLog, Comment, Team
 from posthog.models.utils import generate_random_token_secret
+from posthog.test.api_keys import create_project_secret_api_key
+from posthog.test.authentication_checks import covers_authentication
 
+from products.conversations.backend.api.external import ExternalTicketProjectSecretAPIKeyAuthentication
 from products.conversations.backend.api.ticket_actions import _truncate_bytes
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
@@ -43,7 +46,107 @@ class TestExternalTicketAPI(BaseTest):
     def _auth_headers(self, token=None):
         return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.secret_api_token}"}
 
+    def _create_psak_token(self, scopes, team=None, label="external-ticket"):
+        _, token = create_project_secret_api_key(team or self.team, label=label, scopes=scopes)
+        return token
+
     # -- Authentication ---------------------------------------------------
+
+    @covers_authentication(ExternalTicketProjectSecretAPIKeyAuthentication)
+    def test_get_accepts_project_secret_api_key_with_support_ticket_read_scope(self):
+        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["support_ticket:read"])))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(self.ticket.id))
+
+    def test_get_rejects_project_secret_api_key_without_support_ticket_scope(self):
+        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["endpoint:read"])))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patch_rejects_project_secret_api_key(self):
+        response = self.client.patch(
+            self.url,
+            {"status": "resolved"},
+            content_type="application/json",
+            **self._auth_headers(self._create_psak_token(["support_ticket:read"])),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.NEW)
+
+    @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
+    def test_patch_accepts_legacy_token_that_has_a_migrated_psak_row(self, _name, token_field):
+        # The #63111 backfill gives the legacy token a PSAK row with the same hash. The
+        # legacy string (primary or rotated-out backup) must keep the legacy path
+        # (PATCH allowed), not resolve as a PSAK.
+        token = generate_random_token_secret()
+        setattr(self.team, token_field, token)
+        self.team.save(update_fields=[token_field])
+        create_project_secret_api_key(self.team, label="Migrated legacy secret API key", value=token)
+        response = self.client.patch(
+            self.url, {"status": "resolved"}, content_type="application/json", **self._auth_headers(token)
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.RESOLVED)
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_kill_switch_off_migrated_token_flows_through_its_psak_row(self) -> None:
+        # With the switch off (#66179), the legacy string authenticates through its PSAK
+        # row, so GET still returns 200 and PATCH returns 403.
+        token = self.team.secret_api_token
+        create_project_secret_api_key(
+            self.team,
+            label="Migrated legacy secret API key",
+            scopes=["feature_flag:read", "support_ticket:read"],
+            value=token,
+        )
+
+        response = self.client.get(self.url, **self._auth_headers(token))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            self.url, {"status": "resolved"}, content_type="application/json", **self._auth_headers(token)
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("organization_deactivated", {"is_active": False}),
+            ("organization_pending_deletion", {"is_pending_deletion": True}),
+        ]
+    )
+    def test_legacy_token_is_rejected_when_the_organization_is_blocked(self, _name: str, changes: dict) -> None:
+        for field, value in changes.items():
+            setattr(self.organization, field, value)
+        self.organization.save()
+
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_kill_switch_off_rejects_legacy_token_without_mirror_row(self) -> None:
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @parameterized.expand(
+        [
+            ("conversations_disabled", {"team": {"conversations_enabled": False}}),
+            ("organization_deactivated", {"organization": {"is_active": False}}),
+            ("organization_active_null", {"organization": {"is_active": None}}),
+            ("organization_pending_deletion", {"organization": {"is_pending_deletion": True}}),
+        ]
+    )
+    def test_psak_is_invisible_when_the_team_or_organization_is_blocked(self, _name, changes):
+        token = self._create_psak_token(["support_ticket:read"])
+        for field, value in changes.get("team", {}).items():
+            setattr(self.team, field, value)
+            self.team.save(update_fields=[field])
+        for field, value in changes.get("organization", {}).items():
+            setattr(self.organization, field, value)
+            self.organization.save(update_fields=[field])
+
+        response = self.client.get(self.url, **self._auth_headers(token))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_get_requires_auth(self):
         response = self.client.get(self.url)
@@ -83,12 +186,18 @@ class TestExternalTicketAPI(BaseTest):
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_authenticated_requests_increment_the_legacy_auth_counter(self):
-        labels = {"auth_method": "secret_api_token", "http_method": "get"}
-        before = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", labels) or 0
+    def test_authenticated_requests_increment_the_legacy_auth_counters(self):
+        auth_labels = {"auth_method": "secret_api_token", "http_method": "get"}
+        team_labels = {"team_id": str(self.team.id)}
+        auth_before = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", auth_labels) or 0
+        team_before = (
+            REGISTRY.get_sample_value("posthog_conversations_external_ticket_legacy_team_total", team_labels) or 0
+        )
         self.client.get(self.url, **self._auth_headers())
-        after = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", labels)
-        self.assertEqual(after, before + 1)
+        auth_after = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", auth_labels)
+        team_after = REGISTRY.get_sample_value("posthog_conversations_external_ticket_legacy_team_total", team_labels)
+        self.assertEqual(auth_after, auth_before + 1)
+        self.assertEqual(team_after, team_before + 1)
 
     # -- GET ticket -------------------------------------------------------
 

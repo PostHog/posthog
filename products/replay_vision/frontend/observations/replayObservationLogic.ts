@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { combineUrl, router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -11,8 +12,20 @@ import { visionObservationsRetrieve, visionObservationsViewedCreate } from '../g
 import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
+import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
 import { OBSERVATION_LIST_FILTER_KEYS, OBSERVATION_LIST_URL_PARAM_KEYS } from '../replay_scanners/types'
-import { scannerBreadcrumb } from '../utils/breadcrumbs'
+import { searchBreadcrumb } from '../search/observationQueries'
+import {
+    OBSERVATION_ORIGIN_PARAM,
+    OBSERVATION_RETURN_PATH_PARAM,
+    POSTHOG_AI_ORIGIN,
+    RECORDING_ORIGIN,
+    WATCH_FEED_ORIGIN,
+    isObservationOrigin,
+    safeReturnPath,
+    scannerBreadcrumb,
+    watchFeedBreadcrumb,
+} from '../utils/breadcrumbs'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { observationProgressLogic } from './observationProgressLogic'
@@ -65,8 +78,7 @@ export function observationParentUrl(
  */
 export function scannerReturnParams(searchParams: Record<string, unknown>): Record<string, string> {
     const params: Record<string, string> = {}
-    // `tab` and `q` (the Search tab's query) sit alongside the observations table's own params.
-    for (const key of ['tab', 'q', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
+    for (const key of ['tab', 'q', 'scanner', 'similar', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
         const value = searchParams[key]
         // The router coerces a param by shape: `page=2` to a number, `q=true` to a boolean. Keep every
         // scalar and stringify it; dropping the coerced ones would lose that filter on the way back.
@@ -77,6 +89,47 @@ export function scannerReturnParams(searchParams: Record<string, unknown>): Reco
     return params
 }
 
+/** Carries the origin across prev/next, so back still returns where the reader came from. */
+export function observationOriginParams(searchParams: Record<string, unknown>): Record<string, string> {
+    const origin = searchParams[OBSERVATION_ORIGIN_PARAM]
+    if (!isObservationOrigin(origin)) {
+        return {}
+    }
+    const returnPath = safeReturnPath(searchParams[OBSERVATION_RETURN_PATH_PARAM])
+    return {
+        [OBSERVATION_ORIGIN_PARAM]: origin,
+        ...(returnPath ? { [OBSERVATION_RETURN_PATH_PARAM]: returnPath } : {}),
+    }
+}
+
+function recordingBreadcrumb(observation: ReplayObservationApi, returnPath: string | null = null): Breadcrumb {
+    return {
+        key: `recording-${observation.session_id}`,
+        name: 'Recording',
+        path: returnPath ?? urls.replaySingle(observation.session_id),
+        iconType: 'session_replay',
+    }
+}
+
+/** Back returns to the `from` origin when there is one, else to whatever owns the observation. */
+function parentBreadcrumbFor(observation: ReplayObservationApi, searchParams: Record<string, unknown>): Breadcrumb {
+    const origin = searchParams[OBSERVATION_ORIGIN_PARAM]
+    const returnPath = safeReturnPath(searchParams[OBSERVATION_RETURN_PATH_PARAM])
+    if (origin === WATCH_FEED_ORIGIN) {
+        return watchFeedBreadcrumb()
+    }
+    if (origin === RECORDING_ORIGIN) {
+        return recordingBreadcrumb(observation, returnPath)
+    }
+    if (origin === POSTHOG_AI_ORIGIN) {
+        return { key: 'replay-vision-posthog-ai', name: 'PostHog AI', path: returnPath ?? urls.ai() }
+    }
+    const returnParams = scannerReturnParams(searchParams)
+    return returnParams.tab === ReplayScannerTab.Search
+        ? searchBreadcrumb(returnParams)
+        : observationParentBreadcrumb(observation, returnParams)
+}
+
 /** The crumb the observation page's back button returns to. */
 export function observationParentBreadcrumb(
     observation: ReplayObservationApi,
@@ -85,12 +138,7 @@ export function observationParentBreadcrumb(
     if (hasScannerPage(observation)) {
         return scannerBreadcrumb(observation.scanner_id, scannerLabel(observation), returnParams)
     }
-    return {
-        key: `recording-${observation.session_id}`,
-        name: 'Recording',
-        path: observationParentUrl(observation),
-        iconType: 'session_replay',
-    }
+    return recordingBreadcrumb(observation)
 }
 
 /** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
@@ -301,10 +349,9 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             const inFlight = values.observation?.status === 'pending' || values.observation?.status === 'running'
             scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
         }
-        // Point the breadcrumb at whatever owns this observation, so "back" returns there instead of the vision home.
         const setParentBreadcrumb = (observation: ReplayObservationApi): void => {
             replayObservationSceneLogic().actions.setParentBreadcrumb(
-                observationParentBreadcrumb(observation, scannerReturnParams(router.values.searchParams))
+                parentBreadcrumbFor(observation, router.values.searchParams)
             )
         }
         return {
@@ -369,13 +416,16 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                     return
                 }
                 actions.retryObservationSuccess()
-                if (!observation) {
+                // The reader may have left while the retry request was in flight.
+                const stillHere =
+                    removeProjectIdIfPresent(router.values.location.pathname) === urls.replayVisionObservation(props.id)
+                if (!observation || !stillHere) {
                     return
                 }
                 // Land on the unfiltered parent, not the reader's saved list view: the replacement is
                 // pending with no verdict yet, so a filtered or paged list would hide the row we just
-                // promised appears "shortly".
-                router.actions.push(observationParentUrl(observation))
+                // promised appears "shortly". Replace, because the retry deletes this observation.
+                router.actions.replace(observationParentUrl(observation))
             },
 
             // When the stream reports the observation has settled, reload once to render the final result.

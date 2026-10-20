@@ -8,7 +8,7 @@ import { Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
-import { FeatureFlagGroupType, FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
+import { FeatureFlagFilters, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
@@ -20,7 +20,7 @@ jest.mock('lib/components/AutoSizer', () => ({
 
 // `aggregation_group_type_index` is set at flag level only, so the condition has to inherit it. That
 // resolution happens at the call site and is invisible to `matchingActorsUrl`'s own tests.
-function buildFilters(aggregationGroupTypeIndex?: number): FeatureFlagType['filters'] {
+function buildFilters(aggregationGroupTypeIndex?: number): FeatureFlagFilters {
     const group: FeatureFlagGroupType = {
         properties: [
             {
@@ -72,7 +72,7 @@ describe('feature flag release conditions matching users link', () => {
         [
             'FeatureFlagReleaseConditions',
             <FeatureFlagReleaseConditions id="1234" filters={buildFilters()} onChange={jest.fn()} />,
-            'View matching users',
+            'users',
             '/persons',
         ],
         [
@@ -83,13 +83,13 @@ describe('feature flag release conditions matching users link', () => {
                 filters={buildFilters()}
                 onChange={jest.fn()}
             />,
-            'View matching users',
+            'users',
             '/persons',
         ],
         [
             'FeatureFlagReleaseConditions, group-targeted',
             <FeatureFlagReleaseConditions id="1234" filters={buildFilters(0)} onChange={jest.fn()} />,
-            'View matching organizations',
+            'organizations',
             '/groups/0',
         ],
         [
@@ -100,18 +100,18 @@ describe('feature flag release conditions matching users link', () => {
                 filters={buildFilters(0)}
                 onChange={jest.fn()}
             />,
-            'View matching organizations',
+            'organizations',
             '/groups/0',
         ],
     ] as const
 
     test.each(cases)(
         '%s links a condition to the matching actors once counts load',
-        async (_name, component, linkText, expectedPath) => {
+        async (_name, component, targetName, expectedPath) => {
             const { getByText } = render(<Provider>{component}</Provider>)
 
             await waitFor(() => {
-                const link = getByText(linkText).closest('a')
+                const link = getByText(`View matching ${targetName}`).closest('a')
                 expect(link).toBeInTheDocument()
                 expect(link).toHaveAttribute('href', expect.stringContaining(expectedPath))
                 // The condition's own properties have to reach the link, not just the actor list route.
@@ -119,4 +119,16 @@ describe('feature flag release conditions matching users link', () => {
             })
         }
     )
+
+    test.each(cases)('%s names what is loading while counts are pending', async (_name, component, targetName) => {
+        useMocks({
+            post: {
+                '/api/projects/:team/feature_flags/user_blast_radius': () => new Promise(() => {}),
+            },
+        })
+        const { findByText } = render(<Provider>{component}</Provider>)
+
+        const status = await findByText(`Calculating affected ${targetName}…`)
+        expect(status.parentElement).toHaveAttribute('role', 'status')
+    })
 })

@@ -31,6 +31,15 @@ const FAINT_OPACITY = 0.4;
 const TOOLTIP_DELAY_MS = 200;
 
 /**
+ * A row badge's avatar. `cursor-default` because a badge names a fact about the
+ * row and is not a control — quill gives an avatar rendered as a button the
+ * pointer cursor, which promises a click that does nothing. The outline keeps
+ * the badges apart where the stack overlaps them: without it two icons touching
+ * read as one broken glyph rather than two badges.
+ */
+export const ROW_BADGE_CLASS = "cursor-default outline-1 outline-(--border)";
+
+/**
  * A label-only tooltip. Two things keep it out of the way, because one isn't
  * enough: `disableHoverablePopup` stops Base UI holding the popup open when the
  * pointer moves onto it, and `pointer-events-none` is the guarantee — a popup
@@ -172,7 +181,7 @@ export function PinnedBadge() {
         size="xs"
         aria-label="Pinned"
         role="img"
-        className="cursor-default"
+        className={ROW_BADGE_CLASS}
       >
         <AvatarFallback className="bg-transparent">
           <PushPin size={9} className="text-primary" />
@@ -209,14 +218,11 @@ export function TaskBadgeStack({
           {/* The tooltip names the badge on hover; `aria-label` is what names it
               for everyone else — without it the stack is a row of blank avatars
               to a screen reader. */}
-          {/* `cursor-default`: these name a fact about the row, they aren't
-              controls — quill gives an avatar rendered as a button the pointer
-              cursor, which promises a click that does nothing. */}
           <Avatar
             size="xs"
             aria-label={label}
             role="img"
-            className="cursor-default"
+            className={ROW_BADGE_CLASS}
           >
             <AvatarFallback className="bg-transparent text-muted-foreground">
               {/* An explicit `color` (an SVG fill) rather than a text-* class,

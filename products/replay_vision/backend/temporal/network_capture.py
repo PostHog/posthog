@@ -90,6 +90,8 @@ class SessionNetworkPayload(BaseModel, frozen=True):
     truncated: bool = False
     # True when a block could not be read, which makes the absence of failures unprovable.
     partial: bool = False
+    # True when a dropped request hid its status, so "nothing failed" is unprovable too.
+    unknown_outcomes: bool = False
 
 
 class NetworkCollector:
@@ -104,6 +106,7 @@ class NetworkCollector:
         self._captured = False
         self._kept: list[NetworkRequest] = []
         self._truncated = False
+        self._unknown_outcomes = False
 
     @property
     def full(self) -> bool:
@@ -116,7 +119,10 @@ class NetworkCollector:
         for raw_request, timestamp_ms in _iter_captured_requests(lines):
             self._captured = True
             request = _normalize(raw_request, timestamp_ms)
-            if request is None or not _is_interesting(request):
+            if request is None:
+                continue
+            if not _is_interesting(request):
+                self._unknown_outcomes = self._unknown_outcomes or request.status is None
                 continue
             if len(self._kept) >= MAX_REQUESTS_PER_SESSION:
                 self._truncated = True
@@ -126,7 +132,11 @@ class NetworkCollector:
     def finish(self, *, partial: bool = False) -> SessionNetworkPayload:
         self._kept.sort(key=lambda request: request.timestamp_ms)
         return SessionNetworkPayload(
-            requests=self._kept, captured=self._captured, truncated=self._truncated, partial=partial
+            requests=self._kept,
+            captured=self._captured,
+            truncated=self._truncated,
+            partial=partial,
+            unknown_outcomes=self._unknown_outcomes,
         )
 
 
@@ -141,6 +151,26 @@ def parse_network_payload(lines: Iterable[str]) -> SessionNetworkPayload:
     return collector.finish()
 
 
+def _events_from_line(parsed: Any) -> list[Any]:
+    """The rrweb events on one snapshot line.
+
+    A recording block stores one event per line as `[window_id, event]`. The snapshots API serves the same
+    events wrapped as `{"window_id": ..., "data": [event, ...]}`, so both are read rather than tying the
+    decoder to whichever source a caller happened to fetch from.
+    """
+    if isinstance(parsed, list):
+        # A pair is identified by its window id, not by its length: a list of two events also has two
+        # members, and reading that as a pair would drop the first event and any failure it carries.
+        if len(parsed) == 2 and isinstance(parsed[0], str) and isinstance(parsed[1], dict):
+            return [parsed[1]]
+        return []
+    if isinstance(parsed, dict):
+        events = parsed.get("data")
+        if isinstance(events, list):
+            return events
+    return []
+
+
 def _iter_captured_requests(lines: Iterable[str]) -> Iterator[tuple[dict[str, Any], int]]:
     """Yield `(raw request, event timestamp)` for every network plugin event across the snapshot lines."""
     for line in lines:
@@ -151,12 +181,7 @@ def _iter_captured_requests(lines: Iterable[str]) -> Iterator[tuple[dict[str, An
             parsed = json.loads(line)
         except (ValueError, TypeError):
             continue
-        if not isinstance(parsed, dict):
-            continue
-        events = parsed.get("data")
-        if not isinstance(events, list):
-            continue
-        for event in events:
+        for event in _events_from_line(parsed):
             yield from _iter_event_requests(event)
 
 
@@ -204,6 +229,9 @@ def _normalize(raw: dict[str, Any], timestamp_ms: int) -> NetworkRequest | None:
             fields[field] = value
     if _PREFERRED_STATUS_FIELD in raw:
         fields["response_status"] = raw[_PREFERRED_STATUS_FIELD]
+    elif _as_int(fields.get("response_status")) == 0 and "method" not in fields:
+        # Without `method` only the observer saw it: 0 there means a cross-origin load hid its status.
+        fields.pop("response_status")
     if isinstance(raw.get("name"), str):
         fields["name"] = raw["name"]
 
@@ -269,7 +297,8 @@ def _is_interesting(request: NetworkRequest) -> bool:
     """Keep failures and slow requests; drop the successful traffic that explains nothing.
 
     Status 0 counts as a failure: wrapped fetch/xhr reports it when the request never completed, which is
-    a blocked, aborted or offline request, and that is exactly what a stuck spinner looks like.
+    a blocked, aborted or offline request, and that is exactly what a stuck spinner looks like. A fetch
+    that threw carries no `status`, only the observer's 0. The observer's 0 on its own reaches here as unknown.
     """
     if request.status is not None and (request.status >= 400 or request.status == 0):
         return True

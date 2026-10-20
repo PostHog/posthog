@@ -15,6 +15,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
+    materialized,
 )
 from unittest.mock import MagicMock, patch
 
@@ -50,6 +51,7 @@ from posthog.schema import (
     MetricSummary,
     MultipleBreakdownType,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
     PropertyMathType,
     PropertyOperator,
     Series as InsightActorsQuerySeries,
@@ -65,6 +67,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -3236,6 +3239,45 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results[0]["data"] == [1]
+
+    def test_person_test_account_filters_return_the_same_series_without_the_persons_join(self):
+        self.enterContext(materialized("person", "email"))
+        for distinct_id, properties in [
+            ("internal", {"email": "alice@internal.example"}),
+            ("external", {"email": "bob@example.com"}),
+            ("no_email", {}),
+        ]:
+            _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties=properties)
+            _create_event(team=self.team, event="$pageview", distinct_id=distinct_id, timestamp="2020-01-11T12:00:00Z")
+        _create_event(team=self.team, event="$pageview", distinct_id="personless", timestamp="2020-01-11T12:00:00Z")
+        flush_persons_and_events()
+        self.team.test_account_filters = [
+            {"key": "email", "type": "person", "operator": "not_icontains", "value": "@internal.example"}
+        ]
+        self.team.save()
+
+        def run(rewrite: bool) -> tuple[list[int], list[str]]:
+            with self.capture_select_queries() as queries:
+                response = self._run_trends_query(
+                    date_from="2020-01-11T00:00:00Z",
+                    date_to="2020-01-11T23:59:59Z",
+                    interval=IntervalType.DAY,
+                    series=[EventsNode(event="$pageview")],
+                    filter_test_accounts=True,
+                    hogql_modifiers=HogQLQueryModifiers(
+                        personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                        negatedPersonFiltersNotIn=rewrite,
+                    ),
+                )
+            return response.results[0]["data"], queries
+
+        joined, _ = run(rewrite=False)
+        rewritten, queries = run(rewrite=True)
+
+        assert joined == [3]
+        assert rewritten == joined
+        assert any("where_optimization" in query for query in queries)
+        assert not any(re.search(r"AS \w+__person ON", query) for query in queries)
 
     def test_smoothing(self):
         self._create_test_events()
@@ -8193,3 +8235,50 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["count"] == expected_count
+
+
+class TestTrendsQueryRunnerParallelExecution(ClickhouseTestMixin, APIBaseTest):
+    """Runs without override_settings(IN_UNIT_TESTING=True) so the queries go through the executor."""
+
+    def _run(
+        self,
+        series: list[EventsNode],
+        breakdown: Optional[BreakdownFilter] = None,
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    ) -> TrendsQueryResponse:
+        return TrendsQueryRunner(
+            team=self.team,
+            ch_user=ch_user,
+            query=TrendsQuery(
+                dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+                interval=IntervalType.DAY,
+                series=series,
+                breakdownFilter=breakdown,
+            ),
+        ).calculate()
+
+    @parameterized.expand([(ClickHouseUser.DEFAULT,), (ClickHouseUser.SIGNALS,)])
+    def test_every_series_comes_back_when_the_queries_run_through_the_executor(self, ch_user: ClickHouseUser) -> None:
+        _create_person(distinct_ids=["p1"], team=self.team)
+        for event in ("a", "b", "c"):
+            _create_event(team=self.team, event=event, distinct_id="p1", timestamp="2020-01-11T12:00:00Z")
+        flush_persons_and_events()
+
+        with patch(
+            "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query",
+            wraps=execute_hogql_query,
+        ) as query:
+            response = self._run([EventsNode(event=event) for event in ("a", "b", "c")], ch_user=ch_user)
+        assert len(query.call_args_list) == 3
+        assert all(call.kwargs["ch_user"] == ch_user for call in query.call_args_list)
+
+        self.assertEqual([result["label"] for result in response.results], ["a", "b", "c"])
+        self.assertEqual([sum(result["data"]) for result in response.results], [1, 1, 1])
+
+    def test_empty_cohort_breakdown_returns_no_results_instead_of_raising(self):
+        response = self._run(
+            [EventsNode(event="$pageview")],
+            breakdown=BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[]),
+        )
+
+        self.assertEqual(response.results, [])

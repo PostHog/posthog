@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from io import StringIO
 
 from posthog.test.base import BaseTest
@@ -10,7 +10,19 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from products.cohorts.backend.backfill.sizing import PersonSeedEstimate
+from posthog.errors import InternalCHQueryError
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
+
+from products.cohorts.backend.backfill.sizing import (
+    BehavioralScanEstimate,
+    PersonSeedEstimate,
+    PersonSeedEstimateScanCapExceeded,
+)
 from products.cohorts.backend.models.backfill import (
     CohortBackfillKind,
     CohortBackfillRun,
@@ -18,6 +30,11 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillRunStatus,
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+
+# The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
+# `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
+# bytecode. A fixture missing either is a cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
 
 
 @override_settings(
@@ -29,6 +46,26 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
     BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
 )
 class TestCreateCohortBackfillRunCommand(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = mock.patch(
+            "products.cohorts.backend.management.commands.create_cohort_backfill_run.estimate_behavioral_scan_events",
+            side_effect=self._scan_estimate,
+        )
+        self.scan_estimate = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _scan_estimate(
+        self, team_id: int, event_names: list[str], *, max_events_per_day: int
+    ) -> BehavioralScanEstimate:
+        return BehavioralScanEstimate(
+            days_sampled=7,
+            peak_day=date(2026, 9, 28),
+            peak_day_events=1_000,
+            peak_day_events_by_name={"$pageview": 1_000},
+            max_events_per_day=max_events_per_day,
+        )
+
     def _cohort(self, event: str) -> Cohort:
         return Cohort.objects.create(
             team=self.team,
@@ -42,9 +79,10 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
                             "key": event,
                             "event_type": "events",
                             "value": "performed_event",
-                            "conditionHash": f"hash-{event}",
+                            "conditionHash": f"hash-{event}"[:16].ljust(16, "0"),
                             "time_value": 7,
                             "time_interval": "day",
+                            "bytecode": _BYTECODE,
                         }
                     ],
                 }
@@ -59,6 +97,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
                 "value": ["person@example.com"],
                 "operator": "exact",
                 "conditionHash": "person0000000001",
+                "bytecode": _BYTECODE,
             }
         ]
         if person_metadata:
@@ -108,6 +147,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
 
         run = CohortBackfillRun.objects.for_team(self.team.id).get()
         self.assertIn(str(run.id), stdout.getvalue())
+        self.assertEqual(run.preconditions["behavioral_scan_peak_day_events"], 1_000)
         self.assertEqual(
             set(
                 CohortBackfillRunCohort.objects.for_team(self.team.id)
@@ -128,6 +168,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
             cohort_ids=[selected.id],
         )
 
+        self.assertEqual(self.scan_estimate.call_args.args[1], ["$pageview"])
         run = CohortBackfillRun.objects.for_team(self.team.id).get()
         self.assertEqual(
             list(
@@ -219,7 +260,107 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
         )
 
         self.assertIn("Dry run", stdout.getvalue())
+        self.assertIn("Scan estimate: 1000 events", stdout.getvalue())
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    @parameterized.expand(
+        [
+            ("the_setting_refuses", {}, True),
+            ("an_override_above_the_volume", {"max_scan_events_per_day": 2_000}, False),
+            ("a_disabled_check", {"max_scan_events_per_day": 0}, False),
+        ]
+    )
+    @override_settings(BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=500)
+    def test_a_run_over_the_scan_limit_needs_the_operator_to_raise_it(
+        self, _name: str, options: dict[str, int], refused: bool
+    ) -> None:
+        self._cohort("$pageview")
+
+        if refused:
+            with self.assertRaisesMessage(CommandError, "above the limit of 500"):
+                call_command("create_cohort_backfill_run", team_id=self.team.id, trigger="team_enablement", **options)
+            self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+        else:
+            call_command("create_cohort_backfill_run", team_id=self.team.id, trigger="team_enablement", **options)
+            run = CohortBackfillRun.objects.for_team(self.team.id).get()
+            self.assertEqual(
+                run.preconditions.get("behavioral_scan_max_events_per_day"),
+                options["max_scan_events_per_day"] or None,
+            )
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut()),
+            ("too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong()),
+            ("memory", ClickHouseQueryMemoryLimitExceeded()),
+            ("at_capacity", ClickHouseAtCapacity()),
+            ("other", InternalCHQueryError("boom", code=60)),
+        ]
+    )
+    def test_a_failed_scan_estimate_names_the_way_around_it(self, _name: str, raised: Exception) -> None:
+        self._cohort("$pageview")
+        self.scan_estimate.side_effect = raised
+
+        with self.assertRaisesMessage(CommandError, "Pass --max-scan-events-per-day 0"):
+            call_command("create_cohort_backfill_run", team_id=self.team.id, trigger="team_enablement")
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    def test_behavioral_dry_run_names_every_refusal(self) -> None:
+        eligible = self._cohort("$pageview")
+        static = self._cohort("signup-static")
+        Cohort.objects.filter(id=static.id).update(is_static=True)
+        refused = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "signup",
+                            "event_type": "events",
+                            "value": "performed_event",
+                            "conditionHash": "hash-signup00000",
+                            "bytecode": _BYTECODE,
+                        }
+                    ],
+                }
+            },
+        )
+        stdout = StringIO()
+
+        call_command(
+            "create_cohort_backfill_run",
+            team_id=self.team.id,
+            trigger="team_enablement",
+            dry_run=True,
+            stdout=stdout,
+        )
+
+        self.assertIn(
+            f"{refused.id} (has a filter the realtime catalog drops (unsupported_state_variant))",
+            stdout.getvalue(),
+        )
+        self.assertIn(f"{static.id} (static)", stdout.getvalue())
+        self.assertIn("Dry run: 1 cohorts", stdout.getvalue())
+        self.assertNotIn(f"{eligible.id} (", stdout.getvalue())
+
+    def test_behavioral_dry_run_refuses_a_team_with_nothing_runnable(self) -> None:
+        # The real command raises on the same team, so a dry run that exits 0 would tell
+        # exit-code-gated automation the run is possible.
+        static = self._cohort("signup")
+        static.is_static = True
+        static.save(update_fields=["is_static"])
+
+        with self.assertRaisesMessage(CommandError, "no eligible realtime behavioral cohorts"):
+            call_command(
+                "create_cohort_backfill_run",
+                team_id=self.team.id,
+                trigger="team_enablement",
+                dry_run=True,
+                stdout=StringIO(),
+            )
 
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
     def test_non_allowlisted_team_errors(self) -> None:
@@ -299,15 +440,28 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
         self.assertIn("would refuse: no", stdout.getvalue())
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
 
+    @parameterized.expand(
+        [
+            ("over_budget", None, "exceed budget"),
+            (
+                "sizing_scan_capped",
+                PersonSeedEstimateScanCapExceeded("Person sizing scan for team 1 exceeded its 30s time cap"),
+                "exceeded its 30s time cap",
+            ),
+        ]
+    )
     @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
-    def test_person_over_budget_returns_clean_command_error(self, estimate: mock.Mock) -> None:
+    def test_person_sizing_refusal_returns_clean_command_error(
+        self, _name: str, raised: Exception | None, message: str, estimate: mock.Mock
+    ) -> None:
         self._person_cohort()
         estimate.return_value = self._estimate(
             estimated_topic_bytes=1_000_001,
             budget_bytes=1_000_000,
         )
+        estimate.side_effect = raised
 
-        with self.assertRaisesMessage(CommandError, "exceed budget"):
+        with self.assertRaisesMessage(CommandError, message):
             call_command(
                 "create_cohort_backfill_run",
                 team_id=self.team.id,

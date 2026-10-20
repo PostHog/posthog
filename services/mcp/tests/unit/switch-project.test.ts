@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import setActiveProjectTool from '@/tools/projects/setActive'
-import type { Context } from '@/tools/types'
+import type { Context, PinnedActiveContext } from '@/tools/types'
 
 const ACTIVE_ORG = 'org-active'
 const OTHER_ORG = 'org-other'
@@ -10,9 +10,16 @@ function createMockContext(overrides: {
     projectGet: ReturnType<typeof vi.fn>
     getOrgID?: ReturnType<typeof vi.fn>
     getCachedOrFetchOrg?: ReturnType<typeof vi.fn>
-}): { context: Context; cache: Map<string, unknown>; getCachedOrFetchOrg: ReturnType<typeof vi.fn> } {
+    pinnedContext?: PinnedActiveContext
+}): {
+    context: Context
+    cache: Map<string, unknown>
+    getCachedOrFetchOrg: ReturnType<typeof vi.fn>
+    setSessionActiveContext: ReturnType<typeof vi.fn>
+} {
     const cache = new Map<string, unknown>()
     const getCachedOrFetchOrg = overrides.getCachedOrFetchOrg ?? vi.fn().mockResolvedValue(undefined)
+    const setSessionActiveContext = vi.fn().mockResolvedValue(undefined)
     const context = {
         api: {
             publicBaseUrl: 'https://us.posthog.com',
@@ -28,13 +35,23 @@ function createMockContext(overrides: {
             getOrgID: overrides.getOrgID ?? vi.fn().mockResolvedValue(ACTIVE_ORG),
             getCachedOrFetchOrg,
             getOrFetchIntegrationKinds: vi.fn().mockResolvedValue(undefined),
+            pinnedContext: overrides.pinnedContext,
+            setActiveContext: async (updates: { orgId?: string; projectId?: string }) => {
+                if (updates.orgId) {
+                    cache.set('orgId', updates.orgId)
+                }
+                if (updates.projectId) {
+                    cache.set('projectId', updates.projectId)
+                }
+            },
         },
         env: {},
         sessionManager: {},
         getDistinctId: async () => 'test-distinct-id',
         trackEvent: async () => {},
+        setSessionActiveContext,
     } as unknown as Context
-    return { context, cache, getCachedOrFetchOrg }
+    return { context, cache, getCachedOrFetchOrg, setSessionActiveContext }
 }
 
 describe('switch-project', () => {
@@ -67,7 +84,7 @@ describe('switch-project', () => {
             success: true,
             data: { id: 42, name: 'My project', organization: ACTIVE_ORG },
         })
-        const { context, cache, getCachedOrFetchOrg } = createMockContext({ projectGet })
+        const { context, cache, getCachedOrFetchOrg, setSessionActiveContext } = createMockContext({ projectGet })
 
         const result = await tool.handler(context, { projectId: 42 })
 
@@ -75,6 +92,21 @@ describe('switch-project', () => {
         expect(result.content[0]!.text).not.toContain('also switched the active organization')
         expect(cache.get('projectId')).toBe('42')
         expect(getCachedOrFetchOrg).not.toHaveBeenCalled()
+        // Recording the switch on the session is what stops a pinned connection's
+        // resent pin from reverting it on the next request.
+        expect(setSessionActiveContext).toHaveBeenCalledWith({ projectId: '42', orgId: ACTIVE_ORG })
+    })
+
+    it('never exposes the project API token in the switch response', async () => {
+        const projectGet = vi.fn().mockResolvedValue({
+            success: true,
+            data: { id: 42, name: 'My project', organization: ACTIVE_ORG, api_token: 'phc_secret_token' },
+        })
+        const { context } = createMockContext({ projectGet })
+
+        const result = await tool.handler(context, { projectId: 42 })
+
+        expect(result.content[0]!.text).not.toContain('phc_secret_token')
     })
 
     it('syncs the active organization via the shared resolver when the project is in another org', async () => {
@@ -110,5 +142,22 @@ describe('switch-project', () => {
         expect(result.content[0]!.text).toContain('Switched to project 55')
         expect(result.content[0]!.text).not.toContain('also switched the active organization')
         expect(cache.get('orgId')).toBe(OTHER_ORG)
+    })
+
+    it.each<[string, PinnedActiveContext['pin'], number, string]>([
+        ['a project pin', { projectId: '1' }, 42, ACTIVE_ORG],
+        ['an org pin, to a project in another org', { organizationId: ACTIVE_ORG }, 77, OTHER_ORG],
+    ])('refuses a switch that %s would revert when there is no MCP session', async (_label, pin, projectId, org) => {
+        const projectGet = vi.fn().mockResolvedValue({
+            success: true,
+            data: { id: projectId, name: 'Project', organization: org },
+        })
+        const { context, cache } = createMockContext({
+            projectGet,
+            pinnedContext: { pin, sessionScoped: false, orgId: pin.organizationId, projectId: pin.projectId },
+        })
+
+        await expect(tool.handler(context, { projectId })).rejects.toThrow(/sends no MCP session id/)
+        expect(cache.get('projectId')).toBeUndefined()
     })
 })

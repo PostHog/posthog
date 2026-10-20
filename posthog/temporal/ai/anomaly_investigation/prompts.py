@@ -151,7 +151,12 @@ def build_anomaly_context(
     event_provenance: str = "",
 ) -> str:
     """First user message — packs the alert context the agent needs to act."""
-    md = triggered_metadata or {}
+    md = dict(triggered_metadata or {})
+    # The AI detector already judged this series once. Give its reason its own line rather
+    # than leaving it as a metadata key, so the agent starts from that read instead of zero.
+    # The prompt frames it as a prior to check rather than as a conclusion.
+    rationale = str(md.pop("rationale", "") or "").strip()
+    rationale_line = f"The detector's own read of this fire: {rationale}\n" if rationale else ""
     metadata_line = ""
     if md:
         parts = [f"{k}={v}" for k, v in md.items() if v is not None]
@@ -167,6 +172,7 @@ def build_anomaly_context(
         f"Interval: {interval or 'unknown'}\n"
         f"Calculated value at fire: {calculated_value}\n"
         f"Triggered dates: {', '.join(triggered_dates) if triggered_dates else 'n/a'}\n"
+        f"{rationale_line}"
         f"{metadata_line}\n\n"
         f"{metric_definition}\n\n"
         f"{provenance_block}"

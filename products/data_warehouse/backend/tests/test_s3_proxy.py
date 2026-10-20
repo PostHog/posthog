@@ -6,7 +6,6 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from products.data_warehouse.backend import s3_proxy
 from products.data_warehouse.backend.s3_proxy import (
     boto_proxy_config_kwargs,
     delta_proxy_storage_options,
@@ -34,18 +33,10 @@ def proxy_env(url: str | None, no_proxy: str | None = None) -> dict[str, str]:
     return env
 
 
-def flag(enabled: bool):
-    return patch.object(s3_proxy.posthoganalytics, "feature_enabled", return_value=enabled)
-
-
 class TestWarehouseS3ProxyBypass(SimpleTestCase):
-    def setUp(self) -> None:
-        # The flag result is cached per time bucket, so it has to be dropped between cases.
-        s3_proxy._flag_enabled.cache_clear()
-
     @override_settings(**BYPASS_ON)
     def test_scopes_the_bypass_to_the_warehouse_bucket_host(self) -> None:
-        with flag(True), patch.dict(os.environ, proxy_env(PROXY)):
+        with patch.dict(os.environ, proxy_env(PROXY)):
             options = delta_proxy_storage_options()
 
         assert options["proxy_excludes"] == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com"
@@ -61,7 +52,7 @@ class TestWarehouseS3ProxyBypass(SimpleTestCase):
         # Setting proxy_url stops reqwest reading the env, dropping its NO_PROXY with it, so the
         # cluster's existing exemptions (here IMDS and in-cluster services) have to be carried over
         # or they would start transiting the proxy the moment the bypass turns on.
-        with flag(True), patch.dict(os.environ, proxy_env(PROXY, no_proxy="169.254.169.254,.svc.cluster.local")):
+        with patch.dict(os.environ, proxy_env(PROXY, no_proxy="169.254.169.254,.svc.cluster.local")):
             options = delta_proxy_storage_options()
 
         assert (
@@ -74,36 +65,71 @@ class TestWarehouseS3ProxyBypass(SimpleTestCase):
         with override_settings(BUCKET_URL="s3://some-other-bucket/dlt", DATA_WAREHOUSE_S3_REGION="eu-central-1"):
             assert warehouse_bucket_host() == "some-other-bucket.s3.eu-central-1.amazonaws.com"
 
+    @override_settings(**{**BYPASS_ON, "USE_LOCAL_SETUP": True})
+    def test_delta_options_are_empty_for_a_local_setup(self) -> None:
+        # The in-stack MinIO/SeaweedFS of USE_LOCAL_SETUP is addressed by raw host:port, not a real
+        # DNS name, so neither addressing style nor the proxy bypass apply to it.
+        with patch.dict(os.environ, proxy_env(PROXY)):
+            assert delta_proxy_storage_options() == {}
+
     @parameterized.expand(
         [
-            ("local_setup", {"USE_LOCAL_SETUP": True}, True, PROXY),
-            ("flag_off", {}, False, PROXY),
-            ("region_unknown", {"DATA_WAREHOUSE_S3_REGION": ""}, True, PROXY),
-            ("bucket_unknown", {"BUCKET_URL": ""}, True, PROXY),
-            ("no_proxy_in_environment", {}, True, None),
+            ("region_unknown", {"DATA_WAREHOUSE_S3_REGION": ""}, PROXY),
+            ("bucket_unknown", {"BUCKET_URL": ""}, PROXY),
+            ("no_proxy_in_environment", {}, None),
         ]
     )
-    def test_delta_options_are_empty_unless_everything_is_known(
-        self, _name: str, settings_override: dict[str, object], flag_enabled: bool, proxy_url: str | None
+    def test_proxy_options_are_absent_unless_the_bucket_host_and_proxy_are_both_known(
+        self, _name: str, settings_override: dict[str, object], proxy_url: str | None
     ) -> None:
+        with override_settings(**{**BYPASS_ON, **settings_override}), patch.dict(os.environ, proxy_env(proxy_url)):
+            options = delta_proxy_storage_options()
+        assert "proxy_url" not in options
+        assert "proxy_excludes" not in options
+
+    @override_settings(**BYPASS_ON)
+    def test_addressing_style_is_forced_even_without_a_proxy(self) -> None:
+        # Regression: addressing style used to be set only as a side effect of the proxy bypass
+        # below, so a deployment with no egress proxy configured (e.g. a dedicated or self-hosted
+        # install) fell back to delta-rs's path-style default and 403'd against a store that
+        # requires virtual-hosted addressing (e.g. Alibaba OSS's "please use virtual hosted style to
+        # access").
+        with patch.dict(os.environ, proxy_env(None)):
+            options = delta_proxy_storage_options()
+        assert options["AWS_S3_ADDRESSING_STYLE"] == "virtual"
+        assert options["virtual_hosted_style_request"] == "true"
+        assert "proxy_url" not in options
+
+    @parameterized.expand(
+        [
+            ("no_proxy", None),
+            ("with_proxy", PROXY),
+        ]
+    )
+    def test_addressing_style_stays_path_style_for_a_dotted_bucket_name(
+        self, _name: str, proxy_url: str | None
+    ) -> None:
+        # Regression: AWS's wildcard TLS cert for its own S3 endpoints covers exactly one hostname
+        # label, so a bucket name with a dot in it (e.g. "warehouse.example") produces a
+        # virtual-hosted hostname with an extra label the cert doesn't cover, and forcing virtual
+        # addressing there breaks certificate validation instead of fixing anything. Path-style
+        # still works for it, so it must stay off the override - with or without a proxy configured.
         with (
-            override_settings(**{**BYPASS_ON, **settings_override}),
-            flag(flag_enabled),
+            override_settings(**{**BYPASS_ON, "BUCKET_URL": "s3://warehouse.example/dlt"}),
             patch.dict(os.environ, proxy_env(proxy_url)),
         ):
             assert delta_proxy_storage_options() == {}
 
     @parameterized.expand(
         [
-            ("enabled", {}, True, {"proxies": {}}),
-            ("flag_off", {}, False, {}),
-            ("local_setup", {"USE_LOCAL_SETUP": True}, True, {}),
+            ("deployed", {}, {"proxies": {}}),
+            ("local_setup", {"USE_LOCAL_SETUP": True}, {}),
         ]
     )
-    def test_boto_clients_drop_the_proxy_only_when_the_bypass_is_on(
-        self, _name: str, settings_override: dict[str, object], flag_enabled: bool, expected: dict[str, object]
+    def test_boto_clients_drop_the_proxy_outside_local_setup(
+        self, _name: str, settings_override: dict[str, object], expected: dict[str, object]
     ) -> None:
-        with override_settings(**{**BYPASS_ON, **settings_override}), flag(flag_enabled):
+        with override_settings(**{**BYPASS_ON, **settings_override}):
             assert boto_proxy_config_kwargs() == expected
 
     @override_settings(**BYPASS_ON)
@@ -111,25 +137,5 @@ class TestWarehouseS3ProxyBypass(SimpleTestCase):
         # A caller-supplied endpoint puts the host under the caller's control, so the proxy must stay
         # in front of it even with the bypass on, or a private-address S3-compatible source would be
         # dialed direct.
-        with flag(True):
-            assert boto_proxy_config_kwargs() == {"proxies": {}}
-            assert boto_proxy_config_kwargs(endpoint_url="http://10.0.0.5/") == {}
-
-    # A flags-service outage must not reroute production traffic on its own.
-    @override_settings(**BYPASS_ON)
-    def test_flag_evaluation_failure_leaves_traffic_on_the_proxy(self) -> None:
-        with (
-            patch.object(s3_proxy.posthoganalytics, "feature_enabled", side_effect=Exception("flags down")),
-            patch.dict(os.environ, proxy_env(PROXY)),
-        ):
-            assert delta_proxy_storage_options() == {}
-
-    # The options are rebuilt on every table open; evaluating the flag each time would put a network
-    # call on that path.
-    @override_settings(**BYPASS_ON)
-    def test_flag_is_evaluated_once_per_interval_not_per_call(self) -> None:
-        with flag(True) as evaluate, patch.dict(os.environ, proxy_env(PROXY)):
-            for _ in range(5):
-                delta_proxy_storage_options()
-
-        assert evaluate.call_count == 1
+        assert boto_proxy_config_kwargs() == {"proxies": {}}
+        assert boto_proxy_config_kwargs(endpoint_url="http://10.0.0.5/") == {}

@@ -14,19 +14,23 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::clickhouse::scanner::ChunkScanner;
+use crate::clickhouse::ResourceError;
 use crate::domain::{
     ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, ProducedChunk,
     RetryBackoffPolicy, ScannedChunk, StreamedChunk,
 };
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
-use crate::observability::metrics::{CHUNKS_CONFIRMED, CHUNKS_FAILED, TILES_PRODUCED};
+use crate::observability::metrics::{
+    CHUNKS_CONFIRMED, CHUNKS_FAILED, CLICKHOUSE_RESOURCE_ERRORS, TILES_PRODUCED,
+};
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::lease::LeaseHandle;
 use crate::store::runs::RunKind;
 use crate::store::RenderedError;
 
 use super::deliver::{self, ProduceError};
+use super::person_execute::PersonChunkStats;
 use super::prepare::PreparedBehavioral;
 use super::settings::ProducerSettings;
 
@@ -110,6 +114,7 @@ pub(super) async fn execute_chunk(
         Ok(_) => ChunkOutcome::Confirmed {
             lease,
             tiles_produced,
+            detail: ConfirmedDetail::Behavioral,
         },
         Err(halt) => resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     }
@@ -191,7 +196,7 @@ impl FailureDisposition {
 /// The retry wait is drawn from the chunk's own attempt count, so a chunk failing repeatedly waits
 /// longer each time while a first failure retries almost immediately. An unclaim draws none: it
 /// refunds the attempt and is not a failure.
-pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
+pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error + 'static>(
     store: &PgChunkStore,
     halt: Halted<S, E>,
     shutdown: &CancellationToken,
@@ -200,12 +205,17 @@ pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
     let spec = halt.state.spec();
     let lease = spec.lease;
     let detail = render_reason(&halt.reason);
+    let resource = match &halt.reason {
+        HaltReason::Failed(error) => ResourceError::classify(error),
+        HaltReason::Cancelled(_) => None,
+    };
     match FailureDisposition::resolve(S::STAGE, shutdown.is_cancelled()) {
         FailureDisposition::Unclaim => match store.unclaim(lease).await {
             Ok(()) => ChunkOutcome::Unclaimed { lease },
             Err(recovery) => ChunkOutcome::RecoveryFailed {
                 lease,
                 detail: detail.as_str().to_string(),
+                resource,
                 recovery,
             },
         },
@@ -215,11 +225,13 @@ pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
                 Ok(()) => ChunkOutcome::Failed {
                     lease,
                     detail: detail.as_str().to_string(),
+                    resource,
                     retry_delay,
                 },
                 Err(recovery) => ChunkOutcome::RecoveryFailed {
                     lease,
                     detail: detail.as_str().to_string(),
+                    resource,
                     recovery,
                 },
             }
@@ -245,48 +257,112 @@ fn render_reason<E: std::error::Error>(reason: &HaltReason<E>) -> RenderedError 
     }
 }
 
+/// What a confirmed chunk's log line says beyond its tile count. The behavioral path's counters
+/// already read per day and band, so only the person path carries a payload.
+#[derive(Debug)]
+pub(super) enum ConfirmedDetail {
+    Behavioral,
+    Person(PersonChunkStats),
+}
+
 #[derive(Debug)]
 pub(super) enum ChunkOutcome {
     Confirmed {
         lease: ChunkLease,
         tiles_produced: u64,
+        detail: ConfirmedDetail,
     },
     Failed {
         lease: ChunkLease,
         detail: String,
+        resource: Option<ResourceError>,
         retry_delay: Duration,
     },
     Unclaimed {
         lease: ChunkLease,
     },
+    /// The failure still counts toward the breaker like `Failed`.
     RecoveryFailed {
         lease: ChunkLease,
         detail: String,
+        resource: Option<ResourceError>,
         recovery: ChunkStoreError,
     },
 }
 
+/// What a settled chunk tells its run's breaker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BreakerSignal {
+    Success,
+    ResourceFailure(ResourceError),
+    /// An unclaim refunds the attempt, and any other failure says nothing about ClickHouse load.
+    Ignore,
+}
+
+impl ChunkOutcome {
+    pub(super) fn run_id(&self) -> crate::domain::RunId {
+        match self {
+            Self::Confirmed { lease, .. }
+            | Self::Failed { lease, .. }
+            | Self::Unclaimed { lease }
+            | Self::RecoveryFailed { lease, .. } => lease.run_id(),
+        }
+    }
+
+    pub(super) fn breaker_signal(&self) -> BreakerSignal {
+        match self {
+            Self::Confirmed { .. } => BreakerSignal::Success,
+            Self::Failed {
+                resource: Some(resource),
+                ..
+            }
+            | Self::RecoveryFailed {
+                resource: Some(resource),
+                ..
+            } => BreakerSignal::ResourceFailure(*resource),
+            Self::Failed { resource: None, .. }
+            | Self::RecoveryFailed { resource: None, .. }
+            | Self::Unclaimed { .. } => BreakerSignal::Ignore,
+        }
+    }
+}
+
 pub(super) fn record_task_result(
-    result: Result<ChunkOutcome, tokio::task::JoinError>,
+    result: &Result<ChunkOutcome, tokio::task::JoinError>,
     kind: RunKind,
 ) {
     match result {
         Ok(ChunkOutcome::Confirmed {
             lease,
             tiles_produced,
+            detail,
         }) => {
             counter!(CHUNKS_CONFIRMED, "kind" => kind.as_str()).increment(1);
-            info!(?lease, tiles_produced, "chunk confirmed");
+            match detail {
+                ConfirmedDetail::Behavioral => info!(?lease, tiles_produced, "chunk confirmed"),
+                ConfirmedDetail::Person(stats) => info!(
+                    ?lease,
+                    tiles_produced,
+                    persons_scanned = stats.persons_scanned,
+                    nonmatchers = stats.nonmatchers,
+                    pruned = stats.pruned,
+                    shortcut_evaluations = stats.shortcut_evaluations,
+                    "chunk confirmed",
+                ),
+            }
         }
         Ok(ChunkOutcome::Failed {
             lease,
             detail,
+            resource,
             retry_delay,
         }) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
+            record_resource_error(kind, *resource);
             warn!(
                 ?lease,
                 error = %detail,
+                clickhouse_code = resource.map(ResourceError::as_str),
                 retry_delay_secs = retry_delay.as_secs_f64(),
                 "chunk failed and was released for retry"
             );
@@ -297,15 +373,34 @@ pub(super) fn record_task_result(
         Ok(ChunkOutcome::RecoveryFailed {
             lease,
             detail,
+            resource,
             recovery,
         }) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
-            warn!(?lease, error = %detail, recovery_error = %recovery, "chunk recovery update did not apply");
+            record_resource_error(kind, *resource);
+            warn!(
+                ?lease,
+                error = %detail,
+                clickhouse_code = resource.map(ResourceError::as_str),
+                recovery_error = %recovery,
+                "chunk recovery update did not apply"
+            );
         }
         Err(error) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
             warn!(error = %error, "chunk task failed unexpectedly");
         }
+    }
+}
+
+fn record_resource_error(kind: RunKind, resource: Option<ResourceError>) {
+    if let Some(resource) = resource {
+        counter!(
+            CLICKHOUSE_RESOURCE_ERRORS,
+            "kind" => kind.as_str(),
+            "code" => resource.as_str(),
+        )
+        .increment(1);
     }
 }
 
@@ -323,6 +418,48 @@ mod tests {
         assert_eq!(<StreamedChunk as ChunkState>::STAGE, FailureStage::PreMark);
         assert_eq!(<EnqueuedChunk as ChunkState>::STAGE, FailureStage::PostMark);
         assert_eq!(<ProducedChunk as ChunkState>::STAGE, FailureStage::PostMark);
+    }
+
+    #[test]
+    fn only_a_confirmed_chunk_or_a_resource_failure_reaches_the_breaker() {
+        let lease = ChunkLease::new(
+            crate::domain::ChunkId(uuid::Uuid::from_u128(1)),
+            crate::domain::RunId(uuid::Uuid::from_u128(2)),
+            crate::domain::ClaimEpoch(1),
+        );
+        let memory = ResourceError::MemoryLimitExceeded;
+        let failed = |resource| ChunkOutcome::Failed {
+            lease,
+            detail: String::new(),
+            resource,
+            retry_delay: Duration::ZERO,
+        };
+        let recovery_failed = |resource| ChunkOutcome::RecoveryFailed {
+            lease,
+            detail: String::new(),
+            resource,
+            recovery: ChunkStoreError::TilesProducedOutOfRange(0),
+        };
+        for (outcome, expected) in [
+            (
+                ChunkOutcome::Confirmed {
+                    lease,
+                    tiles_produced: 0,
+                    detail: ConfirmedDetail::Behavioral,
+                },
+                BreakerSignal::Success,
+            ),
+            (failed(Some(memory)), BreakerSignal::ResourceFailure(memory)),
+            (
+                recovery_failed(Some(memory)),
+                BreakerSignal::ResourceFailure(memory),
+            ),
+            (failed(None), BreakerSignal::Ignore),
+            (recovery_failed(None), BreakerSignal::Ignore),
+            (ChunkOutcome::Unclaimed { lease }, BreakerSignal::Ignore),
+        ] {
+            assert_eq!(outcome.breaker_signal(), expected, "{outcome:?}");
+        }
     }
 
     #[test]

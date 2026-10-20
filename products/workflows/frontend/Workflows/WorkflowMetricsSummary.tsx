@@ -10,10 +10,11 @@ import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { type ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
+import { EmailLinksTable } from './EmailLinksTable'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
-    type EmailLinkRow,
     type EmailMetric,
+    type EmailMetricName,
     type EmailMetricRow,
     METRIC_COLORS,
     type PushMetricRow,
@@ -27,7 +28,7 @@ const TRACKED_SENDS_TOOLTIP =
     'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked). Counts and rates compare activity within the selected date range, so opens of emails sent before the range can push a rate above 100%.'
 
 const ISSUE_RATES_TOOLTIP =
-    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus prevented).'
+    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce or a frequency-capped send is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus skipped).'
 
 // Opens and clicks are only possible on tracked sends, so pair the raw count with the denominator it
 // should be read against, plus the rate over that denominator. A step with no tracked sends shows a
@@ -50,7 +51,7 @@ function trackedEngagementColumn(value: number, row: EmailMetricRow): JSX.Elemen
 interface WorkflowMetricsSummaryProps extends WorkflowMetricsSummaryLogicProps {
     onSelectAction?: (actionId: string) => void
     /** Drill a per-email metric into its filtered logs (only bounced/blocked have a log filter). */
-    onMetricClick?: (metricKey: EmailMetric) => void
+    onMetricClick?: (metricKey: EmailMetricName) => void
 }
 
 export function WorkflowMetricsSummary({
@@ -126,17 +127,33 @@ export function WorkflowMetricsSummary({
                 key: 'issues',
                 tooltip: ISSUE_RATES_TOOLTIP,
                 render: (_, row) => {
-                    // A prevented bounce is skipped before the provider sees it, so it is not part of
-                    // `sent` and its rate reads against everything the step attempted to send.
-                    const attempted = row.sent + row.bouncePrevented
-                    const issues = [
+                    // A prevented bounce or a frequency-capped send is skipped before the provider sees
+                    // it, so neither is part of `sent` and their rates read against everything the
+                    // step attempted to send.
+                    const attempted = row.sent + row.bouncePrevented + row.frequencyCapped
+                    const classifiedBounces = row.bouncedHard + row.bouncedSoft + row.bouncedUnknown
+                    const bounceIssues: { label: string; value: number; metric: EmailMetricName }[] = [
+                        { label: 'hard bounced', value: row.bouncedHard, metric: 'email_bounced_hard' },
+                        { label: 'soft bounced', value: row.bouncedSoft, metric: 'email_bounced_transient' },
+                        {
+                            label: 'bounced, type unknown',
+                            value: row.bouncedUnknown,
+                            metric: 'email_bounced_undetermined',
+                        },
+                        // The rollup and its per-type rows are written together, so this is normally
+                        // zero. Showing any remainder keeps the tags adding up to the rollup.
                         {
                             label: 'bounced',
-                            value: row.bounced,
+                            value: Math.max(0, row.bounced - classifiedBounces),
+                            metric: 'email_bounced',
+                        },
+                    ]
+                    const issues = [
+                        ...bounceIssues.map((bounce) => ({
+                            ...bounce,
                             total: row.sent,
                             type: 'danger' as const,
-                            metric: 'email_bounced' as EmailMetric,
-                        },
+                        })),
                         {
                             label: 'marked as spam',
                             value: row.markedAsSpam,
@@ -150,6 +167,13 @@ export function WorkflowMetricsSummary({
                             total: attempted,
                             type: 'warning' as const,
                             metric: 'email_bounce_prevented' as EmailMetric,
+                        },
+                        {
+                            label: 'frequency capped',
+                            value: row.frequencyCapped,
+                            total: attempted,
+                            type: 'warning' as const,
+                            metric: 'message_frequency_capped' as EmailMetric,
                         },
                     ].filter((issue) => issue.value > 0)
                     if (issues.length === 0) {
@@ -185,56 +209,14 @@ export function WorkflowMetricsSummary({
         ]
     }, [onSelectAction, onMetricClick, viewMetricsColumn])
 
-    const emailLinkColumns: LemonTableColumns<EmailLinkRow> = useMemo(
-        () => [
-            {
-                title: 'Link',
-                key: 'url',
-                render: (_: unknown, row: EmailLinkRow) => (
-                    <div className="flex items-center gap-2">
-                        {row.truncated ? (
-                            // Navigating to a URL that was cut mid-path would land somewhere wrong,
-                            // so show it as text rather than something clickable.
-                            <span className="break-all" title="This link was too long to store in full">
-                                {row.url}…
-                            </span>
-                        ) : (
-                            <Link to={row.url} target="_blank" className="break-all">
-                                {row.url}
-                            </Link>
-                        )}
-                        {row.duplicateUrl && row.linkIndex ? (
-                            <LemonTag type="muted" title="Another link in this email points to the same page">
-                                Position {row.linkIndex}
-                            </LemonTag>
-                        ) : null}
-                    </div>
-                ),
-            },
-            {
-                title: 'Clicks',
-                key: 'clicks',
-                align: 'right',
-                render: (_: unknown, row: EmailLinkRow) => humanFriendlyNumber(row.clicks),
-            },
-        ],
-        []
-    )
-
     const emailExpandable: ExpandableConfig<EmailMetricRow> = useMemo(
         () => ({
             rowExpandable: (row: EmailMetricRow) => (emailLinkTotalsByActionId[row.id]?.length ?? 0) > 0,
             expandedRowRender: (row: EmailMetricRow) => (
-                <LemonTable
-                    columns={emailLinkColumns}
-                    dataSource={emailLinkTotalsByActionId[row.id] ?? []}
-                    rowKey={(link) => `${link.linkIndex}:${link.url}`}
-                    size="small"
-                    embedded
-                />
+                <EmailLinksTable links={emailLinkTotalsByActionId[row.id] ?? []} embedded />
             ),
         }),
-        [emailLinkTotalsByActionId, emailLinkColumns]
+        [emailLinkTotalsByActionId]
     )
 
     const pushColumns: LemonTableColumns<PushMetricRow> = useMemo(() => {

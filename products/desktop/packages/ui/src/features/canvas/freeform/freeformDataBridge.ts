@@ -7,6 +7,7 @@ import type {
   CanvasLoadInsightInput,
 } from "@posthog/core/canvas/freeformSchemas";
 import { canvasConnectorCallInput } from "@posthog/core/canvas/freeformSchemas";
+import { invokeCanvasAction } from "@posthog/core/canvas/invokeCanvasAction";
 import type { QueryClient } from "@tanstack/react-query";
 import { hostClient } from "../hostClient";
 
@@ -276,11 +277,17 @@ export async function handleFreeformDataRequest(
         throw new Error("ph.actions.invoke(verb, payload) requires a verb");
       }
       // A write into PostHog, never cached.
-      return hostClient().dashboards.invokeAction.mutate({
-        id: requireDashboardId(),
-        verb: input.verb,
-        payload: input.payload ?? {},
-      });
+      const client = hostClient().dashboards;
+      return invokeCanvasAction(
+        {
+          id: requireDashboardId(),
+          verb: input.verb,
+          payload: input.payload ?? {},
+        },
+        () => client.listActions.query(),
+        (action) => window.confirm(`${action.summary}\n\nContinue?`),
+        (action) => client.invokeAction.mutate(action),
+      );
     }
     case "connectorCall": {
       const dashboardId = requireDashboardId();

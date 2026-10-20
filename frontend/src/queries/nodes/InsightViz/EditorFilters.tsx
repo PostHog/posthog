@@ -1,14 +1,16 @@
 import { useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { retryImport } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { GoalLines } from 'scenes/insights/EditorFilters/GoalLines'
 import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
-import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -33,6 +35,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { JourneysExclusions } from 'products/product_analytics/frontend/insights/journeys/JourneysExclusions'
 import { JourneysSettings } from 'products/product_analytics/frontend/insights/journeys/JourneysSettings'
 import { JourneysStepSourcePicker } from 'products/product_analytics/frontend/insights/journeys/JourneysStepSourcePicker'
+import { LifecycleToggles } from 'products/product_analytics/frontend/insights/lifecycle/LifecycleToggles'
 import { PathsAdvanced } from 'products/product_analytics/frontend/insights/paths/editor/PathsAdvanced'
 import { PathsEventsTypes } from 'products/product_analytics/frontend/insights/paths/editor/PathsEventTypes'
 import { PathsExclusions } from 'products/product_analytics/frontend/insights/paths/editor/PathsExclusions'
@@ -49,8 +52,16 @@ import { EditorFilterGroup } from './EditorFilterGroup'
 import { EditorFiltersShell } from './EditorFiltersShell'
 import { getBreakdownSummary, getFiltersSummary, getSeriesSummary, visibleFilters } from './editorFilterUtils'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
-import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsSeries } from './TrendsSeries'
+
+// Only web analytics insights use these filters, and they pull in the web analytics logic and its schema validators.
+const WebAnalyticsEditorFilters = lazy(() =>
+    retryImport(() =>
+        import('scenes/insights/EditorFilters/WebAnalyticsEditorFilters').then((m) => ({
+            default: m.WebAnalyticsEditorFilters,
+        }))
+    )
+)
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -89,11 +100,15 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     // Web Analytics insights use their custom filter UI
     if (isWebAnalyticsInsightQuery(query)) {
         return (
-            <WebAnalyticsEditorFilters
-                query={query as WebOverviewQuery | WebStatsTableQuery}
-                showing={showing}
-                embedded={embedded}
-            />
+            <ChunkLoadErrorBoundary>
+                <Suspense fallback={null}>
+                    <WebAnalyticsEditorFilters
+                        query={query as WebOverviewQuery | WebStatsTableQuery}
+                        showing={showing}
+                        embedded={embedded}
+                    />
+                </Suspense>
+            </ChunkLoadErrorBoundary>
         )
     }
 

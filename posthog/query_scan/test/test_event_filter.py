@@ -68,6 +68,19 @@ class TestClassifyEventFilter(BaseTest):
                 "not_used",
                 "dynamic",
             ),
+            (
+                "in a subquery",
+                "SELECT count() FROM events WHERE event IN (SELECT 'purchase')",
+                "usable",
+                None,
+                True,
+            ),
+            (
+                "not in a subquery",
+                "SELECT count() FROM events WHERE event NOT IN (SELECT 'purchase')",
+                "not_used",
+                "negated",
+            ),
             # A property access prepares to a JSON-extract call, not a bare column, so it lands as a
             # fixed comparison the sort order cannot seek on rather than a dynamic one.
             (
@@ -93,7 +106,12 @@ class TestClassifyEventFilter(BaseTest):
         ]
     )
     def test_classification_reads_the_tree(
-        self, _name: str, sql: str, expected_class: str | None, expected_reason: str | None
+        self,
+        _name: str,
+        sql: str,
+        expected_class: str | None,
+        expected_reason: str | None,
+        expected_hidden_from_plan: bool = False,
     ) -> None:
         outcome = classify_event_filter(self.prepare(sql))
 
@@ -103,6 +121,7 @@ class TestClassifyEventFilter(BaseTest):
         assert outcome is not None
         self.assertEqual(outcome.classification, expected_class)
         self.assertEqual(outcome.reason, expected_reason)
+        self.assertIs(outcome.hidden_from_plan, expected_hidden_from_plan)
 
 
 class TestCombineEventFilter(SimpleTestCase):
@@ -131,6 +150,13 @@ class TestCombineEventFilter(SimpleTestCase):
                 _KEY_UNUSED_PLAN,
                 "not_used",
                 "not_pruned",
+            ),
+            (
+                "key unused does not fault a filter the plan never saw",
+                EventFilterOutcome(classification="usable", hidden_from_plan=True),
+                _KEY_UNUSED_PLAN,
+                "usable",
+                None,
             ),
             # The advice is about the heaviest read, so a lighter read that did not prune is no fault.
             (

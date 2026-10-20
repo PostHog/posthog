@@ -6,24 +6,12 @@ import pytest
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import context as ctx_mod
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.context import (
     JobContext,
     bind_job_context,
     current_job_context,
     scoped_job_context,
 )
-
-
-@pytest.fixture(autouse=True)
-def _reset_contextvar():
-    token = ctx_mod._current_job_context.set(None)
-    structlog.contextvars.clear_contextvars()
-    try:
-        yield
-    finally:
-        ctx_mod._current_job_context.reset(token)
-        structlog.contextvars.clear_contextvars()
 
 
 def _make_kwargs(**overrides):

@@ -7,7 +7,7 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, type QueryBasedInsightModel } from '~/types'
+import { ChartDisplayType, type InsightModel } from '~/types'
 
 import {
     AccountBillingKind,
@@ -21,7 +21,7 @@ const ORG_VARIABLE_ID = 'var-org'
 const START_VARIABLE_ID = 'var-start'
 const END_VARIABLE_ID = 'var-end'
 
-const buildBillingInsight = (shortId: string): QueryBasedInsightModel =>
+const buildBillingInsight = (shortId: string): InsightModel =>
     ({
         short_id: shortId,
         query: {
@@ -42,7 +42,7 @@ const buildBillingInsight = (shortId: string): QueryBasedInsightModel =>
                 },
             },
         },
-    }) as unknown as QueryBasedInsightModel
+    }) as unknown as InsightModel
 
 describe('accountBillingLogic', () => {
     let logic: ReturnType<typeof accountBillingLogic.build>
@@ -58,6 +58,59 @@ describe('accountBillingLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    it('keeps duplicate tile configuration independent', async () => {
+        const firstConfigChanged = jest.fn()
+        const secondConfigChanged = jest.fn()
+        const first = accountBillingLogic({
+            accountId: 'acc-1',
+            externalId: 'org-uuid',
+            kind: 'usage',
+            instanceId: 'tile-a',
+            initialConfig: {
+                dateRange: { date_from: '-7d', date_to: null },
+                usageInterval: 'week',
+            },
+            onConfigChange: firstConfigChanged,
+        })
+        const second = accountBillingLogic({
+            accountId: 'acc-1',
+            externalId: 'org-uuid',
+            kind: 'usage',
+            instanceId: 'tile-b',
+            initialConfig: {
+                dateRange: { date_from: '-90d', date_to: null },
+                usageInterval: 'month',
+            },
+            onConfigChange: secondConfigChanged,
+        })
+        first.mount()
+        second.mount()
+
+        try {
+            await expectLogic(first).toFinishAllListeners()
+            await expectLogic(second).toFinishAllListeners()
+
+            expect(first.values.dateRange).toEqual({ date_from: '-7d', date_to: null })
+            expect(first.values.usageInterval).toBe('week')
+            expect(second.values.dateRange).toEqual({ date_from: '-90d', date_to: null })
+            expect(second.values.usageInterval).toBe('month')
+
+            first.actions.setDateRange('2024-01-01', '2024-01-31')
+
+            expect(first.values.dateRange).toEqual({ date_from: '2024-01-01', date_to: '2024-01-31' })
+            expect(second.values.dateRange).toEqual({ date_from: '-90d', date_to: null })
+            expect(firstConfigChanged).toHaveBeenLastCalledWith({
+                dateRange: { date_from: '2024-01-01', date_to: '2024-01-31' },
+                usageInterval: 'week',
+                hiddenSeriesKeysByShortId: {},
+            })
+            expect(secondConfigChanged).not.toHaveBeenCalled()
+        } finally {
+            first.unmount()
+            second.unmount()
+        }
     })
 
     describe.each<AccountBillingKind>(['usage', 'spend'])('kind: %s', (kind) => {

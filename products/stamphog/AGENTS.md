@@ -46,7 +46,11 @@ head-changing event must retract standing approvals itself:
 The one deliberate exception is **approval retention**.
 A head-changing delivery whose push left the PR's own diff byte-identical skips both the retraction and the review (`_standing_approval_retention` in the Celery task, deciding through [`logic/approval_retention.py`](backend/logic/approval_retention.py)).
 It is content-based rather than commit-based: the PR's own unified diff at the approved head against the same at the current head.
-So a merge of the base branch that touches none of the PR's files retains, and a merge that resolves a conflict inside one of them re-reviews.
+So a merge of the base branch that touches none of the PR's files retains.
+A base merge that also edits a PR file changes the diff text, because the PR's hunks move. It still retains through `base_merge_is_clean`, which proves two things.
+The lineage proof: the head has exactly two parents, the first is an approved or already retained head, and the second is an ancestor of the payload's base sha.
+The content proof: every file that differs between the two diffs is exactly the `git merge-file` result of the merge base, the approved parent and the base parent.
+A conflict resolution, or any other content that the author put in the merge commit, fails that proof and re-reviews.
 Comparing the diff text rather than per-file blob shas is deliberate, because the text carries file modes and renames, and a blob sha covers contents only.
 The one thing the text does not carry is binary content, which git renders as `Binary files ... differ` over an abbreviated blob id, so a diff mentioning one is refused rather than compared.
 
@@ -98,16 +102,19 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   from the Go ai-gateway (`POST /v1/tokens`) with the worker's `phs_` (`AI_GATEWAY_API_KEY`), pinned
   to `product=aio_stamphog` and `obo=<customer team>`, capped at `cap_usd=5` and `ttl_seconds=3600`,
   acting as the repo's connecting user. The `phs_` never enters the sandbox; a mint failure fails
-  the run (no shared-key fallback); the worker revokes the token once the sandbox is destroyed. Do
-  not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
+  the run (no shared-key fallback); the worker revokes the token once the reviewer returns,
+  without waiting for the sandbox teardown. The review mints the token after the sandbox exists, so
+  the token reaches it as a file (`STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH`), never in the creation env
+  or a command line. Do not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
   spend with a leaked token.
 - The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
 - Egress is an explicit domain allowlist (`_sandbox_egress_allowlist`). Additions go through
   `STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS`, not code edits.
-- Everything posted to GitHub goes through `_scrub_credentials` AND `_neutralize_active_markdown`
+- Everything posted to GitHub goes through `scrub_credentials` AND `neutralize_active_markdown` (`logic/scrubbing.py`)
   (GitHub's camo proxy auto-fetches images — a markdown image URL is an exfiltration channel).
 - The sandbox checkout is the PR head, so the engine's Agent SDK session runs with `setting_sources=[]` + `strict_mcp_config` (reviewer.py): a PR-shipped `.claude/settings.json` hook, `CLAUDE.md`, or `.mcp.json` is readable as untrusted content, never loaded as configuration.
+  The default OpenAI reviewer (openai_reviewer.py) discovers no SDK settings, hooks or MCP servers from the tree; only the trusted `.stamphog/` guidance files shape its prompt. Its read_file/grep/glob tools refuse any path that resolves outside the checkout.
   Don't reintroduce filesystem settings discovery there.
 
 ## The self-driving inbox carve-out (the one exception to the bot-author refusal)
@@ -164,26 +171,59 @@ narrow:
 - These runs bypass the review-mode and author-write-permission gates: the reviewers' toggle is
   the gate, and the App's machine user is not a collaborator (the permission lookup would always
   deny). `review_mode` keeps governing human PRs only.
-- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `reviewhog`
+- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `posthog-review`
   label) **only** for these runs. A human author reads their own refusal and decides what comes next.
   A self-driving PR has no such author, and its refusal otherwise sits unread until Inbox triage.
   In ALL mode an unconditional handoff also fires a second bot review on every PR the repo opens.
   The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
   what the reviewer prompt was told about its own invocation.
 
+## The manual trigger (the one exception to label mode)
+
+`request_manual_review` (`POST review_runs/` and the `stamphog-review-runs-create` MCP tool) queues a review because a project member asked for it.
+The request stands in for the trigger label, so it bypasses `review_mode` and nothing else.
+Every other webhook-path gate still refuses: closed PRs, drafts, bot authors, untrusted author associations, and authors below write permission.
+The requester's own GitHub access is not checked; the `stamphog:write` scope and the product's access control are the gate.
+The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
+A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
+
+## External review evidence
+
+- `facade/review_evidence.py` is a registry of providers that stamphog owns. A product that reviews PRs and depends on stamphog (today review_hog, as PostHog Review) registers one at app-ready, for the same dependency-cycle reason as `inbox_hooks.py`. Stamphog never imports a provider's product.
+- Each provider answers per head (`pending`, `completed`, `failed`, or None). `list_in_flight_reviewer_bots` asks every provider on every wait poll and stores the answers as `run.output["review_evidence"]`. Any pending review keeps the workflow waiting within the bot-wait budget. After any wait, or when a provider reports a completed review, `refresh_review_evidence` reads the reviews, the discussion and the threads again, because the context fetch ran before the polls.
+- In the engine, any review still pending for the head is a WAIT, never an approval. Each completed review of the current head against the current merge base (`base_sha`) counts as current-head assurance in `_cap_assurance_facts` only when its `skipped_paths` is empty. The PR's `base.sha` is no match key, because it moves on every merge to the base branch. Each one gets its own line in the assurance summary and the posted verdict. Its published findings are review threads, so the unresolved-thread rule still applies to them.
+- A provider error is logged and skipped without affecting the other providers. An error, an answer for another head, and `failed` add no evidence, so stamphog reviews as it would without that provider. An error must never read as a clean review. The one exception: a provider that reported `pending` earlier in the run keeps that pending answer (marked `provider_error`), so the run ends in WAIT.
+- A WAIT has no automatic retry, and a Deep review outlasts the wait budget. So ReviewHog calls `facade/tasks.py::request_rereview_after_external_review` when a turn on a head completes or fails. The Celery task re-reviews only when the PR's latest run is COMPLETED with a WAIT verdict at that head, the head is still current, the run is not an inbox run, and every webhook gate passes again (open, payload pre-filters, trigger label unless the run was manual, author write access). It passes `revisit_wait` to `_queue_review_at_head`, so the head dedupe ignores every delivered WAIT at the head but still collapses repeated nudges into one live run. A re-run left QUEUED by a failed workflow start is restarted by the next call, and GitHub or Temporal errors retry with backoff. A nudge that arrives while the run is in flight finds no WAIT, so after a WAIT that waited on a pending review the workflow runs `rereview_after_external_review_finished`. It asks the providers once more and queues the re-review when that review has finished. A provider error keeps that review pending there too and raises, so Temporal retries the recheck. A dispatch error raises, so Temporal retries it.
+- `facade/finished_review_hooks.py` is the other direction: callbacks that hear a run's outcome. `post_verdict` calls them right after the terminal save wins, before its trailing GitHub steps, and `mark_review_failed` right after its FAILED save, before its cleanup. A superseded run, or a save that lost to a supersession, calls nothing. A callback that raises is logged and never fails the run, because the outcome is already saved and posted. The commands product registers one to post the outcome in the Slack thread that asked for the review.
+- `posthog[bot]` is deliberately not a trusted reactor. Its 👀 is a cue for people, and the review evidence replaces it for stamphog.
+
 ## Trust boundaries
 
-- The review-gating fields (`enabled`, `review_mode`, `trigger_label`) and the soft-delete need the
-  `manager` level on the `stamphog` resource, because they decide whether a pull request is reviewed
-  at all. Naming one of those fields on a create takes `manager` too. Connecting a repository
-  without them, and the digest toggle, stay at `editor`.
+- Turning reviews **off** (`enabled=False`, the soft-delete) and changing when they run (`review_mode`,
+  `trigger_label`) need the `manager` level on the `stamphog` resource, on an update or a create alike. Turning reviews
+  **on** (`enabled=True`, or `add_repository`) needs `editor`, so an editor can re-enable a repository
+  a manager paused; that is the requested self-serve direction. A supplied value counts even when it
+  matches the stored one, because the view's snapshot of the row is stale by the time the facade
+  saves. The digest toggle stays at `editor`. Service credentials are refused at both levels.
+  The model default for `review_mode` is `label`, the narrow mode, so an editor turning reviews on
+  never widens them past opt-in. Do not change the default to `all` without moving that level too.
+- A sync records what the member's own GitHub token lists in the team's `StamphogInstallation`
+  snapshot and creates no repo config. `add_repository` binds only a repository in that snapshot,
+  taking the installation id and the connecting user from the record, never from the request.
+  Never list an installation's repositories with the installation token for this: an outside
+  collaborator on one repository can reach the installation, and that token shows every private
+  repository in it. The snapshot is a union across members' syncs, and only the removal and
+  uninstall webhooks shrink it. A `repositories_added` webhook never grows it: the webhook carries
+  no user, so nobody on the team proved access to that repository. It becomes addable when a member
+  syncs again.
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
   and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
-  fields were set by someone who never proved GitHub access, so a pre-selected label mode would
-  otherwise go live the moment a manager enables the row. Reinstall rebinds keep settings — those
+  fields were set by someone who never proved GitHub access, so a pre-selected review mode or label
+  would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
+  policy the same way when it binds one. Reinstall rebinds keep settings — those
   were configured under a verified binding. Such a row is also kept out of the digest candidates:
   a blank installation can fetch no routing file, and every candidate is read, so leaving it in let
   one placeholder silence the whole team's digest.
@@ -204,6 +244,9 @@ narrow:
   moment somebody adds the app.
 - A declared channel that does not resolve is a dead end, never a retry with the audience slug —
   the slug is the wrong name the declaration exists to correct.
+- Retrieving one review run returns the reviewer's parsed reasoning (`reasoning`, `showstoppers`, `review_body`, `change_summary`) to anyone who can read the run.
+  That is the text stamphog posts as its GitHub review, and it passes the same `scrub_credentials` and `neutralize_active_markdown` first.
+  The raw reviewer stdout, the PR payload, patches, and policy files never leave the facade.
 - PR content — title, body, diff, comments, reactions — is untrusted input everywhere, including
   in reviewer prompts and error messages persisted to API-readable fields (`run.error` keeps only
   a truncated first line for exactly this reason).
@@ -220,8 +263,21 @@ changes both, and divergence here has produced real approve-when-should-wait fin
 Inputs `review_pr.py` fetches over the network reach the sandbox through the context JSON instead, and
 dropping one is a silent behavior change rather than a missing section. `author_team_slugs` feeds
 `author_on_owning_team`, which the reviewer prompt reads with a default of `True`, so an unset key
-tells the reviewer that every author owns the code they touched. `pr_provenance` needs no token and
-is computed in the sandbox from the checkout.
+tells the reviewer that every author owns the code they touched.
+The same set decides a deny category's `exempt_author_teams`, and there an unset key fails closed: every author is denied, the owning team included.
+Never fill the set from anything the PR controls: it is the only thing that lets stamphog approve an owner-only path.
+
+The sandbox checkout is shallow and holds no PR history, so a hosted context always carries `merge_base_sha` (the engine diffs `merge_base..head`) and `commit_messages` (the provenance trailers).
+Without those keys (a manual `review_pr.py` run) the engine reads git history instead.
+The engine's git has no credential, so every object it reads must arrive in `_clone_pr` or `_prefetch_review_blobs`: an on-demand promisor fetch is anonymous and a private repository refuses it.
+Test clone changes with `GIT_NO_LAZY_FETCH=1`, because a public repository hides that failure.
+
+The server's pre-check (`refuse_on_pre_gates`, `backend/logic/engine_pregate.py`) runs `review_local.py --pregate` in a child process on the worker, in a temporary tree with the run's effective trusted policy and the PR head's `AGENT_APPROVALS.md` files.
+It never imports the engine: the engine's bare module names and its import-time policy load would bind to the worker's own checkout.
+Its fast verdict (a gate refusal, or the pending-migration WAIT) may only be one the sandbox review would also reach, because nothing re-reviews it.
+Every input the sandbox reads from its checkout must reach the tree too, or finality must not depend on it: the folder files decide the size gate, and the manifest scripts scan still needs git, so a dependency manifest keeps the pending-migration case undecided.
+`pregate()` decides that finality in the engine, and the server adds the file-list guards in `pregate_skip_reason` (head moved, list truncated, renames).
+Anything in doubt, and any error, falls through to the full review.
 
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
 refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a
@@ -235,6 +291,8 @@ T2-never with it, so it answers False for every PR it exists to catch.
   registry-completeness test guards this, don't bypass it.
 - Workflow bodies follow the repo-wide determinism rules (`workflow.patched()` for new commands).
 - Activity payloads stay small; large context rides in `run.output`, not through the workflow.
+- The sandbox start and checkout run beside the context fetch, the pre-check and the bot polls, so every activity that can overlap them writes `run.output` through `_merge_run_output` (a JSONB `||` merge), never a read-modify-write `save()` from a copy loaded earlier. A stale copy drops the other activity's keys, including the sandbox claim that stops a retry from paying for a second sandbox. The merge replaces a key whole, so the sandbox start and checkout record their step timings under their own keys, not in `timings_ms`.
+- No activity waits inside for another activity's write. A waiting activity holds a worker thread and an activity slot, and enough of them starve the activities they wait for. Put the wait in the workflow and split the activity at it.
 
 ## Tests
 

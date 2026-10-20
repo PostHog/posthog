@@ -4,30 +4,46 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.clickhouse.client import sync_execute
+from posthog.schema import EmbeddingModelName
 
-from products.signals.backend.facade.api import SignalSourceSliceOutcomes, get_outcomes_for_signal_source_slice
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
+
+from products.signals.backend.facade.api import (
+    SignalSourceSlicePullRequest,
+    get_outcomes_for_signal_source_slice,
+    get_reports_for_signal_source_slice,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
     SignalSourceReference,
+    fetch_origin_sources_for_report,
     fetch_signal_stats_for_source_slice,
+    fetch_signals_for_report_sync,
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
+from products.signals.backend.spend import SignalMetadataChange, SignalSpendUpdate, record_llm_spend
+from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
-    fetch_signals_for_report_sync,
+    retract_source_signals,
 )
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
-_EMBEDDING = [0.0] * 1536
 
 
 class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
@@ -43,6 +59,10 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         content: str = "the signal content",
         skill_name: str | None = None,
         extra: dict | None = None,
+        source_id: str | None = None,
+        model: EmbeddingModelName = EMBEDDING_MODEL,
+        spend_metadata: dict | None = None,
+        embedding: list[float] | None = None,
     ) -> None:
         """Write one version of a signal document straight to the model-specific embeddings table.
 
@@ -53,14 +73,16 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
             "report_id": report_id,
             "source_product": source_product,
             "source_type": source_type,
-            "source_id": f"src-{document_id}",
+            "source_id": source_id or f"src-{document_id}",
             "deleted": deleted,
         }
         if skill_name is not None or extra is not None:
             metadata["extra"] = {**(extra or {}), **({"skill_name": skill_name} if skill_name is not None else {})}
+        metadata.update(spend_metadata or {})
+        table = f"distributed_posthog_document_embeddings_{model.value.replace('-', '_')}"
         sync_execute(
             f"""
-            INSERT INTO {_MODEL_TABLE} (
+            INSERT INTO {table} (
                 team_id, product, document_type, rendering, document_id,
                 timestamp, inserted_at, content, metadata, embedding,
                 _timestamp, _offset, _partition
@@ -77,7 +99,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
                     inserted_at,
                     content,
                     json.dumps(metadata),
-                    _EMBEDDING,
+                    embedding if embedding is not None else [0.0] * int(model.value.rsplit("-", 1)[1]),
                     inserted_at,
                     0,
                     0,
@@ -100,15 +122,25 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         # Guards the early return: an empty list would otherwise compile to `report_id IN ()` and raise.
         assert fetch_source_products_for_reports(self.team, []) == {}
 
-    def test_maps_each_report_to_its_sorted_distinct_source_products(self) -> None:
+    @parameterized.expand([("web", None), ("pipeline", ClickHouseUser.SIGNALS)])
+    def test_maps_each_report_to_its_sorted_distinct_source_products(
+        self, _name: str, ch_user: ClickHouseUser | None
+    ) -> None:
         self._emit_version(document_id="d1", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d2", report_id="rA", source_product="replay", inserted_at=self.base)
         # duplicate source_product within a report collapses to one entry
         self._emit_version(document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d4", report_id="rB", source_product="surveys", inserted_at=self.base)
 
-        with self.assertNumQueries(FuzzyInt(0, 1)):
-            result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
+        with (
+            self.assertNumQueries(FuzzyInt(0, 1)),
+            patch("products.signals.backend.signal_metadata.execute_hogql_query", wraps=execute_hogql_query) as query,
+        ):
+            result = fetch_source_products_for_reports(
+                self.team, ["rA", "rB"], **({"ch_user": ch_user} if ch_user else {})
+            )
+
+        assert query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
 
         assert result == {
             "rA": ReportSignalMeta(source_products=["errors", "replay"], scout_name=None),
@@ -265,6 +297,37 @@ class TestFetchSourceReferencesForReport(_SignalEmbeddingsTestBase):
         ]
 
 
+class TestFetchOriginSourcesForReport(_SignalEmbeddingsTestBase):
+    def test_summarizes_live_sources_of_the_report_earliest_first(self) -> None:
+        self._emit_version(document_id="later", report_id="r1", source_product="error_tracking", inserted_at=self.base)
+        self._emit_version(
+            document_id="scout",
+            report_id="r1",
+            source_product="error_tracking",
+            inserted_at=self.base - timedelta(hours=1),
+            skill_name="signals-scout-error-tracking",
+        )
+        self._emit_version(document_id="gone", report_id="r1", source_product="logs", inserted_at=self.base)
+        self._emit_version(
+            document_id="gone",
+            report_id="r1",
+            source_product="logs",
+            inserted_at=self.base + timedelta(minutes=1),
+            deleted=True,
+        )
+        self._emit_version(document_id="moved", report_id="r1", source_product="logs", inserted_at=self.base)
+        self._emit_version(
+            document_id="moved", report_id="r2", source_product="logs", inserted_at=self.base + timedelta(minutes=1)
+        )
+
+        sources = fetch_origin_sources_for_report(self.team, "r1")
+
+        assert [(s.source_product, s.scout_name, s.entity_ids) for s in sources] == [
+            ("error_tracking", "signals-scout-error-tracking", ("src-scout",)),
+            ("error_tracking", "", ("src-later",)),
+        ]
+
+
 class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
     def test_returns_only_reports_authored_by_the_named_scouts(self) -> None:
         # Guards the nested `extra.skill_name` extraction driving the inbox scout filter — a broken
@@ -410,6 +473,96 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
         assert [s["content"] for s in signals] == ["new text"]
 
 
+class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
+    @parameterized.expand(
+        [
+            ("spend", SignalMetadataChange()),
+            ("move", SignalMetadataChange(report_id="new-report", expected_report_id="example-report")),
+            ("delete", SignalMetadataChange(deleted=True, expected_report_id="example-report")),
+            ("retract", SignalMetadataChange(deleted=True, clear_content=True)),
+        ]
+    )
+    def test_delayed_spend_preserves_latest_total_and_metadata(self, _name: str, change: SignalMetadataChange) -> None:
+        driver = str(uuid.uuid4())
+        signal = SignalSpendUpdate(team_id=self.team.id, signal_id=driver)
+        now = timezone.now().replace(microsecond=0)
+        for model in EmbeddingModelName:
+            self._emit_version(
+                document_id=driver,
+                report_id="example-report",
+                source_product="errors",
+                inserted_at=now - timedelta(seconds=2),
+                model=model,
+                embedding=[0.125] * int(model.value.rsplit("-", 1)[1]),
+            )
+        producer = MagicMock()
+
+        def deliver(payload: dict, version: int) -> None:
+            self._emit_version(
+                document_id=driver,
+                report_id="example-report",
+                source_product="errors",
+                inserted_at=datetime.fromtimestamp(version, UTC),
+                model=EmbeddingModelName(payload["model_name"]),
+                spend_metadata=json.loads(payload["metadata"]),
+                content=payload["content"],
+                embedding=payload["embedding"],
+            )
+
+        with (
+            time_machine.travel(now, tick=False) as clock,
+            patch("products.signals.backend.spend_metadata.producer_scope", return_value=producer),
+        ):
+            record_llm_spend(
+                "first", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="actionability"
+            )
+            first = publish_signal_spend_metadata(signal)
+            first_payloads = [call.kwargs["data"] for call in producer.__enter__.return_value.produce.call_args_list]
+            for payload in first_payloads:
+                deliver(payload, first.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(first)
+            producer.__enter__.return_value.produce.reset_mock()
+            clock.shift(timedelta(seconds=2))
+            record_llm_spend(
+                "second", token_cost_microusd=200, team_id=self.team.id, signal_id=driver, stage="summarization"
+            )
+            second = publish_signal_spend_metadata(
+                SignalSpendUpdate(team_id=self.team.id, signal_id=driver, changes=[change])
+            )
+            assert all(second.versions[key] > version for key, version in first.versions.items())
+            for call in producer.__enter__.return_value.produce.call_args_list:
+                payload = call.kwargs["data"]
+                deliver(payload, second.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(second)
+            for payload in first_payloads:
+                deliver(payload, first.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(second)
+            producer.__enter__.return_value.produce.reset_mock()
+            clock.shift(timedelta(seconds=2))
+            record_llm_spend("third", token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="research")
+            third = publish_signal_spend_metadata(
+                SignalSpendUpdate(
+                    team_id=self.team.id,
+                    signal_id=driver,
+                    changes=[
+                        SignalMetadataChange(deleted=True, expected_report_id="example-report")
+                        if change.report_id
+                        else SignalMetadataChange(report_id="must-not-move", expected_report_id="stale-report")
+                    ],
+                )
+            )
+            for call in producer.__enter__.return_value.produce.call_args_list:
+                payload = call.kwargs["data"]
+                metadata = json.loads(payload["metadata"])
+                assert metadata["total_spend"] == 0.06
+                assert metadata["report_id"] == (change.report_id or "example-report")
+                assert metadata["deleted"] is change.deleted
+                assert payload["content"] == ("" if change.clear_content else "the signal content")
+                assert set(payload["embedding"]) == ({0.0} if change.clear_content else {0.125})
+                deliver(payload, third.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(third)
+
+
 class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):
     def test_counts_only_the_slice_and_skips_deleted_latest_versions(self) -> None:
         # Guards the extra_equals pushdown and the argMax dedup: a broken JSON path would leak other
@@ -498,4 +651,78 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
             team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
         )
 
-        assert outcomes == SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=2, merged_pr_count=1)
+        assert (outcomes.signal_count, outcomes.report_count, outcomes.pr_count, outcomes.merged_pr_count) == (
+            5,
+            2,
+            2,
+            1,
+        )
+        # The links behind the counts: the same deduped PRs, newest report's first.
+        assert outcomes.pull_requests == [
+            SignalSourceSlicePullRequest(url=shared_pr.url, merged=True),
+            SignalSourceSlicePullRequest(url=second_pr.url, merged=False),
+        ]
+
+    def test_hydrates_the_same_slice_newest_first(self) -> None:
+        # The link surface shares the slice query with the counters, so it must drop the same
+        # malformed and soft-deleted ids, and order newest first rather than by CH's set order.
+        older = SignalReport.objects.create(team=self.team, title="older", summary="s")
+        newer = SignalReport.objects.create(team=self.team, title="newer", summary="s")
+        SignalReport.objects.filter(pk=older.id).update(created_at=self.base - timedelta(hours=1))
+        soft_deleted = SignalReport.objects.create(
+            team=self.team, title="gone", summary="s", status=SignalReport.Status.DELETED
+        )
+        for index, report_id in enumerate([str(older.id), str(newer.id), str(soft_deleted.id), "not-a-uuid"]):
+            self._emit_version(
+                document_id=f"h{index}",
+                report_id=report_id,
+                source_product="errors",
+                inserted_at=self.base,
+                extra={"observation_id": "obs-1"},
+            )
+
+        reports = get_reports_for_signal_source_slice(
+            team=self.team, source_product="errors", source_type="some_type", extra_equals={"observation_id": "obs-1"}
+        )
+
+        assert [(r.id, r.title, r.status) for r in reports] == [
+            (str(newer.id), "newer", "potential"),
+            (str(older.id), "older", "potential"),
+        ]
+
+
+class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
+    @patch("products.signals.backend.temporal.signal_queries._RETRACT_PAGE_SIZE", 2)
+    @patch("posthog.temporal.common.client.async_connect")
+    def test_retracts_every_page_of_the_source(self, connect: AsyncMock) -> None:
+        client = connect.return_value
+        client.start_workflow = AsyncMock()
+        for document_id in ("a", "b", "c"):
+            self._emit_version(
+                document_id=document_id,
+                report_id="rA",
+                source_product="conversations",
+                source_type="ticket",
+                source_id="ticket-1",
+                inserted_at=self.base,
+            )
+        self._emit_version(
+            document_id="other",
+            report_id="rA",
+            source_product="conversations",
+            source_type="ticket",
+            source_id="ticket-2",
+            inserted_at=self.base,
+        )
+
+        retracted = retract_source_signals(
+            team=self.team, source_product="conversations", source_type="ticket", source_id="ticket-1"
+        )
+
+        assert retracted == 3
+        calls = client.start_workflow.call_args_list
+        assert sorted(call.args[1].signal_id for call in calls) == ["a", "b", "c"]
+        assert all(
+            call.kwargs["start_signal_args"] == [SignalMetadataChange(deleted=True, clear_content=True)]
+            for call in calls
+        )

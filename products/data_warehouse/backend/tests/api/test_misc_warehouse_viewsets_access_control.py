@@ -1,11 +1,3 @@
-"""Access control coverage for the non-core data warehouse viewsets.
-
-Covers managed viewsets, the data_warehouse stats/provisioning endpoints, model paths,
-data modeling jobs, and lineage — each gated under warehouse_view (reads) or
-warehouse_view:write (write actions). Verifies viewer/editor/none rejection and
-acceptance for the endpoints that actually get traffic.
-"""
-
 from datetime import timedelta
 
 import pytest
@@ -286,13 +278,17 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         )
         self.client.force_login(self.viewer_user)
 
-        summary_response = self.client.get(self._path("managed-warehouse-data-status/"))
-        detail_response = self.client.get(
-            self._path(f"managed-warehouse-source-schemas/?source_id={blocked_source.id}")
-        )
-        allowed_detail_response = self.client.get(
-            self._path(f"managed-warehouse-source-schemas/?source_id={allowed_source.id}")
-        )
+        with patch(
+            "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.is_enabled",
+            return_value=True,
+        ):
+            summary_response = self.client.get(self._path("managed-warehouse-data-status/"))
+            detail_response = self.client.get(
+                self._path(f"managed-warehouse-source-schemas/?source_id={blocked_source.id}")
+            )
+            allowed_detail_response = self.client.get(
+                self._path(f"managed-warehouse-source-schemas/?source_id={allowed_source.id}")
+            )
 
         self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -360,7 +356,9 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        mock_provision.assert_called_once_with(self.team.organization_id, "x", self.team.id, "x")
+        mock_provision.assert_called_once_with(
+            self.team.organization_id, "x", self.team.id, "x", triggered_by=f"api:{self.editor_user.email}"
+        )
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.check_schema_name")
     def test_check_schema_name_blocked_for_project_editor_who_is_not_org_admin(self, mock_check):
@@ -411,7 +409,9 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         response = self.client.post(self._path("reset-password/"))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_reset_password.assert_called_once_with(self.team.organization_id)
+        mock_reset_password.assert_called_once_with(
+            self.team.organization_id, triggered_by=f"api:{self.editor_user.email}"
+        )
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.delete_org")
     def test_delete_org_blocked_for_project_editor_who_is_not_org_admin(self, mock_delete_org):
@@ -436,7 +436,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         response = self.client.delete(self._path("delete-org/"))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_delete_org.assert_called_once_with(self.team.organization_id)
+        mock_delete_org.assert_called_once_with(self.team.organization_id, triggered_by=f"api:{self.editor_user.email}")
 
 
 @pytest.mark.ee

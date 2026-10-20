@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResumeConfig]):
+    codebase_detection = detect(
+        env=("^(GAINSIGHT_PX|GAINSIGHTPX)_",),
+        script_hosts=("web-sdk.aptrinsic.com",),
+        maven=("com.gainsight.px:mobile-sdk", "com.gainsight.px:gainsight-px"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://px-apidocs.gainsight.com/"
 
@@ -68,13 +75,13 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every Gainsight PX list endpoint is full refresh — none exposes a server-side "updated
-        # since" filter, so there's no reliable incremental cursor.
+        # Only the `/events/*` streams and survey responses expose a server-side date filter; the entity
+        # endpoints have no "updated since" filter and stay full refresh.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
+                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
+                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 detected_primary_keys=GAINSIGHT_PX_ENDPOINTS[endpoint].primary_keys,
             )
@@ -115,6 +122,9 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
 
     @property
@@ -127,8 +137,10 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
                 "Connect Gainsight PX with your project's **API key**. Generate a key with **Read** "
                 "access under **Administration → REST API** in Gainsight PX, then pick the region your "
                 "subscription is hosted in.\n\n"
-                "All tables are synced as full refresh — Gainsight PX's list endpoints don't expose an "
-                '"updated since" filter.'
+                "Event tables (page views, sessions, engagement views, feature and segment matches, "
+                "custom events, identify events and survey responses) can sync incrementally on the "
+                "event `date`. The other tables sync as full refresh because "
+                'Gainsight PX doesn\'t expose an "updated since" filter for them.'
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/gainsight-px",
             iconPath="/static/services/gainsight_px.png",

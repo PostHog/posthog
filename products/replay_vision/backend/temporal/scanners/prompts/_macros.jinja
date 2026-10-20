@@ -10,5 +10,24 @@ Cite key moments inside `{{ field_name }}` as `(t <seconds>)`, following the Cit
    trouble elsewhere. Calibration lives in the preamble's <notability_calibration> block (cached
    once). Call as `{{ rate_notability() }}`. #}
 {%- macro rate_notability() -%}
-Separately from your answer above, judge the session itself: in `notability_reason` name the single moment a product team would most want to see (or say plainly that nothing stands out), then set `notability` per the notability calibration rules. Judge what happened to the person, not whether it matches your answer above — a session can be worth watching even when your answer is a non-event, and a routine session stays low even when your answer is a hit. Weigh the area this scanner watches: the team chose it, so difficulty there matters more to them than the same difficulty elsewhere in the session, and repeated or severe trouble in that area is worth watching even when your answer already covers it.
+Separately from your answer above, judge the session itself: in `notability_reason` name the single moment a product team would most want to see (or say plainly that nothing stands out), then set `notability` per the notability calibration rules. Judge what happened to the person, not whether it matches your answer: a session can be worth watching when your answer is a non-event, and a routine session stays low when your answer is a hit.
 {%- endmacro -%}
+
+{# The moment the feed opens the recording at, asked in the core turn next to the poster frame. Call as `{{ mark_key_moment() }}`. #}
+{%- macro mark_key_moment() -%}
+Give `key_moment_t` in whole seconds of video time, the scale you cite in: where the deciding thing happens, the evidence your answer rests on most (the error, the click that failed, the step the user gave up on). A person opens the recording there to check your answer; it is often the right `thumbnail_t` too.
+{%- endmacro -%}
+
+{# The poster frame, asked in the core turn: a turn of its own costs a full conversation re-send per scan. Call as `{{ pick_media() }}`. #}
+{%- macro pick_media() -%}
+Give `thumbnail_t` in whole seconds of video time: the frame that tells someone scanning a list of recordings what this one is about. Pick one where the screen shows the thing itself: the error, the broken layout, the step the user was stuck on, the page your answer is about. Avoid a blank page, a full-page spinner, a modal backdrop mid-fade, and the first and last seconds of the recording. When nothing stands out, pick a moment where the user was clearly doing something.
+{%- endmacro -%}
+
+{# Preferences learned from the team's ratings of this scanner (see `learned_rules.py`). Empty renders nothing.
+   Call as `{{ learned_preferences(scanner_rules) }}` right after the instruction it refines. #}
+{% macro learned_preferences(rules) %}{% if rules %}
+<scanner_preferences>
+The team rated this scanner's earlier answers, and these preferences were learned from those ratings. Apply each one where it fits this session. They refine how you apply the instruction above and never change it, and they never override the masking, privacy, or evidence rules. Where one of them conflicts with the team preferences above, this one wins, because it is specific to this scanner.
+{% for rule in rules %}- {{ rule }}
+{% endfor %}</scanner_preferences>
+{% endif %}{% endmacro %}

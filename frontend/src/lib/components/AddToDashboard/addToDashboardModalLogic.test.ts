@@ -2,6 +2,7 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -15,7 +16,7 @@ import {
     DashboardBasicType,
     DashboardType,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
     UserBasicType,
 } from '~/types'
 
@@ -23,7 +24,7 @@ import { addToDashboardModalLogic } from './addToDashboardModalLogic'
 
 const Insight1 = '1' as InsightShortId
 
-const MOCK_INSIGHT: QueryBasedInsightModel = {
+const MOCK_INSIGHT: InsightModel = {
     id: 1,
     short_id: Insight1,
     name: 'Test Insight',
@@ -34,7 +35,6 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
             series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: 'total' }],
         },
     },
-    dashboards: [1, 2],
     dashboard_tiles: [{ dashboard_id: 1 }, { dashboard_id: 2 }] as any,
     result: ['result'],
     saved: true,
@@ -56,7 +56,7 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     layouts: {},
     color: null,
     user_access_level: AccessControlLevel.Editor,
-} as QueryBasedInsightModel
+} as InsightModel
 
 const OTHER_USER_UUID = 'other-user-uuid'
 
@@ -130,7 +130,7 @@ describe('addToDashboardModalLogic', () => {
             id: 99,
             name: 'New Dashboard',
             tiles: [],
-        } as unknown as DashboardType<QueryBasedInsightModel>
+        } as unknown as DashboardType
 
         await expectLogic(logic, () => {
             dashboardsModel.actions.addDashboardSuccess(newDashboard)
@@ -143,10 +143,42 @@ describe('addToDashboardModalLogic', () => {
             .toFinishAllListeners()
     })
 
-    it('orders dashboards: on insight first, then mine, then others pinned, then the rest', async () => {
-        const insightOnlyOnDash2: QueryBasedInsightModel = {
+    it.each([
+        {
+            name: 'adding keeps the dashboards the insight already sits on',
+            change: (modal: ReturnType<typeof addToDashboardModalLogic.build>) => modal.actions.addToDashboard(4),
+            expectedDashboards: [1, 2, 4],
+        },
+        {
+            name: 'removing keeps the other dashboards',
+            change: (modal: ReturnType<typeof addToDashboardModalLogic.build>) => modal.actions.removeFromDashboard(2),
+            expectedDashboards: [1],
+        },
+    ])('$name', async ({ change, expectedDashboards }) => {
+        const updateSpy = jest.spyOn(api.insights, 'update')
+        const insightProps = { dashboardItemId: Insight1 }
+        const insightLog = insightLogic(insightProps)
+        insightLog.mount()
+        insightLog.actions.loadInsightSuccess({
             ...MOCK_INSIGHT,
-            dashboards: [2],
+            dashboard_tiles: [
+                { id: 11, dashboard_id: 1 },
+                { id: 12, dashboard_id: 2 },
+                { id: 13, dashboard_id: 3, deleted: true },
+            ],
+        })
+
+        logic = addToDashboardModalLogic(insightProps)
+        logic.mount()
+
+        await expectLogic(logic, () => change(logic)).toFinishAllListeners()
+
+        expect(updateSpy.mock.calls[0][1].dashboards).toEqual(expectedDashboards)
+    })
+
+    it('orders dashboards: on insight first, then mine, then others pinned, then the rest', async () => {
+        const insightOnlyOnDash2: InsightModel = {
+            ...MOCK_INSIGHT,
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
         }
         useMocks({
@@ -198,9 +230,8 @@ describe('addToDashboardModalLogic', () => {
 
     it('when user is not loaded, dashboards with no creator are not grouped as mine', async () => {
         window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
-        const insightOnlyOnDash2: QueryBasedInsightModel = {
+        const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
-            dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
         }
         useMocks({
@@ -249,9 +280,8 @@ describe('addToDashboardModalLogic', () => {
     })
 
     it('places mine pinned in the mine bucket before others pinned', async () => {
-        const insightOnlyOnDash2: QueryBasedInsightModel = {
+        const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
-            dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
         }
         useMocks({

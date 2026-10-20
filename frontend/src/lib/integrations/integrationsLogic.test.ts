@@ -1,17 +1,25 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import apiReal, { ApiError } from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { IntegrationKind, IntegrationType } from '~/types'
+import { IntegrationKind, IntegrationType, SLACK_INTEGRATION_SCOPES } from '~/types'
 
-import { integrationsLogic } from './integrationsLogic'
+import * as integrationsApi from 'products/integrations/frontend/generated/api'
+import type {
+    GitHubAvailableInstallationsResponseApi,
+    IntegrationConfigApi,
+} from 'products/integrations/frontend/generated/api.schemas'
+
+import { integrationsLogic, reconnectReturnUrl } from './integrationsLogic'
 
 const githubIntegration = (overrides: Partial<IntegrationType> = {}): IntegrationType =>
     ({
@@ -39,6 +47,11 @@ describe('integrationsLogic', () => {
         // Handlers reset after every test, so register them per test.
         useMocks({
             get: {
+                '/api/projects/:team_id/integrations/github/available_installations/': {
+                    installations: [],
+                    personal_github_connected: false,
+                    personal_discovery_status: 'not_connected',
+                },
                 '/api/projects/:team_id/integrations/': () => [200, { results: integrationsPayload }],
                 '/api/projects/:team_id/integrations/:id/github_repos/': ({ params, request }) => {
                     const offset = new URL(request.url).searchParams.get('offset') ?? '0'
@@ -63,6 +76,141 @@ describe('integrationsLogic', () => {
     afterEach(() => {
         jest.useRealTimers()
         jest.restoreAllMocks()
+    })
+
+    describe('GitHub discovery freshness', () => {
+        const discovery = (id: string): GitHubAvailableInstallationsResponseApi => ({
+            discovery_id: id,
+            discovered_at: new Date().toISOString(),
+            personal_github_connected: true,
+            personal_github_login: 'synthetic-reader',
+            personal_discovery_status: 'ok',
+            installations: [
+                {
+                    installation_id: id,
+                    account_name: 'synthetic-owner',
+                    account_type: 'Organization',
+                    source_team_id: null,
+                    source_team_name: null,
+                },
+            ],
+        })
+
+        it.each(['invalidate', 'newer response', 'project switch'])(
+            'rejects a delayed response after %s',
+            async (change) => {
+                let resolve!: (response: GitHubAvailableInstallationsResponseApi) => void
+                const pending = new Promise<GitHubAvailableInstallationsResponseApi>((done) => {
+                    resolve = done
+                })
+                const request = jest
+                    .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
+                    .mockReturnValueOnce(pending)
+                logic.actions.loadGithubAvailableInstallations()
+                if (change === 'invalidate') {
+                    logic.actions.invalidateGithubSuggestions()
+                } else if (change === 'newer response') {
+                    request.mockResolvedValueOnce(discovery('new'))
+                    logic.actions.loadGithubAvailableInstallations()
+                    await waitFor(() =>
+                        expect(logic.values.githubAvailableInstallations?.[0].installation_id).toBe('new')
+                    )
+                } else {
+                    teamLogic.actions.loadCurrentTeamSuccess({
+                        ...teamLogic.values.currentTeam!,
+                        id: 999,
+                        project_id: 999,
+                    })
+                }
+                resolve(discovery('old'))
+                await pending
+                await new Promise<void>((done) => queueMicrotask(done))
+                expect(logic.values.githubAvailableInstallations?.[0]?.installation_id ?? null).toBe(
+                    change === 'newer response' ? 'new' : null
+                )
+            }
+        )
+
+        it('hides invalidated suggestions and exposes refresh failure for retry', async () => {
+            const request = jest
+                .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
+                .mockResolvedValueOnce(discovery('old'))
+            logic.actions.loadGithubAvailableInstallations()
+            await waitFor(() => expect(logic.values.githubAvailableInstallations).toHaveLength(1))
+            request.mockRejectedValueOnce(new Error('synthetic failure'))
+            logic.actions.invalidateGithubSuggestions()
+            logic.actions.loadGithubAvailableInstallations()
+            expect(logic.values.githubAvailableInstallations).toBeNull()
+            await waitFor(() => expect(logic.values.githubDiscoveryFailed).toBe(true))
+            expect(logic.values.githubAvailableInstallationsResponseLoading).toBe(false)
+        })
+
+        it('refreshes suggestions when polling sees changed GitHub connections', async () => {
+            const request = jest
+                .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
+                .mockResolvedValue(discovery('fresh'))
+            logic.actions.subscribeGithubSuggestions()
+            integrationsPayload = [githubIntegration()]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
+                'loadIntegrationsSuccess',
+                'loadGithubAvailableInstallations',
+            ])
+            expect(request).toHaveBeenCalled()
+            logic.actions.unsubscribeGithubSuggestions()
+        })
+
+        it('discovers once when switching projects with a mounted GitHub surface', async () => {
+            const request = jest
+                .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
+                .mockResolvedValue(discovery('fresh'))
+            logic.actions.subscribeGithubSuggestions()
+            await expectLogic(logic).toFinishAllListeners()
+            request.mockClear()
+            integrationsPayload = [githubIntegration()]
+
+            await expectLogic(logic, () =>
+                teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: 999, project_id: 999 })
+            ).toFinishAllListeners()
+
+            expect(request).toHaveBeenCalledTimes(1)
+            expect(request).toHaveBeenCalledWith('999')
+            logic.actions.unsubscribeGithubSuggestions()
+        })
+
+        it('keeps loaded integrations when the same project refreshes', async () => {
+            integrationsPayload = [githubIntegration()]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toFinishAllListeners()
+
+            teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam! })
+
+            expect(logic.values.integrations).toHaveLength(1)
+        })
+
+        it.each([false, true])(
+            'discards a delayed link completion after switching projects, failure=%s',
+            async (fails) => {
+                let finish!: () => void
+                const pending = new Promise<IntegrationConfigApi>((resolve, reject) => {
+                    finish = () =>
+                        fails ? reject(new Error('synthetic failure')) : resolve({ id: 42 } as IntegrationConfigApi)
+                })
+                jest.spyOn(integrationsApi, 'integrationsGithubLinkExistingCreate').mockReturnValue(pending)
+                const toast = jest.spyOn(lemonToast, 'success')
+                const reload = jest.spyOn(logic.actions, 'loadIntegrations')
+                logic.actions.linkExistingGithubInstallation('12345')
+                teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: 999, project_id: 999 })
+                await expectLogic(logic).toDispatchActions(['loadIntegrationsSuccess'])
+                reload.mockClear()
+
+                finish()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(toast).not.toHaveBeenCalled()
+                expect(reload).not.toHaveBeenCalled()
+                expect(logic.values.linkedGithubInstallation).toBeNull()
+                expect(logic.values.linkedGithubInstallationLoading).toBe(false)
+            }
+        )
     })
 
     describe('GitHub repositories', () => {
@@ -138,6 +286,39 @@ describe('integrationsLogic', () => {
             expect(dialogProps.description).toBe(description)
         })
 
+        it.each([false, true])('refreshes suggestions after disconnect with failure=%s', async (fails) => {
+            integrationsPayload = [githubIntegration()]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
+                'loadIntegrationsSuccess',
+            ])
+            const discoveryRequest = jest
+                .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
+                .mockResolvedValue({
+                    installations: [],
+                    personal_github_connected: false,
+                    personal_discovery_status: 'not_connected',
+                    personal_github_login: null,
+                    discovery_id: 'fresh',
+                    discovered_at: new Date().toISOString(),
+                })
+            let finish!: () => void
+            const deletion = new Promise<IntegrationType>((resolve, reject) => {
+                finish = () => (fails ? reject(new ApiError('synthetic failure', 500)) : resolve(githubIntegration()))
+            })
+            jest.spyOn(apiReal.integrations, 'delete').mockReturnValue(deletion)
+            jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+            logic.actions.deleteIntegration(42)
+            const click = dialogProps.primaryButton.onClick()
+            expect(logic.values.githubAvailableInstallations).toBeNull()
+            expect(logic.values.githubAvailableInstallationsResponseLoading).toBe(true)
+            logic.actions.loadGithubAvailableInstallations()
+            expect(discoveryRequest).not.toHaveBeenCalled()
+            finish()
+            await click
+            await waitFor(() => expect(discoveryRequest).toHaveBeenCalledTimes(1))
+            await waitFor(() => expect(logic.values.githubAvailableInstallationsResponseLoading).toBe(false))
+        })
+
         it('treats a 404 on delete as already disconnected and reloads', async () => {
             integrationsPayload = [githubIntegration()]
             await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
@@ -160,6 +341,7 @@ describe('integrationsLogic', () => {
     describe('polling', () => {
         it('polls integrations only while at least one surface is subscribed', async () => {
             jest.useFakeTimers()
+            const discoveryRequest = jest.spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
 
             logic.actions.startPolling()
             logic.actions.startPolling()
@@ -173,6 +355,30 @@ describe('integrationsLogic', () => {
             expect(logic.cache.disposables.registry.has('poll')).toBe(true)
             logic.actions.stopPolling()
             expect(logic.cache.disposables.registry.has('poll')).toBe(false)
+            expect(discoveryRequest).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('reconnectReturnUrl', () => {
+        it.each([
+            [
+                '/project/1/data-warehouse/new-source',
+                '?kind=googlesearchconsole',
+                '/project/1/data-warehouse/new-source?kind=googlesearchconsole',
+            ],
+            [
+                '/project/1/data-warehouse/new-source',
+                '?kind=googlesearchconsole&integration_id=5&integration_error=access_denied',
+                '/project/1/data-warehouse/new-source?kind=googlesearchconsole',
+            ],
+            [
+                '/project/1/data-warehouse/connect',
+                '?kind=GoogleAds',
+                '/project/1/data-warehouse/connect?kind=GoogleAds',
+            ],
+            ['/project/1/data-warehouse/sources/abc', '', '/project/1/data-warehouse/sources/abc'],
+        ])('returns a reconnect from %s%s to the same wizard step', (pathname, search, expected) => {
+            expect(reconnectReturnUrl(pathname, search)).toEqual(expected)
         })
     })
 
@@ -267,17 +473,45 @@ describe('integrationsLogic', () => {
             document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
         })
 
+        // The data warehouse source wizard shows the reason beside its connect button, so both a
+        // provider rejection and an expired state reach it in the URL rather than as a toast that
+        // is gone before the user retries.
+        it.each([
+            ['a rejected connect', { error: 'access_denied' }, 'access_denied'],
+            ['an expired state', { code: 'oauth-code' }, 'posthog_state_expired'],
+        ])('carries %s back to the source wizard', async (_name, extraParams, expectedError) => {
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+            document.cookie = 'ph_oauth_state=a-different-token'
+
+            await expectLogic(logic, () => {
+                logic.actions.handleOauthCallback('meta-ads' as IntegrationKind, {
+                    state: 'next=%2Fdata-warehouse%2Fnew-source%3Fkind%3Dmeta-ads&token=csrf-tok',
+                    ...extraParams,
+                })
+            }).toFinishAllListeners()
+
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toBe(`/project/${MOCK_TEAM_ID}/data-warehouse/new-source`)
+            expect(router.values.searchParams.integration_error).toBe(expectedError)
+            expect(router.values.searchParams.kind).toBe('meta-ads')
+            expect(errorSpy).not.toHaveBeenCalled()
+
+            document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+        })
+
         describe('integration create team scoping', () => {
             let requestedTeamIds: string[]
+            let createdConfig: Record<string, unknown>
 
             beforeEach(() => {
                 requestedTeamIds = []
+                createdConfig = {}
                 document.cookie = 'ph_oauth_state=csrf-tok'
                 useMocks({
                     post: {
                         '/api/environments/:team_id/integrations/': ({ params }) => {
                             requestedTeamIds.push(String(params.team_id))
-                            return [201, { id: 7, kind: 'slack' }]
+                            return [201, { id: 7, kind: 'slack', config: createdConfig }]
                         },
                     },
                 })
@@ -316,6 +550,32 @@ describe('integrationsLogic', () => {
                     undefined
                 )
                 expect(requestedTeamIds).toEqual([String(MOCK_TEAM_ID)])
+            })
+
+            it.each([
+                ['every requested scope', SLACK_INTEGRATION_SCOPES.join(','), null],
+                [
+                    'fewer scopes than requested',
+                    SLACK_INTEGRATION_SCOPES.filter((scope) => scope !== 'users:read' && scope !== 'files:write').join(
+                        ','
+                    ),
+                    ['files:write', 'users:read'],
+                ],
+                ['no recorded scopes', undefined, null],
+            ])('reports a Slack install that granted %s', async (_name, grantedScope, expectedMissing) => {
+                createdConfig = grantedScope === undefined ? {} : { scope: grantedScope }
+                const successSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
+                const warningSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast')
+                const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+
+                await expectLogic(logic, () => {
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
+                }).toFinishAllListeners()
+
+                expect(warningSpy.mock.calls.map(([message]) => message)).toEqual(
+                    expectedMissing ? [expect.stringContaining(`: ${expectedMissing.join(', ')}.`)] : []
+                )
+                expect(successSpy).toHaveBeenCalledTimes(expectedMissing ? 0 : 1)
             })
         })
     })

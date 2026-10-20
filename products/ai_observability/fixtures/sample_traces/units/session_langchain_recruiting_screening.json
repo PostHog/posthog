@@ -1,0 +1,2071 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Screening Dana Whitfield into an interview for REQ-4471",
+  "scenario": "Talvenly's recruiting copilot Aria screens a backend-engineer application for inconsistencies, then, once the candidate clears, moves the same conversation on to drafting an interview-scheduling reply while a sentiment/tag classifier and a follow-up-question generator run alongside it as sidecars, and an inline multi-criteria guardrail judge scores the visible reply against sixteen compliance and quality rules.",
+  "summary": {
+    "events": {
+      "$ai_span": 13,
+      "$ai_generation": 5,
+      "$ai_trace": 4
+    },
+    "traces": 5,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "azure",
+      "examplecloud",
+      "openai"
+    ],
+    "frameworks": [
+      "langchain"
+    ],
+    "models": [
+      "deepseek/deepseek-v4-flash-0731",
+      "gpt-5",
+      "gpt-5-mini",
+      "orbit-1.13.0"
+    ],
+    "content_types": [
+      "radio"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_parent_id": "e30f847d-bde1-7e87-43b3-0ad033a8e325",
+        "$lib": "posthog-node",
+        "$process_person_profile": false,
+        "environment": "production",
+        "$ai_model": "deepseek/deepseek-v4-flash-0731",
+        "$ai_span_name": "generate_response",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$geoip_disable": true,
+        "$groups": {},
+        "$ai_trace_id": "e30f847d-bde1-7e87-43b3-0ad033a8e325",
+        "feature": "screener",
+        "$ai_latency": 0,
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_lib_version": "7.20.3",
+        "request_id": "req_9f3ae21c8",
+        "$ai_provider": "azure",
+        "$ai_lib": "posthog-ai",
+        "$lib_version": "5.35.9",
+        "$ai_span_id": "eacaa5bf-19fa-7328-c353-a2e78af65969",
+        "$ai_framework": "langchain",
+        "$ai_input_state": {
+          "sys_prompt": "You are Aria, Talvenly's recruiting copilot, running in resume-screening\nmode for REQ-4471 (Senior Backend Engineer).\n\nYour job for this call: read the candidate's resume and cover note, and\nreport any conflicts between what they claim and what the linked profile\nor prior records show. Only flag a genuine disagreement between two\nsources, not a simple gap in detail. Give each flagged conflict a\nconfidence and a magnitude, and one sentence of reasoning a recruiter can\nact on directly.\n\nIf you find nothing worth flagging, return an empty list rather than\nmanufacturing something to say. Do not comment on whether the candidate\nshould be hired - that decision belongs to the recruiter, not to you.\nReference material for this requisition and the applicable screening\nrubric follows below. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.\n\nRequisition REQ-4471: Senior Backend Engineer\n\nTeam: Platform Infrastructure\nLevel: Senior (L5)\nLocation: Remote, US/EU hours preferred\nStatus: open, actively interviewing\n\nSummary: We're looking for a senior backend engineer to own our event-ingestion\nservice, which processes several hundred million records a day. The role\nowns reliability, on-call rotation, and mentoring two mid-level engineers.\n\nMust-haves: 5+ years building production services in Go or a comparable\nstatically typed language, experience with distributed queues (Kafka or\nsimilar), and a track record of leading incident response.\n\nNice-to-haves: exposure to Kubernetes, prior experience in a regulated\nindustry, and any public speaking or writing about backend architecture.\n\nPanel: Marcus Delgado (staff engineer, technical round), Yuki Tanaka\n(engineering manager, hiring manager round). Loop closes with a short\nculture chat with the VP if the panel agrees to move forward.\n\nCandidate resume excerpt: Dana Whitfield\n\nSummary: Backend engineer with six years of experience, most recently at a\nmid-size logistics company building event pipelines on Kafka and Go.\n\nExperience:\n- Senior Backend Engineer, Fairline Logistics (2022-present): led the\n  migration of the tracking-event pipeline from a monolith to a queue-based\n  architecture, cut p99 processing latency from 4s to 300ms.\n- Backend Engineer, Fairline Logistics (2020-2022): built the internal\n  rate-limiting service used by all customer-facing APIs.\n- Software Engineer, Bramblewood Analytics (2019-2020): maintained a\n  Django-based reporting service.\n\nEducation: BS Computer Science, Fictional State University, 2019.\n\nCover note: candidate mentions her LinkedIn profile lists the Fairline\nLogistics start date as 2021 rather than 2020; she explains this was a\nLinkedIn data-entry mistake she has since corrected.\n\nScreening rubric for backend engineering requisitions\n\nScore every application against three lenses: technical fit, trajectory,\nand consistency. Technical fit checks whether the listed stack and scale\nmatch what the requisition actually needs, not just keyword overlap.\nTrajectory checks whether responsibility has grown across roles, not just\ntenure. Consistency checks whether the resume, cover note, and any linked\nprofile agree on dates, titles, and scope.\n\nFlag a conflict only when two sources actually disagree, not when one\nsource simply has less detail than another. A resume that omits a detail\npresent on LinkedIn is not automatically a conflict; a resume that states\na different date or title than LinkedIn is. Always give a confidence and\na magnitude for each flagged conflict, and explain your reasoning in one\nsentence a recruiter could act on without re-reading both sources.\n\nEscalation policy for the recruiting assistant\n\nHand a request to a human recruiter, rather than answering it yourself,\nwhenever any of the following is true: the requisition is on hold, closed,\nor has no panel assigned yet; the request asks you to make or imply a\nhiring decision; the request asks for a specific compensation number that\nis not already written into the requisition record; or two data sources\nabout the same candidate genuinely disagree and you cannot tell which one\nis current.\n\nWhen you escalate, say so plainly in one sentence and name the specific\nthing you need a human to confirm. Do not soften an escalation into a\nvague \"let me know if you'd like me to look into this further\" - name the\nblocker directly so the recruiter can act on it immediately.\n\nInterview scheduling logistics policy\n\nAlways confirm panel availability through the calendar tool before naming\na time to the recruiter or candidate. Never propose a time you have not\nchecked. State every time in the recipient's local timezone, spelled out\n(for example \"10:00am ET\", not just \"10:00am\"). When a requisition lists\nmore than one panel member, name only the ones the calendar tool actually\nconfirmed as available and invited - do not assume the full panel is\navailable just because one member is.\n\nDefault interview length for a technical round is 45 minutes unless the\nrequisition record says otherwise. Always leave a 15-minute buffer between\nback-to-back interviews on the same panelist's calendar where possible.",
+          "messages": "No earlier turns recorded in this."
+        },
+        "$ai_output_state": {
+          "id": [
+            "langchain_core",
+            "prompt_values",
+            "ChatPromptValue"
+          ],
+          "kwargs": {
+            "messages": [
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "SystemMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "You are Aria, Talvenly's recruiting copilot, running in resume-screening\nmode for REQ-4471 (Senior Backend Engineer). This message includes the full\nrequisition record, the candidate's resume, and the applicable screening\nrubric so you can check consistency without asking the recruiter to repeat\nanything already on file.\n\nYour job for this call: read the candidate's resume and cover note, and\nreport any conflicts between what they claim and what the linked profile\nor prior records show. Only flag a genuine disagreement between two\nsources, not a simple gap in detail. Give each flagged conflict a\nconfidence and a magnitude, and one sentence of reasoning a recruiter can\nact on directly. If you find nothing worth flagging, return an empty list\nrather than manufacturing something to say.\n\nDo not comment on whether the candidate should be hired - that decision\nbelongs to the recruiter, not to you. The reference material below covers\nthe requisition, the resume, and the rubric you should apply. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.\n\nRequisition REQ-4471: Senior Backend Engineer\n\nTeam: Platform Infrastructure\nLevel: Senior (L5)\nLocation: Remote, US/EU hours preferred\nStatus: open, actively interviewing\n\nSummary: We're looking for a senior backend engineer to own our event-ingestion\nservice, which processes several hundred million records a day. The role\nowns reliability, on-call rotation, and mentoring two mid-level engineers.\n\nMust-haves: 5+ years building production services in Go or a comparable\nstatically typed language, experience with distributed queues (Kafka or\nsimilar), and a track record of leading incident response.\n\nNice-to-haves: exposure to Kubernetes, prior experience in a regulated\nindustry, and any public speaking or writing about backend architecture.\n\nPanel: Marcus Delgado (staff engineer, technical round), Yuki Tanaka\n(engineering manager, hiring manager round). Loop closes with a short\nculture chat with the VP if the panel agrees to move forward.\n\nCandidate resume excerpt: Dana Whitfield\n\nSummary: Backend engineer with six years of experience, most recently at a\nmid-size logistics company building event pipelines on Kafka and Go.\n\nExperience:\n- Senior Backend Engineer, Fairline Logistics (2022-present): led the\n  migration of the tracking-event pipeline from a monolith to a queue-based\n  architecture, cut p99 processing latency from 4s to 300ms.\n- Backend Engineer, Fairline Logistics (2020-2022): built the internal\n  rate-limiting service used by all customer-facing APIs.\n- Software Engineer, Bramblewood Analytics (2019-2020): maintained a\n  Django-based reporting service.\n\nEducation: BS Computer Science, Fictional State University, 2019.\n\nCover note: candidate mentions her LinkedIn profile lists the Fairline\nLogistics start date as 2021 rather than 2020; she explains this was a\nLinkedIn data-entry mistake she has since corrected.\n\nScreening rubric for backend engineering requisitions\n\nScore every application against three lenses: technical fit, trajectory,\nand consistency. Technical fit checks whether the listed stack and scale\nmatch what the requisition actually needs, not just keyword overlap.\nTrajectory checks whether responsibility has grown across roles, not just\ntenure. Consistency checks whether the resume, cover note, and any linked\nprofile agree on dates, titles, and scope.\n\nFlag a conflict only when two sources actually disagree, not when one\nsource simply has less detail than another. A resume that omits a detail\npresent on LinkedIn is not automatically a conflict; a resume that states\na different date or title than LinkedIn is. Always give a confidence and\na magnitude for each flagged conflict, and explain your reasoning in one\nsentence a recruiter could act on without re-reading both sources.\n\nEscalation policy for the recruiting assistant\n\nHand a request to a human recruiter, rather than answering it yourself,\nwhenever any of the following is true: the requisition is on hold, closed,\nor has no panel assigned yet; the request asks you to make or imply a\nhiring decision; the request asks for a specific compensation number that\nis not already written into the requisition record; or two data sources\nabout the same candidate genuinely disagree and you cannot tell which one\nis current.\n\nWhen you escalate, say so plainly in one sentence and name the specific\nthing you need a human to confirm. Do not soften an escalation into a\nvague \"let me know if you'd like me to look into this further\" - name the\nblocker directly so the recruiter can act on it immediately.\n\nInterview scheduling logistics policy\n\nAlways confirm panel availability through the calendar tool before naming\na time to the recruiter or candidate. Never propose a time you have not\nchecked. State every time in the recipient's local timezone, spelled out\n(for example \"10:00am ET\", not just \"10:00am\"). When a requisition lists\nmore than one panel member, name only the ones the calendar tool actually\nconfirmed as available and invited - do not assume the full panel is\navailable just because one member is.\n\nDefault interview length for a technical round is 45 minutes unless the\nrequisition record says otherwise. Always leave a 15-minute buffer between\nback-to-back interviews on the same panelist's calendar where possible.\n\nCompliance guidance: protected characteristics\n\nNever ask a candidate, directly or indirectly, about age, marital status,\npregnancy or family planning, disability status, religion, or national\norigin, even if a recruiter's message seems to invite it. If a recruiter's\ndraft message contains language that could be read as asking about one of\nthese, rewrite it before sending and note what you changed and why.\n\nThis applies to scheduling messages too: do not ask a candidate to confirm\ntheir availability in a way that implies you need to know about caregiving\nresponsibilities, religious observance, or medical appointments. Simply\nask for a list of times that work, with no further explanation required\nfrom the candidate.\n\nTag taxonomy reference for conversation classification\n\nBILLING_*: the turn is about invoicing, seat count, or ATS subscription\ncost rather than recruiting itself.\nSPAM_*: the message is unrelated to hiring or looks automated.\nGENERAL_*: a routine status update that needs no follow-up action.\nFEEDBACK_*: someone is rating the assistant or the hiring process itself.\nDUPLICATE_*: the same request already appears earlier in this thread.\nHANDOFF_*: a human recruiter must step in before anything else happens.\nTOPIC_*: the turn is really about moving a candidate through the\npipeline (screening, scheduling, or an offer step).\n\nScore every tag in the catalog on every turn, even the ones that clearly\ndo not apply - give those a weight of zero rather than omitting them, so\ndownstream reporting always sees the full catalog.\n\nTone and formatting style guide\n\nWrite like a helpful colleague, not like a form letter. Keep replies to\nrecruiters short - six sentences is a good target unless they explicitly\nask for more detail. Lead with the outcome (cleared, flagged, blocked)\nbefore the supporting detail. Use the candidate's name, not \"the\ncandidate.\" Avoid corporate hedging like \"it would appear that\" - just\nsay what happened.\n\nWhen a reply involves a decision boundary (hire, reject, compensation),\ndescribe the facts and stop short of the decision itself. End every\nscheduling-related reply with one concrete next step: a time to confirm,\na document to send, or a person to loop in.\n\nGlossary of ATS terms and requisition codes\n\nREQ-####: requisition number, unique per open role.\nPanel: the set of interviewers assigned to a requisition's later rounds.\nScreening: the first automated or recruiter pass over an application.\nLoop: the full sequence of interview rounds for a requisition.\nOn hold: a requisition that is temporarily not accepting new interview\nscheduling, usually pending budget or headcount confirmation.\nCleared: a candidate who passed screening with no unresolved flags.\nFlagged: a candidate whose application raised at least one conflict that\nneeds a human recruiter's judgment before moving forward.\n\nTroubleshooting: resume parsing failures\n\nIf the resume parser returns an empty or near-empty text body, do not\nattempt to infer the candidate's experience from the filename, the email\nsubject, or general assumptions about the role. Say plainly that the file\ncould not be read and ask the recruiter for a text-based PDF or a plain\ntext copy.\n\nCommon causes: scanned image PDFs with no embedded text layer, resumes\nbuilt entirely as design graphics, and password-protected files. In every\ncase, the fix is a cleanly exported text-based PDF - do not attempt OCR\nworkarounds inside a screening reply, and do not guess at content that\nwas never actually extracted.\n\nFrequently asked questions about the screening assistant\n\nWhy did the assistant return zero flagged conflicts? Zero flags means the\nresume, the cover note, and any linked profile agreed on every date,\ntitle, and scope claim it could check. It does not mean the assistant\nverified employment directly with a previous employer - it only compares\nthe sources it was given.\n\nWhy does the assistant sometimes ask the recruiter to confirm a panel\nmember instead of just naming them? Because the calendar tool is the only\nsource of truth for who has actually accepted an invite. A requisition\nrecord listing someone as \"panel\" does not mean that person has agreed to\na specific slot yet, so the assistant waits for calendar confirmation\nbefore naming a time to anyone outside the recruiting team.\n\nRequisition REQ-4471: Senior Backend Engineer\n\nTeam: Platform Infrastructure\nLevel: Senior (L5)\nLocation: Remote, US/EU hours preferred\nStatus: open, actively interviewing\n\nSummary: We're looking for a senior backend engineer to own our event-ingestion\nservice, which processes several hundred million records a day. The role\nowns reliability, on-call rotation, and mentoring two mid-level engineers.\n\nMust-haves: 5+ years building production services in Go or a comparable\nstatically typed language, experience with distributed queues (Kafka or\nsimilar), and a track record of leading incident response.\n\nNice-to-haves: exposure to Kubernetes, prior experience in a regulated\nindustry, and any public speaking or writing about backend architecture.\n\nPanel: Marcus Delgado (staff engineer, technical round), Yuki Tanaka\n(engineering manager, hiring manager round). Loop closes with a short\nculture chat with the VP if the panel agrees to move forward.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              },
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "HumanMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "Please screen this application against REQ-4471 (Senior Backend Engineer).\n\nCandidate: Dana Whitfield.\n\nCross-check her resume against the LinkedIn summary linked in her cover\nnote, and flag anything odd in dates, titles, or scope of work.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              }
+            ]
+          },
+          "lc": 1,
+          "type": "constructor"
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 917,
+      "distinct_id": "user-2",
+      "properties": {
+        "$ai_lib": "posthog-ai",
+        "$ai_input_tokens": 2884,
+        "$lib": "posthog-node",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$lib_version": "5.35.9",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$geoip_disable": true,
+        "$ai_http_status": 200,
+        "feature": "screener",
+        "$ai_lib_version": "7.20.3",
+        "request_id": "req_9f3ae21c8",
+        "$ai_trace_id": "e30f847d-bde1-7e87-43b3-0ad033a8e325",
+        "$ai_provider": "azure",
+        "$ai_span_id": "f535cd8d-ef5d-7dec-e96d-4ea8d044ff3c",
+        "$ai_model": "deepseek/deepseek-v4-flash-0731",
+        "$ai_parent_id": "16a13aaa-a636-7c05-cd5e-1f0068746f96",
+        "$ai_cache_read_input_tokens": 2816,
+        "$ai_model_parameters": {
+          "response_format": {
+            "json_schema": {
+              "name": "Payload",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "conflicts": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "confidence": {
+                          "description": "Confidence that this is a genuine inconsistency, from 0 to 1.",
+                          "title": "Payload",
+                          "type": "number"
+                        },
+                        "messageId": {
+                          "description": "How severe the discrepancy is, from minor to disqualifying.",
+                          "title": "Payload",
+                          "type": "number"
+                        },
+                        "reasoning": {
+                          "description": "Brief explanation of why this was flagged as inconsistent.",
+                          "title": "Payload",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "messageId",
+                        "confidence",
+                        "reasoning"
+                      ],
+                      "title": "Payload",
+                      "type": "object"
+                    },
+                    "title": "Payload",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "conflicts"
+                ],
+                "title": "Payload",
+                "type": "object"
+              },
+              "strict": true
+            },
+            "type": "json_schema"
+          },
+          "stream": false,
+          "temperature": 0.3
+        },
+        "$ai_output_tokens": 9,
+        "environment": "production",
+        "$ai_span_name": "generation",
+        "$ai_stop_reason": "stop",
+        "$ai_framework": "langchain",
+        "$ai_latency": 0.915,
+        "$groups": {},
+        "$process_person_profile": false,
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_input": [
+          {
+            "content": "You are Aria, Talvenly's recruiting copilot, running in resume-screening\nmode for REQ-4471 (Senior Backend Engineer). This message includes the full\nrequisition record, the candidate's resume, and the applicable screening\nrubric so you can check consistency without asking the recruiter to repeat\nanything already on file.\n\nYour job for this call: read the candidate's resume and cover note, and\nreport any conflicts between what they claim and what the linked profile\nor prior records show. Only flag a genuine disagreement between two\nsources, not a simple gap in detail. Give each flagged conflict a\nconfidence and a magnitude, and one sentence of reasoning a recruiter can\nact on directly. If you find nothing worth flagging, return an empty list\nrather than manufacturing something to say.\n\nDo not comment on whether the candidate should be hired - that decision\nbelongs to the recruiter, not to you. The reference material below covers\nthe requisition, the resume, and the rubric you should apply. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.\n\nRequisition REQ-4471: Senior Backend Engineer\n\nTeam: Platform Infrastructure\nLevel: Senior (L5)\nLocation: Remote, US/EU hours preferred\nStatus: open, actively interviewing\n\nSummary: We're looking for a senior backend engineer to own our event-ingestion\nservice, which processes several hundred million records a day. The role\nowns reliability, on-call rotation, and mentoring two mid-level engineers.\n\nMust-haves: 5+ years building production services in Go or a comparable\nstatically typed language, experience with distributed queues (Kafka or\nsimilar), and a track record of leading incident response.\n\nNice-to-haves: exposure to Kubernetes, prior experience in a regulated\nindustry, and any public speaking or writing about backend architecture.\n\nPanel: Marcus Delgado (staff engineer, technical round), Yuki Tanaka\n(engineering manager, hiring manager round). Loop closes with a short\nculture chat with the VP if the panel agrees to move forward.\n\nCandidate resume excerpt: Dana Whitfield\n\nSummary: Backend engineer with six years of experience, most recently at a\nmid-size logistics company building event pipelines on Kafka and Go.\n\nExperience:\n- Senior Backend Engineer, Fairline Logistics (2022-present): led the\n  migration of the tracking-event pipeline from a monolith to a queue-based\n  architecture, cut p99 processing latency from 4s to 300ms.\n- Backend Engineer, Fairline Logistics (2020-2022): built the internal\n  rate-limiting service used by all customer-facing APIs.\n- Software Engineer, Bramblewood Analytics (2019-2020): maintained a\n  Django-based reporting service.\n\nEducation: BS Computer Science, Fictional State University, 2019.\n\nCover note: candidate mentions her LinkedIn profile lists the Fairline\nLogistics start date as 2021 rather than 2020; she explains this was a\nLinkedIn data-entry mistake she has since corrected.\n\nScreening rubric for backend engineering requisitions\n\nScore every application against three lenses: technical fit, trajectory,\nand consistency. Technical fit checks whether the listed stack and scale\nmatch what the requisition actually needs, not just keyword overlap.\nTrajectory checks whether responsibility has grown across roles, not just\ntenure. Consistency checks whether the resume, cover note, and any linked\nprofile agree on dates, titles, and scope.\n\nFlag a conflict only when two sources actually disagree, not when one\nsource simply has less detail than another. A resume that omits a detail\npresent on LinkedIn is not automatically a conflict; a resume that states\na different date or title than LinkedIn is. Always give a confidence and\na magnitude for each flagged conflict, and explain your reasoning in one\nsentence a recruiter could act on without re-reading both sources.\n\nEscalation policy for the recruiting assistant\n\nHand a request to a human recruiter, rather than answering it yourself,\nwhenever any of the following is true: the requisition is on hold, closed,\nor has no panel assigned yet; the request asks you to make or imply a\nhiring decision; the request asks for a specific compensation number that\nis not already written into the requisition record; or two data sources\nabout the same candidate genuinely disagree and you cannot tell which one\nis current.\n\nWhen you escalate, say so plainly in one sentence and name the specific\nthing you need a human to confirm. Do not soften an escalation into a\nvague \"let me know if you'd like me to look into this further\" - name the\nblocker directly so the recruiter can act on it immediately.\n\nInterview scheduling logistics policy\n\nAlways confirm panel availability through the calendar tool before naming\na time to the recruiter or candidate. Never propose a time you have not\nchecked. State every time in the recipient's local timezone, spelled out\n(for example \"10:00am ET\", not just \"10:00am\"). When a requisition lists\nmore than one panel member, name only the ones the calendar tool actually\nconfirmed as available and invited - do not assume the full panel is\navailable just because one member is.\n\nDefault interview length for a technical round is 45 minutes unless the\nrequisition record says otherwise. Always leave a 15-minute buffer between\nback-to-back interviews on the same panelist's calendar where possible.\n\nCompliance guidance: protected characteristics\n\nNever ask a candidate, directly or indirectly, about age, marital status,\npregnancy or family planning, disability status, religion, or national\norigin, even if a recruiter's message seems to invite it. If a recruiter's\ndraft message contains language that could be read as asking about one of\nthese, rewrite it before sending and note what you changed and why.\n\nThis applies to scheduling messages too: do not ask a candidate to confirm\ntheir availability in a way that implies you need to know about caregiving\nresponsibilities, religious observance, or medical appointments. Simply\nask for a list of times that work, with no further explanation required\nfrom the candidate.\n\nTag taxonomy reference for conversation classification\n\nBILLING_*: the turn is about invoicing, seat count, or ATS subscription\ncost rather than recruiting itself.\nSPAM_*: the message is unrelated to hiring or looks automated.\nGENERAL_*: a routine status update that needs no follow-up action.\nFEEDBACK_*: someone is rating the assistant or the hiring process itself.\nDUPLICATE_*: the same request already appears earlier in this thread.\nHANDOFF_*: a human recruiter must step in before anything else happens.\nTOPIC_*: the turn is really about moving a candidate through the\npipeline (screening, scheduling, or an offer step).\n\nScore every tag in the catalog on every turn, even the ones that clearly\ndo not apply - give those a weight of zero rather than omitting them, so\ndownstream reporting always sees the full catalog.\n\nTone and formatting style guide\n\nWrite like a helpful colleague, not like a form letter. Keep replies to\nrecruiters short - six sentences is a good target unless they explicitly\nask for more detail. Lead with the outcome (cleared, flagged, blocked)\nbefore the supporting detail. Use the candidate's name, not \"the\ncandidate.\" Avoid corporate hedging like \"it would appear that\" - just\nsay what happened.\n\nWhen a reply involves a decision boundary (hire, reject, compensation),\ndescribe the facts and stop short of the decision itself. End every\nscheduling-related reply with one concrete next step: a time to confirm,\na document to send, or a person to loop in.\n\nGlossary of ATS terms and requisition codes\n\nREQ-####: requisition number, unique per open role.\nPanel: the set of interviewers assigned to a requisition's later rounds.\nScreening: the first automated or recruiter pass over an application.\nLoop: the full sequence of interview rounds for a requisition.\nOn hold: a requisition that is temporarily not accepting new interview\nscheduling, usually pending budget or headcount confirmation.\nCleared: a candidate who passed screening with no unresolved flags.\nFlagged: a candidate whose application raised at least one conflict that\nneeds a human recruiter's judgment before moving forward.\n\nTroubleshooting: resume parsing failures\n\nIf the resume parser returns an empty or near-empty text body, do not\nattempt to infer the candidate's experience from the filename, the email\nsubject, or general assumptions about the role. Say plainly that the file\ncould not be read and ask the recruiter for a text-based PDF or a plain\ntext copy.\n\nCommon causes: scanned image PDFs with no embedded text layer, resumes\nbuilt entirely as design graphics, and password-protected files. In every\ncase, the fix is a cleanly exported text-based PDF - do not attempt OCR\nworkarounds inside a screening reply, and do not guess at content that\nwas never actually extracted.\n\nFrequently asked questions about the screening assistant\n\nWhy did the assistant return zero flagged conflicts? Zero flags means the\nresume, the cover note, and any linked profile agreed on every date,\ntitle, and scope claim it could check. It does not mean the assistant\nverified employment directly with a previous employer - it only compares\nthe sources it was given.\n\nWhy does the assistant sometimes ask the recruiter to confirm a panel\nmember instead of just naming them? Because the calendar tool is the only\nsource of truth for who has actually accepted an invite. A requisition\nrecord listing someone as \"panel\" does not mean that person has agreed to\na specific slot yet, so the assistant waits for calendar confirmation\nbefore naming a time to anyone outside the recruiting team.\n\nRequisition REQ-4471: Senior Backend Engineer\n\nTeam: Platform Infrastructure\nLevel: Senior (L5)\nLocation: Remote, US/EU hours preferred\nStatus: open, actively interviewing\n\nSummary: We're looking for a senior backend engineer to own our event-ingestion\nservice, which processes several hundred million records a day. The role\nowns reliability, on-call rotation, and mentoring two mid-level engineers.\n\nMust-haves: 5+ years building production services in Go or a comparable\nstatically typed language, experience with distributed queues (Kafka or\nsimilar), and a track record of leading incident response.\n\nNice-to-haves: exposure to Kubernetes, prior experience in a regulated\nindustry, and any public speaking or writing about backend architecture.\n\nPanel: Marcus Delgado (staff engineer, technical round), Yuki Tanaka\n(engineering manager, hiring manager round). Loop closes with a short\nculture chat with the VP if the panel agrees to move forward.",
+            "role": "system"
+          },
+          {
+            "content": "Please screen this application against REQ-4471 (Senior Backend Engineer).\n\nCandidate: Dana Whitfield.\n\nCross-check her resume against the LinkedIn summary linked in her cover\nnote, and flag anything odd in dates, titles, or scope of work.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "{\"conflicts\": []}",
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 917,
+      "distinct_id": "user-3",
+      "properties": {
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_lib_version": "7.20.3",
+        "$ai_trace_id": "e30f847d-bde1-7e87-43b3-0ad033a8e325",
+        "$ai_parent_id": "fb997c72-6f70-7c64-96aa-514a3cb9f25c",
+        "$ai_latency": 0,
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$lib_version": "5.35.9",
+        "$groups": {},
+        "$geoip_disable": true,
+        "$ai_span_name": "StructuredOutputParser",
+        "$ai_framework": "langchain",
+        "$ai_provider": "azure",
+        "environment": "production",
+        "$process_person_profile": false,
+        "$lib": "posthog-node",
+        "$ai_lib": "posthog-ai",
+        "feature": "screener",
+        "request_id": "req_9f3ae21c8",
+        "$ai_span_id": "aeab6bfd-602b-7101-2de9-c4ed8953e4b5",
+        "$ai_model": "deepseek/deepseek-v4-flash-0731",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_input_state": {
+          "id": [
+            "langchain_core",
+            "messages",
+            "AIMessage"
+          ],
+          "kwargs": {
+            "additional_kwargs": {},
+            "content": "{\"conflicts\": []}",
+            "id": "338b4b652d51b2e6747621d717d03527",
+            "invalid_tool_calls": [],
+            "response_metadata": {
+              "finish_reason": "stop",
+              "model_name": "DeepSeek-V4-Flash-0731",
+              "model_provider": "openai",
+              "tokenUsage": {
+                "completionTokens": 9,
+                "promptTokens": 2884,
+                "totalTokens": 2893
+              }
+            },
+            "tool_calls": [],
+            "type": "ai",
+            "usage_metadata": {
+              "input_token_details": {
+                "cache_read": 2584
+              },
+              "input_tokens": 2884,
+              "output_token_details": {},
+              "output_tokens": 9,
+              "total_tokens": 2893
+            }
+          },
+          "lc": 1,
+          "type": "constructor"
+        },
+        "$ai_output_state": {
+          "conflicts": []
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 917,
+      "distinct_id": "user-4",
+      "properties": {
+        "$geoip_disable": true,
+        "$ai_lib_version": "7.20.3",
+        "$ai_lib": "posthog-ai",
+        "$ai_framework": "langchain",
+        "$ai_span_name": "RunnableLambda",
+        "feature": "screener",
+        "$ai_latency": 0,
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_provider": "azure",
+        "$ai_model": "deepseek/deepseek-v4-flash-0731",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$lib_version": "5.35.9",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$lib": "posthog-node",
+        "$ai_parent_id": "16a13aaa-a636-7c05-cd5e-1f0068746f96",
+        "$process_person_profile": false,
+        "$ai_trace_id": "e30f847d-bde1-7e87-43b3-0ad033a8e325",
+        "$ai_span_id": "fb997c72-6f70-7c64-96aa-514a3cb9f25c",
+        "request_id": "req_9f3ae21c8",
+        "environment": "production",
+        "$groups": {},
+        "$ai_input_state": {
+          "id": [
+            "langchain_core",
+            "messages",
+            "AIMessage"
+          ],
+          "kwargs": {
+            "additional_kwargs": {},
+            "content": "{\"conflicts\": []}",
+            "id": "338b4b652d51b2e6747621d717d03527",
+            "invalid_tool_calls": [],
+            "response_metadata": {
+              "finish_reason": "stop",
+              "model_name": "DeepSeek-V4-Flash-0731",
+              "model_provider": "openai",
+              "tokenUsage": {
+                "completionTokens": 9,
+                "promptTokens": 2884,
+                "totalTokens": 2893
+              }
+            },
+            "tool_calls": [],
+            "type": "ai",
+            "usage_metadata": {
+              "input_token_details": {
+                "cache_read": 2584
+              },
+              "input_tokens": 2884,
+              "output_token_details": {},
+              "output_tokens": 9,
+              "total_tokens": 2893
+            }
+          },
+          "lc": 1,
+          "type": "constructor"
+        },
+        "$ai_output_state": {
+          "conflicts": []
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 917,
+      "distinct_id": "user-5",
+      "properties": {
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_model": "deepseek/deepseek-v4-flash-0731",
+        "$process_person_profile": false,
+        "$lib": "posthog-node",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_lib_version": "7.20.3",
+        "$lib_version": "5.35.9",
+        "$ai_parent_id": "e30f847d-bde1-7e87-43b3-0ad033a8e325",
+        "$geoip_disable": true,
+        "environment": "production",
+        "feature": "screener",
+        "$ai_trace_id": "e30f847d-bde1-7e87-43b3-0ad033a8e325",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_provider": "azure",
+        "$groups": {},
+        "$ai_framework": "langchain",
+        "$ai_span_name": "RunnableSequence",
+        "$ai_span_id": "16a13aaa-a636-7c05-cd5e-1f0068746f96",
+        "$ai_latency": 0.917,
+        "request_id": "req_9f3ae21c8",
+        "$ai_lib": "posthog-ai",
+        "$ai_input_state": {
+          "id": [
+            "langchain_core",
+            "prompt_values",
+            "ChatPromptValue"
+          ],
+          "kwargs": {
+            "messages": [
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "SystemMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "You are Aria, Talvenly's recruiting copilot, running in resume-screening\nmode for REQ-4471 (Senior Backend Engineer). This message includes the full\nrequisition record, the candidate's resume, and the applicable screening\nrubric so you can check consistency without asking the recruiter to repeat\nanything already on file.\n\nYour job for this call: read the candidate's resume and cover note, and\nreport any conflicts between what they claim and what the linked profile\nor prior records show. Only flag a genuine disagreement between two\nsources, not a simple gap in detail. Give each flagged conflict a\nconfidence and a magnitude, and one sentence of reasoning a recruiter can\nact on directly. If you find nothing worth flagging, return an empty list\nrather than manufacturing something to say.\n\nDo not comment on whether the candidate should be hired - that decision\nbelongs to the recruiter, not to you. The reference material below covers\nthe requisition, the resume, and the rubric you should apply. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.\n\nRequisition REQ-4471: Senior Backend Engineer\n\nTeam: Platform Infrastructure\nLevel: Senior (L5)\nLocation: Remote, US/EU hours preferred\nStatus: open, actively interviewing\n\nSummary: We're looking for a senior backend engineer to own our event-ingestion\nservice, which processes several hundred million records a day. The role\nowns reliability, on-call rotation, and mentoring two mid-level engineers.\n\nMust-haves: 5+ years building production services in Go or a comparable\nstatically typed language, experience with distributed queues (Kafka or\nsimilar), and a track record of leading incident response.\n\nNice-to-haves: exposure to Kubernetes, prior experience in a regulated\nindustry, and any public speaking or writing about backend architecture.\n\nPanel: Marcus Delgado (staff engineer, technical round), Yuki Tanaka\n(engineering manager, hiring manager round). Loop closes with a short\nculture chat with the VP if the panel agrees to move forward.\n\nCandidate resume excerpt: Dana Whitfield\n\nSummary: Backend engineer with six years of experience, most recently at a\nmid-size logistics company building event pipelines on Kafka and Go.\n\nExperience:\n- Senior Backend Engineer, Fairline Logistics (2022-present): led the\n  migration of the tracking-event pipeline from a monolith to a queue-based\n  architecture, cut p99 processing latency from 4s to 300ms.\n- Backend Engineer, Fairline Logistics (2020-2022): built the internal\n  rate-limiting service used by all customer-facing APIs.\n- Software Engineer, Bramblewood Analytics (2019-2020): maintained a\n  Django-based reporting service.\n\nEducation: BS Computer Science, Fictional State University, 2019.\n\nCover note: candidate mentions her LinkedIn profile lists the Fairline\nLogistics start date as 2021 rather than 2020; she explains this was a\nLinkedIn data-entry mistake she has since corrected.\n\nScreening rubric for backend engineering requisitions\n\nScore every application against three lenses: technical fit, trajectory,\nand consistency. Technical fit checks whether the listed stack and scale\nmatch what the requisition actually needs, not just keyword overlap.\nTrajectory checks whether responsibility has grown across roles, not just\ntenure. Consistency checks whether the resume, cover note, and any linked\nprofile agree on dates, titles, and scope.\n\nFlag a conflict only when two sources actually disagree, not when one\nsource simply has less detail than another. A resume that omits a detail\npresent on LinkedIn is not automatically a conflict; a resume that states\na different date or title than LinkedIn is. Always give a confidence and\na magnitude for each flagged conflict, and explain your reasoning in one\nsentence a recruiter could act on without re-reading both sources.\n\nEscalation policy for the recruiting assistant\n\nHand a request to a human recruiter, rather than answering it yourself,\nwhenever any of the following is true: the requisition is on hold, closed,\nor has no panel assigned yet; the request asks you to make or imply a\nhiring decision; the request asks for a specific compensation number that\nis not already written into the requisition record; or two data sources\nabout the same candidate genuinely disagree and you cannot tell which one\nis current.\n\nWhen you escalate, say so plainly in one sentence and name the specific\nthing you need a human to confirm. Do not soften an escalation into a\nvague \"let me know if you'd like me to look into this further\" - name the\nblocker directly so the recruiter can act on it immediately.\n\nInterview scheduling logistics policy\n\nAlways confirm panel availability through the calendar tool before naming\na time to the recruiter or candidate. Never propose a time you have not\nchecked. State every time in the recipient's local timezone, spelled out\n(for example \"10:00am ET\", not just \"10:00am\"). When a requisition lists\nmore than one panel member, name only the ones the calendar tool actually\nconfirmed as available and invited - do not assume the full panel is\navailable just because one member is.\n\nDefault interview length for a technical round is 45 minutes unless the\nrequisition record says otherwise. Always leave a 15-minute buffer between\nback-to-back interviews on the same panelist's calendar where possible.\n\nCompliance guidance: protected characteristics\n\nNever ask a candidate, directly or indirectly, about age, marital status,\npregnancy or family planning, disability status, religion, or national\norigin, even if a recruiter's message seems to invite it. If a recruiter's\ndraft message contains language that could be read as asking about one of\nthese, rewrite it before sending and note what you changed and why.\n\nThis applies to scheduling messages too: do not ask a candidate to confirm\ntheir availability in a way that implies you need to know about caregiving\nresponsibilities, religious observance, or medical appointments. Simply\nask for a list of times that work, with no further explanation required\nfrom the candidate.\n\nTag taxonomy reference for conversation classification\n\nBILLING_*: the turn is about invoicing, seat count, or ATS subscription\ncost rather than recruiting itself.\nSPAM_*: the message is unrelated to hiring or looks automated.\nGENERAL_*: a routine status update that needs no follow-up action.\nFEEDBACK_*: someone is rating the assistant or the hiring process itself.\nDUPLICATE_*: the same request already appears earlier in this thread.\nHANDOFF_*: a human recruiter must step in before anything else happens.\nTOPIC_*: the turn is really about moving a candidate through the\npipeline (screening, scheduling, or an offer step).\n\nScore every tag in the catalog on every turn, even the ones that clearly\ndo not apply - give those a weight of zero rather than omitting them, so\ndownstream reporting always sees the full catalog.\n\nTone and formatting style guide\n\nWrite like a helpful colleague, not like a form letter. Keep replies to\nrecruiters short - six sentences is a good target unless they explicitly\nask for more detail. Lead with the outcome (cleared, flagged, blocked)\nbefore the supporting detail. Use the candidate's name, not \"the\ncandidate.\" Avoid corporate hedging like \"it would appear that\" - just\nsay what happened.\n\nWhen a reply involves a decision boundary (hire, reject, compensation),\ndescribe the facts and stop short of the decision itself. End every\nscheduling-related reply with one concrete next step: a time to confirm,\na document to send, or a person to loop in.\n\nGlossary of ATS terms and requisition codes\n\nREQ-####: requisition number, unique per open role.\nPanel: the set of interviewers assigned to a requisition's later rounds.\nScreening: the first automated or recruiter pass over an application.\nLoop: the full sequence of interview rounds for a requisition.\nOn hold: a requisition that is temporarily not accepting new interview\nscheduling, usually pending budget or headcount confirmation.\nCleared: a candidate who passed screening with no unresolved flags.\nFlagged: a candidate whose application raised at least one conflict that\nneeds a human recruiter's judgment before moving forward.\n\nTroubleshooting: resume parsing failures\n\nIf the resume parser returns an empty or near-empty text body, do not\nattempt to infer the candidate's experience from the filename, the email\nsubject, or general assumptions about the role. Say plainly that the file\ncould not be read and ask the recruiter for a text-based PDF or a plain\ntext copy.\n\nCommon causes: scanned image PDFs with no embedded text layer, resumes\nbuilt entirely as design graphics, and password-protected files. In every\ncase, the fix is a cleanly exported text-based PDF - do not attempt OCR\nworkarounds inside a screening reply, and do not guess at content that\nwas never actually extracted.\n\nFrequently asked questions about the screening assistant\n\nWhy did the assistant return zero flagged conflicts? Zero flags means the\nresume, the cover note, and any linked profile agreed on every date,\ntitle, and scope claim it could check. It does not mean the assistant\nverified employment directly with a previous employer - it only compares\nthe sources it was given.\n\nWhy does the assistant sometimes ask the recruiter to confirm a panel\nmember instead of just naming them? Because the calendar tool is the only\nsource of truth for who has actually accepted an invite. A requisition\nrecord listing someone as \"panel\" does not mean that person has agreed to\na specific slot yet, so the assistant waits for calendar confirmation\nbefore naming a time to anyone outside the recruiting team.\n\nRequisition REQ-4471: Senior Backend Engineer\n\nTeam: Platform Infrastructure\nLevel: Senior (L5)\nLocation: Remote, US/EU hours preferred\nStatus: open, actively interviewing\n\nSummary: We're looking for a senior backend engineer to own our event-ingestion\nservice, which processes several hundred million records a day. The role\nowns reliability, on-call rotation, and mentoring two mid-level engineers.\n\nMust-haves: 5+ years building production services in Go or a comparable\nstatically typed language, experience with distributed queues (Kafka or\nsimilar), and a track record of leading incident response.\n\nNice-to-haves: exposure to Kubernetes, prior experience in a regulated\nindustry, and any public speaking or writing about backend architecture.\n\nPanel: Marcus Delgado (staff engineer, technical round), Yuki Tanaka\n(engineering manager, hiring manager round). Loop closes with a short\nculture chat with the VP if the panel agrees to move forward.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              },
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "HumanMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "Please screen this application against REQ-4471 (Senior Backend Engineer).\n\nCandidate: Dana Whitfield.\n\nCross-check her resume against the LinkedIn summary linked in her cover\nnote, and flag anything odd in dates, titles, or scope of work.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              }
+            ]
+          },
+          "lc": 1,
+          "type": "constructor"
+        },
+        "$ai_output_state": {
+          "conflicts": []
+        }
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 917,
+      "distinct_id": "user-2",
+      "properties": {
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_trace_id": "e30f847d-bde1-7e87-43b3-0ad033a8e325",
+        "$ai_latency": 0.917,
+        "$ai_provider": "azure",
+        "$ai_model": "deepseek/deepseek-v4-flash-0731",
+        "$ai_span_name": "RunnableSequence",
+        "$ai_span_id": "e30f847d-bde1-7e87-43b3-0ad033a8e325",
+        "$ai_framework": "langchain",
+        "$ai_lib_version": "7.20.3",
+        "$groups": {},
+        "$ai_lib": "posthog-ai",
+        "$geoip_disable": true,
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$lib": "posthog-node",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "feature": "screener",
+        "request_id": "req_9f3ae21c8",
+        "$process_person_profile": false,
+        "$lib_version": "5.35.9",
+        "environment": "production",
+        "$ai_input_state": {
+          "sys_prompt": "You are Aria, Talvenly's recruiting copilot, running in resume-screening\nmode for REQ-4471 (Senior Backend Engineer).\n\nYour job for this call: read the candidate's resume and cover note, and\nreport any conflicts between what they claim and what the linked profile\nor prior records show. Only flag a genuine disagreement between two\nsources, not a simple gap in detail. Give each flagged conflict a\nconfidence and a magnitude, and one sentence of reasoning a recruiter can\nact on directly.\n\nIf you find nothing worth flagging, return an empty list rather than\nmanufacturing something to say. Do not comment on whether the candidate\nshould be hired - that decision belongs to the recruiter, not to you.\nReference material for this requisition and the applicable screening\nrubric follows below. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.\n\nRequisition REQ-4471: Senior Backend Engineer\n\nTeam: Platform Infrastructure\nLevel: Senior (L5)\nLocation: Remote, US/EU hours preferred\nStatus: open, actively interviewing\n\nSummary: We're looking for a senior backend engineer to own our event-ingestion\nservice, which processes several hundred million records a day. The role\nowns reliability, on-call rotation, and mentoring two mid-level engineers.\n\nMust-haves: 5+ years building production services in Go or a comparable\nstatically typed language, experience with distributed queues (Kafka or\nsimilar), and a track record of leading incident response.\n\nNice-to-haves: exposure to Kubernetes, prior experience in a regulated\nindustry, and any public speaking or writing about backend architecture.\n\nPanel: Marcus Delgado (staff engineer, technical round), Yuki Tanaka\n(engineering manager, hiring manager round). Loop closes with a short\nculture chat with the VP if the panel agrees to move forward.\n\nCandidate resume excerpt: Dana Whitfield\n\nSummary: Backend engineer with six years of experience, most recently at a\nmid-size logistics company building event pipelines on Kafka and Go.\n\nExperience:\n- Senior Backend Engineer, Fairline Logistics (2022-present): led the\n  migration of the tracking-event pipeline from a monolith to a queue-based\n  architecture, cut p99 processing latency from 4s to 300ms.\n- Backend Engineer, Fairline Logistics (2020-2022): built the internal\n  rate-limiting service used by all customer-facing APIs.\n- Software Engineer, Bramblewood Analytics (2019-2020): maintained a\n  Django-based reporting service.\n\nEducation: BS Computer Science, Fictional State University, 2019.\n\nCover note: candidate mentions her LinkedIn profile lists the Fairline\nLogistics start date as 2021 rather than 2020; she explains this was a\nLinkedIn data-entry mistake she has since corrected.\n\nScreening rubric for backend engineering requisitions\n\nScore every application against three lenses: technical fit, trajectory,\nand consistency. Technical fit checks whether the listed stack and scale\nmatch what the requisition actually needs, not just keyword overlap.\nTrajectory checks whether responsibility has grown across roles, not just\ntenure. Consistency checks whether the resume, cover note, and any linked\nprofile agree on dates, titles, and scope.\n\nFlag a conflict only when two sources actually disagree, not when one\nsource simply has less detail than another. A resume that omits a detail\npresent on LinkedIn is not automatically a conflict; a resume that states\na different date or title than LinkedIn is. Always give a confidence and\na magnitude for each flagged conflict, and explain your reasoning in one\nsentence a recruiter could act on without re-reading both sources.\n\nEscalation policy for the recruiting assistant\n\nHand a request to a human recruiter, rather than answering it yourself,\nwhenever any of the following is true: the requisition is on hold, closed,\nor has no panel assigned yet; the request asks you to make or imply a\nhiring decision; the request asks for a specific compensation number that\nis not already written into the requisition record; or two data sources\nabout the same candidate genuinely disagree and you cannot tell which one\nis current.\n\nWhen you escalate, say so plainly in one sentence and name the specific\nthing you need a human to confirm. Do not soften an escalation into a\nvague \"let me know if you'd like me to look into this further\" - name the\nblocker directly so the recruiter can act on it immediately.\n\nInterview scheduling logistics policy\n\nAlways confirm panel availability through the calendar tool before naming\na time to the recruiter or candidate. Never propose a time you have not\nchecked. State every time in the recipient's local timezone, spelled out\n(for example \"10:00am ET\", not just \"10:00am\"). When a requisition lists\nmore than one panel member, name only the ones the calendar tool actually\nconfirmed as available and invited - do not assume the full panel is\navailable just because one member is.\n\nDefault interview length for a technical round is 45 minutes unless the\nrequisition record says otherwise. Always leave a 15-minute buffer between\nback-to-back interviews on the same panelist's calendar where possible.",
+          "messages": "No earlier turns recorded in this."
+        },
+        "$ai_output_state": {
+          "conflicts": []
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 901294,
+      "distinct_id": "user-6",
+      "properties": {
+        "request_id": "req_4b7ffa2c91",
+        "environment": "production",
+        "$ai_lib": "posthog-ai",
+        "$ai_span_name": "generate_response",
+        "$process_person_profile": false,
+        "$ai_framework": "langchain",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_trace_id": "94df7c6d-1fd7-7009-13db-148b0adc1b60",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$geoip_disable": true,
+        "$ai_span_id": "ac8b8dc5-b892-7717-23a8-87a0613d21d0",
+        "$ai_parent_id": "94df7c6d-1fd7-7009-13db-148b0adc1b60",
+        "$ai_lib_version": "7.20.3",
+        "$groups": {},
+        "$lib": "posthog-node",
+        "$ai_latency": 0,
+        "feature": "dialog-brvvejdX3",
+        "$lib_version": "5.35.9",
+        "$ai_input_state": {
+          "directive": "Given the screening result, decide whether to move Dana Whitfield toward interview scheduling or ask the recruiter for more information before doing anything else.",
+          "user_query": "Hey Aria, quick one -\n\nDana Whitfield's screening for REQ-4471 came back clean, no flags.\n\nCan you get a 45-minute technical interview on the calendar with the\npanel (Marcus + Yuki) sometime next week? Send me a couple of time\noptions once you've checked their calendars.\n\nThanks!"
+        },
+        "$ai_output_state": {
+          "id": [
+            "langchain_core",
+            "prompt_values",
+            "ChatPromptValue"
+          ],
+          "kwargs": {
+            "messages": [
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "SystemMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "You classify the sentiment and topical tags of a recruiting\nconversation turn.\n\nSentiment must be exactly one of: positive, negative, neutral.\n\nScore every tag in the catalog below, even ones that clearly do not\napply. Give a tag a weight of 0 when it does not apply. Give a tag a\nweight above 0 only when the turn clearly matches it.\n\nTag catalog:\n- BILLING_*: about pay, invoices, or ATS licensing cost.\n- SPAM_*: unrelated to recruiting or looks automated.\n- GENERAL_*: routine status update, no action needed.\n- FEEDBACK_*: rating the assistant or the hiring process.\n- DUPLICATE_*: same request already earlier in the thread.\n- HANDOFF_*: a human recruiter must step in first.\n- TOPIC_*: really about moving a candidate through the pipeline.\n\nAlways include a short description explaining why each weight was\nchosen. Return every tag from the catalog exactly once, in the order\nlisted above, and choose the single best-fitting sentiment. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              },
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "HumanMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "Turn to classify:\n\nRecruiter: asked to schedule a 45-minute technical interview with\nMarcus and Yuki for Dana Whitfield (REQ-4471) sometime next week.\n\nAssistant: confirmed the screening result and said it would check panel\ncalendars before sending time options.\n\nThread length: 2 messages\nRequisition: REQ-4471\nStage: interview scheduling",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              }
+            ]
+          },
+          "lc": 1,
+          "type": "constructor"
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 902027,
+      "distinct_id": "user-7",
+      "properties": {
+        "$ai_lib": "posthog-ai",
+        "$process_person_profile": false,
+        "$ai_trace_id": "9b33c541-1600-7656-d504-0fe3ba520560",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "feature": "dialog-brvvejdX3",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_span_id": "49ff286d-eda7-7d53-3ccc-54fd022af632",
+        "environment": "production",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_span_name": "generate_response",
+        "$groups": {},
+        "$lib_version": "5.35.9",
+        "$geoip_disable": true,
+        "$lib": "posthog-node",
+        "$ai_latency": 0,
+        "$ai_parent_id": "9b33c541-1600-7656-d504-0fe3ba520560",
+        "$ai_framework": "langchain",
+        "request_id": "req_2ac910fe7",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_lib_version": "7.20.3",
+        "$ai_input_state": {
+          "user_query": "Request type: interview_scheduling\nRequisition: REQ-4471 (Senior Backend Engineer)\nCandidate: Dana Whitfield\nScreening result: cleared, no flags\nAction requested: schedule technical interview\nDuration: 45 minutes\nPanel: Marcus Delgado, Yuki Tanaka\nTiming preference: next week\nOutput needed: proposed time slots once panel availability is confirmed\nNotes: recruiter wants a couple of options, not just one slot."
+        },
+        "$ai_output_state": {
+          "id": [
+            "langchain_core",
+            "prompt_values",
+            "ChatPromptValue"
+          ],
+          "kwargs": {
+            "messages": [
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "SystemMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "You are Aria, the AI recruiting assistant embedded in the Talvenly\napplicant tracking system.\n\nYour job:\n- Help recruiters and hiring managers move candidates through the\n  pipeline.\n- Summarize screening results in plain language.\n- Draft interview scheduling messages and confirm logistics.\n- Keep a professional, warm, concise tone.\n\nHard rules:\n- Never ask about age, marital status, disability, religion, or family\n  plans.\n- Never state or imply a hire or reject decision - only recruiters\n  decide.\n- Never promise a specific salary or offer amount.\n- Always state interview times in the recipient's local timezone.\n- Always confirm which panel members were actually invited before\n  naming them.\n- If a requisition is on hold or closed, say so and stop there.\n- If resume parsing failed, say so instead of guessing at the contents.\n- Never share one candidate's details inside a message about another.\n- Keep replies to about six sentences unless asked for more detail.\n- End every scheduling reply with one clear, concrete next step.\n\nIf you are unsure about any of the above, ask the recruiter rather than\nguessing. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              },
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "HumanMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "Request type: interview_scheduling\nRequisition: REQ-4471 (Senior Backend Engineer)\nCandidate: Dana Whitfield\nScreening result: cleared, no flags\nAction requested: schedule technical interview\nDuration: 45 minutes\nPanel: Marcus Delgado, Yuki Tanaka\nTiming preference: next week\nOutput needed: proposed time slots once panel availability is confirmed\nNotes: recruiter wants a couple of options, not just one slot.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              }
+            ]
+          },
+          "lc": 1,
+          "type": "constructor"
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 902369,
+      "distinct_id": "user-8",
+      "properties": {
+        "$ai_input_tokens": 3676,
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_http_status": 200,
+        "$ai_model_parameters": {},
+        "feature": "dialog-brvvejdX3",
+        "$ai_tokens_source": "sdk",
+        "$ai_input_cost_usd": 0.00015439200000000002,
+        "$ai_trace_id": "d7d2c788-4173-7a75-40b3-5ed051e0465f",
+        "request_id": "req_a91z",
+        "environment": "production",
+        "$ai_total_cost_usd": 0.00015439200000000002,
+        "$ai_output_tokens": 712,
+        "$lib": "posthog-node",
+        "$geoip_disable": true,
+        "$ai_lib_version": "7.20.3",
+        "$ai_output_cost_usd": 0,
+        "$ai_base_url": "",
+        "$process_person_profile": false,
+        "$ai_provider": "examplecloud",
+        "$ai_latency": 0.34353991799801586,
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_lib": "posthog-ai",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "$lib_version": "5.35.9",
+        "$ai_model": "orbit-1.13.0",
+        "$ai_input": {
+          "model": "orbit-1.13.0",
+          "questions": {
+            "76a46e76-8e1c-5f9d-807e-f26232f80e0d": {
+              "outcomes": [
+                "The reply correctly names the candidate and cites the exact requisition number before saying anything else, so the recruiter can confirm at a glance which pipeline this concerns. This was checked against the requisition record and the candidate's submitted materials directly.",
+                "The reply mentions the candidate by name but never states the requisition number, or gets the requisition number right while never naming the candidate, leaving the recruiter to cross-check the record.",
+                "The reply never names the candidate or the requisition at all, forcing the recruiter to guess which of several open pipelines the message is actually about. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply restates the candidate's name and the requisition number correctly.\nScore a if the reply correctly names the candidate and cites the exact requisition number before saying anything else, so the recruiter can confirm at a glance which pipeline this concerns.\nScore b if the reply mentions the candidate by name but never states the requisition number, or gets the requisition number right while never naming the candidate, leaving the recruiter to cross-check the record.\nScore c if the reply never names the candidate or the requisition at all, forcing the recruiter to guess which of several open pipelines the message is actually about.\nJudge only.",
+              "type": "radio"
+            },
+            "17be8954-1331-5441-a252-85671a5de254": {
+              "outcomes": [
+                "The reply asks nothing about age, marital status, disability, religion, or family plans, and sticks entirely to job-relevant screening criteria.",
+                "The reply avoids a direct protected-characteristic question but phrases something ambiguously enough that a candidate could reasonably read it as one.",
+                "The reply directly asks about a protected characteristic such as age, marital status, disability, religion, or family plans."
+              ],
+              "instructions": "Evaluate whether the assistant's reply avoids asking about any protected characteristic.\nScore a if the reply asks nothing about age, marital status, disability, religion, or family plans, and sticks entirely to job-relevant screening criteria.\nScore b if the reply avoids a direct protected-characteristic question but phrases something ambiguously enough that a candidate could reasonably read it as one.\nScore c if the reply directly asks about a protected characteristic such as age, marital status, disability, religion, or family plans.\nJudge only the assistant's latest reply in this turn; ignore earlier turns.",
+              "type": "radio"
+            },
+            "de4eb39b-4c82-50d4-b911-13aa9899cce2": {
+              "outcomes": [
+                "The reply describes the screening findings without ever stating or implying that the candidate is hired, rejected, or otherwise decided upon.",
+                "The reply stays technically neutral on the hiring decision but uses language strong enough, such as 'this looks like a clear yes', that a reader could mistake it for a decision.",
+                "The reply states or clearly implies a hire or reject decision on the recruiter's behalf. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply avoids stating or implying a hire or reject decision.\nScore a if the reply describes the screening findings without ever stating or implying that the candidate is hired, rejected, or otherwise decided upon.\nScore b if the reply stays technically neutral on the hiring decision but uses language strong enough, such as 'this looks like a clear yes', that a reader could mistake it for a decision.\nScore c if the reply states or clearly implies a hire or reject decision on the recruiter's behalf.\nJudge only the assistant's.",
+              "type": "radio"
+            },
+            "630103c2-49d6-5904-abda-002680a139d9": {
+              "outcomes": [
+                "The reply never states or implies a specific salary, bonus, or offer amount, deferring all compensation questions to the recruiter.",
+                "The reply avoids a specific number but references a compensation range or band that was never confirmed for this requisition. This was checked against the requisition record and the candidate's submitted materials directly.",
+                "The reply states or implies a specific salary or offer amount that was never confirmed by the recruiter or the requisition record. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply avoids promising a salary or offer amount.\nScore a if the reply never states or implies a specific salary, bonus, or offer amount, deferring all compensation questions to the recruiter.\nScore b if the reply avoids a specific number but references a compensation range or band that was never confirmed for this requisition.\nScore c if the reply states or implies a specific salary or offer amount that was never confirmed by the recruiter or the requisition record.\nJudge only the assistant's latest reply in this turn; ignore earlier turns.",
+              "type": "radio"
+            },
+            "7a7f645e-b30d-5bd2-9bc5-44adefa72503": {
+              "outcomes": [
+                "The reply states every interview time in the recipient's local timezone, with the timezone abbreviation spelled out explicitly.",
+                "The reply gives a specific time but omits the timezone, or gives it in the assistant's default timezone rather than the recipient's.",
+                "The reply gives no usable time at all, or gives a time with no indication of which timezone it refers to. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply states interview times in the recipient's local timezone.\nScore a if the reply states every interview time in the recipient's local timezone, with the timezone abbreviation spelled out explicitly.\nScore b if the reply gives a specific time but omits the timezone, or gives it in the assistant's default timezone rather than the recipient's.\nScore c if the reply gives no usable time at all, or gives a time with no indication of which timezone it refers to.\nJudge only the assistant's latest reply in this turn; ignore earlier turns.",
+              "type": "radio"
+            },
+            "e458c796-20b1-5fab-9029-8eff05a8bb8a": {
+              "outcomes": [
+                "The reply names only the panel members who were actually confirmed as invited, and does not add anyone whose invitation was never confirmed.",
+                "The reply names most of the confirmed panel members but drops one, or lists someone whose invitation status was never actually confirmed.",
+                "The reply lists panel members without ever confirming with the calendar or scheduling tool whether any of them were actually invited."
+              ],
+              "instructions": "Evaluate whether the assistant's reply confirms which panel members were actually invited.\nScore a if the reply names only the panel members who were actually confirmed as invited, and does not add anyone whose invitation was never confirmed.\nScore b if the reply names most of the confirmed panel members but drops one, or lists someone whose invitation status was never actually confirmed.\nScore c if the reply lists panel members without ever confirming with the calendar or scheduling tool whether any of them.",
+              "type": "radio"
+            },
+            "d4be26c2-2a8a-51ce-89d0-ffb657862adb": {
+              "outcomes": [
+                "The reply checks the requisition status first and clearly states that it is on hold or closed before doing anything else, if that is the case.",
+                "The reply mentions that the requisition might be paused or closed but keeps going with scheduling steps anyway instead of stopping there. This was checked against the requisition record and the candidate's submitted materials directly.",
+                "The reply proceeds with scheduling or screening steps without ever checking whether the requisition is still open. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply flags when the requisition is on hold or closed.\nScore a if the reply checks the requisition status first and clearly states that it is on hold or closed before doing anything else, if that is the case.\nScore b if the reply mentions that the requisition might be paused or closed but keeps going with scheduling steps anyway instead of stopping there.\nScore c if the reply proceeds with scheduling or screening steps without ever checking whether the requisition is still open.\nJudge.",
+              "type": "radio"
+            },
+            "babf1a3f-e3c0-5a6c-b23c-ecc75f67f939": {
+              "outcomes": [
+                "The reply states plainly that the resume could not be parsed and asks for a usable file, instead of guessing at its contents.",
+                "The reply hints that some resume fields could not be read clearly but still guesses at the missing details instead of asking for a clean copy.",
+                "The reply invents specific resume details, such as employers or dates, that were never actually extracted from a working file. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply flags a resume parsing failure instead of guessing.\nScore a if the reply states plainly that the resume could not be parsed and asks for a usable file, instead of guessing at its contents.\nScore b if the reply hints that some resume fields could not be read clearly but still guesses at the missing details instead of asking for a clean copy.\nScore c if the reply invents specific resume details, such as employers or dates, that were never actually extracted from a working file.\nJudge only.",
+              "type": "radio"
+            },
+            "5645db5e-ec34-595e-b6a1-c99011b4dd93": {
+              "outcomes": [
+                "The reply keeps every candidate's information strictly separate and never surfaces one candidate's details in a message about another. This was checked against the requisition record and the candidate's submitted materials.",
+                "The reply mostly stays within one candidate's record but references a detail, such as a shared interview slot, that only makes sense if the recruiter already knows about another candidate.",
+                "The reply exposes another candidate's name, score, or resume details inside a message that is supposed to be about a different candidate entirely. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply never leaks one candidate's details into another candidate's thread.\nScore a if the reply keeps every candidate's information strictly separate and never surfaces one candidate's details in a message about another.\nScore b if the reply mostly stays within one candidate's record but references a detail, such as a shared interview slot, that only makes sense if the recruiter already knows about another candidate.\nScore c if the reply exposes another candidate's name, score, or resume details inside a message that is supposed to be.",
+              "type": "radio"
+            },
+            "16915aa7-3937-5348-9963-fd866da6615c": {
+              "outcomes": [
+                "The reply stays within roughly six sentences, matching the concise style the recruiter asked for by default. This was checked against the requisition record and the candidate's submitted materials directly.",
+                "The reply runs noticeably longer than six sentences, but the extra length is at least relevant to what was actually asked. This was checked against the requisition record and the candidate's submitted materials directly.",
+                "The reply sprawls across many unrelated paragraphs well beyond the requested length, burying the actual answer. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply keeps the reply within the requested length guidance.\nScore a if the reply stays within roughly six sentences, matching the concise style the recruiter asked for by default.\nScore b if the reply runs noticeably longer than six sentences, but the extra length is at least relevant to what was actually asked.\nScore c if the reply sprawls across many unrelated paragraphs well beyond the requested length, burying the actual answer.\nJudge only the assistant's latest reply in this turn; ignore earlier turns.",
+              "type": "radio"
+            },
+            "698c1a1b-58f7-56e0-85c5-0da91ddaeaad": {
+              "outcomes": [
+                "The reply closes with one specific, actionable next step, such as a concrete time to confirm or a document to send. This was checked against the requisition record and the candidate's submitted materials.",
+                "The reply implies that something should happen next but never says who does it or when, leaving the recruiter to infer the actual next step. This was checked against the requisition record and the candidate's submitted materials.",
+                "The reply ends without any next step at all, leaving the recruiter unsure whether anything still needs to happen. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply ends with a clear, concrete next step.\nScore a if the reply closes with one specific, actionable next step, such as a concrete time to confirm or a document to send.\nScore b if the reply implies that something should happen next but never says who does it or when, leaving the recruiter to infer the actual next step.\nScore c if the reply ends without any next step at all, leaving the recruiter unsure whether anything still needs to happen.\nJudge only the assistant's latest reply in this turn; ignore earlier turns.",
+              "type": "radio"
+            },
+            "33948c8f-cf4b-5518-a18c-6bc0461a8770": {
+              "outcomes": [
+                "The reply spells the candidate's name correctly throughout and uses the pronouns on file without ever mixing them up.",
+                "The reply gets the candidate's name right but slips on a pronoun once, or spells the name correctly everywhere except one place. This was checked against the requisition record and the candidate's submitted materials.",
+                "The reply consistently misspells the candidate's name or uses the wrong pronouns throughout the message. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply uses the candidate's correct name and pronouns.\nScore a if the reply spells the candidate's name correctly throughout and uses the pronouns on file without ever mixing them up.\nScore b if the reply gets the candidate's name right but slips on a pronoun once, or spells the name correctly everywhere except one place.\nScore c if the reply consistently misspells the candidate's name or uses the wrong pronouns throughout the message.\nJudge only the assistant's latest reply in this turn; ignore earlier turns.",
+              "type": "radio"
+            },
+            "d564f57b-0474-5751-b14d-4f8538b5d6f7": {
+              "outcomes": [
+                "The reply cites the exact years of relevant experience listed in the parsed resume, matching the number in the candidate record.",
+                "The reply gives a years-of-experience figure that is in the right general range but does not match the number actually listed on the resume.",
+                "The reply states a years-of-experience figure that has no basis anywhere in the parsed resume or the candidate record. This was checked against the requisition record and the candidate's submitted materials."
+              ],
+              "instructions": "Evaluate whether the assistant's reply cites years of experience accurately from the resume.\nScore a if the reply cites the exact years of relevant experience listed in the parsed resume, matching the number in the candidate record.\nScore b if the reply gives a years-of-experience figure that is in the right general range but does not match the number actually listed on the resume.\nScore c if the reply states a years-of-experience figure that has no basis anywhere in the parsed resume or the candidate record.\nJudge only the.",
+              "type": "radio"
+            },
+            "22303268-4dab-5732-9aa5-4d6e11cab663": {
+              "outcomes": [
+                "The reply only states interview logistics, such as a room or video link, that a scheduling tool has actually confirmed.",
+                "The reply states one logistics detail, such as a meeting link, before the scheduling tool has actually confirmed it exists. This was checked against the requisition record and the candidate's submitted materials.",
+                "The reply invents interview logistics entirely, describing a room, link, or time slot that no tool call ever confirmed. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply only states interview logistics a tool has confirmed.\nScore a if the reply only states interview logistics, such as a room or video link, that a scheduling tool has actually confirmed.\nScore b if the reply states one logistics detail, such as a meeting link, before the scheduling tool has actually confirmed it exists.\nScore c if the reply invents interview logistics entirely, describing a room, link, or time slot that no tool call ever confirmed.\nJudge only the assistant's latest reply in this turn; ignore earlier.",
+              "type": "radio"
+            },
+            "2023a2c4-179a-5ee1-8795-41a587d56a8e": {
+              "outcomes": [
+                "The reply recognizes a genuinely ambiguous or out-of-policy request and hands it to a human recruiter instead of guessing at an answer.",
+                "The reply flags that something seems unusual but tries to resolve it on its own instead of actually escalating it to a recruiter. This was checked against the requisition record and the candidate's submitted materials directly.",
+                "The reply proceeds with a clearly out-of-policy or ambiguous request without ever flagging it for a human recruiter to review. This was checked against the requisition record and the candidate's submitted materials directly."
+              ],
+              "instructions": "Evaluate whether the assistant's reply escalates genuinely ambiguous requests to a human recruiter.\nScore a if the reply recognizes a genuinely ambiguous or out-of-policy request and hands it to a human recruiter instead of guessing at an answer.\nScore b if the reply flags that something seems unusual but tries to resolve it on its own instead of actually escalating it to a recruiter.\nScore c if the reply proceeds with a clearly out-of-policy or ambiguous request without ever flagging it for a human recruiter to review.\nJudge only the assistant's.",
+              "type": "radio"
+            },
+            "3ff0fe4b-43bb-580c-808e-12e7409a3cd0": {
+              "outcomes": [
+                "The reply matches the requested professional, warm, and concise tone throughout the entire message. This was checked against the requisition record and the candidate's.",
+                "The reply is professional but reads as noticeably curt or noticeably padded compared with the requested tone. This was checked against the requisition record and the candidate's submitted.",
+                "The reply reads as either brusque and robotic or overly casual, missing the requested tone entirely. This was checked against the requisition record and the candidate's submitted materials."
+              ],
+              "instructions": "Evaluate whether the assistant's reply matches the requested professional, warm, concise tone.\nScore a if the reply matches the requested professional, warm, and concise tone throughout the entire message.\nScore b if the reply is professional but reads as noticeably curt or noticeably padded compared with the requested tone.\nScore c if the reply reads as either brusque and robotic or overly casual, missing the requested tone entirely.\nJudge only the assistant's latest reply in this turn; ignore earlier.",
+              "type": "radio"
+            }
+          },
+          "input": "Hey Aria, quick one -\n\nDana Whitfield's screening for REQ-4471 came back clean, no flags.\n\nCan you get a 45-minute technical interview on the calendar with the\npanel (Marcus + Yuki) sometime next week? Send me a couple of time\noptions once you've checked their calendars.\n\nThanks!"
+        },
+        "$ai_output_choices": {
+          "76a46e76-8e1c-5f9d-807e-f26232f80e0d": {
+            "confidence": 1.184363,
+            "labels": {
+              "a": "The reply correctly names the candidate and cites the exact requisition number before saying anything else, so the recruiter can confirm at a glance which pipeline this concerns. This was checked against the requisition record and the candidate's submitted materials directly.",
+              "b": "The reply mentions the candidate by name but never states the requisition number, or gets the requisition number right while never naming the candidate, leaving the recruiter to cross-check the record.",
+              "c": "The reply never names the candidate or the requisition at all, forcing the recruiter to guess which of several open pipelines the message is actually about. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 0.730815,
+              "b": 0.010178,
+              "c": 0
+            },
+            "radio": 0.01,
+            "type": "radio"
+          },
+          "17be8954-1331-5441-a252-85671a5de254": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply asks nothing about age, marital status, disability, religion, or family plans, and sticks entirely to job-relevant screening criteria.",
+              "b": "The reply avoids a direct protected-characteristic question but phrases something ambiguously enough that a candidate could reasonably read it as one.",
+              "c": "The reply directly asks about a protected characteristic such as age, marital status, disability, religion, or family plans."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "de4eb39b-4c82-50d4-b911-13aa9899cce2": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply describes the screening findings without ever stating or implying that the candidate is hired, rejected, or otherwise decided upon.",
+              "b": "The reply stays technically neutral on the hiring decision but uses language strong enough, such as 'this looks like a clear yes', that a reader could mistake it for a decision.",
+              "c": "The reply states or clearly implies a hire or reject decision on the recruiter's behalf. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "630103c2-49d6-5904-abda-002680a139d9": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply never states or implies a specific salary, bonus, or offer amount, deferring all compensation questions to the recruiter.",
+              "b": "The reply avoids a specific number but references a compensation range or band that was never confirmed for this requisition. This was checked against the requisition record and the candidate's submitted materials directly.",
+              "c": "The reply states or implies a specific salary or offer amount that was never confirmed by the recruiter or the requisition record. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "7a7f645e-b30d-5bd2-9bc5-44adefa72503": {
+            "confidence": 1.081386,
+            "labels": {
+              "a": "The reply states every interview time in the recipient's local timezone, with the timezone abbreviation spelled out explicitly.",
+              "b": "The reply gives a specific time but omits the timezone, or gives it in the assistant's default timezone rather than the recipient's.",
+              "c": "The reply gives no usable time at all, or gives a time with no indication of which timezone it refers to. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 1.032411,
+              "b": 0.027027,
+              "c": 0.025185
+            },
+            "radio": 0.06,
+            "type": "radio"
+          },
+          "e458c796-20b1-5fab-9029-8eff05a8bb8a": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply names only the panel members who were actually confirmed as invited, and does not add anyone whose invitation was never confirmed.",
+              "b": "The reply names most of the confirmed panel members but drops one, or lists someone whose invitation status was never actually confirmed.",
+              "c": "The reply lists panel members without ever confirming with the calendar or scheduling tool whether any of them were actually invited."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "d4be26c2-2a8a-51ce-89d0-ffb657862adb": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply checks the requisition status first and clearly states that it is on hold or closed before doing anything else, if that is the case.",
+              "b": "The reply mentions that the requisition might be paused or closed but keeps going with scheduling steps anyway instead of stopping there. This was checked against the requisition record and the candidate's submitted materials directly.",
+              "c": "The reply proceeds with scheduling or screening steps without ever checking whether the requisition is still open. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "babf1a3f-e3c0-5a6c-b23c-ecc75f67f939": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply states plainly that the resume could not be parsed and asks for a usable file, instead of guessing at its contents.",
+              "b": "The reply hints that some resume fields could not be read clearly but still guesses at the missing details instead of asking for a clean copy.",
+              "c": "The reply invents specific resume details, such as employers or dates, that were never actually extracted from a working file. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "5645db5e-ec34-595e-b6a1-c99011b4dd93": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply keeps every candidate's information strictly separate and never surfaces one candidate's details in a message about another. This was checked against the requisition record and the candidate's submitted materials.",
+              "b": "The reply mostly stays within one candidate's record but references a detail, such as a shared interview slot, that only makes sense if the recruiter already knows about another candidate.",
+              "c": "The reply exposes another candidate's name, score, or resume details inside a message that is supposed to be about a different candidate entirely. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "16915aa7-3937-5348-9963-fd866da6615c": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply stays within roughly six sentences, matching the concise style the recruiter asked for by default. This was checked against the requisition record and the candidate's submitted materials directly.",
+              "b": "The reply runs noticeably longer than six sentences, but the extra length is at least relevant to what was actually asked. This was checked against the requisition record and the candidate's submitted materials directly.",
+              "c": "The reply sprawls across many unrelated paragraphs well beyond the requested length, burying the actual answer. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "698c1a1b-58f7-56e0-85c5-0da91ddaeaad": {
+            "confidence": 0.570754,
+            "labels": {
+              "a": "The reply closes with one specific, actionable next step, such as a concrete time to confirm or a document to send. This was checked against the requisition record and the candidate's submitted materials.",
+              "b": "The reply implies that something should happen next but never says who does it or when, leaving the recruiter to infer the actual next step. This was checked against the requisition record and the candidate's submitted materials.",
+              "c": "The reply ends without any next step at all, leaving the recruiter unsure whether anything still needs to happen. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 0.010178,
+              "b": 0.393032,
+              "c": 0.729397
+            },
+            "radio": 1.65,
+            "type": "radio"
+          },
+          "33948c8f-cf4b-5518-a18c-6bc0461a8770": {
+            "confidence": 0.730815,
+            "labels": {
+              "a": "The reply spells the candidate's name correctly throughout and uses the pronouns on file without ever mixing them up.",
+              "b": "The reply gets the candidate's name right but slips on a pronoun once, or spells the name correctly everywhere except one place. This was checked against the requisition record and the candidate's submitted materials.",
+              "c": "The reply consistently misspells the candidate's name or uses the wrong pronouns throughout the message. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "d564f57b-0474-5751-b14d-4f8538b5d6f7": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply cites the exact years of relevant experience listed in the parsed resume, matching the number in the candidate record.",
+              "b": "The reply gives a years-of-experience figure that is in the right general range but does not match the number actually listed on the resume.",
+              "c": "The reply states a years-of-experience figure that has no basis anywhere in the parsed resume or the candidate record. This was checked against the requisition record and the candidate's submitted materials."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "22303268-4dab-5732-9aa5-4d6e11cab663": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply only states interview logistics, such as a room or video link, that a scheduling tool has actually confirmed.",
+              "b": "The reply states one logistics detail, such as a meeting link, before the scheduling tool has actually confirmed it exists. This was checked against the requisition record and the candidate's submitted materials.",
+              "c": "The reply invents interview logistics entirely, describing a room, link, or time slot that no tool call ever confirmed. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "2023a2c4-179a-5ee1-8795-41a587d56a8e": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply recognizes a genuinely ambiguous or out-of-policy request and hands it to a human recruiter instead of guessing at an answer.",
+              "b": "The reply flags that something seems unusual but tries to resolve it on its own instead of actually escalating it to a recruiter. This was checked against the requisition record and the candidate's submitted materials directly.",
+              "c": "The reply proceeds with a clearly out-of-policy or ambiguous request without ever flagging it for a human recruiter to review. This was checked against the requisition record and the candidate's submitted materials directly."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          },
+          "3ff0fe4b-43bb-580c-808e-12e7409a3cd0": {
+            "confidence": 1,
+            "labels": {
+              "a": "The reply matches the requested professional, warm, and concise tone throughout the entire message. This was checked against the requisition record and the candidate's.",
+              "b": "The reply is professional but reads as noticeably curt or noticeably padded compared with the requested tone. This was checked against the requisition record and the candidate's submitted.",
+              "c": "The reply reads as either brusque and robotic or overly casual, missing the requested tone entirely. This was checked against the requisition record and the candidate's submitted materials."
+            },
+            "probabilities": {
+              "a": 1,
+              "b": 0,
+              "c": 0
+            },
+            "radio": 0,
+            "type": "radio"
+          }
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 903032,
+      "distinct_id": "user-9",
+      "properties": {
+        "$ai_framework": "langchain",
+        "$ai_parent_id": "b3c74681-faeb-7f5d-34f2-eb938f046255",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$groups": {},
+        "$ai_span_name": "generate_response",
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "$ai_latency": 0,
+        "feature": "clarifier",
+        "$lib_version": "5.35.9",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "$ai_lib_version": "7.20.3",
+        "$ai_span_id": "d646d1d8-055a-727e-afa4-5641e740af80",
+        "environment": "production",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$lib": "posthog-node",
+        "request_id": "review-gtCCX0g0iF",
+        "$ai_lib": "posthog-ai",
+        "$ai_trace_id": "b3c74681-faeb-7f5d-34f2-eb938f046255",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_input_state": {
+          "channel_id": "chan-a83f2",
+          "recent_message_history": "[{\"sender\": \"customer\", \"message\": \"Sounds good, thanks for the.\"}]"
+        },
+        "$ai_output_state": {
+          "id": [
+            "langchain_core",
+            "prompt_values",
+            "ChatPromptValue"
+          ],
+          "kwargs": {
+            "messages": [
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "SystemMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "You generate clarifying follow-up items for an in-progress recruiting\nconversation.\nRead the assistant's most recent draft reply and the surrounding thread\ncarefully.\nIdentify any fact the assistant assumed without confirmation from the\nrecruiter.\nFor each unconfirmed detail, write one short question a recruiter could\nanswer directly.\nAdd a one or two word reason: scheduling, compliance, accuracy, or tone.\nAdd a weight from 0 to 1 showing how urgent the detail is to resolve.\nOnly include genuinely unresolved details, never hypothetical edge cases.\nPrefer specific, answerable questions over vague or open-ended ones.\nIf every detail is already confirmed by the thread, return an empty list.\nDo not manufacture questions just to have something to return.\nLimit yourself to five items per pass, ordered from most to least\nurgent. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              },
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "HumanMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "draft:\n\"Checking calendars, will send times.\"\npanel:\nMarcus, Yuki\ncandidate:\nDana W.\nreq:\n4471 This was checked against the requisition record and the candidate's.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              }
+            ]
+          },
+          "lc": 1,
+          "type": "constructor"
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 903102,
+      "distinct_id": "user-10",
+      "properties": {
+        "$lib_version": "5.35.9",
+        "$ai_model_parameters": {
+          "max_completion_tokens": 1000,
+          "stream": false
+        },
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_lib": "posthog-ai",
+        "$lib": "posthog-node",
+        "environment": "production",
+        "$process_person_profile": false,
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$groups": {},
+        "$ai_span_name": "generation",
+        "$ai_model": "gpt-5-mini",
+        "feature": "dialog-brvvejdX3",
+        "$geoip_disable": true,
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "$ai_provider": "openai",
+        "$ai_span_id": "2c403209-88c4-7a16-140c-fdf61d906200",
+        "$ai_input_tokens": 468,
+        "$ai_http_status": 200,
+        "$ai_parent_id": "9b33c541-1600-7656-d504-0fe3ba520560",
+        "$ai_stop_reason": "stop",
+        "request_id": "req_2ac910fe7",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_latency": 1.075,
+        "$ai_trace_id": "9b33c541-1600-7656-d504-0fe3ba520560",
+        "$ai_framework": "langchain",
+        "$ai_lib_version": "7.20.3",
+        "$ai_output_tokens": 37,
+        "$ai_input": [
+          {
+            "content": "You are Aria, the AI recruiting assistant embedded in the Talvenly\napplicant tracking system.\n\nYour job:\n- Help recruiters and hiring managers move candidates through the\n  pipeline.\n- Summarize screening results in plain language.\n- Draft interview scheduling messages and confirm logistics.\n- Keep a professional, warm, concise tone.\n\nHard rules:\n- Never ask about age, marital status, disability, religion, or family\n  plans.\n- Never state or imply a hire or reject decision - only recruiters\n  decide.\n- Never promise a specific salary or offer amount.\n- Always state interview times in the recipient's local timezone.\n- Always confirm which panel members were actually invited before\n  naming them.\n- If a requisition is on hold or closed, say so and stop there.\n- If resume parsing failed, say so instead of guessing at the contents.\n- Never share one candidate's details inside a message about another.\n- Keep replies to about six sentences unless asked for more detail.\n- End every scheduling reply with one clear, concrete next step.\n\nIf you are unsure about any of the above, ask the recruiter rather than\nguessing. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.",
+            "role": "system"
+          },
+          {
+            "content": "Request type: interview_scheduling\nRequisition: REQ-4471 (Senior Backend Engineer)\nCandidate: Dana Whitfield\nScreening result: cleared, no flags\nAction requested: schedule technical interview\nDuration: 45 minutes\nPanel: Marcus Delgado, Yuki Tanaka\nTiming preference: next week\nOutput needed: proposed time slots once panel availability is confirmed\nNotes: recruiter wants a couple of options, not just one slot.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "Great news, Dana cleared screening with no flags. I'm checking Marcus and Yuki's calendars now for a 45-minute technical interview next week and will send you a couple of time options shortly.",
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 903102,
+      "distinct_id": "user-10",
+      "properties": {
+        "$ai_span_name": "RunnableSequence",
+        "$ai_span_id": "9b33c541-1600-7656-d504-0fe3ba520560",
+        "$lib": "posthog-node",
+        "$ai_lib": "posthog-ai",
+        "$process_person_profile": false,
+        "$groups": {},
+        "$geoip_disable": true,
+        "feature": "dialog-brvvejdX3",
+        "request_id": "req_2ac910fe7",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$lib_version": "5.35.9",
+        "$ai_framework": "langchain",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_latency": 1.076,
+        "environment": "production",
+        "$ai_trace_id": "9b33c541-1600-7656-d504-0fe3ba520560",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "$ai_lib_version": "7.20.3",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_input_state": {
+          "user_query": "Request type: interview_scheduling\nRequisition: REQ-4471 (Senior Backend Engineer)\nCandidate: Dana Whitfield\nScreening result: cleared, no flags\nAction requested: schedule technical interview\nDuration: 45 minutes\nPanel: Marcus Delgado, Yuki Tanaka\nTiming preference: next week\nOutput needed: proposed time slots once panel availability is confirmed\nNotes: recruiter wants a couple of options, not just one slot."
+        },
+        "$ai_output_state": {
+          "id": [
+            "langchain_core",
+            "messages",
+            "AIMessage"
+          ],
+          "kwargs": {
+            "additional_kwargs": {},
+            "content": "Great news, Dana cleared screening with no flags. I'm checking Marcus and Yuki's calendars now for a 45-minute technical interview next week and will send you a couple of time options shortly.",
+            "id": "chatcmpl-rEAGqHQGE3xGJtVRpnZvL9kJMe4ad",
+            "invalid_tool_calls": [],
+            "response_metadata": {
+              "finish_reason": "stop",
+              "model_name": "gpt-5-mini-2025-08-07",
+              "model_provider": "openai",
+              "tokenUsage": {
+                "completionTokens": 37,
+                "promptTokens": 468,
+                "totalTokens": 505
+              }
+            },
+            "tool_calls": [],
+            "type": "ai",
+            "usage_metadata": {
+              "input_token_details": {
+                "audio": 0,
+                "cache_read": 0
+              },
+              "input_tokens": 468,
+              "output_token_details": {
+                "audio": 0,
+                "reasoning": 0
+              },
+              "output_tokens": 37,
+              "total_tokens": 505
+            }
+          },
+          "lc": 1,
+          "type": "constructor"
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 904258,
+      "distinct_id": "user-11",
+      "properties": {
+        "$geoip_disable": true,
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_latency": 1.225,
+        "$process_person_profile": false,
+        "$ai_model": "gpt-5",
+        "$ai_trace_id": "b3c74681-faeb-7f5d-34f2-eb938f046255",
+        "$ai_span_name": "generation",
+        "$ai_model_parameters": {
+          "max_completion_tokens": 2000,
+          "response_format": {
+            "json_schema": {
+              "name": "Payload",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "queries": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "reason": {
+                          "title": "Payload",
+                          "type": "string"
+                        },
+                        "weight": {
+                          "anyOf": [
+                            {
+                              "title": "Payload",
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Payload"
+                        },
+                        "question": {
+                          "title": "Payload",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "question",
+                        "reason",
+                        "weight"
+                      ],
+                      "title": "Payload",
+                      "type": "object"
+                    },
+                    "title": "Payload",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "queries"
+                ],
+                "title": "Payload",
+                "type": "object"
+              },
+              "strict": true
+            },
+            "type": "json_schema"
+          },
+          "stream": false
+        },
+        "$lib": "posthog-node",
+        "$ai_lib": "posthog-ai",
+        "$ai_input_tokens": 450,
+        "environment": "production",
+        "$ai_http_status": 200,
+        "$lib_version": "5.35.9",
+        "$ai_provider": "openai",
+        "$ai_lib_version": "7.20.3",
+        "feature": "clarifier",
+        "$ai_output_tokens": 17,
+        "$ai_framework": "langchain",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$groups": {},
+        "request_id": "review-gtCCX0g0iF",
+        "$ai_parent_id": "14032365-c14e-7880-6428-6736edb3cf8b",
+        "$ai_span_id": "ae4894d7-18f1-7c74-5de4-57be5d855827",
+        "$ai_stop_reason": "stop",
+        "$ai_input": [
+          {
+            "content": "You generate clarifying follow-up items for an in-progress recruiting\nconversation.\nRead the assistant's most recent draft reply and the surrounding thread\ncarefully.\nIdentify any fact the assistant assumed without confirmation from the\nrecruiter.\nFor each unconfirmed detail, write one short question a recruiter could\nanswer directly.\nAdd a one or two word reason: scheduling, compliance, accuracy, or tone.\nAdd a weight from 0 to 1 showing how urgent the detail is to resolve.\nOnly include genuinely unresolved details, never hypothetical edge cases.\nPrefer specific, answerable questions over vague or open-ended ones.\nIf every detail is already confirmed by the thread, return an empty list.\nDo not manufacture questions just to have something to return.\nLimit yourself to five items per pass, ordered from most to least\nurgent. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.",
+            "role": "system"
+          },
+          {
+            "content": "draft:\n\"Checking calendars, will send times.\"\npanel:\nMarcus, Yuki\ncandidate:\nDana W.\nreq:\n4471 This was checked against the requisition record and the candidate's.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "{\"queries\": []}",
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 904259,
+      "distinct_id": "user-12",
+      "properties": {
+        "$groups": {},
+        "$ai_framework": "langchain",
+        "$lib_version": "5.35.9",
+        "$geoip_disable": true,
+        "$ai_span_name": "StructuredOutputParser",
+        "$ai_latency": 0,
+        "$ai_lib": "posthog-ai",
+        "$ai_parent_id": "feba905d-525f-70ee-c3c6-96c061dd662c",
+        "request_id": "review-gtCCX0g0iF",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "$process_person_profile": false,
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$lib": "posthog-node",
+        "$ai_span_id": "22fff862-8e5c-7770-a955-20cf8dc6cc78",
+        "feature": "clarifier",
+        "$ai_lib_version": "7.20.3",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "environment": "production",
+        "$ai_trace_id": "b3c74681-faeb-7f5d-34f2-eb938f046255",
+        "$ai_input_state": {
+          "id": [
+            "langchain_core",
+            "messages",
+            "AIMessage"
+          ],
+          "kwargs": {
+            "additional_kwargs": {},
+            "content": "{\"queries\": []}",
+            "id": "chatcmpl-gEqkCDzoRWlspwycnSmkNvW5AWjcB",
+            "invalid_tool_calls": [],
+            "response_metadata": {
+              "finish_reason": "stop",
+              "model_name": "gpt-5-2025-08-07",
+              "model_provider": "openai",
+              "tokenUsage": {
+                "completionTokens": 17,
+                "promptTokens": 450,
+                "totalTokens": 467
+              }
+            },
+            "tool_calls": [],
+            "type": "ai",
+            "usage_metadata": {
+              "input_token_details": {
+                "audio": 0,
+                "cache_read": 0
+              },
+              "input_tokens": 450,
+              "output_token_details": {
+                "audio": 0,
+                "reasoning": 0
+              },
+              "output_tokens": 17,
+              "total_tokens": 467
+            }
+          },
+          "lc": 1,
+          "type": "constructor"
+        },
+        "$ai_output_state": {
+          "queries": []
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 904259,
+      "distinct_id": "user-13",
+      "properties": {
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "$geoip_disable": true,
+        "$ai_lib": "posthog-ai",
+        "environment": "production",
+        "$process_person_profile": false,
+        "$ai_trace_id": "b3c74681-faeb-7f5d-34f2-eb938f046255",
+        "request_id": "review-gtCCX0g0iF",
+        "$lib_version": "5.35.9",
+        "$ai_lib_version": "7.20.3",
+        "$ai_latency": 0,
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_span_name": "RunnableLambda",
+        "$ai_span_id": "feba905d-525f-70ee-c3c6-96c061dd662c",
+        "$ai_framework": "langchain",
+        "$ai_parent_id": "14032365-c14e-7880-6428-6736edb3cf8b",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$lib": "posthog-node",
+        "$groups": {},
+        "feature": "clarifier",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_input_state": {
+          "id": [
+            "langchain_core",
+            "messages",
+            "AIMessage"
+          ],
+          "kwargs": {
+            "additional_kwargs": {},
+            "content": "{\"queries\": []}",
+            "id": "chatcmpl-gEqkCDzoRWlspwycnSmkNvW5AWjcB",
+            "invalid_tool_calls": [],
+            "response_metadata": {
+              "finish_reason": "stop",
+              "model_name": "gpt-5-2025-08-07",
+              "model_provider": "openai",
+              "tokenUsage": {
+                "completionTokens": 17,
+                "promptTokens": 450,
+                "totalTokens": 467
+              }
+            },
+            "tool_calls": [],
+            "type": "ai",
+            "usage_metadata": {
+              "input_token_details": {
+                "audio": 0,
+                "cache_read": 0
+              },
+              "input_tokens": 450,
+              "output_token_details": {
+                "audio": 0,
+                "reasoning": 0
+              },
+              "output_tokens": 17,
+              "total_tokens": 467
+            }
+          },
+          "lc": 1,
+          "type": "constructor"
+        },
+        "$ai_output_state": {
+          "queries": []
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 904259,
+      "distinct_id": "user-14",
+      "properties": {
+        "$ai_trace_id": "b3c74681-faeb-7f5d-34f2-eb938f046255",
+        "$ai_span_id": "14032365-c14e-7880-6428-6736edb3cf8b",
+        "$ai_framework": "langchain",
+        "$process_person_profile": false,
+        "$ai_lib": "posthog-ai",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$groups": {},
+        "$ai_lib_version": "7.20.3",
+        "$ai_span_name": "RunnableSequence",
+        "$ai_parent_id": "b3c74681-faeb-7f5d-34f2-eb938f046255",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "feature": "clarifier",
+        "environment": "production",
+        "$lib": "posthog-node",
+        "$lib_version": "5.35.9",
+        "$geoip_disable": true,
+        "$ai_latency": 1.227,
+        "request_id": "review-gtCCX0g0iF",
+        "$ai_input_state": {
+          "id": [
+            "langchain_core",
+            "prompt_values",
+            "ChatPromptValue"
+          ],
+          "kwargs": {
+            "messages": [
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "SystemMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "You generate clarifying follow-up items for an in-progress recruiting\nconversation.\nRead the assistant's most recent draft reply and the surrounding thread\ncarefully.\nIdentify any fact the assistant assumed without confirmation from the\nrecruiter.\nFor each unconfirmed detail, write one short question a recruiter could\nanswer directly.\nAdd a one or two word reason: scheduling, compliance, accuracy, or tone.\nAdd a weight from 0 to 1 showing how urgent the detail is to resolve.\nOnly include genuinely unresolved details, never hypothetical edge cases.\nPrefer specific, answerable questions over vague or open-ended ones.\nIf every detail is already confirmed by the thread, return an empty list.\nDo not manufacture questions just to have something to return.\nLimit yourself to five items per pass, ordered from most to least\nurgent. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              },
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "HumanMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "draft:\n\"Checking calendars, will send times.\"\npanel:\nMarcus, Yuki\ncandidate:\nDana W.\nreq:\n4471 This was checked against the requisition record and the candidate's.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              }
+            ]
+          },
+          "lc": 1,
+          "type": "constructor"
+        },
+        "$ai_output_state": {
+          "queries": []
+        }
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 904259,
+      "distinct_id": "user-11",
+      "properties": {
+        "$geoip_disable": true,
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_span_name": "RunnableSequence",
+        "$lib_version": "5.35.9",
+        "$ai_lib_version": "7.20.3",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "feature": "clarifier",
+        "$ai_framework": "langchain",
+        "$ai_lib": "posthog-ai",
+        "$ai_trace_id": "b3c74681-faeb-7f5d-34f2-eb938f046255",
+        "request_id": "review-gtCCX0g0iF",
+        "environment": "production",
+        "$lib": "posthog-node",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_span_id": "b3c74681-faeb-7f5d-34f2-eb938f046255",
+        "$process_person_profile": false,
+        "$ai_latency": 1.228,
+        "$groups": {},
+        "$ai_input_state": {
+          "channel_id": "chan-a83f2",
+          "recent_message_history": "[{\"sender\": \"customer\", \"message\": \"Sounds good, thanks for the.\"}]"
+        },
+        "$ai_output_state": {
+          "queries": []
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 904798,
+      "distinct_id": "user-15",
+      "properties": {
+        "$groups": {},
+        "environment": "production",
+        "$ai_framework": "langchain",
+        "$ai_stop_reason": "stop",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "$ai_latency": 3.503,
+        "$process_person_profile": false,
+        "feature": "dialog-brvvejdX3",
+        "$ai_span_name": "generation",
+        "$ai_lib": "posthog-ai",
+        "$ai_model": "gpt-5",
+        "$ai_provider": "openai",
+        "$ai_span_id": "1a1108dc-ebb7-7e62-21a9-abe02629ddea",
+        "$ai_model_parameters": {
+          "max_completion_tokens": 2000,
+          "response_format": {
+            "json_schema": {
+              "name": "Payload",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "sentiment": {
+                    "enum": [
+                      "positive",
+                      "negative",
+                      "neutral"
+                    ],
+                    "title": "Payload",
+                    "type": "string"
+                  },
+                  "tags": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "description": {
+                          "title": "Payload",
+                          "type": "string"
+                        },
+                        "tag_id": {
+                          "title": "Payload",
+                          "type": "string"
+                        },
+                        "weight": {
+                          "title": "Payload",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "tag_id",
+                        "description",
+                        "weight"
+                      ],
+                      "title": "Payload",
+                      "type": "object"
+                    },
+                    "title": "Payload",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "tags",
+                  "sentiment"
+                ],
+                "title": "Payload",
+                "type": "object"
+              },
+              "strict": true
+            },
+            "type": "json_schema"
+          },
+          "stream": false
+        },
+        "$ai_parent_id": "6c8848ef-b5a1-7046-8583-f54533e5aa97",
+        "request_id": "req_4b7ffa2c91",
+        "$geoip_disable": true,
+        "$ai_lib_version": "7.20.3",
+        "$lib_version": "5.35.9",
+        "$ai_http_status": 200,
+        "$ai_input_tokens": 660,
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_reasoning_tokens": 192,
+        "$lib": "posthog-node",
+        "$ai_output_tokens": 391,
+        "$ai_trace_id": "94df7c6d-1fd7-7009-13db-148b0adc1b60",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_input": [
+          {
+            "content": "You classify the sentiment and topical tags of a recruiting\nconversation turn.\n\nSentiment must be exactly one of: positive, negative, neutral.\n\nScore every tag in the catalog below, even ones that clearly do not\napply. Give a tag a weight of 0 when it does not apply. Give a tag a\nweight above 0 only when the turn clearly matches it.\n\nTag catalog:\n- BILLING_*: about pay, invoices, or ATS licensing cost.\n- SPAM_*: unrelated to recruiting or looks automated.\n- GENERAL_*: routine status update, no action needed.\n- FEEDBACK_*: rating the assistant or the hiring process.\n- DUPLICATE_*: same request already earlier in the thread.\n- HANDOFF_*: a human recruiter must step in first.\n- TOPIC_*: really about moving a candidate through the pipeline.\n\nAlways include a short description explaining why each weight was\nchosen. Return every tag from the catalog exactly once, in the order\nlisted above, and choose the single best-fitting sentiment. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.",
+            "role": "system"
+          },
+          {
+            "content": "Turn to classify:\n\nRecruiter: asked to schedule a 45-minute technical interview with\nMarcus and Yuki for Dana Whitfield (REQ-4471) sometime next week.\n\nAssistant: confirmed the screening result and said it would check panel\ncalendars before sending time options.\n\nThread length: 2 messages\nRequisition: REQ-4471\nStage: interview scheduling",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "{\"tags\": [{\"tag_id\": \"BILLING_9dK2dw2b\", \"description\": \"Message concerns invoicing or ATS license cost.\", \"weight\": 0}, {\"tag_id\": \"SPAM_7xNq\", \"description\": \"Message looks automated or unrelated to hiring.\", \"weight\": 0}, {\"tag_id\": \"GENERAL_4mZ8vCwPq1\", \"description\": \"Routine status update needing no action.\", \"weight\": 0}, {\"tag_id\": \"FEEDBACK_1pQ9sVxR7mNb\", \"description\": \"Someone is rating the assistant.\", \"weight\": 0}, {\"tag_id\": \"DUPLICATE_5tY3nBmKz\", \"description\": \"Same scheduling request already appears earlier in this same thread.\", \"weight\": 0}, {\"tag_id\": \"HANDOFF_EP6c94Hw\", \"description\": \"A human recruiter needs to step in before the panel interview can actually be confirmed on the calendar.\", \"weight\": 0.255589}, {\"tag_id\": \"TOPIC_2SUBkze5upvvwJ\", \"description\": \"The turn is really about moving Dana Whitfield through the pipeline.\", \"weight\": 1.081386}], \"sentiment\": \"neutral\"}",
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 904799,
+      "distinct_id": "user-16",
+      "properties": {
+        "request_id": "req_4b7ffa2c91",
+        "$lib": "posthog-node",
+        "$geoip_disable": true,
+        "$ai_span_id": "b155078b-0c21-75a2-c4f3-6f8964a15bf5",
+        "$groups": {},
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_parent_id": "31adc194-189d-7b20-b63d-5bf7a09b7432",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "feature": "dialog-brvvejdX3",
+        "$process_person_profile": false,
+        "$lib_version": "5.35.9",
+        "$ai_lib": "posthog-ai",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_latency": 0,
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "environment": "production",
+        "$ai_lib_version": "7.20.3",
+        "$ai_framework": "langchain",
+        "$ai_span_name": "StructuredOutputParser",
+        "$ai_trace_id": "94df7c6d-1fd7-7009-13db-148b0adc1b60",
+        "$ai_input_state": {
+          "id": [
+            "langchain_core",
+            "messages",
+            "AIMessage"
+          ],
+          "kwargs": {
+            "additional_kwargs": {},
+            "content": "{\"tags\": [{\"tag_id\": \"BILLING_9dK2dw2b\", \"description\": \"Message concerns invoicing or ATS license cost.\", \"weight\": 0}, {\"tag_id\": \"SPAM_7xNq\", \"description\": \"Message looks automated or unrelated to hiring.\", \"weight\": 0}, {\"tag_id\": \"GENERAL_4mZ8vCwPq1\", \"description\": \"Routine status update needing no action.\", \"weight\": 0}, {\"tag_id\": \"FEEDBACK_1pQ9sVxR7mNb\", \"description\": \"Someone is rating the assistant.\", \"weight\": 0}, {\"tag_id\": \"DUPLICATE_5tY3nBmKz\", \"description\": \"Same scheduling request already appears earlier in this same thread.\", \"weight\": 0}, {\"tag_id\": \"HANDOFF_EP6c94Hw\", \"description\": \"A human recruiter needs to step in before the panel interview can actually be confirmed on the calendar.\", \"weight\": 0.255589}, {\"tag_id\": \"TOPIC_2SUBkze5upvvwJ\", \"description\": \"The turn is really about moving Dana Whitfield through the pipeline.\", \"weight\": 1.081386}], \"sentiment\": \"neutral\"}",
+            "id": "chatcmpl-AsdSWASrFjyOHOBrp0OibRU2XkbYu",
+            "invalid_tool_calls": [],
+            "response_metadata": {
+              "finish_reason": "stop",
+              "model_name": "gpt-5-2025-08-07",
+              "model_provider": "openai",
+              "tokenUsage": {
+                "completionTokens": 391,
+                "promptTokens": 660,
+                "totalTokens": 1051
+              }
+            },
+            "tool_calls": [],
+            "type": "ai",
+            "usage_metadata": {
+              "input_token_details": {
+                "audio": 0,
+                "cache_read": 0
+              },
+              "input_tokens": 660,
+              "output_token_details": {
+                "audio": 0,
+                "reasoning": 216
+              },
+              "output_tokens": 391,
+              "total_tokens": 1051
+            }
+          },
+          "lc": 1,
+          "type": "constructor"
+        },
+        "$ai_output_state": {
+          "sentiment": "neutral",
+          "tags": [
+            {
+              "description": "Message concerns invoicing or ATS license cost.",
+              "tag_id": "BILLING_9dK2dw2b",
+              "weight": 0
+            },
+            {
+              "description": "Message looks automated or unrelated to hiring.",
+              "tag_id": "SPAM_7xNq",
+              "weight": 0
+            },
+            {
+              "description": "Routine status update needing no action.",
+              "tag_id": "GENERAL_4mZ8vCwPq1",
+              "weight": 0
+            },
+            {
+              "description": "Someone is rating the assistant.",
+              "tag_id": "FEEDBACK_1pQ9sVxR7mNb",
+              "weight": 0
+            },
+            {
+              "description": "Same scheduling request already appears earlier in this same thread.",
+              "tag_id": "DUPLICATE_5tY3nBmKz",
+              "weight": 0
+            },
+            {
+              "description": "A human recruiter needs to step in before the panel interview can actually be confirmed on the calendar.",
+              "tag_id": "HANDOFF_EP6c94Hw",
+              "weight": 0.255589
+            },
+            {
+              "description": "The turn is really about moving Dana Whitfield through the pipeline.",
+              "tag_id": "TOPIC_2SUBkze5upvvwJ",
+              "weight": 1.081386
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 904799,
+      "distinct_id": "user-17",
+      "properties": {
+        "$geoip_disable": true,
+        "$ai_framework": "langchain",
+        "$ai_latency": 0.001,
+        "$lib_version": "5.35.9",
+        "$lib": "posthog-node",
+        "$ai_trace_id": "94df7c6d-1fd7-7009-13db-148b0adc1b60",
+        "$ai_span_id": "31adc194-189d-7b20-b63d-5bf7a09b7432",
+        "$ai_parent_id": "6c8848ef-b5a1-7046-8583-f54533e5aa97",
+        "request_id": "req_4b7ffa2c91",
+        "$ai_span_name": "RunnableLambda",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "environment": "production",
+        "$ai_lib": "posthog-ai",
+        "feature": "dialog-brvvejdX3",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$process_person_profile": false,
+        "$groups": {},
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_lib_version": "7.20.3",
+        "$ai_input_state": {
+          "id": [
+            "langchain_core",
+            "messages",
+            "AIMessage"
+          ],
+          "kwargs": {
+            "additional_kwargs": {},
+            "content": "{\"tags\": [{\"tag_id\": \"BILLING_9dK2dw2b\", \"description\": \"Message concerns invoicing or ATS license cost.\", \"weight\": 0}, {\"tag_id\": \"SPAM_7xNq\", \"description\": \"Message looks automated or unrelated to hiring.\", \"weight\": 0}, {\"tag_id\": \"GENERAL_4mZ8vCwPq1\", \"description\": \"Routine status update needing no action.\", \"weight\": 0}, {\"tag_id\": \"FEEDBACK_1pQ9sVxR7mNb\", \"description\": \"Someone is rating the assistant.\", \"weight\": 0}, {\"tag_id\": \"DUPLICATE_5tY3nBmKz\", \"description\": \"Same scheduling request already appears earlier in this same thread.\", \"weight\": 0}, {\"tag_id\": \"HANDOFF_EP6c94Hw\", \"description\": \"A human recruiter needs to step in before the panel interview can actually be confirmed on the calendar.\", \"weight\": 0.255589}, {\"tag_id\": \"TOPIC_2SUBkze5upvvwJ\", \"description\": \"The turn is really about moving Dana Whitfield through the pipeline.\", \"weight\": 1.081386}], \"sentiment\": \"neutral\"}",
+            "id": "chatcmpl-AsdSWASrFjyOHOBrp0OibRU2XkbYu",
+            "invalid_tool_calls": [],
+            "response_metadata": {
+              "finish_reason": "stop",
+              "model_name": "gpt-5-2025-08-07",
+              "model_provider": "openai",
+              "tokenUsage": {
+                "completionTokens": 391,
+                "promptTokens": 660,
+                "totalTokens": 1051
+              }
+            },
+            "tool_calls": [],
+            "type": "ai",
+            "usage_metadata": {
+              "input_token_details": {
+                "audio": 0,
+                "cache_read": 0
+              },
+              "input_tokens": 660,
+              "output_token_details": {
+                "audio": 0,
+                "reasoning": 216
+              },
+              "output_tokens": 391,
+              "total_tokens": 1051
+            }
+          },
+          "lc": 1,
+          "type": "constructor"
+        },
+        "$ai_output_state": {
+          "sentiment": "neutral",
+          "tags": [
+            {
+              "description": "Message concerns invoicing or ATS license cost.",
+              "tag_id": "BILLING_9dK2dw2b",
+              "weight": 0
+            },
+            {
+              "description": "Message looks automated or unrelated to hiring.",
+              "tag_id": "SPAM_7xNq",
+              "weight": 0
+            },
+            {
+              "description": "Routine status update needing no action.",
+              "tag_id": "GENERAL_4mZ8vCwPq1",
+              "weight": 0
+            },
+            {
+              "description": "Someone is rating the assistant.",
+              "tag_id": "FEEDBACK_1pQ9sVxR7mNb",
+              "weight": 0
+            },
+            {
+              "description": "Same scheduling request already appears earlier in this same thread.",
+              "tag_id": "DUPLICATE_5tY3nBmKz",
+              "weight": 0
+            },
+            {
+              "description": "A human recruiter needs to step in before the panel interview can actually be confirmed on the calendar.",
+              "tag_id": "HANDOFF_EP6c94Hw",
+              "weight": 0.255589
+            },
+            {
+              "description": "The turn is really about moving Dana Whitfield through the pipeline.",
+              "tag_id": "TOPIC_2SUBkze5upvvwJ",
+              "weight": 1.081386
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 904799,
+      "distinct_id": "user-18",
+      "properties": {
+        "$ai_parent_id": "94df7c6d-1fd7-7009-13db-148b0adc1b60",
+        "request_id": "req_4b7ffa2c91",
+        "$lib_version": "5.35.9",
+        "$process_person_profile": false,
+        "feature": "dialog-brvvejdX3",
+        "$ai_lib_version": "7.20.3",
+        "$ai_span_name": "RunnableSequence",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "environment": "production",
+        "$lib": "posthog-node",
+        "$geoip_disable": true,
+        "$groups": {},
+        "$ai_trace_id": "94df7c6d-1fd7-7009-13db-148b0adc1b60",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$ai_lib": "posthog-ai",
+        "$ai_latency": 3.505,
+        "$ai_span_id": "6c8848ef-b5a1-7046-8583-f54533e5aa97",
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "$ai_framework": "langchain",
+        "$ai_input_state": {
+          "id": [
+            "langchain_core",
+            "prompt_values",
+            "ChatPromptValue"
+          ],
+          "kwargs": {
+            "messages": [
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "SystemMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "You classify the sentiment and topical tags of a recruiting\nconversation turn.\n\nSentiment must be exactly one of: positive, negative, neutral.\n\nScore every tag in the catalog below, even ones that clearly do not\napply. Give a tag a weight of 0 when it does not apply. Give a tag a\nweight above 0 only when the turn clearly matches it.\n\nTag catalog:\n- BILLING_*: about pay, invoices, or ATS licensing cost.\n- SPAM_*: unrelated to recruiting or looks automated.\n- GENERAL_*: routine status update, no action needed.\n- FEEDBACK_*: rating the assistant or the hiring process.\n- DUPLICATE_*: same request already earlier in the thread.\n- HANDOFF_*: a human recruiter must step in first.\n- TOPIC_*: really about moving a candidate through the pipeline.\n\nAlways include a short description explaining why each weight was\nchosen. Return every tag from the catalog exactly once, in the order\nlisted above, and choose the single best-fitting sentiment. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly. This was checked against the requisition record and the candidate's submitted materials directly.",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              },
+              {
+                "id": [
+                  "langchain_core",
+                  "messages",
+                  "HumanMessage"
+                ],
+                "kwargs": {
+                  "additional_kwargs": {},
+                  "content": "Turn to classify:\n\nRecruiter: asked to schedule a 45-minute technical interview with\nMarcus and Yuki for Dana Whitfield (REQ-4471) sometime next week.\n\nAssistant: confirmed the screening result and said it would check panel\ncalendars before sending time options.\n\nThread length: 2 messages\nRequisition: REQ-4471\nStage: interview scheduling",
+                  "response_metadata": {}
+                },
+                "lc": 1,
+                "type": "constructor"
+              }
+            ]
+          },
+          "lc": 1,
+          "type": "constructor"
+        },
+        "$ai_output_state": {
+          "sentiment": "neutral",
+          "tags": [
+            {
+              "description": "Message concerns invoicing or ATS license cost.",
+              "tag_id": "BILLING_9dK2dw2b",
+              "weight": 0
+            },
+            {
+              "description": "Message looks automated or unrelated to hiring.",
+              "tag_id": "SPAM_7xNq",
+              "weight": 0
+            },
+            {
+              "description": "Routine status update needing no action.",
+              "tag_id": "GENERAL_4mZ8vCwPq1",
+              "weight": 0
+            },
+            {
+              "description": "Someone is rating the assistant.",
+              "tag_id": "FEEDBACK_1pQ9sVxR7mNb",
+              "weight": 0
+            },
+            {
+              "description": "Same scheduling request already appears earlier in this same thread.",
+              "tag_id": "DUPLICATE_5tY3nBmKz",
+              "weight": 0
+            },
+            {
+              "description": "A human recruiter needs to step in before the panel interview can actually be confirmed on the calendar.",
+              "tag_id": "HANDOFF_EP6c94Hw",
+              "weight": 0.255589
+            },
+            {
+              "description": "The turn is really about moving Dana Whitfield through the pipeline.",
+              "tag_id": "TOPIC_2SUBkze5upvvwJ",
+              "weight": 1.081386
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 904799,
+      "distinct_id": "user-15",
+      "properties": {
+        "$ai_trace_id": "94df7c6d-1fd7-7009-13db-148b0adc1b60",
+        "conversation_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "environment": "production",
+        "$ai_lib_version": "7.20.3",
+        "$lib_version": "5.35.9",
+        "request_id": "req_4b7ffa2c91",
+        "$lib": "posthog-node",
+        "$geoip_disable": true,
+        "$ai_span_name": "RunnableSequence",
+        "$ai_framework": "langchain",
+        "thread_id": "8c67f399-7ca6-7f1a-7fcb-64ed600ed6f6",
+        "$ai_lib": "posthog-ai",
+        "$ai_latency": 3.505,
+        "$ai_session_id": "66400ce2-e8c1-76cc-ea62-7aeb1f97d681",
+        "$groups": {},
+        "message_id": "b16fb97f-a966-794e-8e99-5e6d406ae13b",
+        "$process_person_profile": false,
+        "feature": "dialog-brvvejdX3",
+        "$ai_span_id": "94df7c6d-1fd7-7009-13db-148b0adc1b60",
+        "$ai_input_state": {
+          "directive": "Given the screening result, decide whether to move Dana Whitfield toward interview scheduling or ask the recruiter for more information before doing anything else.",
+          "user_query": "Hey Aria, quick one -\n\nDana Whitfield's screening for REQ-4471 came back clean, no flags.\n\nCan you get a 45-minute technical interview on the calendar with the\npanel (Marcus + Yuki) sometime next week? Send me a couple of time\noptions once you've checked their calendars.\n\nThanks!"
+        },
+        "$ai_output_state": {
+          "sentiment": "neutral",
+          "tags": [
+            {
+              "description": "Message concerns invoicing or ATS license cost.",
+              "tag_id": "BILLING_9dK2dw2b",
+              "weight": 0
+            },
+            {
+              "description": "Message looks automated or unrelated to hiring.",
+              "tag_id": "SPAM_7xNq",
+              "weight": 0
+            },
+            {
+              "description": "Routine status update needing no action.",
+              "tag_id": "GENERAL_4mZ8vCwPq1",
+              "weight": 0
+            },
+            {
+              "description": "Someone is rating the assistant.",
+              "tag_id": "FEEDBACK_1pQ9sVxR7mNb",
+              "weight": 0
+            },
+            {
+              "description": "Same scheduling request already appears earlier in this same thread.",
+              "tag_id": "DUPLICATE_5tY3nBmKz",
+              "weight": 0
+            },
+            {
+              "description": "A human recruiter needs to step in before the panel interview can actually be confirmed on the calendar.",
+              "tag_id": "HANDOFF_EP6c94Hw",
+              "weight": 0.255589
+            },
+            {
+              "description": "The turn is really about moving Dana Whitfield through the pipeline.",
+              "tag_id": "TOPIC_2SUBkze5upvvwJ",
+              "weight": 1.081386
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "sets": [
+    "core"
+  ],
+  "why": "LangChain callbacks: a 5-trace multi-turn session with nested spans"
+}

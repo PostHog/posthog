@@ -1,5 +1,4 @@
 import threading
-from collections import deque
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -10,19 +9,21 @@ from unittest.mock import MagicMock, Mock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.metronome import (
     EPOCH_RFC_3339,
-    USAGE_CUSTOMER_CONCURRENCY,
     MetronomeCursorPaginator,
     MetronomeResumeConfig,
     MetronomeWalkStart,
     _clamp_window_start,
-    _fill_in_flight,
     _format_rfc3339,
-    _paginator_for,
     _parallel_usage_pages,
     _usage_rows_for_customer,
     _WalkCancelled,
@@ -31,9 +32,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import (
+    INVOICE_BREAKDOWNS_LOOKBACK_SECONDS,
     METRONOME_ENDPOINTS,
     USAGE_DAILY_LOOKBACK_SECONDS,
     USAGE_HOURLY_LOOKBACK_SECONDS,
+    usage_history_window,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.source import MetronomeSource
 
@@ -41,6 +44,11 @@ TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.me
 
 # The instant every resolved window in these tests is measured against.
 NOW = datetime(2026, 9, 3, 12, 34, 56, tzinfo=UTC)
+
+
+def _driver(**config_values: Any) -> SourceDriver:
+    source = MetronomeSource()
+    return SourceDriver(source, source.parse_config({"api_key": "tok", **config_values}))
 
 
 def _response(body: dict[str, Any]) -> Mock:
@@ -56,19 +64,6 @@ def _request(params: dict[str, Any] | None = None) -> Mock:
 
 
 class TestMetronomePaginator:
-    def test_follows_next_page_and_stops_when_it_goes_null(self) -> None:
-        paginator = MetronomeCursorPaginator()
-        request = _request()
-
-        paginator.update_state(_response({"data": [{"id": "a"}], "next_page": "cursor-2"}), data=[{"id": "a"}])
-        assert paginator.has_next_page is True
-        paginator.update_request(request)
-        assert request.params["next_page"] == "cursor-2"
-
-        # Metronome sends an explicit null once the collection is exhausted.
-        paginator.update_state(_response({"data": [{"id": "b"}], "next_page": None}), data=[{"id": "b"}])
-        assert paginator.has_next_page is False
-
     def test_stops_on_an_empty_page_that_still_carries_a_cursor(self) -> None:
         # `GET /v1/auditLogs` always returns a cursor, so a cursor-only stop condition would loop
         # forever once the account has no newer entries.
@@ -103,10 +98,6 @@ class TestMetronomePaginator:
 
         assert request.params == {"next_page": "cursor-9"}
 
-    def test_contracts_endpoint_is_not_paginated(self) -> None:
-        # `POST /v2/contracts/list` returns every contract for the customer in one response.
-        assert isinstance(_paginator_for(METRONOME_ENDPOINTS["contracts"]), SinglePagePaginator)
-
 
 class TestMetronomeResources:
     @parameterized.expand(
@@ -127,13 +118,6 @@ class TestMetronomeResources:
         assert incremental["start_param"] == "starting_on"
         assert incremental["cursor_path"] == "timestamp"
         assert incremental["convert"] is _format_rfc3339
-
-    def test_audit_logs_full_refresh_sends_no_window(self) -> None:
-        resource = cast(dict[str, Any], get_resource("audit_logs", should_use_incremental_field=False))
-
-        assert resource["write_disposition"] == "replace"
-        assert "incremental" not in resource["endpoint"]
-        assert "starting_on" not in resource["endpoint"]["params"]
 
     @parameterized.expand([("customers",), ("products",), ("packages",), ("billable_metrics",), ("plans",), ("usage",)])
     def test_endpoints_without_a_time_filter_never_go_incremental(self, endpoint) -> None:
@@ -229,26 +213,16 @@ class TestMetronomeResources:
         with pytest.raises(ValueError, match="needs a resolved"):
             get_resource(endpoint, should_use_incremental_field=True)
 
-    def test_usage_resource_sends_the_full_window_in_the_body(self) -> None:
-        # `POST /v1/usage` rejects the request unless the body carries `window_size`, `starting_on`
-        # and `ending_before`. `ending_before` is the sync time, so it can't be a static default.
-        resource = cast(dict[str, Any], get_resource("usage", should_use_incremental_field=False))
-
-        assert resource["endpoint"]["method"] == "post"
-        body = resource["endpoint"]["json"]
-        assert body["window_size"] == "NONE"
-        assert body["starting_on"] == EPOCH_RFC_3339
-        assert body["ending_before"] > EPOCH_RFC_3339
-        assert body["ending_before"].endswith("T00:00:00Z")
-
 
 class _FakeUsageClient:
     """Stands in for a `RESTClient`: one customer list, then one usage walk per customer."""
 
-    def __init__(self, customer_pages, rows_by_customer, page_cursors=()) -> None:
+    def __init__(self, customer_pages, rows_by_customer, page_cursors=(), gates=None) -> None:
         self.customer_pages = customer_pages
         self.rows_by_customer = rows_by_customer
         self.page_cursors = list(page_cursors)
+        # A customer listed here answers only once its event is set.
+        self.gates: dict[str, threading.Event] = gates or {}
         self.usage_bodies: list[dict[str, Any]] = []
 
     def paginate(self, path, **kwargs):
@@ -263,7 +237,10 @@ class _FakeUsageClient:
             return
         body = kwargs["json"]
         self.usage_bodies.append(body)
-        yield self.rows_by_customer[body["customer_ids"][0]]
+        customer_id = body["customer_ids"][0]
+        if customer_id in self.gates:
+            self.gates[customer_id].wait(timeout=10)
+        yield self.rows_by_customer[customer_id]
 
 
 class _FakeClients:
@@ -286,52 +263,109 @@ class TestMetronomeParallelUsage:
             )
         )
 
-    def test_each_customer_is_asked_for_on_its_own(self) -> None:
-        # The partition is the whole point: without `customer_ids` every walk would re-read the
-        # entire account, and there would be nothing independent to run in parallel.
-        client = _FakeUsageClient([[{"id": "c1"}, {"id": "c2"}]], {"c1": [{"value": 1}], "c2": [{"value": 2}]})
+    def _walk_events(self, client, events: list[str], safe_point=None):
+        def stage(cursor, completed) -> None:
+            events.append(f"stage:{','.join(sorted(completed))}")
 
-        self._run(client, MetronomeWalkStart())
+        def reach_safe_point() -> None:
+            events.append("safe_point")
+            if safe_point is not None:
+                safe_point()
 
-        assert [body["customer_ids"] for body in client.usage_bodies] == [["c1"], ["c2"]]
-        # The pinned window rides every partitioned request, not just the first.
-        assert {body["window_size"] for body in client.usage_bodies} == {"DAY"}
-
-    def test_the_usage_amount_is_still_floated(self) -> None:
-        # This path builds its own requests, so the resource's `data_map` never runs on it. Losing
-        # the cast here would put an integer column back and fail the sync on the first fraction.
-        client = _FakeUsageClient([[{"id": "c1"}]], {"c1": [{"value": 7}, {"value": None}]})
-
-        batches = self._run(client, MetronomeWalkStart())
-
-        assert isinstance(batches[0][0]["value"], float)
-        assert batches[0][1]["value"] is None
-
-    def test_a_batch_is_checkpointed_only_once_it_has_been_yielded(self) -> None:
-        # The recorded set may only move over customers whose rows reached Delta. Committing while
-        # a batch is still being built would let a worker rotation resume past rows never written.
-        events: list[str] = []
-        client = _FakeUsageClient([[{"id": "c1"}]], {"c1": [{"value": 1}]})
-
-        for batch in _parallel_usage_pages(
+        return _parallel_usage_pages(
             cast(Any, _FakeClients(client)),
-            METRONOME_ENDPOINTS["usage_daily"],
-            {"window_size": "DAY"},
+            METRONOME_ENDPOINTS["usage"],
+            {"window_size": "NONE"},
             MetronomeWalkStart(),
-            lambda cursor, completed: events.append(f"commit-{sorted(completed)}") if completed else None,
-        ):
-            events.append(f"flush-{len(batch)}")
+            stage,
+            reach_safe_point,
+        )
 
-        assert events == ["flush-1", "commit-['c1']"]
-
-    def test_a_resumed_walk_skips_the_customers_already_written(self) -> None:
-        # Re-walking a finished customer duplicates its rows on a table that appends when it
-        # resumes, which is what a full refresh does.
+    def test_a_hand_off_after_the_first_batch_keeps_its_checkpoint(self) -> None:
+        # The pipeline commits what is staged when it has written a batch, and it can then end the
+        # attempt at once. A checkpoint staged after the yield is never committed on that path, so
+        # every attempt of a slow walk starts again at the first customer.
+        staged: list[tuple[Any, tuple[str, ...]]] = []
+        committed: list[tuple[Any, tuple[str, ...]]] = []
         client = _FakeUsageClient([[{"id": "c1"}, {"id": "c2"}]], {"c1": [{"value": 1}], "c2": [{"value": 2}]})
 
-        self._run(client, MetronomeWalkStart(completed_customers=("c1",)))
+        with patch(f"{TRANSPORT}.USAGE_COALESCE_ROWS", 1):
+            walk = _parallel_usage_pages(
+                cast(Any, _FakeClients(client)),
+                METRONOME_ENDPOINTS["usage"],
+                {"window_size": "NONE"},
+                MetronomeWalkStart(),
+                lambda cursor, completed: staged.append((cursor, completed)),
+            )
+            first_batch = next(walk)
+            committed.extend(staged[-1:])
+            walk.close()
 
-        assert [body["customer_ids"] for body in client.usage_bodies] == [["c2"]]
+        assert first_batch == [{"value": 1.0}]
+        assert committed == [(None, ("c1",))]
+
+    @parameterized.expand(
+        [
+            # A checkpoint is staged only when every row it covers is yielded or about to be.
+            (
+                "rows_then_none",
+                {"c1": [{"value": 1}], "c2": []},
+                ["safe_point", "safe_point", "stage:c1,c2", "yield:1"],
+            ),
+            # A customer with no usage never reaches a yield, so it advances at a safe point.
+            ("none_then_none", {"c1": [], "c2": []}, ["stage:c1", "safe_point", "stage:c1,c2", "safe_point"]),
+            (
+                "none_then_rows",
+                {"c1": [], "c2": [{"value": 2}]},
+                ["stage:c1", "safe_point", "safe_point", "stage:c1,c2", "yield:1"],
+            ),
+        ]
+    )
+    def test_customers_with_no_usage_advance_the_checkpoint(self, _name, rows_by_customer, expected) -> None:
+        events: list[str] = []
+        client = _FakeUsageClient([[{"id": "c1"}, {"id": "c2"}]], rows_by_customer)
+
+        for batch in self._walk_events(client, events):
+            events.append(f"yield:{len(batch)}")
+
+        assert events == expected
+
+    @parameterized.expand(
+        [
+            # The shutdown is seen when a customer finishes.
+            ("after_a_customer", 1, {}),
+            # The shutdown is seen while the next customer is still being walked.
+            ("during_a_slow_customer", 2, {"c2": threading.Event()}),
+        ]
+    )
+    def test_a_shutdown_hands_over_the_finished_customers(self, _name, shutdown_on_call, gates) -> None:
+        events: list[str] = []
+        calls = 0
+
+        def safe_point() -> None:
+            nonlocal calls
+            calls += 1
+            if calls >= shutdown_on_call:
+                raise WorkerShuttingDownError("id", "type", "queue", 1, None, None)
+
+        client = _FakeUsageClient(
+            [[{"id": "c1"}, {"id": "c2"}]], {"c1": [{"value": 1}], "c2": [{"value": 2}]}, gates=gates
+        )
+
+        try:
+            with (
+                patch(f"{TRANSPORT}.USAGE_SHUTDOWN_POLL_SECONDS", 0.01),
+                patch(f"{TRANSPORT}.USAGE_CUSTOMER_CONCURRENCY", 1),
+                pytest.raises(WorkerShuttingDownError),
+            ):
+                for batch in self._walk_events(client, events, safe_point):
+                    events.append(f"yield:{len(batch)}")
+        finally:
+            for gate in gates.values():
+                gate.set()
+
+        assert events[-2:] == ["stage:c1", "yield:1"]
+        assert "stage:c1,c2" not in events
 
     def test_the_second_page_checkpoints_the_cursor_that_fetched_it(self) -> None:
         # `RESTClient.paginate` advances a deep copy of the paginator, so reading the cursor off the
@@ -346,18 +380,6 @@ class TestMetronomeParallelUsage:
         self._run(client, MetronomeWalkStart(), commit=lambda cursor, done: commits.append((cursor, done)))
 
         assert commits == [(None, ("c1",)), ("cursor-page-2", ("c2",))]
-
-    def test_only_as_many_walks_are_submitted_as_there_are_workers(self) -> None:
-        # Submitting a whole page at once leaves every finished customer's rows in memory behind a
-        # slow one, which is how a batch gets past the row cap.
-        submitted: list[str] = []
-        todo = deque(["c1", "c2", "c3", "c4", "c5", "c6"])
-        in_flight: deque[Any] = deque()
-
-        _fill_in_flight(lambda customer_id: cast(Any, submitted.append(customer_id)), todo, in_flight)
-
-        assert len(submitted) == USAGE_CUSTOMER_CONCURRENCY
-        assert len(todo) == 6 - USAGE_CUSTOMER_CONCURRENCY
 
     @parameterized.expand([("null", None), ("empty", "")])
     def test_a_customer_with_no_id_fails_the_walk(self, _name, bad_id) -> None:
@@ -433,11 +455,11 @@ class TestMetronomeSourceResponse:
                 "2026-03-14T00:00:00Z",
             ),
             (
-                "a_first_sync_starts_where_the_schema_recorded_its_range",
+                "a_first_sync_reaches_back_by_the_configured_depth",
                 "usage_daily",
                 None,
-                datetime(2025, 12, 1, 6, 30, tzinfo=UTC),
-                "2025-12-01T00:00:00Z",
+                timedelta(days=90),
+                "2026-06-05T00:00:00Z",
             ),
             (
                 "an_unrecorded_first_sync_falls_back_to_the_daily_bound",
@@ -465,7 +487,7 @@ class TestMetronomeSourceResponse:
     )
     @patch(f"{TRANSPORT}._parallel_usage_pages")
     def test_bucketed_usage_window_starts_where_the_table_left_off(
-        self, _name, endpoint, watermark, history_start, expected_start, mock_parallel
+        self, _name, endpoint, watermark, usage_history, expected_start, mock_parallel
     ) -> None:
         # An unaligned lower bound asks Metronome for part of a period the table already holds, and
         # the partial aggregate that comes back upserts as a second row, because the period start
@@ -478,41 +500,21 @@ class TestMetronomeSourceResponse:
                 job_id="job-1",
                 should_use_incremental_field=watermark is not None,
                 db_incremental_field_last_value=watermark,
-                history_start=history_start,
+                usage_history=usage_history,
             ).items()
 
         body = mock_parallel.call_args.args[2]
         assert body["starting_on"] == expected_start
 
-    @patch(f"{TRANSPORT}._parallel_usage_pages")
-    def test_resumed_bucketed_run_replays_the_stored_lower_bound(self, mock_parallel) -> None:
-        # Resolving the bound again on a resumed attempt would move it forward, against a cursor
-        # that belongs to the window the walk started with.
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = MetronomeResumeConfig(
-            next_page="cursor-9", ending_before="2026-06-01T00:00:00Z", starting_on="2026-05-01T00:00:00Z"
+    def test_resume_state_seeds_the_paginator_cursor(self) -> None:
+        result = _driver().run(
+            "customers",
+            [ScriptedResponse(json={"data": [{"id": "cust_1"}]})],
+            resume_state=MetronomeResumeConfig(next_page="cursor-9"),
         )
 
-        metronome_source(
-            api_key="tok", endpoint="usage_daily", team_id=1, job_id="job-1", resumable_source_manager=manager
-        ).items()
-
-        body = mock_parallel.call_args.args[2]
-        assert body["starting_on"] == "2026-05-01T00:00:00Z"
-        assert body["ending_before"] == "2026-06-01T00:00:00Z"
-
-    @patch(f"{TRANSPORT}.rest_api_resource")
-    def test_resume_state_seeds_the_paginator_cursor(self, mock_rest_api_resource) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = MetronomeResumeConfig(next_page="cursor-9")
-
-        metronome_source(
-            api_key="tok", endpoint="customers", team_id=1, job_id="job-1", resumable_source_manager=manager
-        )
-
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"cursor": "cursor-9"}
+        assert result.raised is None
+        assert result.params("next_page") == ["cursor-9"]
 
     @parameterized.expand(
         [
@@ -531,7 +533,6 @@ class TestMetronomeSourceResponse:
             ("pre_window_checkpoint", MetronomeResumeConfig(parent_cursor="cursor-9"), None, None, True),
         ]
     )
-    @patch(f"{TRANSPORT}._parallel_usage_pages")
     def test_resumed_usage_run_pins_the_window(
         self,
         _name,
@@ -539,47 +540,61 @@ class TestMetronomeSourceResponse:
         expected_window,
         expected_parent_cursor,
         expect_state_cleared,
-        mock_parallel,
     ) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = resume_state
+        result = _driver().run(
+            "usage",
+            [
+                ScriptedResponse(json={"data": [{"id": "c1"}]}),
+                ScriptedResponse(json={"data": [{"value": 1}]}),
+            ],
+            resume_state=resume_state,
+        )
 
-        metronome_source(
-            api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager
-        ).items()
-
-        body = mock_parallel.call_args.args[2]
+        assert result.raised is None
+        body = result.requests[1].json()
         if expected_window is not None:
             assert body["ending_before"] == expected_window
         else:
             assert body["ending_before"] > EPOCH_RFC_3339
-        assert mock_parallel.call_args.args[3].parent_cursor == expected_parent_cursor
-        assert manager.clear_state.called == expect_state_cleared
+        assert result.requests[0].param("next_page") == expected_parent_cursor
+        if expect_state_cleared:
+            empty_result = _driver().run(
+                "usage",
+                [ScriptedResponse(json={"data": []})],
+                resume_state=resume_state,
+            )
+            assert empty_result.raised is None
+            assert empty_result.final_state is None
+        else:
+            assert result.final_state is not None
 
-    @patch(f"{TRANSPORT}._parallel_usage_pages")
-    def test_usage_checkpoint_saves_the_window_it_synced_with(self, mock_parallel) -> None:
+    def test_usage_checkpoint_saves_the_window_it_synced_with(self) -> None:
         # The cutoff written into the request body and the cutoff saved for a resume must be the
         # same instant, or a retry can't replay the identical window.
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        result = _driver().run(
+            "usage",
+            [
+                ScriptedResponse(json={"data": [{"id": "c1"}]}),
+                ScriptedResponse(json={"data": [{"value": 1}]}),
+            ],
+            resume_state=MetronomeResumeConfig(
+                parent_cursor="cursor-3",
+                ending_before="2026-09-04T00:00:00Z",
+                starting_on=EPOCH_RFC_3339,
+            ),
+        )
 
-        metronome_source(
-            api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager
-        ).items()
-
-        synced_body = mock_parallel.call_args.args[2]
-        commit_checkpoint = mock_parallel.call_args.args[4]
-        commit_checkpoint("cursor-3", ("c1",))
-
-        manager.save_state.assert_called_once_with(
+        assert result.raised is None
+        assert result.requests[0].param("next_page") == "cursor-3"
+        synced_body = result.requests[1].json()
+        assert result.saved_states == [
             MetronomeResumeConfig(
                 ending_before=synced_body["ending_before"],
                 starting_on=synced_body["starting_on"],
                 parent_cursor="cursor-3",
                 completed_customers=("c1",),
             )
-        )
+        ]
 
     @patch(f"{TRANSPORT}._parallel_usage_pages")
     def test_a_finished_customer_list_checkpoints_nothing(self, mock_parallel) -> None:
@@ -652,6 +667,157 @@ class TestMetronomeBodyFanout:
         assert client.paginate.call_count == 1
 
 
+class TestMetronomeNewFanoutTables:
+    def test_contract_rate_schedules_walk_each_live_contract_with_both_ids_in_the_body(self) -> None:
+        result = _driver().run(
+            "contract_rate_schedules",
+            [
+                ScriptedResponse(json={"data": [{"id": "cust_1"}], "next_page": None}),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {"id": "contract_1", "customer_id": "cust_1"},
+                            # An archived contract bills nothing, so it is never asked for rates.
+                            {"id": "contract_2", "customer_id": "cust_1", "archived_at": "2026-01-01T00:00:00Z"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {"rate_card_id": "rc_1", "product_id": "p1", "starting_at": "2026-01-01T00:00:00Z"},
+                        ],
+                        "next_page": "cursor-2",
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {
+                                "rate_card_id": "rc_1",
+                                "product_id": "p1",
+                                "starting_at": "2026-01-01T00:00:00Z",
+                                "pricing_group_values": {"region": "eu", "cloud": "aws"},
+                            },
+                        ],
+                        "next_page": None,
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/customers",
+            "/v2/contracts/list",
+            "/v1/contracts/getContractRateSchedule",
+            "/v1/contracts/getContractRateSchedule",
+        ]
+        assert [request.json() for request in result.requests[2:]] == [
+            {"customer_id": "cust_1", "contract_id": "contract_1"},
+            {"customer_id": "cust_1", "contract_id": "contract_1"},
+        ]
+        assert result.params("next_page")[2:] == [None, "cursor-2"]
+        # The rows never echo the contract they were asked for, and the pricing group is an object,
+        # so both have to be added for the primary key to identify a row.
+        assert [(row["contract_id"], row["customer_id"], row["pricing_group_key"]) for row in result.rows] == [
+            ("contract_1", "cust_1", "{}"),
+            ("contract_1", "cust_1", '{"cloud":"aws","region":"eu"}'),
+        ]
+
+    def test_rate_card_rate_schedules_ask_for_the_whole_schedule_of_each_rate_card(self) -> None:
+        result = _driver().run(
+            "rate_card_rate_schedules",
+            [
+                ScriptedResponse(json={"data": [{"id": "rc_1"}, {"id": "rc_2"}], "next_page": None}),
+                ScriptedResponse(json={"data": [{"product_id": "p1", "starting_at": "2026-01-01T00:00:00Z"}]}),
+                ScriptedResponse(json={"data": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/contract-pricing/rate-cards/list",
+            "/v1/contract-pricing/rate-cards/getRateSchedule",
+            "/v1/contract-pricing/rate-cards/getRateSchedule",
+        ]
+        # The rate card list is a POST that still expects a JSON document.
+        assert result.requests[0].json() == {}
+        assert [request.json() for request in result.requests[1:]] == [
+            {"starting_at": "1970-01-01T00:00:00Z", "rate_card_id": "rc_1"},
+            {"starting_at": "1970-01-01T00:00:00Z", "rate_card_id": "rc_2"},
+        ]
+        assert result.params("limit")[1:] == ["100", "100"]
+        assert [(row["rate_card_id"], row["product_id"]) for row in result.rows] == [("rc_1", "p1")]
+
+    def test_balances_page_through_the_body_and_keep_the_customer(self) -> None:
+        # The endpoint reads `limit` and `next_page` from the body only. A cursor sent in the query
+        # string would be ignored, and the walk would ask for the first page again forever.
+        result = _driver().run(
+            "balances",
+            [
+                ScriptedResponse(json={"data": [{"id": "cust_1"}], "next_page": None}),
+                ScriptedResponse(json={"data": [{"id": "commit_1", "type": "PREPAID"}], "next_page": "cursor-2"}),
+                ScriptedResponse(json={"data": [{"id": "credit_1", "type": "CREDIT"}], "next_page": None}),
+            ],
+        )
+
+        assert result.raised is None
+        bodies = [request.json() for request in result.requests[1:]]
+        assert [body.get("next_page") for body in bodies] == [None, "cursor-2"]
+        assert {body["limit"] for body in bodies} == {25}
+        assert {body["customer_id"] for body in bodies} == {"cust_1"}
+        assert all(body["include_ledgers"] and body["include_balance"] for body in bodies)
+        assert result.params("limit")[1:] == [None, None]
+        assert result.params("next_page")[1:] == [None, None]
+        assert [(row["customer_id"], row["id"]) for row in result.rows] == [
+            ("cust_1", "commit_1"),
+            ("cust_1", "credit_1"),
+        ]
+
+    @parameterized.expand(
+        [
+            # A first sync reaches back a year, from the UTC midnight before it.
+            ("first_sync", {}, "2025-09-03T00:00:00Z"),
+            # The watermark arrives already moved back by the lookback, and lands mid-day. Asking
+            # from mid-day would return a partial day as a second row under a different key.
+            (
+                "incremental",
+                {
+                    "should_use_incremental_field": True,
+                    "incremental_field": "breakdown_start_timestamp",
+                    "db_incremental_field_last_value": "2026-08-27T15:00:00Z",
+                },
+                "2026-08-27T00:00:00Z",
+            ),
+        ]
+    )
+    def test_invoice_breakdowns_ask_for_whole_days_from_the_watermark(self, _name, inputs, starting_on) -> None:
+        with time_machine.travel(NOW, tick=False):
+            result = _driver().run(
+                "invoice_breakdowns",
+                [
+                    ScriptedResponse(json={"data": [{"id": "cust_1"}], "next_page": None}),
+                    ScriptedResponse(
+                        json={
+                            "data": [{"id": "inv_1", "breakdown_start_timestamp": "2026-09-02T00:00:00Z"}],
+                            "next_page": None,
+                        }
+                    ),
+                ],
+                **inputs,
+            )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/customers", "/v1/customers/cust_1/invoices/breakdowns"]
+        breakdown_query = result.queries[1]
+        assert breakdown_query["starting_on"] == (starting_on,)
+        # The day in progress is included, so the newest day is never a full period behind.
+        assert breakdown_query["ending_before"] == ("2026-09-04T00:00:00Z",)
+        assert breakdown_query["window_size"] == ("DAY",)
+        assert [row["id"] for row in result.rows] == ["inv_1"]
+
+
 class TestMetronomeCredentials:
     @parameterized.expand(
         [
@@ -669,20 +835,22 @@ class TestMetronomeCredentials:
             (500, False, "Metronome API returned an unexpected status code: 500"),
         ]
     )
-    @patch(f"{TRANSPORT}.make_tracked_session")
-    def test_status_maps_to_message(self, status_code, expected_valid, expected_message, mock_session) -> None:
+    def test_status_maps_to_message(self, status_code, expected_valid, expected_message) -> None:
         # Metronome's own auth docs say a rejected token comes back as "a 401 or 403", so both
         # codes have to land on the same message.
-        mock_session.return_value.get.return_value = Mock(status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            result = validate_credentials("tok")
 
-        assert validate_credentials("tok") == (expected_valid, expected_message)
+        assert result == (expected_valid, expected_message)
+        assert {request.path for request in network.requests_log} == {"/v1/customers"}
+        assert {request.param("limit") for request in network.requests_log} == {"1"}
+        assert {request.headers["authorization"] for request in network.requests_log} == {"Bearer tok"}
 
-    @patch(f"{TRANSPORT}.make_tracked_session")
-    def test_unreachable_host_is_not_reported_as_a_bad_token(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+    def test_unreachable_host_is_not_reported_as_a_bad_token(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
+            valid, message = validate_credentials("tok")
 
-        valid, message = validate_credentials("tok")
-
+        assert {request.path for request in network.requests_log} == {"/v1/customers"}
         assert valid is False
         assert message == "Couldn't reach Metronome to validate the API token. Check your connection and try again."
 
@@ -695,26 +863,20 @@ class TestMetronomeSchemas:
 
     @parameterized.expand(
         [
-            ("usage_daily", USAGE_DAILY_LOOKBACK_SECONDS),
-            ("usage_hourly", USAGE_HOURLY_LOOKBACK_SECONDS),
+            ("usage_daily", USAGE_DAILY_LOOKBACK_SECONDS, "start_timestamp"),
+            ("usage_hourly", USAGE_HOURLY_LOOKBACK_SECONDS, "start_timestamp"),
+            ("invoice_breakdowns", INVOICE_BREAKDOWNS_LOOKBACK_SECONDS, "breakdown_start_timestamp"),
         ]
     )
-    def test_bucketed_usage_merges_incrementally_and_starts_off(self, name, lookback_seconds) -> None:
+    def test_windowed_tables_merge_incrementally_and_start_off(self, name, lookback_seconds, cursor_field) -> None:
         schema = self._schema(name)
 
         assert schema.supports_incremental is True
         # Appending would duplicate every period the lookback re-reads.
         assert schema.supports_append is False
-        assert [field["field"] for field in schema.incremental_fields] == ["start_timestamp"]
+        assert [field["field"] for field in schema.incremental_fields] == [cursor_field]
         assert schema.should_sync_default is False
         assert schema.default_incremental_lookback_seconds == lookback_seconds
-
-    def test_the_lifetime_usage_table_keeps_its_defaults(self) -> None:
-        schema = self._schema("usage")
-
-        assert schema.supports_incremental is False
-        assert schema.should_sync_default is True
-        assert schema.default_incremental_lookback_seconds is None
 
     @parameterized.expand(
         [
@@ -731,16 +893,21 @@ class TestMetronomeSchemas:
     def test_the_usage_history_window_follows_the_source_setting(
         self, _name, schema_name, hourly, daily, expected_days
     ) -> None:
-        source = MetronomeSource()
-        config = source.parse_config(
-            {"api_key": "tok", "usage_hourly_history_days": hourly, "usage_daily_history_months": daily}
-        )
-
-        window = source.history_lookback_for_schema(schema_name, config)
+        window = usage_history_window(schema_name, hourly, daily)
 
         assert window == (timedelta(days=expected_days) if expected_days is not None else None)
 
-    def test_an_unreadable_config_leaves_the_defaults(self) -> None:
-        # `history_start_for_schema` passes None when the source's inputs no longer parse, and a
-        # table whose depth it cannot read must still be bounded.
-        assert MetronomeSource().history_lookback_for_schema("usage_hourly", None) == timedelta(days=30)
+    def test_a_depth_the_user_edits_reaches_the_request(self) -> None:
+        # The depth is a source setting the user can change after the first sync. Reading it per run
+        # is what makes an edit take effect; recording it once left the edit saved and inert.
+        with time_machine.travel(NOW, tick=False):
+            result = _driver(usage_daily_history_months=3).run(
+                "usage_daily",
+                [
+                    ScriptedResponse(json={"data": [{"id": "c1"}]}),
+                    ScriptedResponse(json={"data": [{"value": 1}]}),
+                ],
+            )
+
+        assert result.raised is None
+        assert result.requests[1].json()["starting_on"] == "2026-06-04T00:00:00Z"

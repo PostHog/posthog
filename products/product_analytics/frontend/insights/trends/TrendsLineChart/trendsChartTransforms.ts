@@ -23,7 +23,6 @@ export interface TrendsResultLike {
     days?: string[]
     compare?: boolean
     compare_label?: string | null
-    action?: { order?: number } | null
     breakdown_value?: unknown
     filter?: unknown
 }
@@ -193,6 +192,7 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
+    hideAxes?: boolean
     xAxisTickFormatter?: (value: string, index: number) => string | null
     goalLines?: GoalLineLike[] | null
     incompletenessOffsetFromEnd?: number
@@ -246,10 +246,12 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
             tickFormatter: opts.xAxisTickFormatter,
+            hide: opts.hideAxes,
         },
         yAxis: {
             ...yAxis,
             label: normalizeAxisLabel(opts.yAxisLabel),
+            hide: opts.hideAxes,
         },
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,

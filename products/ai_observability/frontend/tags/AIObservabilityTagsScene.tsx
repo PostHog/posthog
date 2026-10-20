@@ -13,11 +13,14 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -318,6 +321,7 @@ function AIObservabilityTagsContent(): JSX.Element {
 export function AIObservabilityTagsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!receivedFeatureFlags) {
         return (
@@ -338,7 +342,7 @@ export function AIObservabilityTagsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Tags"
+                name="Taggers"
                 description="Set up taggers to automatically add custom tags to your AI generations."
                 resourceType={{ type: 'llm_tags' }}
                 actions={
@@ -346,14 +350,27 @@ export function AIObservabilityTagsScene(): JSX.Element {
                         resourceType={AccessControlResourceType.Tagger}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            to={combineUrl(urls.aiObservabilityTag('new'), searchParams).url}
-                            data-attr="create-tagger-button"
-                        >
-                            Create tagger
-                        </LemonButton>
+                        {todayRailNav ? (
+                            <Button
+                                variant="primary"
+                                render={
+                                    <LinkPrimitive to={combineUrl(urls.aiObservabilityTag('new'), searchParams).url} />
+                                }
+                                data-attr="create-tagger-button"
+                            >
+                                <IconPlus />
+                                Create tagger
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlus />}
+                                to={combineUrl(urls.aiObservabilityTag('new'), searchParams).url}
+                                data-attr="create-tagger-button"
+                            >
+                                Create tagger
+                            </LemonButton>
+                        )}
                     </AccessControlAction>
                 }
             />

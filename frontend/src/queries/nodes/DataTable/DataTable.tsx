@@ -2,7 +2,7 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,8 +13,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { EventDetails } from 'scenes/activity/explore/EventDetails'
-import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
@@ -92,12 +90,14 @@ import { CampaignMappingCellActions } from '~/scenes/web-analytics/tabs/marketin
 import { getMappableColumn } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/mappingUtils'
 import { EventType, InsightLogicProps } from '~/types'
 
+import { ViewLinkButton } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
 import { PersonDeleteModal } from 'products/persons/frontend/components/PersonDeleteModal'
 
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 import { DataTableViewReplays } from './DataTableViewReplays'
+import { ExpandedEventRow } from './ExpandedEventRow'
 import { TableViewSupportedQueryType } from './TableView/tableViewLogic'
 
 export enum ColumnFeature {
@@ -177,6 +177,7 @@ export function DataTable({
         query: query.source,
         key: context?.dataNodeLogicKey ?? vizKey,
         cachedResults: cachedResults,
+        retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
@@ -272,6 +273,11 @@ export function DataTable({
         [sourceFeatures, columnsInResponse, columnsInQuery]
     )
     const contextColumns = context?.columns
+    const columnFormatsRef = useRef<(string | null)[] | undefined>(undefined)
+    columnFormatsRef.current =
+        isHogQLQuery(query.source) && response && 'column_formats' in response
+            ? (response.column_formats as (string | null)[] | undefined)
+            : undefined
     const columnsInLemonTable = useMemo(
         () =>
             allColumns.filter((colName) => {
@@ -355,7 +361,17 @@ export function DataTable({
                                 const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
                                     ? (result as any[])[index]
                                     : (result as Record<string, any>)[key]
-                                return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
+                                return renderColumn(
+                                    key,
+                                    value,
+                                    result,
+                                    recordIndex,
+                                    rowCount,
+                                    query,
+                                    setQuery,
+                                    context,
+                                    columnFormatsRef.current?.[index]
+                                )
                             }
                         },
                         sorter: undefined, // using custom sorting code
@@ -757,12 +773,16 @@ export function DataTable({
                         onRowExpand: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         onRowCollapse: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         expandedRowRender: function renderExpand({ result }: DataTableRow) {
-                            if (isEventsQuery(query.source) && Array.isArray(result)) {
-                                return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
+                            const event =
+                                isEventsQuery(query.source) && Array.isArray(result)
+                                    ? (result[columnsInResponse.indexOf('*')] ?? {})
+                                    : result && !Array.isArray(result)
+                                      ? (result as EventType)
+                                      : null
+                            if (!event) {
+                                return undefined
                             }
-                            if (result && !Array.isArray(result)) {
-                                return <EventDetails event={result as EventType} />
-                            }
+                            return <ExpandedEventRow event={event} />
                         },
                         rowExpandable: ({ result }: DataTableRow) => !!result,
                         noIndent: true,
@@ -1072,6 +1092,7 @@ export function DataTable({
                                 data-attr={dataAttr}
                                 className="DataTable"
                                 allowContentScroll={context?.dataTableAllowContentScroll}
+                                stickyHeader={context?.dataTableStickyHeader}
                                 loading={responseLoading && !nextDataLoading && !newDataLoading}
                                 columns={lemonColumns}
                                 tableLayout={context?.tableLayout}
@@ -1095,6 +1116,7 @@ export function DataTable({
                                                 query={query}
                                                 queryId={responseErrorObject?.queryId ?? queryId}
                                                 titleStatus={responseErrorObject?.status}
+                                                retryAfterTimestamp={responseErrorObject?.retryAfterTimestamp}
                                                 // A cancel is the user's own action: no apology or bug-report guidance
                                                 excludeDetail={queryCancelled}
                                                 onRetry={() => loadData('force_blocking')}
@@ -1109,6 +1131,8 @@ export function DataTable({
                                         ) : (
                                             <InsightErrorState
                                                 query={query}
+                                                titleStatus={responseErrorObject?.status}
+                                                retryAfterTimestamp={responseErrorObject?.retryAfterTimestamp}
                                                 onRetry={() => loadData('force_blocking')}
                                             />
                                         )

@@ -209,6 +209,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
         return Response(self._serialize_skill(published_skill))
 
     @extend_schema(request=LLMSkillFileRenameSerializer, responses={200: LLMSkillSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=False,

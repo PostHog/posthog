@@ -330,11 +330,22 @@ describe('dateFilterLogic', () => {
             await expectLogic(narrowLogic).toMatchValues({ label: 'Until July 31, 2026' })
         })
 
-        it('still shows the placeholder when no range is set', async () => {
-            const narrowLogic = buildLogic(null, null)
+        it.each([
+            [undefined, 'No date range override'],
+            ['Any time', 'Any time'],
+        ])('shows placeholder %s when no range is set', async (placeholder, label) => {
+            const narrowLogic = dateFilterLogic({
+                key: `narrow-placeholder-${placeholder}`,
+                onChange: jest.fn(),
+                dateFrom: null,
+                dateTo: null,
+                dateOptions: narrowDateOptions,
+                isDateFormatted: false,
+                placeholder,
+            })
             narrowLogic.mount()
 
-            await expectLogic(narrowLogic).toMatchValues({ label: 'No date range override' })
+            await expectLogic(narrowLogic).toMatchValues({ label })
         })
     })
 })

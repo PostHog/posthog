@@ -30,6 +30,7 @@ services:
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
             - 'hypercache-server:host-gateway'
+            - 'push-api:host-gateway'
         environment:
             CADDYFILE: |
                 {
@@ -46,6 +47,8 @@ services:
                     @capture-ai {
                         path /i/v0/ai
                         path /i/v0/ai/*
+                        path /i/v1/ai/events
+                        path /i/v1/ai/events/
                     }
 
                     @capture {
@@ -98,6 +101,11 @@ services:
                         path /public/m/*
                     }
 
+                    @push-subscriptions {
+                        path /api/push_subscriptions
+                        path /api/push_subscriptions/
+                    }
+
                     handle @capture-ai {
                         reverse_proxy capture-ai:3309
                     }
@@ -132,6 +140,10 @@ services:
 
                     handle @webhooks {
                         reverse_proxy plugins:6738
+                    }
+
+                    handle @push-subscriptions {
+                        reverse_proxy push-api:6750
                     }
 
                     handle {

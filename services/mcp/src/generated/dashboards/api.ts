@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -63,6 +63,10 @@ export const DashboardsListParams = () => zod.object({
 })
 
 export const DashboardsListQueryParams = () => zod.object({
+    created_by: zod
+        .string()
+        .optional()
+        .describe('Optional. Return only dashboards created by the user with this UUID.'),
     exclude_generated: zod.boolean().optional().describe('Optional. Exclude dashboards that PostHog generated.'),
     folder: zod
         .string()
@@ -73,6 +77,12 @@ export const DashboardsListQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .enum(['-last_viewed_at'])
+        .optional()
+        .describe(
+            'Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard you never viewed sorts by its creation time. This order replaces the search relevance order.'
+        ),
     pinned: zod.boolean().optional().describe('Optional. Return only pinned dashboards.'),
     search: zod
         .string()
@@ -103,6 +113,11 @@ export const DashboardsCreateQueryParams = () => zod.object({
 export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsCreateBodyRestrictionLevelMin = 21
+export const dashboardsCreateBodyRestrictionLevelMax = 21
+
+export const dashboardsCreateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateBody = () => zod
@@ -153,10 +168,12 @@ export const DashboardsCreateBody = () => zod
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
+            .number()
+            .min(dashboardsCreateBodyRestrictionLevelMin)
+            .max(dashboardsCreateBodyRestrictionLevelMax)
             .optional()
             .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
             ),
         quick_filter_ids: zod
             .array(zod.string())
@@ -177,6 +194,12 @@ export const DashboardsCreateBody = () => zod
             .optional()
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+            ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsCreateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
             ),
         use_template: zod
             .string()
@@ -243,6 +266,11 @@ export const DashboardsPartialUpdateQueryParams = () => zod.object({
 export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsPartialUpdateBodyRestrictionLevelMin = 21
+export const dashboardsPartialUpdateBodyRestrictionLevelMax = 21
+
+export const dashboardsPartialUpdateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax = 11
 
@@ -257,59 +285,63 @@ export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneYMin = 0
 
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneWMax = 12
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 25
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 50
+export const dashboardsPartialUpdateBodyTilesItemGroupKeyMax = 100
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemKeyMax = 400
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneNotebookShortIdOneMax = 128
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemLabelOneMax = 400
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault = 25
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax = 50
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneItemOneMax = 4000
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneItemKeyMax = 400
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneMax = 100
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneItemLabelOneMax = 400
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueTwoMax = 4000
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneItemValueOneItemOneMax = 4000
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneMax = 20
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneItemValueOneMax = 100
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault = 10
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax = 25
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneItemValueTwoMax = 4000
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoOrderByDefault = `occurrences`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoOrderDirectionDefault = `DESC`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoStatusDefault = `active`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneMax = 20
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeLimitDefault = 10
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeLimitMax = 25
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderByDefault = `start_time`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderByDefault = `occurrences`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderDirectionDefault = `DESC`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeStatusDefault = `active`
+
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitDefault = 10
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitMax = 25
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderByDefault = `created_at`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderByDefault = `start_time`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderDirectionDefault = `DESC`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourStatusDefault = `all`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitDefault = 10
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitMax = 25
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFiveLimitDefault = 10
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFiveLimitMax = 25
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitDefault = 50
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitMax = 100
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFiveOrderByDefault = `created_at`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFiveOrderDirectionDefault = `DESC`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFiveStatusDefault = `all`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitDefault = 10
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitMax = 25
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenOrderByDefault = `latest`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenWrapLinesDefault = false
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenTimezoneDefault = `UTC`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitDefault = 10
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitMax = 25
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitDefault = 50
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitMax = 100
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightStatusDefault = `all`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightChannelDefault = `all`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightAssigneesMax = 100
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightOrderByDefault = `latest`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightWrapLinesDefault = false
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightTimezoneDefault = `UTC`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineLimitDefault = 10
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineLimitMax = 25
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchDefault = ``
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchMax = 200
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineStatusDefault = `all`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineChannelDefault = `all`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineAssigneesMax = 100
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSavedViewIdOneMax = 12
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSearchDefault = ``
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSearchMax = 200
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSavedViewIdOneMax = 12
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
@@ -389,13 +421,12 @@ export const DashboardsPartialUpdateBody = () => zod
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
         restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
-            .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-            )
+            .number()
+            .min(dashboardsPartialUpdateBodyRestrictionLevelMin)
+            .max(dashboardsPartialUpdateBodyRestrictionLevelMax)
             .optional()
             .describe(
-                'Who can edit this dashboard.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
             ),
         quick_filter_ids: zod
             .array(zod.string())
@@ -416,6 +447,12 @@ export const DashboardsPartialUpdateBody = () => zod
             .optional()
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+            ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsPartialUpdateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
             ),
         tiles: zod
             .array(
@@ -471,6 +508,30 @@ export const DashboardsPartialUpdateBody = () => zod
                         .describe(
                             "Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request."
                         ),
+                    show_description: zod
+                        .boolean()
+                        .optional()
+                        .describe(
+                            "Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard."
+                        ),
+                    group_key: zod
+                        .string()
+                        .max(dashboardsPartialUpdateBodyTilesItemGroupKeyMax)
+                        .nullish()
+                        .describe(
+                            "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group."
+                        ),
+                    badge: zod
+                        .union([
+                            zod
+                                .enum(['winner', 'cheeky-hog'])
+                                .describe('\* `winner` - Winner\n\* `cheeky-hog` - Cheeky hog'),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.\n\n\* `winner` - Winner\n\* `cheeky-hog` - Cheeky hog'
+                        ),
                     widget: zod
                         .object({
                             id: zod
@@ -480,23 +541,45 @@ export const DashboardsPartialUpdateBody = () => zod
                             widget_type: zod
                                 .enum([
                                     'activity_events_list',
+                                    'canvas_app',
                                     'conversations_recent_tickets',
                                     'error_tracking_list',
                                     'experiment_results',
                                     'experiments_list',
                                     'logs_list',
+                                    'notebook_widget',
                                     'session_replay_list',
                                     'survey_results',
                                 ])
                                 .describe(
-                                    '\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    '\* `activity_events_list` - activity_events_list\n\* `canvas_app` - canvas_app\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `canvas_app` - canvas_app\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 ),
                             config: zod
                                 .union([
+                                    zod.object({
+                                        notebookShortId: zod
+                                            .union([
+                                                zod
+                                                    .string()
+                                                    .min(1)
+                                                    .max(
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneNotebookShortIdOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Source notebook short ID.'),
+                                        snapshotId: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+                                            ),
+                                    }),
                                     zod.object({
                                         dateRange: zod
                                             .union([
@@ -557,6 +640,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -581,9 +665,9 @@ export const DashboardsPartialUpdateBody = () => zod
                                         limit: zod
                                             .number()
                                             .min(1)
-                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax)
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault
                                             )
                                             .describe('Maximum number of events to return.'),
                                         eventName: zod
@@ -601,14 +685,14 @@ export const DashboardsPartialUpdateBody = () => zod
                                                                 .string()
                                                                 .min(1)
                                                                 .max(
-                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemKeyMax
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneItemKeyMax
                                                                 ),
                                                             label: zod
                                                                 .union([
                                                                     zod
                                                                         .string()
                                                                         .max(
-                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemLabelOneMax
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneItemLabelOneMax
                                                                         ),
                                                                     zod.null(),
                                                                 ])
@@ -640,6 +724,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                                 'in',
                                                                 'not_in',
                                                                 'is_cleaned_path_exact',
+                                                                'is_cleaned_path_not_exact',
                                                                 'flag_evaluates_to',
                                                                 'semver_eq',
                                                                 'semver_neq',
@@ -662,19 +747,19 @@ export const DashboardsPartialUpdateBody = () => zod
                                                                                 zod
                                                                                     .string()
                                                                                     .max(
-                                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneItemOneMax
+                                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneItemValueOneItemOneMax
                                                                                     ),
                                                                                 zod.number(),
                                                                                 zod.boolean(),
                                                                             ])
                                                                         )
                                                                         .max(
-                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneMax
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneItemValueOneMax
                                                                         ),
                                                                     zod
                                                                         .string()
                                                                         .max(
-                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueTwoMax
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneItemValueTwoMax
                                                                         ),
                                                                     zod.number(),
                                                                     zod.boolean(),
@@ -684,7 +769,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                         })
                                                     )
                                                     .max(
-                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneMax
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoPropertiesOneMax
                                                     ),
                                                 zod.null(),
                                             ])
@@ -753,6 +838,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -777,21 +863,28 @@ export const DashboardsPartialUpdateBody = () => zod
                                         limit: zod
                                             .number()
                                             .min(1)
-                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeLimitMax)
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeLimitDefault
                                             )
                                             .describe('Maximum number of issues to return.'),
                                         orderBy: zod
-                                            .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                                            .enum([
+                                                'last_seen',
+                                                'first_seen',
+                                                'occurrences',
+                                                'users',
+                                                'sessions',
+                                                'severity',
+                                            ])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoOrderByDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderByDefault
                                             )
                                             .describe('Issue ranking column.'),
                                         orderDirection: zod
                                             .enum(['ASC', 'DESC'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoOrderDirectionDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderDirectionDefault
                                             )
                                             .describe('Sort direction for orderBy.'),
                                         status: zod
@@ -804,7 +897,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                 'all',
                                             ])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoStatusDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeStatusDefault
                                             )
                                             .describe('Issue status filter.'),
                                         assignee: zod
@@ -880,6 +973,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -904,9 +998,9 @@ export const DashboardsPartialUpdateBody = () => zod
                                         limit: zod
                                             .number()
                                             .min(1)
-                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeLimitMax)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitMax)
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeLimitDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitDefault
                                             )
                                             .describe('Maximum number of recordings to return.'),
                                         orderBy: zod
@@ -919,13 +1013,13 @@ export const DashboardsPartialUpdateBody = () => zod
                                                 'console_error_count',
                                             ])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderByDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderByDefault
                                             )
                                             .describe('Recording ranking column.'),
                                         orderDirection: zod
                                             .enum(['ASC', 'DESC'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderDirectionDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderDirectionDefault
                                             )
                                             .describe('Sort direction for orderBy.'),
                                         savedFilterId: zod
@@ -945,27 +1039,27 @@ export const DashboardsPartialUpdateBody = () => zod
                                         limit: zod
                                             .number()
                                             .min(1)
-                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitMax)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFiveLimitMax)
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFiveLimitDefault
                                             )
                                             .describe('Maximum number of experiments to return.'),
                                         orderBy: zod
                                             .enum(['created_at', 'name', 'start_date'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderByDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFiveOrderByDefault
                                             )
                                             .describe('Experiment list sort column.'),
                                         orderDirection: zod
                                             .enum(['ASC', 'DESC'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderDirectionDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFiveOrderDirectionDefault
                                             )
                                             .describe('Sort direction for orderBy.'),
                                         status: zod
                                             .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourStatusDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFiveStatusDefault
                                             )
                                             .describe('Experiment status filter.'),
                                         createdBy: zod
@@ -1015,9 +1109,9 @@ export const DashboardsPartialUpdateBody = () => zod
                                         limit: zod
                                             .number()
                                             .min(1)
-                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitMax)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitMax)
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitDefault
                                             )
                                             .describe('Maximum number of recent responses to return.'),
                                     }),
@@ -1048,15 +1142,15 @@ export const DashboardsPartialUpdateBody = () => zod
                                         limit: zod
                                             .number()
                                             .min(1)
-                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitMax)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitMax)
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitDefault
                                             )
                                             .describe('Maximum number of log lines to return.'),
                                         orderBy: zod
                                             .enum(['latest', 'earliest'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenOrderByDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightOrderByDefault
                                             )
                                             .describe('Sort by newest (latest) or oldest (earliest) first.'),
                                         severityLevels: zod
@@ -1072,7 +1166,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                         wrapLines: zod
                                             .boolean()
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenWrapLinesDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightWrapLinesDefault
                                             )
                                             .describe(
                                                 'Wrap long log lines instead of truncating them to a single row.'
@@ -1080,7 +1174,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                         timezone: zod
                                             .enum(['UTC', 'local'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenTimezoneDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightTimezoneDefault
                                             )
                                             .describe(
                                                 "Render log timestamps in UTC or in each viewer's local timezone."
@@ -1096,15 +1190,15 @@ export const DashboardsPartialUpdateBody = () => zod
                                         limit: zod
                                             .number()
                                             .min(1)
-                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitMax)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineLimitMax)
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineLimitDefault
                                             )
                                             .describe('Maximum number of tickets to return.'),
                                         status: zod
                                             .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightStatusDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineStatusDefault
                                             )
                                             .describe('Ticket status filter.'),
                                         priorities: zod
@@ -1116,7 +1210,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                         channel: zod
                                             .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightChannelDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineChannelDefault
                                             )
                                             .describe('Ticket channel filter.'),
                                         assignees: zod
@@ -1129,18 +1223,16 @@ export const DashboardsPartialUpdateBody = () => zod
                                                     }),
                                                 ])
                                             )
-                                            .max(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightAssigneesMax
-                                            )
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineAssigneesMax)
                                             .optional()
                                             .describe(
                                                 "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
                                             ),
                                         search: zod
                                             .string()
-                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchMax)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSearchMax)
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSearchDefault
                                             )
                                             .describe(
                                                 'Search requester name or email, ticket subject, message text, or ticket number.'
@@ -1150,13 +1242,21 @@ export const DashboardsPartialUpdateBody = () => zod
                                                 zod
                                                     .string()
                                                     .max(
-                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSavedViewIdOneMax
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSavedViewIdOneMax
                                                     ),
                                                 zod.null(),
                                             ])
                                             .optional()
                                             .describe(
                                                 'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
+                                            ),
+                                    }),
+                                    zod.object({
+                                        canvasId: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Canvas to render in the tile. Null until the user picks one in the widget settings.'
                                             ),
                                     }),
                                 ])
@@ -1253,6 +1353,8 @@ export const DashboardsCreateTextTileCreateQueryParams = () => zod.object({
 export const dashboardsCreateTextTileCreateBodyTypeDefault = `text`
 export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
 
+export const dashboardsCreateTextTileCreateBodyAgentContextMax = 10000
+
 export const dashboardsCreateTextTileCreateBodyColorMax = 400
 
 export const DashboardsCreateTextTileCreateBody = () => zod.object({
@@ -1269,6 +1371,13 @@ export const DashboardsCreateTextTileCreateBody = () => zod.object({
         .max(dashboardsCreateTextTileCreateBodyBodyMax)
         .describe(
             'Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.'
+        ),
+    agent_context: zod
+        .string()
+        .max(dashboardsCreateTextTileCreateBodyAgentContextMax)
+        .nullish()
+        .describe(
+            "Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters."
         ),
     layouts: zod
         .object({
@@ -1400,17 +1509,29 @@ export const DashboardsRunInsightsRetrieveQueryParams = () => zod.object({
             'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
         ),
     format: zod.enum(['json', 'txt']).optional(),
+    max_result_chars: zod
+        .number()
+        .optional()
+        .describe(
+            "Per-tile character budget for 'optimized' output, truncation marker included. A longer table keeps its header and both ends, and names how many rows were dropped from the middle. Defaults to 2000; pass 0 for the whole table, or 200 or more, since a smaller budget cannot carry the marker. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run."
+        ),
     output_format: zod
         .enum(['json', 'optimized'])
         .optional()
         .describe(
-            "'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects."
+            "'optimized' (default) returns LLM-friendly formatted text per insight, bounded by max_result_chars. 'json' returns the raw query result objects, unbounded."
         ),
     refresh: zod
         .enum(['blocking', 'force_blocking', 'force_cache'])
         .optional()
         .describe(
             "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates."
+        ),
+    tile_ids: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others. An ID that is not on this dashboard is rejected.'
         ),
     variables_override: zod
         .string()
@@ -1452,6 +1573,8 @@ export const DashboardsUpdateTextTileCreateQueryParams = () => zod.object({
 
 export const dashboardsUpdateTextTileCreateBodyBodyMax = 4000
 
+export const dashboardsUpdateTextTileCreateBodyAgentContextMax = 10000
+
 export const dashboardsUpdateTextTileCreateBodyColorMax = 400
 
 export const DashboardsUpdateTextTileCreateBody = () => zod.object({
@@ -1462,6 +1585,13 @@ export const DashboardsUpdateTextTileCreateBody = () => zod.object({
         .max(dashboardsUpdateTextTileCreateBodyBodyMax)
         .optional()
         .describe('New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.'),
+    agent_context: zod
+        .string()
+        .max(dashboardsUpdateTextTileCreateBodyAgentContextMax)
+        .nullish()
+        .describe(
+            "Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters."
+        ),
     layouts: zod
         .object({
             sm: zod
@@ -1510,72 +1640,78 @@ export const DashboardsWidgetsBatchCreateQueryParams = () => zod.object({
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneNameMax = 400
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault = 25
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax = 50
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax = 4000
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax = 100
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax = 4000
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneMax = 20
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneNotebookShortIdOneMax = 128
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoNameMax = 400
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitDefault = 10
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitMax = 25
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitDefault = 25
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitMax = 50
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneOrderByDefault = `occurrences`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneOrderDirectionDefault = `DESC`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneStatusDefault = `active`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneMax = 20
+
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitDefault = 10
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitMax = 25
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderByDefault = `start_time`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderByDefault = `occurrences`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderDirectionDefault = `DESC`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneStatusDefault = `active`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitDefault = 10
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitMax = 25
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderByDefault = `created_at`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderByDefault = `start_time`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderDirectionDefault = `DESC`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneStatusDefault = `all`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveNameMax = 400
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixNameMax = 400
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneLimitDefault = 10
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneLimitMax = 25
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitDefault = 10
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitMax = 25
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneOrderByDefault = `created_at`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneOrderDirectionDefault = `DESC`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneStatusDefault = `all`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenNameMax = 400
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitDefault = 50
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitMax = 100
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitDefault = 10
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitMax = 25
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneOrderByDefault = `latest`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneWrapLinesDefault = false
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneTimezoneDefault = `UTC`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightNameMax = 400
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitDefault = 10
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitMax = 25
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitDefault = 50
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitMax = 100
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneStatusDefault = `all`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneChannelDefault = `all`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneAssigneesMax = 100
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneOrderByDefault = `latest`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneWrapLinesDefault = false
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneTimezoneDefault = `UTC`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineNameMax = 400
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchDefault = ``
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchMax = 200
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneLimitDefault = 10
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneLimitMax = 25
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSavedViewIdOneMax = 12
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneStatusDefault = `all`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneChannelDefault = `all`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneAssigneesMax = 100
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchDefault = ``
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchMax = 200
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
@@ -1588,6 +1724,89 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                         name: zod
                             .string()
                             .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOneNameMax)
+                            .nullish()
+                            .describe('Optional custom display name for the widget tile.'),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('Optional markdown description shown when show_description is enabled.'),
+                        layouts: zod
+                            .object({
+                                sm: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+                                    ),
+                                xs: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
+                            })
+                            .optional()
+                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                        show_description: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether to show the description on the dashboard tile.'),
+                        widget_type: zod.enum(['notebook_widget']),
+                        config: zod
+                            .object({
+                                notebookShortId: zod
+                                    .union([
+                                        zod
+                                            .string()
+                                            .min(1)
+                                            .max(
+                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneNotebookShortIdOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Source notebook short ID.'),
+                                snapshotId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+                                    ),
+                            })
+                            .describe('Configuration for the notebook widget widget.'),
+                    }),
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoNameMax)
                             .nullish()
                             .describe('Optional custom display name for the widget tile.'),
                         description: zod
@@ -1705,6 +1924,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1729,8 +1949,8 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitDefault)
                                     .describe('Maximum number of events to return.'),
                                 eventName: zod
                                     .union([zod.string().min(1), zod.null()])
@@ -1745,14 +1965,14 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                         .string()
                                                         .min(1)
                                                         .max(
-                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax
+                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemKeyMax
                                                         ),
                                                     label: zod
                                                         .union([
                                                             zod
                                                                 .string()
                                                                 .max(
-                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemLabelOneMax
                                                                 ),
                                                             zod.null(),
                                                         ])
@@ -1784,6 +2004,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -1806,19 +2027,19 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                                         zod
                                                                             .string()
                                                                             .max(
-                                                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax
+                                                                                dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneItemOneMax
                                                                             ),
                                                                         zod.number(),
                                                                         zod.boolean(),
                                                                     ])
                                                                 )
                                                                 .max(
-                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneMax
                                                                 ),
                                                             zod
                                                                 .string()
                                                                 .max(
-                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueTwoMax
                                                                 ),
                                                             zod.number(),
                                                             zod.boolean(),
@@ -1828,7 +2049,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                 })
                                             )
                                             .max(
-                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneMax
+                                                dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneMax
                                             ),
                                         zod.null(),
                                     ])
@@ -1840,7 +2061,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                     zod.object({
                         name: zod
                             .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoNameMax)
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeNameMax)
                             .nullish()
                             .describe('Optional custom display name for the widget tile.'),
                         description: zod
@@ -1958,6 +2179,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1982,22 +2204,22 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitDefault)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitDefault)
                                     .describe('Maximum number of issues to return.'),
                                 orderBy: zod
-                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneOrderByDefault)
+                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions', 'severity'])
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderByDefault)
                                     .describe('Issue ranking column.'),
                                 orderDirection: zod
                                     .enum(['ASC', 'DESC'])
                                     .default(
-                                        dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneOrderDirectionDefault
+                                        dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderDirectionDefault
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 status: zod
                                     .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneStatusDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneStatusDefault)
                                     .describe('Issue status filter.'),
                                 assignee: zod
                                     .union([
@@ -2015,7 +2237,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                     zod.object({
                         name: zod
                             .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeNameMax)
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFourNameMax)
                             .nullish()
                             .describe('Optional custom display name for the widget tile.'),
                         description: zod
@@ -2133,6 +2355,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2157,8 +2380,8 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitDefault)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitDefault)
                                     .describe('Maximum number of recordings to return.'),
                                 orderBy: zod
                                     .enum([
@@ -2169,12 +2392,12 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                         'click_count',
                                         'console_error_count',
                                     ])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderByDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderByDefault)
                                     .describe('Recording ranking column.'),
                                 orderDirection: zod
                                     .enum(['ASC', 'DESC'])
                                     .default(
-                                        dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderDirectionDefault
+                                        dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderDirectionDefault
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 savedFilterId: zod
@@ -2195,7 +2418,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                     zod.object({
                         name: zod
                             .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFourNameMax)
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveNameMax)
                             .nullish()
                             .describe('Optional custom display name for the widget tile.'),
                         description: zod
@@ -2257,22 +2480,22 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitDefault)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneLimitDefault)
                                     .describe('Maximum number of experiments to return.'),
                                 orderBy: zod
                                     .enum(['created_at', 'name', 'start_date'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderByDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneOrderByDefault)
                                     .describe('Experiment list sort column.'),
                                 orderDirection: zod
                                     .enum(['ASC', 'DESC'])
                                     .default(
-                                        dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderDirectionDefault
+                                        dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneOrderDirectionDefault
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 status: zod
                                     .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneStatusDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneStatusDefault)
                                     .describe('Experiment status filter.'),
                                 createdBy: zod
                                     .union([zod.number(), zod.null()])
@@ -2284,7 +2507,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                     zod.object({
                         name: zod
                             .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveNameMax)
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSixNameMax)
                             .nullish()
                             .describe('Optional custom display name for the widget tile.'),
                         description: zod
@@ -2355,7 +2578,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                     zod.object({
                         name: zod
                             .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSixNameMax)
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenNameMax)
                             .nullish()
                             .describe('Optional custom display name for the widget tile.'),
                         description: zod
@@ -2447,8 +2670,8 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitDefault)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitDefault)
                                     .describe('Maximum number of recent responses to return.'),
                             })
                             .describe('Configuration for the survey results widget.'),
@@ -2456,7 +2679,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                     zod.object({
                         name: zod
                             .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenNameMax)
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightNameMax)
                             .nullish()
                             .describe('Optional custom display name for the widget tile.'),
                         description: zod
@@ -2541,12 +2764,12 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitDefault)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitDefault)
                                     .describe('Maximum number of log lines to return.'),
                                 orderBy: zod
                                     .enum(['latest', 'earliest'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneOrderByDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneOrderByDefault)
                                     .describe('Sort by newest (latest) or oldest (earliest) first.'),
                                 severityLevels: zod
                                     .array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']))
@@ -2558,11 +2781,11 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                     .describe('Only show logs from these services. Empty shows all services.'),
                                 wrapLines: zod
                                     .boolean()
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneWrapLinesDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneWrapLinesDefault)
                                     .describe('Wrap long log lines instead of truncating them to a single row.'),
                                 timezone: zod
                                     .enum(['UTC', 'local'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneTimezoneDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneTimezoneDefault)
                                     .describe("Render log timestamps in UTC or in each viewer's local timezone."),
                                 savedViewId: zod
                                     .union([zod.string(), zod.null()])
@@ -2576,7 +2799,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                     zod.object({
                         name: zod
                             .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightNameMax)
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNineNameMax)
                             .nullish()
                             .describe('Optional custom display name for the widget tile.'),
                         description: zod
@@ -2638,12 +2861,12 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitDefault)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneLimitDefault)
                                     .describe('Maximum number of tickets to return.'),
                                 status: zod
                                     .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneStatusDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneStatusDefault)
                                     .describe('Ticket status filter.'),
                                 priorities: zod
                                     .array(zod.enum(['low', 'medium', 'high', 'critical']))
@@ -2651,7 +2874,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                     .describe('Only show tickets with these priorities. Empty shows all priorities.'),
                                 channel: zod
                                     .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneChannelDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneChannelDefault)
                                     .describe('Ticket channel filter.'),
                                 assignees: zod
                                     .array(
@@ -2663,15 +2886,15 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                             }),
                                         ])
                                     )
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneAssigneesMax)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneAssigneesMax)
                                     .optional()
                                     .describe(
                                         "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
                                     ),
                                 search: zod
                                     .string()
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchDefault)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchDefault)
                                     .describe(
                                         'Search requester name or email, ticket subject, message text, or ticket number.'
                                     ),
@@ -2680,7 +2903,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                         zod
                                             .string()
                                             .max(
-                                                dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSavedViewIdOneMax
+                                                dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSavedViewIdOneMax
                                             ),
                                         zod.null(),
                                     ])
@@ -2691,12 +2914,83 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                             })
                             .describe('Configuration for the recent tickets widget.'),
                     }),
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroNameMax)
+                            .nullish()
+                            .describe('Optional custom display name for the widget tile.'),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('Optional markdown description shown when show_description is enabled.'),
+                        layouts: zod
+                            .object({
+                                sm: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+                                    ),
+                                xs: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
+                            })
+                            .optional()
+                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                        show_description: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether to show the description on the dashboard tile.'),
+                        widget_type: zod.enum(['canvas_app']),
+                        config: zod
+                            .object({
+                                canvasId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Canvas to render in the tile. Null until the user picks one in the widget settings.'
+                                    ),
+                            })
+                            .describe('Configuration for the canvas app widget.'),
+                    }),
                 ])
             )
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
             .describe(
-                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
+                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
             ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
@@ -2725,72 +3019,78 @@ export const DashboardsUpdateWidgetsBatchQueryParams = () => zod.object({
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneNameMax = 400
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitDefault = 25
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitMax = 50
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax = 400
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax = 4000
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax = 100
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax = 4000
-
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneMax = 20
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneNotebookShortIdOneMax = 128
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoNameMax = 400
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitDefault = 10
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitMax = 25
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitDefault = 25
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitMax = 50
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneOrderByDefault = `occurrences`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneOrderDirectionDefault = `DESC`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneStatusDefault = `active`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneMax = 20
+
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeNameMax = 400
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitDefault = 10
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitMax = 25
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderByDefault = `start_time`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderByDefault = `occurrences`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderDirectionDefault = `DESC`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneStatusDefault = `active`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourNameMax = 400
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneLimitDefault = 10
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneLimitMax = 25
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderByDefault = `created_at`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderByDefault = `start_time`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderDirectionDefault = `DESC`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneStatusDefault = `all`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveNameMax = 400
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixNameMax = 400
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneLimitDefault = 10
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneLimitMax = 25
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitDefault = 10
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitMax = 25
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneOrderByDefault = `created_at`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneOrderDirectionDefault = `DESC`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneStatusDefault = `all`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixNameMax = 400
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenNameMax = 400
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitDefault = 50
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitMax = 100
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitDefault = 10
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitMax = 25
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneOrderByDefault = `latest`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneWrapLinesDefault = false
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneTimezoneDefault = `UTC`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightNameMax = 400
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitDefault = 10
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitMax = 25
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitDefault = 50
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitMax = 100
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneStatusDefault = `all`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneChannelDefault = `all`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneAssigneesMax = 100
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneOrderByDefault = `latest`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneWrapLinesDefault = false
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneTimezoneDefault = `UTC`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineNameMax = 400
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchDefault = ``
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchMax = 200
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneLimitDefault = 10
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneLimitMax = 25
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSavedViewIdOneMax = 12
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneStatusDefault = `all`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneChannelDefault = `all`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneAssigneesMax = 100
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchDefault = ``
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchMax = 200
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax = 400
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
@@ -2806,6 +3106,46 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                         name: zod
                             .string()
                             .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneNameMax)
+                            .nullish()
+                            .describe(
+                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
+                        widget_type: zod.enum(['notebook_widget']),
+                        config: zod
+                            .object({
+                                notebookShortId: zod
+                                    .union([
+                                        zod
+                                            .string()
+                                            .min(1)
+                                            .max(
+                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneNotebookShortIdOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Source notebook short ID.'),
+                                snapshotId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+                                    ),
+                            })
+                            .optional()
+                            .describe('New configuration for the notebook widget widget. Omit to leave unchanged.'),
+                    }),
+                    zod.object({
+                        tile_id: zod
+                            .number()
+                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
+                        name: zod
+                            .string()
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoNameMax)
                             .nullish()
                             .describe(
                                 'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
@@ -2876,6 +3216,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2900,8 +3241,8 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitDefault)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitDefault)
                                     .describe('Maximum number of events to return.'),
                                 eventName: zod
                                     .union([zod.string().min(1), zod.null()])
@@ -2916,14 +3257,14 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                         .string()
                                                         .min(1)
                                                         .max(
-                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax
+                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemKeyMax
                                                         ),
                                                     label: zod
                                                         .union([
                                                             zod
                                                                 .string()
                                                                 .max(
-                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemLabelOneMax
                                                                 ),
                                                             zod.null(),
                                                         ])
@@ -2955,6 +3296,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -2977,19 +3319,19 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                                         zod
                                                                             .string()
                                                                             .max(
-                                                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax
+                                                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneItemOneMax
                                                                             ),
                                                                         zod.number(),
                                                                         zod.boolean(),
                                                                     ])
                                                                 )
                                                                 .max(
-                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneMax
                                                                 ),
                                                             zod
                                                                 .string()
                                                                 .max(
-                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneItemValueTwoMax
                                                                 ),
                                                             zod.number(),
                                                             zod.boolean(),
@@ -2999,7 +3341,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                 })
                                             )
                                             .max(
-                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneMax
+                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOnePropertiesOneMax
                                             ),
                                         zod.null(),
                                     ])
@@ -3015,7 +3357,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
                         name: zod
                             .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoNameMax)
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeNameMax)
                             .nullish()
                             .describe(
                                 'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
@@ -3086,6 +3428,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3110,22 +3453,22 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitDefault)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitDefault)
                                     .describe('Maximum number of issues to return.'),
                                 orderBy: zod
-                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneOrderByDefault)
+                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions', 'severity'])
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderByDefault)
                                     .describe('Issue ranking column.'),
                                 orderDirection: zod
                                     .enum(['ASC', 'DESC'])
                                     .default(
-                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneOrderDirectionDefault
+                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderDirectionDefault
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 status: zod
                                     .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneStatusDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneStatusDefault)
                                     .describe('Issue status filter.'),
                                 assignee: zod
                                     .union([
@@ -3147,7 +3490,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
                         name: zod
                             .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeNameMax)
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourNameMax)
                             .nullish()
                             .describe(
                                 'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
@@ -3218,6 +3561,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3242,8 +3586,8 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitDefault)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneLimitDefault)
                                     .describe('Maximum number of recordings to return.'),
                                 orderBy: zod
                                     .enum([
@@ -3254,12 +3598,12 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                         'click_count',
                                         'console_error_count',
                                     ])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderByDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderByDefault)
                                     .describe('Recording ranking column.'),
                                 orderDirection: zod
                                     .enum(['ASC', 'DESC'])
                                     .default(
-                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderDirectionDefault
+                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderDirectionDefault
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 savedFilterId: zod
@@ -3284,7 +3628,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
                         name: zod
                             .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourNameMax)
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveNameMax)
                             .nullish()
                             .describe(
                                 'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
@@ -3299,22 +3643,22 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneLimitDefault)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneLimitDefault)
                                     .describe('Maximum number of experiments to return.'),
                                 orderBy: zod
                                     .enum(['created_at', 'name', 'start_date'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderByDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneOrderByDefault)
                                     .describe('Experiment list sort column.'),
                                 orderDirection: zod
                                     .enum(['ASC', 'DESC'])
                                     .default(
-                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderDirectionDefault
+                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneOrderDirectionDefault
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 status: zod
                                     .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneStatusDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveConfigOneStatusDefault)
                                     .describe('Experiment status filter.'),
                                 createdBy: zod
                                     .union([zod.number(), zod.null()])
@@ -3330,7 +3674,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
                         name: zod
                             .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveNameMax)
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixNameMax)
                             .nullish()
                             .describe(
                                 'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
@@ -3358,7 +3702,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
                         name: zod
                             .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixNameMax)
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenNameMax)
                             .nullish()
                             .describe(
                                 'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
@@ -3403,8 +3747,8 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitDefault)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitDefault)
                                     .describe('Maximum number of recent responses to return.'),
                             })
                             .optional()
@@ -3416,7 +3760,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
                         name: zod
                             .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenNameMax)
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightNameMax)
                             .nullish()
                             .describe(
                                 'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
@@ -3454,12 +3798,12 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitDefault)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitDefault)
                                     .describe('Maximum number of log lines to return.'),
                                 orderBy: zod
                                     .enum(['latest', 'earliest'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneOrderByDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneOrderByDefault)
                                     .describe('Sort by newest (latest) or oldest (earliest) first.'),
                                 severityLevels: zod
                                     .array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']))
@@ -3471,11 +3815,11 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                     .describe('Only show logs from these services. Empty shows all services.'),
                                 wrapLines: zod
                                     .boolean()
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneWrapLinesDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneWrapLinesDefault)
                                     .describe('Wrap long log lines instead of truncating them to a single row.'),
                                 timezone: zod
                                     .enum(['UTC', 'local'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneTimezoneDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneTimezoneDefault)
                                     .describe("Render log timestamps in UTC or in each viewer's local timezone."),
                                 savedViewId: zod
                                     .union([zod.string(), zod.null()])
@@ -3493,7 +3837,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
                         name: zod
                             .string()
-                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightNameMax)
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineNameMax)
                             .nullish()
                             .describe(
                                 'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
@@ -3508,12 +3852,12 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitDefault)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneLimitDefault)
                                     .describe('Maximum number of tickets to return.'),
                                 status: zod
                                     .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneStatusDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneStatusDefault)
                                     .describe('Ticket status filter.'),
                                 priorities: zod
                                     .array(zod.enum(['low', 'medium', 'high', 'critical']))
@@ -3521,7 +3865,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                     .describe('Only show tickets with these priorities. Empty shows all priorities.'),
                                 channel: zod
                                     .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneChannelDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneChannelDefault)
                                     .describe('Ticket channel filter.'),
                                 assignees: zod
                                     .array(
@@ -3533,15 +3877,15 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                             }),
                                         ])
                                     )
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneAssigneesMax)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneAssigneesMax)
                                     .optional()
                                     .describe(
                                         "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
                                     ),
                                 search: zod
                                     .string()
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchDefault)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchDefault)
                                     .describe(
                                         'Search requester name or email, ticket subject, message text, or ticket number.'
                                     ),
@@ -3550,7 +3894,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                         zod
                                             .string()
                                             .max(
-                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSavedViewIdOneMax
+                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSavedViewIdOneMax
                                             ),
                                         zod.null(),
                                     ])
@@ -3562,6 +3906,34 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             .optional()
                             .describe('New configuration for the recent tickets widget. Omit to leave unchanged.'),
                     }),
+                    zod.object({
+                        tile_id: zod
+                            .number()
+                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
+                        name: zod
+                            .string()
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax)
+                            .nullish()
+                            .describe(
+                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
+                        widget_type: zod.enum(['canvas_app']),
+                        config: zod
+                            .object({
+                                canvasId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Canvas to render in the tile. Null until the user picks one in the widget settings.'
+                                    ),
+                            })
+                            .optional()
+                            .describe('New configuration for the canvas app widget. Omit to leave unchanged.'),
+                    }),
                 ])
             )
             .min(1)
@@ -3572,6 +3944,32 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
             ),
     })
     .describe('OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.')
+
+/**
+ * Soft-delete up to 100 dashboards. Optionally delete insights with no remaining dashboard. Report missing or inaccessible dashboards as skipped.
+ */
+export const DashboardsBulkDeleteCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const dashboardsBulkDeleteCreateBodyIdsMax = 100
+
+export const dashboardsBulkDeleteCreateBodyDeleteInsightsDefault = false
+
+export const DashboardsBulkDeleteCreateBody = () => zod.object({
+    ids: zod
+        .array(zod.number().min(1))
+        .max(dashboardsBulkDeleteCreateBodyIdsMax)
+        .describe('Dashboard IDs to soft-delete. At most 100 IDs per request.'),
+    delete_insights: zod
+        .boolean()
+        .default(dashboardsBulkDeleteCreateBodyDeleteInsightsDefault)
+        .describe('Also delete insights that have no remaining dashboard after deletion. Defaults to false.'),
+})
 
 /**
  * List registered dashboard widget types and per-type config_schema documentation for agents.

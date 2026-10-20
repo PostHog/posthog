@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type {
+    AttentionPullRequestListApi,
     GitHubSourceApi,
     PullRequestListApi,
     RepoOverviewApi,
@@ -41,6 +42,8 @@ const OVERVIEW: RepoOverviewApi = {
     // A slice of billable_minutes above, not an addition to it.
     merge_queue_billable_minutes: 1180,
     merge_queue_billable_minutes_prev: 940,
+    depot_ci_billable_minutes: 2610,
+    depot_ci_billable_minutes_prev: 1730,
     merge_queue_merged_pr_count: 48,
     merge_queue_merged_pr_count_prev: 41,
     merge_queue_median_first_gate_to_merge_seconds: 32 * 60,
@@ -232,6 +235,12 @@ const PULL_REQUESTS: PullRequestListApi = {
     limit: 1000,
 }
 
+const ATTENTION_PULL_REQUESTS: AttentionPullRequestListApi = {
+    items: PULL_REQUESTS.items.filter((item) => item.state === 'open'),
+    total: 1,
+    limit: 15,
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Engineering Analytics/Repo Overview',
@@ -258,6 +267,7 @@ const meta: Meta = {
                     failing_ci: 4,
                 },
                 'api/projects/:team_id/engineering_analytics/pull_requests/': PULL_REQUESTS,
+                'api/projects/:team_id/engineering_analytics/attention_pull_requests/': ATTENTION_PULL_REQUESTS,
                 'api/projects/:team_id/engineering_analytics/workflow_health/': WORKFLOW_HEALTH,
             },
         }),
@@ -269,7 +279,7 @@ type Story = StoryObj<typeof meta>
 
 export const RepoOverview: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalytics() },
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
 }
 
 // The Trunk-source variant: the failed-queue-run proxy card is replaced by the queue's own
@@ -285,11 +295,27 @@ const OVERVIEW_WITH_TRUNK: RepoOverviewApi = {
 
 export const RepoOverviewWithTrunkQueueData: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalytics() },
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
     decorators: [
         mswDecorator({
             get: {
                 'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW_WITH_TRUNK,
+            },
+        }),
+    ],
+}
+
+// Two connected repositories: the title gains the button that switches between them.
+export const RepoOverviewWithSeveralRepositories: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/sources/': [
+                    ...SOURCES,
+                    { id: 'src-2', repo: 'PostHog/posthog-js', prefix: '' },
+                ],
             },
         }),
     ],

@@ -4,7 +4,7 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -18,13 +18,15 @@ from posthog.temporal.oauth import (
     CONTEXT_LAYER_INTERNAL_SCOPE,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
+    MCP_SCOPE_PRESETS,
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     RESEARCH_WITHHELD_SCOPES,
+    SCOUT_DEFAULT_WRITE_SCOPES,
+    SCOUT_GRANTABLE_INTERNAL_SCOPES,
     SCOUT_GRANTABLE_WRITE_SCOPES,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_SCOPE_PRESETS,
-    SCOUT_USER_WRITE_SCOPES,
     SCRATCHPAD_INTERNAL_SCOPES,
     McpScopePreset,
     PosthogMcpScopes,
@@ -38,6 +40,8 @@ from posthog.temporal.oauth import (
     scout_mcp_scopes,
     scout_scope_posture,
 )
+
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 _WIZARD_CLIENT_ID = "wizard-test-client-id"
 
@@ -61,13 +65,12 @@ class TestResolveScopes(SimpleTestCase):
         assert CONTEXT_LAYER_INTERNAL_SCOPE in resolve_scopes(["organization:write"])
 
     def test_signals_scout_preset_adds_scout_internal_write(self) -> None:
-        # `signals_scout` = `read_only` content PLUS the scout's own internal write scope
-        # PLUS the narrow user-facing write allowlist (`SCOUT_USER_WRITE_SCOPES`). No other
-        # user-facing write scopes (e.g. `action:write`) leak in.
+        # `signals_scout` = `read_only` content PLUS the scout's own internal write scope, and no
+        # user-facing write scope. Notebooks included: a scout holds `notebook:write` only through
+        # its grant, so a person can turn it off for one scout.
         result = resolve_scopes("signals_scout")
-        assert set(result) == set(MCP_READ_SCOPES + INTERNAL_SCOPES + SCOUT_INTERNAL_SCOPES + SCOUT_USER_WRITE_SCOPES)
+        assert set(result) == set(MCP_READ_SCOPES + INTERNAL_SCOPES + SCOUT_INTERNAL_SCOPES)
         assert "signal_scout_internal:write" in result
-        assert "notebook:write" in result
         assert "action:write" not in result
 
     def test_scout_internal_write_only_on_signals_scout_preset(self) -> None:
@@ -94,11 +97,23 @@ class TestResolveScopes(SimpleTestCase):
         # `has_write_scopes`) would otherwise hand it every task-write tool, including
         # setting a report's state.
         result = resolve_scopes("signals_research")
-        expected = set(MCP_READ_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES) - RESEARCH_WITHHELD_SCOPES
+        expected = (
+            set(MCP_READ_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES + ["signal_scout_internal:read"])
+            - RESEARCH_WITHHELD_SCOPES
+        )
         assert set(result) == expected
         assert "signal_scratchpad_internal:write" in result
         assert "task:write" not in result
+        assert "inbox:write" not in result
+        assert "inbox:read" in result
         assert "action:write" not in result
+
+        assert "signal_scout_internal:read" not in resolve_scopes("signals_research", include_internal_scopes=False)
+
+    @parameterized.expand([(preset, preset) for preset in MCP_SCOPE_PRESETS] + [("custom", ["feature_flag:read"])])
+    def test_inbox_write_travels_with_task_write(self, _name: str, scopes: PosthogMcpScopes) -> None:
+        result = resolve_scopes(scopes)
+        assert ("task:write" in result) == ("inbox:write" in result)
 
     def test_signals_implementation_preset_is_full_plus_the_scratchpad(self) -> None:
         result = resolve_scopes("signals_implementation")
@@ -126,30 +141,10 @@ class TestResolveScopes(SimpleTestCase):
             assert "signal_scratchpad_internal:write" not in resolve_scopes(preset)
         assert "signal_scratchpad_internal:write" not in resolve_scopes(["feature_flag:read"])
 
-    @parameterized.expand([(scope,) for scope in SCOUT_USER_WRITE_SCOPES])
-    def test_scout_user_write_allowlist_isolated_from_read_only_tokens(self, scope: str) -> None:
-        # The scout's user-facing write allowlist (e.g. `notebook:write`) must reach the
-        # `signals_scout` preset but NOT leak onto read-only task tokens. It legitimately
-        # appears in `full` (which carries every MCP write scope) — that is expected and is
-        # not what this invariant guards.
-        assert scope in resolve_scopes("signals_scout")
-        assert scope not in resolve_scopes("read_only")
-        assert scope not in resolve_scopes(["feature_flag:read"])
-
-    def test_signals_scout_user_write_allowlist_ignores_internal_scopes_flag(self) -> None:
-        # `SCOUT_USER_WRITE_SCOPES` are ordinary public scopes, not internal ones, so they
-        # are granted to the scout posture independently of `include_internal_scopes`.
-        # Dropping internal scopes still strips the scout's own internal write scope.
-        result = resolve_scopes("signals_scout", include_internal_scopes=False)
-        assert set(result) == set(MCP_READ_SCOPES + SCOUT_USER_WRITE_SCOPES)
-        assert "notebook:write" in result
-        assert "signal_scout_internal:write" not in result
-        for scope in INTERNAL_SCOPES:
-            assert scope not in result
-
     @parameterized.expand(
         [
             ("dashboard_grant", "signals_scout", "dashboard:write", "insight:write"),
+            ("notebook_grant", "signals_scout", "notebook:write", "dashboard:write"),
             # The skills grant is the one whose object the scout machinery itself runs on: a custom
             # scout is a skill, and the report preset carries the scout's own internal and emit
             # scopes. This case is what proves a grant on it composes with that preset rather than
@@ -293,9 +288,11 @@ class TestResolveScopes(SimpleTestCase):
         assert resolve_scopes(decoded) == resolve_scopes(posture)
 
     def test_grantable_write_scopes_are_mcp_write_scopes(self) -> None:
-        # A typo or an internal scope in the allowlist would offer a person a switch that grants
-        # nothing, because the MCP server gates its tools on scopes it advertises.
-        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES)
+        # A typo would offer a person a switch that grants nothing. An internal scope is allowed only
+        # where it is listed as deliberately grantable, since those are minted server-side.
+        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES) | SCOUT_GRANTABLE_INTERNAL_SCOPES
+        # A default outside the allowlist would be stored on every new scout and dropped at mint time.
+        assert SCOUT_DEFAULT_WRITE_SCOPES <= SCOUT_GRANTABLE_WRITE_SCOPES
 
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]
@@ -415,6 +412,18 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_withheld_scopes_are_dropped_after_internal_scopes_are_added(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, withhold_scopes=["llm_gateway:read"])
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert "llm_gateway:read" not in scopes
+        assert "internal_run:read" in scopes
+        assert "task:write" in scopes
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
     def test_built_in_agent_scope_is_added_without_narrowing_scopes(self) -> None:
         self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
         user, team = self._create_user_and_team()
@@ -492,6 +501,27 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         assert access_token.scoped_teams == [team.id]
         assert set(access_token.scope.split()) == set(scopes)
 
+    @parameterized.expand([("allowed", False), ("refused", True)])
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
+    @patch("posthog.temporal.oauth.security_access_refused")
+    def test_mint_asks_the_access_rules(self, _name: str, refused: bool, check: MagicMock) -> None:
+        check.return_value = refused
+        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
+        user, team = self._create_user_and_team()
+
+        if refused:
+            with pytest.raises(WizardIdentityBlockedError):
+                create_wizard_oauth_access_token_for_user(user, team.id)
+        else:
+            create_wizard_oauth_access_token_for_user(user, team.id)
+
+        check.assert_called_once()
+        subject, surface = check.call_args.args
+        assert surface == SecuritySurface.AI_GATEWAY
+        assert subject.organization_ids == (str(team.organization_id),)
+        assert check.call_args.kwargs == {"call_site": "wizard_mint"}
+        assert OAuthAccessToken.objects.exists() is not refused
+
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_requires_existing_app(self) -> None:
         user, team = self._create_user_and_team()
@@ -515,6 +545,7 @@ class TestSignalsResearchToolset(SimpleTestCase):
     def test_opens_the_scratchpad_writes_and_nothing_else(self) -> None:
         granted = set(resolve_scopes("signals_research"))
         definitions: dict[str, dict] = json.loads(self._CATALOG.read_text())
+        assert set(definitions["scout-members-list"]["required_scopes"]) <= granted
 
         reachable_writes = {
             name

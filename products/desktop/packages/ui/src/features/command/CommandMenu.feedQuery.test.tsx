@@ -85,6 +85,26 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useTaskStatusInput: () => null,
   useChannelTaskStatus: () => null,
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useCanvasQueryResults", () => ({
+  useCanvasQueryResults: (query: string | undefined) => ({
+    canvases: query
+      ? [
+          {
+            id: "canvas-1",
+            channelId: "space-1",
+            name: "Revenue overview",
+            kind: "freeform",
+            description: "",
+            templateId: "freeform",
+            createdBy: "Moshe Katz",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ]
+      : [],
+    isLoading: false,
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useTaskFeedResults: (query: string | undefined) => ({
     tasks: query
@@ -149,6 +169,42 @@ describe("CommandMenu feed queries", () => {
     expect(
       await screen.findByText("Save search", { selector: "h2" }),
     ).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText(/Search commands and tasks/),
+    ).toHaveValue("");
+  });
+
+  it("clears the query after a save closes the palette", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <Theme>
+        <CommandMenu open onOpenChange={onOpenChange} />
+      </Theme>,
+    );
+
+    await user.type(
+      screen.getByPlaceholderText(/Search commands and tasks/),
+      "created-by:@me ",
+    );
+    await user.keyboard("{Meta>}s{/Meta}");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+
+    // The parent owns `open`, so the Dialog never runs its own close handler.
+    rerender(
+      <Theme>
+        <CommandMenu open={false} onOpenChange={onOpenChange} />
+      </Theme>,
+    );
+    rerender(
+      <Theme>
+        <CommandMenu open onOpenChange={onOpenChange} />
+      </Theme>,
+    );
+
+    expect(
+      await screen.findByPlaceholderText(/Search commands and tasks/),
+    ).toHaveValue("");
   });
 
   it("shows a selected command in the recent section", async () => {
@@ -287,5 +343,27 @@ describe("CommandMenu feed queries", () => {
         { timeout: 2000 },
       ),
     ).toBeTruthy();
+  });
+
+  it("lists canvases instead of tasks with type:canvas", async () => {
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <CommandMenu open onOpenChange={() => {}} />
+      </Theme>,
+    );
+
+    await user.type(
+      screen.getByPlaceholderText(/Search commands and tasks/),
+      "type:canvas created-by:moshe ",
+    );
+    expect(
+      await screen.findByText("Revenue overview", {}, { timeout: 2000 }),
+    ).toBeTruthy();
+    expect(screen.getByText("1 matching canvas")).toBeTruthy();
+    expect(screen.queryByText("Fix billing address validation")).toBeNull();
+    expect(screen.queryByText("Actions")).toBeNull();
+    // Saved searches are task feeds, so a canvas query offers no save shortcut.
+    expect(screen.queryByText(/save search/)).toBeNull();
   });
 });

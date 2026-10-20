@@ -1,4 +1,4 @@
-import type { InactivityPeriod as BaseInactivityPeriod } from '@posthog/replay-headless/protocol'
+import type { InactivityPeriod as BaseInactivityPeriod, NavigationSample } from '@posthog/replay-headless/protocol'
 
 export interface RasterizeRecordingInput {
     session_id: string
@@ -7,6 +7,8 @@ export interface RasterizeRecordingInput {
     // recording-api (the rasterizer cannot mint its own). Optional only during migration, before the
     // minting side has shipped.
     recording_api_token?: string
+    // Renders this `[windowId, event]` JSONL object instead of fetching blocks from recording-api.
+    source_s3_uri?: string
     max_virtual_time?: number // max virtual-time seconds before stopping capture (default: unlimited)
     playback_speed?: number // 1-360, defaults to 4
     start_offset_s?: number // seconds from session start to begin playback
@@ -26,6 +28,25 @@ export interface RasterizeRecordingInput {
     s3_key_prefix: string // e.g. "exports/mp4/team-123/task-456"
 }
 
+export interface ExtractThumbnailsInput {
+    /** The rendered analysis MP4 to cut the frames from. */
+    source_s3_uri: string
+    /** Each frame's seconds into the analysis video, and the object name it uploads under. A frame that is not
+     * `required` is left out of the output when it cannot be cut, instead of failing the batch. */
+    frames: { video_time_s: number; id: string; required?: boolean }[]
+    /** Pixels of burned-in metadata footer to crop off the bottom before scaling. */
+    footer_crop_px?: number
+    /** Output width; height follows the source aspect ratio. Defaults to 1280. */
+    width?: number
+    s3_bucket: string
+    s3_key_prefix: string
+}
+
+export interface ExtractThumbnailsOutput {
+    /** One entry per frame the video has, in input order. */
+    frames: { id: string; s3_uri: string; file_size_bytes: number }[]
+}
+
 /**
  * Extends the base InactivityPeriod from the shared protocol with
  * recording_ts fields that map segment boundaries to post-processed video
@@ -34,6 +55,14 @@ export interface RasterizeRecordingInput {
 export interface InactivityPeriod extends BaseInactivityPeriod {
     recording_ts_from_s?: number
     recording_ts_to_s?: number
+}
+
+export interface NavigationChange {
+    video_s: number // position in the rendered file where the change first shows
+    session_s: number // recording time of that frame
+    window_id: string // the recording's own window id, as its analytics events carry it
+    window_number: number // the number the footer shows for the window
+    url: string // without query string, as the footer draws it
 }
 
 /**
@@ -59,8 +88,11 @@ export interface RasterizeRecordingOutput {
     video_duration_s: number // actual playback duration of the output video
     playback_speed: number
     show_metadata_footer: boolean
+    // Pixels at the bottom of each frame the footer takes, which a consumer crops to get the page alone.
+    footer_height_px: number
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
+    navigation: NavigationChange[]
     file_size_bytes: number
     timings: ActivityTimings
 }
@@ -87,6 +119,7 @@ export interface RecordingResult {
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
     frame_session_ms: number[] // session time at each captured frame, measured during capture
+    navigation_samples: NavigationSample[] // window or URL changes, each keyed to its frame_session_ms index
     pre_roll_frames: number // frames captured before playback started, which carry no sample
     output_fps: number // frames per second of the rendered file, so a frame index is a video position
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>

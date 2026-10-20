@@ -41,6 +41,7 @@ const ERROR_SCENES: string[] = [
     Scene.ErrorProjectUnavailable,
     Scene.ErrorProjectAccessDenied,
     Scene.ErrorAccessDenied,
+    Scene.ErrorSceneLoad,
 ]
 
 // Index routes resolve without an entity id; the entity routes additionally build the id-keyed
@@ -58,8 +59,8 @@ const HIGH_TRAFFIC_SCENES: [name: string, path: string][] = [
     ['feature flags', '/feature_flags'],
     ['experiments', '/experiments'],
     ['surveys', '/surveys'],
-    ['activity explore', '/activity/explore'],
-    ['error tracking', '/error_tracking'],
+    ['activity events', '/activity/events'],
+    ['error tracking', '/error-tracking'],
     ['sql editor', '/sql'],
     ['engineering analytics', '/engineering-analytics'],
     ['project settings', '/settings/project'],

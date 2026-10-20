@@ -252,7 +252,10 @@ describe('TrendsLineChart', () => {
         it('shows zero-count series alongside active ones', async () => {
             renderInsight({
                 query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'EmptySeries', name: 'EmptySeries' },
+                        { kind: NodeKind.EventsNode, event: 'ActiveSeries', name: 'ActiveSeries' },
+                    ],
                 }),
             })
 
@@ -506,7 +509,10 @@ describe('TrendsLineChart', () => {
         it('renders without crashing when series contain zero values', async () => {
             renderInsight({
                 query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'EmptySeries', name: 'EmptySeries' },
+                        { kind: NodeKind.EventsNode, event: 'ActiveSeries', name: 'ActiveSeries' },
+                    ],
                     trendsFilter: { yAxisScaleType: 'log10' },
                 }),
             })
@@ -596,7 +602,10 @@ describe('TrendsLineChart', () => {
             // later series (here, ActiveSeries) had real counts.
             renderInsight({
                 query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'EmptySeries', name: 'EmptySeries' },
+                        { kind: NodeKind.EventsNode, event: 'ActiveSeries', name: 'ActiveSeries' },
+                    ],
                 }),
             })
 
@@ -809,6 +818,25 @@ describe('TrendsLineChart', () => {
             const legendEl = getInChartLegend(container)
             expect(legendEl.textContent).toContain('Napped')
             expect(container.querySelector('.InsightLegendMenu')).not.toBeInTheDocument()
+        })
+
+        it('adds series letters when same-named series share a breakdown', async () => {
+            const { container } = renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    trendsFilter: { showLegend: true },
+                }),
+            })
+
+            await waitFor(() => {
+                const legendText = getInChartLegend(container).textContent
+                expect(legendText).toContain('A Napped · Spike')
+                expect(legendText).toContain('B Napped · Spike')
+            })
         })
 
         it('keeps a toggled-off series listed and dimmed in the legend but out of the tooltip', async () => {

@@ -17,6 +17,7 @@ type FileSystemLogViewType =
     | 'early_access_feature'
     | 'link'
     | 'notebook'
+    | 'canvas'
     | 'session_recording_playlist'
     | `hog_function/${string}`
 
@@ -39,7 +40,9 @@ export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileS
     }
 
     recentItemsModel.findMounted()?.actions.recordView(type, String(ref))
-    void api.fileSystemLogView.create({ type, ref: String(ref) })
+    // Fire-and-forget view tracking: nothing renders off it, so a failure must not surface as an
+    // unhandled rejection.
+    api.fileSystemLogView.create({ type, ref: String(ref) }).catch(() => {})
 }
 
 export function useFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {

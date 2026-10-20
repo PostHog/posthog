@@ -2,12 +2,13 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import type { ConnectedAppApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { ConnectedApp, connectedAppsLogic } from './connectedAppsLogic'
+import { connectedAppsLogic } from './connectedAppsLogic'
 
-const APP_A: ConnectedApp = {
+const APP_A: ConnectedAppApi = {
     id: 'app-a',
     name: 'App A',
     logo_uri: null,
@@ -15,9 +16,10 @@ const APP_A: ConnectedApp = {
     authorized_at: '2026-06-18T00:00:00Z',
     is_verified: true,
     is_first_party: false,
+    requires_access_confirmation: false,
 }
 
-const APP_B: ConnectedApp = {
+const APP_B: ConnectedAppApi = {
     id: 'app-b',
     name: 'App B',
     logo_uri: null,
@@ -25,6 +27,7 @@ const APP_B: ConnectedApp = {
     authorized_at: '2026-06-10T00:00:00Z',
     is_verified: false,
     is_first_party: false,
+    requires_access_confirmation: false,
 }
 
 async function waitForInFlightRevoke(getResolve: () => (() => void) | undefined): Promise<() => void> {
@@ -75,6 +78,23 @@ describe('connectedAppsLogic', () => {
                 connectedApps: [APP_B],
             })
         expect(lemonToast.success).toHaveBeenCalled()
+    })
+
+    it('reloads the list when the app had already lost access', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({
+            get: {
+                '/api/oauth/connected-apps/': () => [200, [APP_B]],
+            },
+            post: {
+                '/api/oauth/connected-apps/:id/revoke/': () => [404, { detail: 'No active connection found.' }],
+            },
+        })
+
+        logic.actions.revokeApp(APP_A.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.connectedApps).toEqual([APP_B])
     })
 
     it('does not toast when the logic unmounts mid-revoke', async () => {

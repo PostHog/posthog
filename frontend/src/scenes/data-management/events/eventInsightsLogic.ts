@@ -3,13 +3,10 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { InsightsResult, SavedInsightFilters, cleanFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 
 export interface EventInsightsLogicProps {
     event: string
@@ -86,7 +83,6 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
     key(({ event }) => event),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-        logic: [eventUsageLogic],
     })),
     actions({
         setFilters: (filters: Partial<SavedInsightFilters>) => ({ filters }),
@@ -114,12 +110,13 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
 
                 params.events = [props.event]
 
-                const response = await api.get(`api/environments/${values.currentTeamId}/insights/?${toParams(params)}`)
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
+                const response = await api.get(`api/projects/${values.currentTeamId}/insights/?${toParams(params)}`)
 
                 return {
                     ...response,
                     filters,
-                    results: (response?.results ?? []).map((rawInsight: any) => getQueryBasedInsightModel(rawInsight)),
+                    results: response?.results ?? [],
                 } as InsightsResult
             },
         },

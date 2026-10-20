@@ -1,7 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconChevronRight } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -30,8 +31,10 @@ export function SessionReplayMenuItems({
     MenuSeparator = DropdownMenuSeparator,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
-    const { savedFilters, savedFiltersLoading } = useValues(sessionRecordingSavedFiltersLogic)
-    const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
+    const { savedFilters, savedFiltersLoading, loadSavedFiltersFailed } = useValues(sessionRecordingSavedFiltersLogic)
+    const { loadSavedFiltersIfNeeded, loadSavedFilters } = useActions(sessionRecordingSavedFiltersLogic)
+    const { playlists, playlistsLoading, loadPlaylistsFailed } = useValues(sessionRecordingCollectionsLogic)
+    const { loadPlaylists } = useActions(sessionRecordingCollectionsLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLElement>): void {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -43,22 +46,38 @@ export function SessionReplayMenuItems({
     }
     return (
         <>
-            {savedFiltersLoading ? (
-                <MenuItem disabled>
-                    <ButtonPrimitive menuItem>Loading...</ButtonPrimitive>
-                </MenuItem>
-            ) : savedFilters.count > 0 ? (
-                <MenuSub>
-                    <MenuSubTrigger asChild>
-                        <ButtonPrimitive menuItem>
-                            Saved filters
-                            <IconChevronRight className="ml-auto size-3" />
-                        </ButtonPrimitive>
-                    </MenuSubTrigger>
+            <MenuSub
+                onOpenChange={(open) => {
+                    if (open) {
+                        if (loadSavedFiltersFailed) {
+                            loadSavedFilters()
+                        } else {
+                            loadSavedFiltersIfNeeded()
+                        }
+                    }
+                }}
+            >
+                <MenuSubTrigger asChild>
+                    <ButtonPrimitive menuItem data-attr="tree-item-menu-saved-filters">
+                        Saved filters
+                        <IconChevronRight className="ml-auto size-3" />
+                    </ButtonPrimitive>
+                </MenuSubTrigger>
 
-                    <MenuSubContent>
-                        <MenuGroup>
-                            {savedFilters.results.map((savedFilter) => (
+                <MenuSubContent>
+                    <MenuGroup>
+                        {savedFiltersLoading ? (
+                            <MenuItem disabled>
+                                <LemonSkeleton className="h-4 w-32" repeat={3} />
+                            </MenuItem>
+                        ) : loadSavedFiltersFailed ? (
+                            <MenuItem disabled>
+                                <ButtonPrimitive menuItem>Couldn't load saved filters</ButtonPrimitive>
+                            </MenuItem>
+                        ) : null}
+                        {!savedFiltersLoading &&
+                            !loadSavedFiltersFailed &&
+                            savedFilters.results.map((savedFilter) => (
                                 <MenuItem asChild key={savedFilter.short_id}>
                                     <Link
                                         buttonProps={{
@@ -70,6 +89,7 @@ export function SessionReplayMenuItems({
                                             }).url
                                         )}
                                         tooltip={savedFilter.name || savedFilter.derived_name || 'Unnamed'}
+                                        data-attr="tree-item-menu-saved-filter"
                                         tooltipPlacement="right"
                                         onKeyDown={handleKeyDown}
                                         onClick={() => onLinkClick?.(false)}
@@ -80,44 +100,54 @@ export function SessionReplayMenuItems({
                                     </Link>
                                 </MenuItem>
                             ))}
-                            {savedFilters.next ? (
-                                <>
-                                    <MenuSeparator />
-                                    <MenuItem asChild key="all-saved-filters">
-                                        <Link
-                                            buttonProps={{
-                                                menuItem: true,
-                                            }}
-                                            to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}
-                                            onKeyDown={handleKeyDown}
-                                            onClick={() => onLinkClick?.(false)}
-                                        >
-                                            <span className="truncate">All saved filters</span>
-                                        </Link>
-                                    </MenuItem>
-                                </>
-                            ) : null}
-                        </MenuGroup>
-                    </MenuSubContent>
-                </MenuSub>
-            ) : null}
+                        {!savedFiltersLoading ? (
+                            <>
+                                {savedFilters.results.length > 0 && !loadSavedFiltersFailed && <MenuSeparator />}
+                                <MenuItem asChild key="all-saved-filters">
+                                    <Link
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                        to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}
+                                        data-attr="tree-item-menu-all-saved-filters"
+                                        onKeyDown={handleKeyDown}
+                                        onClick={() => onLinkClick?.(false)}
+                                    >
+                                        <span className="truncate">All saved filters</span>
+                                    </Link>
+                                </MenuItem>
+                            </>
+                        ) : null}
+                    </MenuGroup>
+                </MenuSubContent>
+            </MenuSub>
 
-            {playlistsLoading ? (
-                <MenuItem disabled>
-                    <ButtonPrimitive menuItem>Loading...</ButtonPrimitive>
-                </MenuItem>
-            ) : playlists.count > 0 ? (
-                <MenuSub>
-                    <MenuSubTrigger asChild>
-                        <ButtonPrimitive menuItem>
-                            Collections
-                            <IconChevronRight className="ml-auto size-3" />
-                        </ButtonPrimitive>
-                    </MenuSubTrigger>
+            <MenuSub
+                onOpenChange={(open) => {
+                    if (open && loadPlaylistsFailed && !playlistsLoading) {
+                        loadPlaylists()
+                    }
+                }}
+            >
+                <MenuSubTrigger asChild>
+                    <ButtonPrimitive menuItem data-attr="tree-item-menu-collections">
+                        Collections
+                        <IconChevronRight className="ml-auto size-3" />
+                    </ButtonPrimitive>
+                </MenuSubTrigger>
 
-                    <MenuSubContent>
-                        <MenuGroup>
-                            {playlists.results.map((playlist) => (
+                <MenuSubContent>
+                    <MenuGroup>
+                        {playlistsLoading ? (
+                            <MenuItem disabled>
+                                <LemonSkeleton className="h-4 w-32" repeat={3} />
+                            </MenuItem>
+                        ) : loadPlaylistsFailed ? (
+                            <MenuItem disabled>
+                                <ButtonPrimitive menuItem>Couldn't load collections</ButtonPrimitive>
+                            </MenuItem>
+                        ) : (
+                            playlists.results.map((playlist) => (
                                 <MenuItem asChild key={playlist.short_id}>
                                     <Link
                                         buttonProps={{
@@ -125,6 +155,7 @@ export function SessionReplayMenuItems({
                                         }}
                                         to={urls.replayPlaylist(playlist.short_id)}
                                         tooltip={playlist.name || playlist.derived_name || 'Unnamed'}
+                                        data-attr="tree-item-menu-collection"
                                         tooltipPlacement="right"
                                         onKeyDown={handleKeyDown}
                                         onClick={() => onLinkClick?.(false)}
@@ -134,28 +165,29 @@ export function SessionReplayMenuItems({
                                         </span>
                                     </Link>
                                 </MenuItem>
-                            ))}
-                            {playlists.next ? (
-                                <>
-                                    <DropdownMenuSeparator />
-                                    <MenuItem asChild key="all-collections">
-                                        <Link
-                                            buttonProps={{
-                                                menuItem: true,
-                                            }}
-                                            to={`${urls.replay(ReplayTabs.Playlists)}`}
-                                            onKeyDown={handleKeyDown}
-                                            onClick={() => onLinkClick?.(false)}
-                                        >
-                                            <span className="truncate">All collections</span>
-                                        </Link>
-                                    </MenuItem>
-                                </>
-                            ) : null}
-                        </MenuGroup>
-                    </MenuSubContent>
-                </MenuSub>
-            ) : null}
+                            ))
+                        )}
+                        {!playlistsLoading ? (
+                            <>
+                                {playlists.results.length > 0 && !loadPlaylistsFailed && <MenuSeparator />}
+                                <MenuItem asChild key="all-collections">
+                                    <Link
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                        to={urls.replay(ReplayTabs.Playlists)}
+                                        data-attr="tree-item-menu-all-collections"
+                                        onKeyDown={handleKeyDown}
+                                        onClick={() => onLinkClick?.(false)}
+                                    >
+                                        <span className="truncate">All collections</span>
+                                    </Link>
+                                </MenuItem>
+                            </>
+                        ) : null}
+                    </MenuGroup>
+                </MenuSubContent>
+            </MenuSub>
 
             <MenuItem asChild>
                 <Link
@@ -163,6 +195,7 @@ export function SessionReplayMenuItems({
                         menuItem: true,
                     }}
                     to={urls.replay(ReplayTabs.Home)}
+                    data-attr="tree-item-menu-all-recordings"
                     onKeyDown={handleKeyDown}
                     onClick={() => onLinkClick?.(false)}
                 >

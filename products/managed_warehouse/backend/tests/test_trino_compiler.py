@@ -10,6 +10,7 @@ from structlog.testing import capture_logs
 
 from posthog.schema import HogQLQuery
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
     TrinoManifestColumn,
@@ -20,7 +21,6 @@ from posthog.hogql.transforms.trino.manifest import (
 from posthog.models import Organization, Team
 from posthog.schema_enums import DatabaseSerializedFieldType
 
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
@@ -48,6 +48,7 @@ def _membership(*, team_id: int, organization_id: str) -> ManagedWarehouseTeamMe
         table_names=ManagedWarehouseTableNames(
             events_table="events_production",
             persons_table="persons_production",
+            groups_table="groups_production",
             data_imports_schema="posthog_data_imports_production",
         ),
         earliest_event_date=None,
@@ -200,7 +201,18 @@ class TestReadyTrinoCatalogName:
 
 
 class TestCompileHogQLToTrinoSQL:
-    def test_preserves_sql_bind_values_and_diagnostics_across_the_transpiler_boundary(self) -> None:
+    @pytest.mark.parametrize(
+        "limit_clause, trino_limit_clause",
+        [
+            ("", ""),
+            (" LIMIT 1", " LIMIT 1"),
+            (" LIMIT 75000", " LIMIT 75000"),
+            (" LIMIT 75000 OFFSET 3", " OFFSET 3 ROWS LIMIT 75000"),
+        ],
+    )
+    def test_preserves_sql_bind_values_and_diagnostics_across_the_transpiler_boundary(
+        self, limit_clause: str, trino_limit_clause: str
+    ) -> None:
         team = _team()
         membership = _membership(team_id=team.pk, organization_id=str(team.organization_id))
 
@@ -221,7 +233,9 @@ class TestCompileHogQLToTrinoSQL:
         ):
             compiled = compile_hogql_to_trino_sql(
                 team.pk,
-                HogQLQuery(query="SELECT event FROM events WHERE event = {event}", values={"event": "signup"}),
+                HogQLQuery(
+                    query="SELECT event FROM events WHERE event = {event}" + limit_clause, values={"event": "signup"}
+                ),
                 team=team,
                 include_hogql=True,
             )
@@ -233,14 +247,26 @@ class TestCompileHogQLToTrinoSQL:
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
             'FROM "org_catalog"."posthog"."events_production" '
-            'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s) LIMIT 50000'
+            'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s)' + trino_limit_clause
         )
         assert compiled.values == {"hogql_val_0": "signup"}
-        assert compiled.hogql == "SELECT event FROM events WHERE equals(event, 'signup') LIMIT 50000"
+        assert compiled.hogql == "SELECT event FROM events WHERE equals(event, 'signup')" + limit_clause
 
     @pytest.mark.django_db
     @pytest.mark.parametrize("include_hogql", [False, True])
-    def test_populates_core_table_locators_from_control_plane_state(self, include_hogql: bool) -> None:
+    @pytest.mark.parametrize(
+        "limit_clause, trino_limit_clause",
+        [
+            ("", ""),
+            (" LIMIT 1", " LIMIT 1"),
+            (" LIMIT 75000", " LIMIT 75000"),
+            (" LIMIT 75000 OFFSET 3", " OFFSET 3 ROWS LIMIT 75000"),
+        ],
+    )
+    @pytest.mark.parametrize("interactive", [False, True])
+    def test_populates_core_table_locators_from_control_plane_state(
+        self, include_hogql: bool, limit_clause: str, trino_limit_clause: str, interactive: bool
+    ) -> None:
         organization = Organization.objects.create(name="trino-core-locators")
         team = Team.objects.create(organization=organization)
         membership = _membership(team_id=team.pk, organization_id=str(organization.pk))
@@ -258,18 +284,27 @@ class TestCompileHogQLToTrinoSQL:
         ):
             compiled = compile_hogql_to_trino_sql(
                 team.pk,
-                HogQLQuery(query="SELECT event FROM events LIMIT 1"),
+                HogQLQuery(query="SELECT event FROM events" + limit_clause),
                 team=team,
                 include_hogql=include_hogql,
                 expansion_mode=TrinoExpansionMode.DJANGO,
+                limit_top_select=interactive,
+                limit_context=LimitContext.QUERY,
             )
+
+        if interactive:
+            if not limit_clause:
+                trino_limit_clause = " LIMIT 50000"
+            trino_limit_clause = trino_limit_clause.replace("75000", "50000")
 
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
-            'FROM "org_catalog"."posthog"."events_production" LIMIT 1'
+            'FROM "org_catalog"."posthog"."events_production"' + trino_limit_clause
         )
         assert compiled.values == {}
-        assert compiled.hogql == ("SELECT event FROM events LIMIT 1" if include_hogql else None)
+        if interactive:
+            limit_clause = (limit_clause or " LIMIT 50000").replace("75000", "50000")
+        assert compiled.hogql == ("SELECT event FROM events" + limit_clause if include_hogql else None)
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -390,6 +425,8 @@ class TestPreparedTrinoCompiler:
             compiler = prepare_hogql_to_trino_compiler(team.pk, team=team)
             first = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "first"}))
             second = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "second"}))
+            groups = compiler.compile(HogQLQuery(query="SELECT index, key, properties.name FROM groups"))
+            raw_groups = compiler.compile(HogQLQuery(query="SELECT key, updated_at FROM raw_groups"))
 
         get_catalog.assert_called_once_with(str(team.organization_id))
         get_membership.assert_called_once_with(str(team.organization_id), team.pk)
@@ -399,6 +436,11 @@ class TestPreparedTrinoCompiler:
         assert compiler.catalog_name == "org_catalog"
         assert first.values == {"hogql_val_0": "first"}
         assert second.values == {"hogql_val_0": "second"}
+        for result in (groups, raw_groups):
+            assert '"org_catalog"."posthog"."groups_production"' in result.sql
+            assert "group_key" in result.sql
+        assert "group_properties" in groups.sql
+        assert "_timestamp" in raw_groups.sql
 
     def test_rejects_a_team_object_for_another_project(self) -> None:
         team = _team()
@@ -472,18 +514,13 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
         url_pattern="https://bucket.s3.amazonaws.com/models/orders/*.parquet",
     )
     saved_query_id = UUID("32345678-1234-5678-1234-567812345678")
-    saved_query = DataWarehouseSavedQuery.objects.create(
+    DataWarehouseSavedQuery.objects.create(
         id=saved_query_id,
         team=team,
         name="orders_model",
         query={"query": "SELECT 1", "kind": "HogQLQuery"},
         table=model_table,
         is_materialized=True,
-    )
-    DataWarehouseModelPath.objects.create(
-        team=team,
-        saved_query=saved_query,
-        path=["legacy_orders_model"],
     )
     source = ExternalDataSource.objects.create(
         team=team,
@@ -510,6 +547,7 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
     table_names = ManagedWarehouseTableNames(
         events_table="events_production",
         persons_table="persons_production",
+        groups_table="groups_production",
         data_imports_schema="imports_production",
     )
     database = mock.Mock()
@@ -529,10 +567,12 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
     assert locators == {
         "events": ("org_catalog", "posthog", "events_production"),
         "persons": ("org_catalog", "posthog", "persons_production"),
+        "groups": ("org_catalog", "posthog", "groups_production"),
+        "raw_groups": ("org_catalog", "posthog", "groups_production"),
         "orders_model": (
             "org_catalog",
             f"posthog_data_modeling_team_{team.pk}",
-            "legacy_orders_model",
+            f"model_{saved_query_id.hex}",
         ),
         "myprefix_stripe_customers": ("org_catalog", "imports_production", "stripe_myprefix_customers"),
         "stripe.myprefix.customers": ("org_catalog", "imports_production", "stripe_myprefix_customers"),

@@ -6,6 +6,7 @@ lazily at the dispatch site — this module pulls in HogQL machinery that must
 stay off the `django.setup()` path.
 """
 
+from products.metrics.backend.hogql_queries.metrics_histogram_query_runner import MetricsHistogramQueryRunner
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 
-__all__ = ["MetricsQueryRunner"]
+__all__ = ["MetricsHistogramQueryRunner", "MetricsQueryRunner"]

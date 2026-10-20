@@ -1,10 +1,10 @@
-import io
 import re
-import csv
 import json
-import zlib
-from collections.abc import AsyncGenerator, Callable, Iterator, Sequence
-from typing import Any, NoReturn, Optional, cast
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from datetime import timedelta
+from typing import Any, Literal, NoReturn, Optional, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -16,44 +16,61 @@ from django.utils.cache import patch_vary_headers
 import requests
 import structlog
 import posthoganalytics
-from asgiref.sync import sync_to_async
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import permissions, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework_extensions.settings import extensions_api_settings
 
+from posthog.api.fields import OptionalBooleanField
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import (
-    get_authenticator_scoped_team_ids,
-    get_authenticator_scopes,
-    posthog_feature_flag_enabled,
-)
+from posthog.models.organization_provisioning import get_billing_lock_partner
+from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
-from posthog.utils import generate_short_id, get_trusted_client_ip, relative_date_parse
+from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session
+from ee.billing.billing_manager import (
+    BillingManager,
+    BillingServiceResponseError,
+    http_session,
+    raise_if_billing_managed_by_partner,
+)
 from ee.billing.billing_types import USAGE_TYPE_VALUES
+from ee.billing.exports import (  # noqa: F401
+    _EXPORT_STREAMS,
+    _gzip_stream,
+    _release_export_stream_slot,
+    _released_after,
+    _resolve_team_labels,
+    _rewrite_csv_labels,
+    _stream_chunks,
+    _take_export_stream_slot,
+    exportable_team_ids,
+)
+from ee.billing.grants import (
+    BILLING_LIMIT_TODAYS_USAGE_KEYS,
+    _billing_limit_todays_usage_enabled,
+    _member_billing_usage_spend_read_access_enabled,
+    _owner_only_billing_enabled,
+)
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
-OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
-MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
-BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
 
 
 class BillingQueryTimeout(APIException):
@@ -107,6 +124,37 @@ class BillingServiceError(APIException):
     default_detail = "Billing could not answer this request. Try again in a moment."
 
 
+class PaymentAuthorizationRejected(APIException):
+    """Billing refused to start the payment authorization."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "payment_authorization_rejected"
+    default_detail = "We could not start the payment setup. Close this window and try again."
+
+
+class BillingManagedByProviderError(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "billing_managed_by_provider"
+    default_detail = "Billing for this organization is managed outside PostHog. Contact support to change your plan."
+    default_type = "invalid_request"
+
+
+@contextmanager
+def translate_managed_by_provider_refusal() -> Iterator[None]:
+    try:
+        yield
+    except BillingServiceResponseError as error:
+        body = error.body
+        if (
+            error.status_code != status.HTTP_400_BAD_REQUEST
+            or not isinstance(body, dict)
+            or body.get("code") != BillingManagedByProviderError.default_code
+        ):
+            raise
+        message = body.get("error")
+        raise BillingManagedByProviderError(message if isinstance(message, str) and message else None) from error
+
+
 class BillingExportThrottle(PersonalApiKeyOrUserRateThrottle):
     """How often one person may start an export. Each one has billing build a whole file."""
 
@@ -123,8 +171,23 @@ BILLING_GUIDANCE_ERRORS: dict[str, type[APIException]] = {
     BillingDateRangeTooLong.default_code: BillingDateRangeTooLong,
 }
 
+BILLING_VALIDATION_ERROR_MESSAGES = {
+    "required": "This field is required.",
+    "invalid_input": "Invalid value. Check this parameter's format and allowed values.",
+    "invalid_choice": "Select a valid option for this parameter.",
+}
 
-BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
+
+BREAKDOWNS_MESSAGE = "Value must be a JSON array containing only 'type' and/or 'team'."
+# Spend adds across products, so the spend read serves a project on its own. Usage counts each
+# type in units that do not add: events, recordings, rows. So the usage read serves a project
+# breakdown only beside the product one.
+USAGE_BREAKDOWNS_MESSAGE = (
+    'Pass [], ["type"] or ["type","team"]. To break usage down by project, pass "type" with '
+    '"team": billing counts usage per product, and the counts do not add up across products.'
+)
+
+
 BILLING_ACCESS_DENIED_MESSAGE = (
     "Your PostHog user does not have billing access for this organization. "
     "Ask someone with billing access to run this or update your role."
@@ -137,21 +200,6 @@ BILLING_PROJECT_ACCESS_DENIED_MESSAGE = (
     "The requested projects are not available to this PostHog user or token. "
     "Adjust the project filter or ask someone with billing access to run this."
 )
-
-
-def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
-    if not user.distinct_id:
-        return None
-
-    try:
-        return posthog_feature_flag_enabled(
-            OWNER_ONLY_BILLING_FLAG,
-            str(user.distinct_id),
-            organization_id=organization.id,
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": OWNER_ONLY_BILLING_FLAG})
-        return None
 
 
 def user_has_billing_access(user: User, organization: Organization) -> bool:
@@ -167,42 +215,6 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
 
     # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
     return _owner_only_billing_enabled(user, organization) is False
-
-
-def _member_billing_usage_spend_read_access_enabled(user: User, organization: Organization) -> bool:
-    if not user.distinct_id:
-        return False
-
-    try:
-        return (
-            posthog_feature_flag_enabled(
-                MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
-                str(user.distinct_id),
-                organization_id=organization.id,
-            )
-            is True
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG})
-        return False
-
-
-def _billing_limit_todays_usage_enabled(user: User, organization: Organization) -> bool:
-    if not user.distinct_id:
-        return False
-
-    try:
-        return (
-            posthog_feature_flag_enabled(
-                BILLING_LIMIT_TODAYS_USAGE_FLAG,
-                str(user.distinct_id),
-                organization_id=organization.id,
-            )
-            is True
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": BILLING_LIMIT_TODAYS_USAGE_FLAG})
-        return False
 
 
 def _todays_usage_value(usage_key: str, usage: dict[str, Any]) -> int:
@@ -297,9 +309,47 @@ class HasBillingUsageSpendReadAccess(permissions.BasePermission):
         return user_has_billing_usage_spend_read_access(request.user, org)
 
 
+class BillingNotManagedByPartner(permissions.BasePermission):
+    def has_permission(self, request: Request, view: Any) -> bool:
+        organization = view._get_org()
+        if organization is not None:
+            raise_if_billing_managed_by_partner(organization)
+        return True
+
+
+def billing_managed_by_partner(organization: Organization | None) -> dict[str, str] | None:
+    partner = get_billing_lock_partner(organization) if organization else None
+    return {"partner_name": partner.name} if partner else None
+
+
+def vercel_invoices_url(organization: Organization | None) -> str | None:
+    if organization is None:
+        return None
+    vercel_integration = OrganizationIntegration.objects.filter(
+        organization=organization,
+        kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+    ).first()
+    if not vercel_integration or not vercel_integration.integration_id:
+        return None
+    account_url = vercel_integration.config.get("account", {}).get("url", "")
+    return f"{account_url}/invoices" if account_url else None
+
+
 class BillingSerializer(serializers.Serializer):
     plan = serializers.CharField(max_length=100)
     billing_limit = serializers.IntegerField()
+
+
+class BillingManagedByPartnerSerializer(serializers.Serializer):
+    partner_name = serializers.CharField(
+        allow_blank=True, help_text="Name of the partner that pays for this organization. Can be empty."
+    )
+
+
+BILLING_MANAGED_BY_PARTNER_HELP_TEXT = (
+    "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of "
+    "its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise."
+)
 
 
 @extend_schema_serializer(many=False)
@@ -341,6 +391,9 @@ class BillingOverviewResponseSerializer(serializers.Serializer):
     account_owner = serializers.JSONField(required=False, allow_null=True)
     customer_trust_scores = serializers.JSONField(required=False)
     never_drop_data = serializers.BooleanField(required=False)
+    billing_managed_by_partner = BillingManagedByPartnerSerializer(
+        allow_null=True, help_text=BILLING_MANAGED_BY_PARTNER_HELP_TEXT
+    )
 
 
 class LicenseKeySerializer(serializers.Serializer):
@@ -353,8 +406,23 @@ class BillingUsageRequestSerializer(serializers.Serializer):
     Only responsible for parsing dates, passes through other params.
     """
 
-    start_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    end_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    start_date = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            'Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.'
+        ),
+    )
+    end_date = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, "
+            "or today if only start_date is provided."
+        ),
+    )
     usage_types = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -438,8 +506,12 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         return self._parse_date(value, "end_date")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs.get("start_date") and not attrs.get("end_date"):
-            attrs["end_date"] = timezone.now().date().isoformat()
+        today_utc = timezone.now().astimezone(ZoneInfo("UTC")).date()
+        if not attrs.get("start_date") and not attrs.get("end_date"):
+            attrs["start_date"] = (today_utc - timedelta(days=30)).isoformat()
+            attrs["end_date"] = (today_utc - timedelta(days=1)).isoformat()
+        elif attrs.get("start_date") and not attrs.get("end_date"):
+            attrs["end_date"] = today_utc.isoformat()
         return attrs
 
     def validate_usage_types(self, value: Optional[str]) -> Optional[str]:
@@ -479,10 +551,10 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError:
-            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+            raise serializers.ValidationError(BREAKDOWNS_MESSAGE)
 
         if not isinstance(parsed, list) or any(breakdown not in ("type", "team") for breakdown in parsed):
-            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+            raise serializers.ValidationError(BREAKDOWNS_MESSAGE)
 
         return value
 
@@ -523,173 +595,63 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
     )
 
 
+class BillingPaymentOrganizationSerializer(serializers.Serializer):
+    organization_id = serializers.UUIDField(help_text="Organization selected when this payment flow started.")
+
+    def validate_organization_id(self, value: UUID) -> UUID:
+        if not isinstance(self.initial_data.get("organization_id"), str):
+            raise serializers.ValidationError("A UUID string is required.")
+        return value
+
+
+class BillingOverviewRequestSerializer(serializers.Serializer):
+    organization_id = serializers.UUIDField(required=False, help_text="Explicit organization to refresh after payment.")
+    include_forecasting = OptionalBooleanField(required=False, help_text="Whether to include usage forecasting.")
+
+
+class BillingActivationRequestSerializer(BillingPaymentOrganizationSerializer):
+    products = serializers.CharField(required=False, help_text="Product and plan keys to activate.")
+    intent_product = serializers.CharField(required=False, help_text="Product that prompted the subscription upgrade.")
+    custom_limits_usd = serializers.CharField(
+        required=False, allow_blank=True, help_text="JSON-encoded custom product limits to apply on activation."
+    )
+
+
+class BillingActivationResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(required=False, help_text="Whether the subscription was activated.")
+    must_setup_payment = serializers.BooleanField(required=False, help_text="Whether payment details are required.")
+    products = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Products activated by this request."
+    )
+    error = serializers.CharField(required=False, allow_null=True, help_text="Reason activation failed.")
+
+
+class BillingAuthorizationResponseSerializer(serializers.Serializer):
+    clientSecret = serializers.CharField(required=False, help_text="Stripe client secret for the authorization intent.")
+    success = serializers.BooleanField(
+        required=False, help_text="Whether authorization completed without a payment form."
+    )
+
+
+class BillingAuthorizationStatusRequestSerializer(BillingPaymentOrganizationSerializer):
+    payment_intent_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Stripe payment intent created for this organization."
+    )
+
+
+class BillingAuthorizationStatusResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(required=False, help_text="Authorization status: loading, success, or failed.")
+    error = serializers.CharField(required=False, allow_null=True, help_text="Reason authorization failed.")
+    success = serializers.BooleanField(
+        required=False, help_text="Whether authorization completed without a payment form."
+    )
+
+
 @extend_schema(tags=["billing"])
-def _gzip_stream(chunks: Iterator[bytes]) -> Iterator[bytes]:
-    """One gzip stream for the whole file, flushed after every chunk.
-
-    Django's gzip middleware compresses an asynchronous body one chunk at a time, each as its
-    own gzip member, and a browser stops reading at the end of the first member. Compressing
-    here as a single stream, with a sync flush after each chunk so every chunk goes out as soon
-    as it is read, and setting Content-Encoding on the response makes the middleware leave it
-    alone. Compressing is safe against BREACH here: the body is usage numbers and project names,
-    with no CSRF token or other secret reflected in it.
-    """
-    compressor = zlib.compressobj(6, zlib.DEFLATED, 16 + zlib.MAX_WBITS)
-    for chunk in chunks:
-        data = compressor.compress(chunk) + compressor.flush(zlib.Z_SYNC_FLUSH)
-        if data:
-            yield data
-    yield compressor.flush()
-
-
-# How many exports one person may have downloading at once. Each holds a response from billing
-# open for as long as the browser reads it, so the count is bounded per person and a slot is
-# given back when the download ends or the connection drops. The time limit only frees a slot
-# whose download died without giving it back.
-_EXPORT_STREAMS = RateLimit(
-    max_concurrency=settings.BILLING_EXPORT_CONCURRENT_STREAMS,
-    limit_name="billing_export_streams",
-    get_task_name=lambda user_id: f"billing_export_streams:{user_id}",
-    get_task_id=lambda user_id: generate_short_id(),
-    ttl=15 * 60,
-    apply_clickhouse_kill_switch=False,
-    allow_team_bypass=False,
-)
-
-
-def _take_export_stream_slot(user: Any) -> Optional[ConcurrencySlot]:
-    try:
-        return _EXPORT_STREAMS.use(user.pk)
-    except ConcurrencyLimitExceeded:
-        raise Throttled(
-            detail=(
-                f"You have {settings.BILLING_EXPORT_CONCURRENT_STREAMS} exports downloading. "
-                "Wait for one to finish before starting another."
-            )
-        )
-
-
-def _release_export_stream_slot(slot: Optional[ConcurrencySlot]) -> None:
-    if slot is not None:
-        _EXPORT_STREAMS.release(slot)
-
-
-async def _released_after(stream: AsyncGenerator[bytes], slot: Optional[ConcurrencySlot]) -> AsyncGenerator[bytes]:
-    """Give the export's stream slot back when the download ends, however it ends."""
-    try:
-        async for chunk in stream:
-            yield chunk
-    finally:
-        await sync_to_async(_release_export_stream_slot)(slot)
-
-
-async def _stream_chunks(upstream: requests.Response, chunks: Iterator[bytes]) -> AsyncGenerator[bytes]:
-    """Hand the file to the ASGI server one chunk at a time.
-
-    Django 5 consumes a synchronous iterator in full before an ASGI server sends anything -
-    StreamingHttpResponse.__aiter__ calls sync_to_async(list) on it - so a large export would
-    arrive all at once at the end. Pulling each chunk on a worker thread keeps the body
-    asynchronous, and it goes out as billing produces it. The upstream response is closed when
-    the consumer stops, which is also what happens when the browser cancels the download.
-    """
-    iterator = iter(chunks)
-
-    def pull() -> bytes | None:
-        return next(iterator, None)
-
-    try:
-        while True:
-            chunk = await sync_to_async(pull, thread_sensitive=False)()
-            if chunk is None:
-                return
-            yield chunk
-    finally:
-        upstream.close()
-
-
-def _rewrite_csv_labels(chunks: Iterator[bytes], teams_map: dict[int, str]) -> Iterator[bytes]:
-    """Put project names into an exported CSV as it streams through, in place of ids.
-
-    Billing has no project names, so its Project column carries the id, and the name goes in
-    here. The Project ID column beside it keeps the id: names are not unique inside an
-    organization. Sending billing an id-to-name map instead would put every project's name in
-    the request, and an export usually asks for every project.
-
-    Rows are rewritten one line at a time so the response keeps streaming. Fields are parsed and
-    written with the csv module rather than string-replaced, because project names contain
-    commas and quotes.
-    """
-    names = {str(team_id): name for team_id, name in teams_map.items()}
-    pending = b""
-
-    def rewrite(line: str) -> str:
-        row = next(csv.reader([line]), None)
-        if not row or len(row) < 3:
-            return line
-        project, team_id = row[1], row[2]
-        # Only a Project cell that is a bare id gets a name. The header, a row with no project, the
-        # folded "all other projects" row, and an id PostHog has no name for (a project deleted since
-        # the usage was recorded) pass through unchanged.
-        if project != team_id or team_id not in names:
-            return line
-        name = names[team_id]
-        # A spreadsheet runs a cell starting with =, +, -, @, a tab or a carriage return as a
-        # formula, and project names are typed by users; a leading quote keeps the cell text.
-        row[1] = f"'{name}" if name and name[0] in ("=", "+", "-", "@", "\t", "\r") else name
-        buffer = io.StringIO()
-        csv.writer(buffer, lineterminator="").writerow(row)
-        return buffer.getvalue()
-
-    for chunk in chunks:
-        pending += chunk
-        *lines, pending = pending.split(b"\n")
-        for line in lines:
-            yield rewrite(line.decode("utf-8")).encode("utf-8") + b"\n"
-    if pending:
-        yield rewrite(pending.decode("utf-8")).encode("utf-8")
-
-
-def _resolve_team_labels(results: Any, teams_map: dict[int, str]) -> None:
-    """Put project names into the series labels, in place.
-
-    Billing keys usage by project id, so its labels carry the id: "134::Events". The name goes
-    in here rather than being sent to billing as an id-to-name map, which for an organization
-    with several hundred projects is about 16KB of query string on every request. The id comes
-    back in breakdown_value, so the label is rebuilt from that rather than parsed. A series whose
-    id has no name, the folded "all other projects" series or a deleted project, keeps the label
-    billing produced.
-    """
-    if not isinstance(results, list):
-        return
-
-    names = {str(team_id): name for team_id, name in teams_map.items()}
-    for series in results:
-        if not isinstance(series, dict):
-            continue
-        breakdown_value = series.get("breakdown_value")
-        label = series.get("label")
-        if not isinstance(label, str):
-            continue
-
-        if series.get("breakdown_type") == "multiple" and isinstance(breakdown_value, list):
-            if len(breakdown_value) != 2:
-                continue
-            name = names.get(str(breakdown_value[1]))
-            # Only the project part is replaced. The product part after the first separator may contain
-            # separators of its own.
-            _, separator, remainder = label.partition("::")
-            if name and separator:
-                series["label"] = f"{name}{separator}{remainder}"
-        elif series.get("breakdown_type") == "team" and breakdown_value is not None:
-            name = names.get(str(breakdown_value))
-            if name:
-                series["label"] = name
-
-
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
     pagination_class = None
-    param_derived_from_user_current_team = "team_id"
+    param_derived_from_user_current_team: Literal["team_id", "project_id"] | None = "team_id"
 
     scope_object = "billing"
     scope_object_read_actions = ["list", "usage", "spend", "usage_export", "spend_export", "usage_team_options"]
@@ -698,13 +660,32 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Billing opts in so generated clients and MCP scaffolding include these read actions.
     force_include_in_api_docs = True
 
+    payment_actions = {"activate", "authorize", "authorize_status"}
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
+        if self.action in self.payment_actions or scoped_billing_read:
+            serializer = BillingPaymentOrganizationSerializer(
+                data=request.query_params if scoped_billing_read else request.data
+            )
+            serializer.is_valid(raise_exception=True)
+            # Configure normal organization scope before shared permissions resolve any cached
+            # routing properties. The user's current project can change in another browser tab.
+            self.param_derived_from_user_current_team = None
+            parent_prefix = extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX
+            self.kwargs[f"{parent_prefix}organization_id"] = str(serializer.validated_data["organization_id"])
+        super().initial(request, *args, **kwargs)
+
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
         user = self.request.user if isinstance(self.request.user, User) and self.request.user.distinct_id else None
         return BillingManager(license, user, ip_address=get_trusted_client_ip(self.request))
 
-    @extend_schema(responses={200: OpenApiResponse(response=BillingOverviewResponseSerializer)})
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    @validated_request(
+        query_serializer=BillingOverviewRequestSerializer,
+        responses={200: OpenApiResponse(response=BillingOverviewResponseSerializer)},
+    )
+    def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:
             raise NotFound("Billing is not supported for this license type")
@@ -721,19 +702,16 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         billing_manager = self.get_billing_manager()
         query = {}
-        if "include_forecasting" in request.query_params:
-            query["include_forecasting"] = request.query_params.get("include_forecasting")
+        include_forecasting = request.validated_query_data.get("include_forecasting")
+        if include_forecasting is not None:
+            query["include_forecasting"] = str(include_forecasting).lower()
         response = billing_manager.get_billing(org, query)
 
-        vercel_integration = OrganizationIntegration.objects.filter(
-            organization=org,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-        ).first()
+        invoices_url = vercel_invoices_url(org)
+        if invoices_url:
+            response["external_billing_provider_invoices_url"] = invoices_url
 
-        if vercel_integration and vercel_integration.integration_id:
-            account_url = vercel_integration.config.get("account", {}).get("url", "")
-            if account_url:
-                response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
+        response["billing_managed_by_partner"] = billing_managed_by_partner(org)
 
         return Response(response)
 
@@ -820,15 +798,20 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
+    @extend_schema(request=BillingActivationRequestSerializer, responses={200: BillingActivationResponseSerializer})
     @action(
         methods=["POST"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.activate_subscription(organization, request.data)
+        serializer = BillingActivationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = {key: value for key, value in serializer.validated_data.items() if key != "organization_id"}
+        with translate_managed_by_provider_refusal():
+            res = billing_manager.activate_subscription(organization, data)
         return Response(res, status=status.HTTP_200_OK)
 
     class DeactivateSerializer(serializers.Serializer):
@@ -867,11 +850,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=False,
         url_path="subscription/switch-plan",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def subscription_switch_plan(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -882,7 +866,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["GET"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -895,7 +879,14 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         organization = self._get_org_required()
 
         billing_manager = self.get_billing_manager()
-        res = billing_manager._get_stripe_portal_url(organization)
+        try:
+            with translate_managed_by_provider_refusal():
+                res = billing_manager._get_stripe_portal_url(organization)
+        except BillingManagedByProviderError:
+            invoices_url = vercel_invoices_url(organization)
+            if invoices_url is None:
+                raise
+            return redirect(invoices_url)
         return redirect(res)
 
     @action(methods=["GET"], detail=False)
@@ -956,7 +947,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="credits/purchase",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def purchase_credits(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -976,7 +967,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="trials/activate",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def activate_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -996,7 +987,15 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.cancel_trial(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="activate/authorize")
+    @extend_schema(
+        request=BillingPaymentOrganizationSerializer, responses={200: BillingAuthorizationResponseSerializer}
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="activate/authorize",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
+    )
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -1007,10 +1006,32 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.authorize(organization)
+        try:
+            with translate_managed_by_provider_refusal():
+                res = billing_manager.authorize(organization)
+        except BillingServiceResponseError as e:
+            # The billing body can hold database error text, so the caller gets a controlled message.
+            logger.warning(
+                "billing_authorize_error",
+                organization_id=str(organization.id),
+                upstream_status=e.status_code,
+                body=str(e.body)[:500],
+            )
+            if 400 <= e.status_code < 500:
+                raise PaymentAuthorizationRejected() from e
+            raise BillingServiceError() from e
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="activate/authorize/status")
+    @extend_schema(
+        request=BillingAuthorizationStatusRequestSerializer,
+        responses={200: BillingAuthorizationStatusResponseSerializer},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="activate/authorize/status",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+    )
     def authorize_status(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -1021,7 +1042,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.authorize_status(organization, request.data)
+        serializer = BillingAuthorizationStatusRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = {key: value for key, value in serializer.validated_data.items() if key != "organization_id"}
+        res = billing_manager.authorize_status(organization, data)
         return Response(res, status=status.HTTP_200_OK)
 
     @action(
@@ -1339,10 +1363,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Raise the named exception for an error billing returned on a usage, spend or export request.
 
         handle_billing_service_error raises with the status in its message and the parsed body as
-        the third argument. A guidance code maps to its named exception, whose text the page owns;
-        anything else is a 400 or a 502 with a fixed message. Billing's body goes to the log and
-        nowhere else. An exception of any other shape is not billing's answer and is re-raised as
-        it is.
+        the third argument. Known guidance and validation codes use controlled messages because
+        upstream detail can contain caller input or internal data. Unknown errors remain a generic
+        400 or 502. An exception of any other shape is not billing's answer and is re-raised as it is.
         """
         status_match = re.search(r"status code: (\d+)", str(error.args[0]) if error.args else "")
         if not status_match:
@@ -1361,8 +1384,17 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Billing evaluates the same permission from its own cache, so flag rollout windows
             # can still return a downstream permission denial.
             raise PermissionDenied(HasBillingUsageSpendReadAccess.message) from error
-        if code in BILLING_GUIDANCE_ERRORS:
+        if isinstance(code, str) and code in BILLING_GUIDANCE_ERRORS:
             raise BILLING_GUIDANCE_ERRORS[code]() from error
+        if upstream_status == 400 and isinstance(body, dict) and body.get("type") == "validation_error":
+            field = body.get("attr")
+            if (
+                isinstance(field, str)
+                and field in BillingUsageRequestSerializer().fields
+                and isinstance(code, str)
+                and code in BILLING_VALIDATION_ERROR_MESSAGES
+            ):
+                raise ValidationError({field: [BILLING_VALIDATION_ERROR_MESSAGES[code]]}, code=code) from error
         if 400 <= upstream_status < 500:
             raise BillingQueryRejected() from error
         raise BillingServiceError() from error
@@ -1373,14 +1405,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """The given projects on which the person has editor access to exports."""
         if not isinstance(request.user, User):
             return sorted(team_ids)
-        teams = Team.objects.filter(organization=organization, id__in=team_ids)
-        return sorted(
-            team.id
-            for team in teams
-            if UserAccessControl(
-                user=request.user, team=team, organization_id=str(organization.id)
-            ).check_access_level_for_resource("export", "editor")
-        )
+        return exportable_team_ids(request.user, organization, team_ids)
 
     def _scoped_team_ids_for_usage_spend_request(
         self, request: Request, organization: Organization, params_to_pass: dict[str, Any]
@@ -1467,6 +1492,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return None
 
         try:
+            if self.action in self.payment_actions or (
+                self.action == "list" and "organization_id" in self.request.query_params
+            ):
+                return self.organization
             return self.team.organization
         except Exception:
             return None

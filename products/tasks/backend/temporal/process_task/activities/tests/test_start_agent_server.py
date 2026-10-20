@@ -1,3 +1,4 @@
+import threading
 from typing import Literal
 
 import pytest
@@ -7,6 +8,7 @@ from django.db import OperationalError
 
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
+    OrganizationExecutionError,
     ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
@@ -14,6 +16,7 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -37,6 +40,14 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     launch_agent_server,
     start_agent_server,
 )
+
+
+@pytest.fixture(autouse=True)
+def organization_state(mocker):
+    teams = mocker.patch("products.tasks.backend.temporal.process_task.organization.Team.objects.filter")
+    state = teams.return_value.values_list.return_value.first
+    state.return_value = (False, True)
+    return state
 
 
 @time_machine.travel("2026-08-06T12:01:30Z", tick=False)
@@ -76,6 +87,7 @@ def _context(
     use_modal_vm_sandbox: bool = False,
     use_modal_network_allowlist: bool = False,
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
+    codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -94,6 +106,7 @@ def _context(
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         claude_model_access=claude_model_access,
+        codex_model_access=codex_model_access,
         _branch=branch,
     )
 
@@ -142,7 +155,28 @@ def test_network_enforcement_observation_matches_completed_checks(
     assert _agentsh_domains_for(context) == expected_agentsh_domains
 
 
-async def test_start_failure_does_not_report_network_enforcement_observation(mocker) -> None:
+@pytest.mark.parametrize("activity_fn", [start_agent_server, launch_agent_server, await_agent_server_ready])
+async def test_pending_deletion_blocks_agent_start(mocker, organization_state, activity_fn) -> None:
+    organization_state.return_value = (True, True)
+    sandbox_class = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id"
+    )
+
+    with pytest.raises(OrganizationExecutionError) as error:
+        await activity_fn(
+            StartAgentServerInput(context=_context(), sandbox_id="sandbox-id", sandbox_url="https://sandbox.example")
+        )
+
+    assert error.value.non_retryable is True
+    assert error.value.context["reason"] == "organization_pending_deletion"
+    sandbox_class.return_value.get_by_id.assert_not_called()
+
+
+@pytest.mark.parametrize("pending_deletion", [False, True])
+async def test_start_failure_does_not_report_network_enforcement_observation(
+    mocker, organization_state, pending_deletion: bool
+) -> None:
+    organization_state.side_effect = [(False, True), (pending_deletion, True)]
     context = _context(
         allowed_domains=["example.com"],
         agentsh_domain_allowlist=["example.com", "api.posthog.com"],
@@ -170,7 +204,7 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_observation"
     )
 
-    with pytest.raises(RuntimeError, match="health check failed"):
+    with pytest.raises(OrganizationExecutionError if pending_deletion else RuntimeError) as error:
         await start_agent_server(
             StartAgentServerInput(
                 context=context,
@@ -179,6 +213,12 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
             )
         )
 
+    if pending_deletion:
+        assert isinstance(error.value, OrganizationExecutionError)
+        assert error.value.non_retryable is True
+        assert error.value.context["reason"] == "organization_pending_deletion"
+    else:
+        assert str(error.value) == "health check failed"
     record_observation.assert_not_called()
     sandbox.wait_for_agent_server_ready.assert_called_once()
     preparation_meter.return_value.with_additional_attributes.assert_called_once_with(
@@ -269,6 +309,27 @@ def test_invoke_start_agent_server_skips_log_tails_when_rate_limited(mocker) -> 
 
 
 @pytest.mark.parametrize(
+    "is_modal, use_modal_vm_sandbox, expected_runtime",
+    [(True, True, "vm"), (True, False, "gvisor"), (False, True, None)],
+    ids=["modal_vm", "modal_gvisor", "non_modal"],
+)
+def test_invoke_start_agent_server_forwards_sandbox_runtime(
+    mocker, is_modal: bool, use_modal_vm_sandbox: bool, expected_runtime: str | None
+) -> None:
+    sandbox = mocker.Mock(spec=ModalSandbox, id="sandbox-id") if is_modal else mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.return_value = None
+
+    _invoke_start_agent_server(
+        sandbox,
+        _context(use_modal_vm_sandbox=use_modal_vm_sandbox),
+        mocker.Mock(agentsh_domains=None),
+        repo_ready_file=None,
+    )
+
+    assert sandbox.start_agent_server.call_args.kwargs["sandbox_runtime"] == expected_runtime
+
+
+@pytest.mark.parametrize(
     ("error", "expected_statuses"),
     [
         (
@@ -334,6 +395,80 @@ async def test_combined_start_failure_records_step_statuses(mocker, error, expec
         assert record_step.call_args_list[1].args[:2] == ("agent_server_health", 120)
 
 
+@pytest.mark.parametrize(
+    ("activity", "boot_path"),
+    [(start_agent_server, "classic"), (await_agent_server_ready, "overlap")],
+)
+async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, activity, boot_path) -> None:
+    context = _context()
+    context.origin_product = "review_hog"
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.supports_combined_agent_server_start_and_health.return_value = False
+    sandbox.read_agent_server_boot_metrics.return_value = (
+        90,
+        {"context_fetch": 40, "repository_ready": 1200, "server_total": 1400},
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
+        return_value=1,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
+        return_value=mocker.Mock(agentsh_domains=None),
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._invoke_start_agent_server"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_agent_server_launch"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_observation"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._spawn_post_ready_diagnostics"
+    )
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server._launch_agent_shadow")
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.update_state_atomic"
+    )
+    record_step = mocker.patch("products.tasks.backend.temporal.metrics.record_agent_server_step_ms")
+    metric_meter = mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
+
+    await activity(
+        StartAgentServerInput(
+            context=context,
+            sandbox_id="sandbox-id",
+            sandbox_url="https://sandbox.example",
+            boot_path=boot_path,
+            used_snapshot=True,
+        )
+    )
+
+    read_labels = next(
+        call.args[0] for call in metric_meter.call_args_list if call.args[0]["step"] == "read_agent_boot_metrics"
+    )
+    assert read_labels["origin_product"] == "review_hog"
+    assert read_labels["runtime"] == "gvisor"
+    assert read_labels["boot_path"] == boot_path
+    assert read_labels["used_snapshot"] == "true"
+
+    assert [record.args for record in record_step.call_args_list] == [
+        ("agent_server_phase_context_fetch", 40, boot_path),
+        ("agent_server_phase_repository_ready", 1200, boot_path),
+        ("agent_server_phase_server_total", 1400, boot_path),
+    ]
+    assert all(
+        record.kwargs == {"used_snapshot": True, "origin_product": "review_hog", "runtime": "gvisor"}
+        for record in record_step.call_args_list
+    )
+
+
 @pytest.mark.parametrize(("attempt", "expects_relaunch"), [(1, False), (2, True), (3, True)])
 async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, attempt, expects_relaunch) -> None:
     context = _context()
@@ -360,6 +495,7 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             protected_base_branch=None,
             event_ingest_token=None,
             task_run_session_token=None,
+            codex_run_token=None,
             event_ingest_url=None,
             event_ingest_keep_stream_open=False,
         ),
@@ -388,7 +524,7 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
     )
 
     assert result.sandbox_url == "https://sandbox.example"
-    sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
+    sandbox.wait_for_agent_server_ready.assert_called_once_with(None, claude_model_access="posthog-gateway")
     if expects_relaunch:
         preparation_meter.return_value.with_additional_attributes.assert_called_once_with(
             {
@@ -414,7 +550,11 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
         record_retry.assert_not_called()
 
 
-async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
+@pytest.mark.parametrize("pending_deletion", [False, True])
+async def test_await_agent_server_ready_records_failed_relaunch(
+    mocker, organization_state, pending_deletion: bool
+) -> None:
+    organization_state.side_effect = [(False, True), (pending_deletion, True)]
     context = _context()
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.start_agent_server.side_effect = RuntimeError("session did not initialize")
@@ -436,6 +576,7 @@ async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
             protected_base_branch=None,
             event_ingest_token=None,
             task_run_session_token=None,
+            codex_run_token=None,
             event_ingest_url=None,
             event_ingest_keep_stream_open=False,
         ),
@@ -449,7 +590,7 @@ async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.increment_agent_server_readiness_retry"
     )
 
-    with pytest.raises(SandboxExecutionError, match="Failed to start agent server in sandbox"):
+    with pytest.raises(OrganizationExecutionError if pending_deletion else SandboxExecutionError) as error:
         await await_agent_server_ready(
             StartAgentServerInput(
                 context=context,
@@ -458,6 +599,10 @@ async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
                 boot_path="overlap",
             )
         )
+
+    assert error.value.non_retryable is pending_deletion
+    if pending_deletion:
+        assert error.value.context["reason"] == "organization_pending_deletion"
 
     record_retry.assert_called_once_with(
         2,
@@ -555,6 +700,26 @@ def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> Non
     assert _resolve_protected_base_branch(context) == expected
 
 
+@pytest.mark.parametrize(
+    "stack_base_branch,expected",
+    [
+        # A stacked run starts on the lower layer's head: protect that head as the PR base.
+        ("posthog-self-driving/layer-one-abc123", "posthog-self-driving/layer-one-abc123"),
+        # The marker names another branch, so the run moved on and the open PR lookup decides.
+        ("posthog-self-driving/other-def456", "master"),
+    ],
+)
+def test_resolve_protected_base_branch_for_stacked_run(mocker, stack_base_branch, expected) -> None:
+    _mock_github_integration(mocker, pr_base="master")
+    context = _context(
+        github_integration_id=42,
+        repository="PostHog/posthog",
+        branch="posthog-self-driving/layer-one-abc123",
+        state={"stack_base_branch": stack_base_branch},
+    )
+    assert _resolve_protected_base_branch(context) == expected
+
+
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
     get = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
@@ -562,6 +727,74 @@ def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
     context = _context(github_integration_id=42, repository=None, branch="some-branch")
     assert _resolve_protected_base_branch(context) is None
     get.assert_not_called()
+
+
+def _mock_prepare_launch_dependencies(mocker) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    task = mocker.Mock(
+        internal=True,
+        runtime="claude",
+        origin_product=None,
+        mcp_builtin_agent_key=None,
+        mcp_credential_owner_id=None,
+        mcp_gateway_server_allowlist=None,
+    )
+    mocker.patch(f"{prefix}.Task.objects.select_related").return_value.get.return_value = task
+    mocker.patch(f"{prefix}.get_task_run_credential_user", return_value=None)
+    mocker.patch(f"{prefix}.create_oauth_access_token_for_run", return_value="access-token")
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock()
+    mocker.patch(f"{prefix}.get_sandbox_ph_mcp_configs", return_value=[])
+    mocker.patch(f"{prefix}.get_user_mcp_server_configs", return_value=[])
+    mocker.patch(f"{prefix}.get_imported_mcp_server_configs", return_value=[])
+    mocker.patch(f"{prefix}.get_relayed_mcp_server_names", return_value=[])
+    mocker.patch(f"{prefix}.emit_agent_log")
+    mocker.patch(f"{prefix}.release_task_run_milestone_claims")
+
+
+def test_prepare_launch_releases_boot_milestone_claims(mocker) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    _mock_prepare_launch_dependencies(mocker)
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock(
+        state={"use_dedicated_stream": True}
+    )
+    release = mocker.patch(f"{prefix}.release_task_run_milestone_claims")
+
+    _prepare_launch(_context(), "read_only", "sandbox-id")
+
+    release.assert_called_once_with("run-id", True)
+
+
+@pytest.mark.parametrize(
+    "pr_base,lookup_error,lookup_hangs,expected",
+    [
+        ("master", None, False, "master"),
+        (None, None, False, "posthog-code/fix"),
+        (None, RuntimeError("boom"), False, "posthog-code/fix"),
+        ("master", None, True, "posthog-code/fix"),
+    ],
+)
+def test_prepare_launch_resolves_protected_base_branch_alongside_preparation(
+    mocker, pr_base, lookup_error, lookup_hangs, expected
+) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    _mock_prepare_launch_dependencies(mocker)
+    if lookup_error is not None:
+        mocker.patch(f"{prefix}.Integration.objects.get", side_effect=lookup_error)
+    else:
+        integration = _mock_github_integration(mocker, pr_base=pr_base)
+    if lookup_hangs:
+        release = threading.Event()
+        integration.get_open_pr_base_for_head.side_effect = lambda *_: release.wait(5) and pr_base
+        mocker.patch(f"{prefix}.PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS", 0.01)
+        threading.Timer(1.0, release.set).start()
+    context = _context(github_integration_id=42, repository="PostHog/posthog", branch="posthog-code/fix")
+
+    params = _prepare_launch(context, "read_only", "sandbox-id")
+    for thread in threading.enumerate():
+        if thread.name.startswith("protected-base-branch-"):
+            thread.join(5)
+
+    assert params.protected_base_branch == expected
 
 
 def test_resolve_protected_base_falls_back_to_branch_on_error(mocker) -> None:
@@ -596,7 +829,7 @@ def test_ensure_every_repository_is_on_disk(mocker) -> None:
     )
 
     assert [call.args[0] for call in sandbox.execute.call_args_list] == [
-        f"test -d {sandbox_repo_path('PostHog/posthog')}",
+        f"test -e {sandbox_repo_path('PostHog/posthog')}/.git",
         f"test -d {sandbox_repo_path('PostHog/posthog-js')}",
     ]
 
@@ -614,7 +847,7 @@ def test_ensure_repository_on_disk_fails_non_retryably_when_repo_missing(mocker)
         _ensure_repository_on_disk(_context(repository="PostHog/posthog"), sandbox)
 
     assert exc_info.value.non_retryable is True
-    assert "never" in str(exc_info.value)
+    assert "no checkout" in str(exc_info.value)
 
 
 def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
@@ -637,6 +870,7 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         protected_base_branch=None,
         event_ingest_token=None,
         task_run_session_token=None,
+        codex_run_token=None,
         event_ingest_url=None,
         event_ingest_keep_stream_open=False,
     )
@@ -872,11 +1106,22 @@ async def test_collect_agent_shadow_result_reads_after_startup(mocker) -> None:
 
 
 @pytest.mark.django_db
-async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker) -> None:
-    context = _context(sandbox_event_ingest_enabled=True, state={"mcp_builtin_agent_key": "scout"})
+@pytest.mark.parametrize(
+    ("codex_model_access", "expected_codex_run_token"),
+    [("posthog-gateway", None), ("own-subscription", "codex-run-token")],
+)
+async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
+    mocker, codex_model_access, expected_codex_run_token
+) -> None:
+    context = _context(
+        sandbox_event_ingest_enabled=True,
+        state={"mcp_builtin_agent_key": "scout", "runtime_adapter": "codex"},
+        codex_model_access=codex_model_access,
+    )
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
+    sandbox.execute.return_value.exit_code = 0
     sandbox.start_agent_server.return_value = 125
     sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
@@ -917,6 +1162,10 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         return_value="event-ingest-token",
     )
     mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_codex_subscription_run_token",
+        return_value="codex-run-token",
+    )
+    mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._launch_agent_shadow",
         return_value=True,
     )
@@ -938,7 +1187,10 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     assert result.shadow_launched is True
     shadow_result_reader.assert_not_called()
     create_event_ingest_token.assert_called_once()
-    assert create_event_ingest_token.call_args.kwargs == {"sandbox_id": "sandbox-id"}
+    assert create_event_ingest_token.call_args.kwargs == {
+        "sandbox_id": "sandbox-id",
+        "stream_generation": context.stream_generation,
+    }
     task_queryset.get.assert_called_once_with(id="task-id")
     get_user_mcp_configs.assert_called_once_with(
         token="oauth-token",
@@ -958,6 +1210,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is True
     assert result.health_poll_ms == 125
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
+    assert sandbox.start_agent_server.call_args.kwargs["codex_run_token"] == expected_codex_run_token
 
 
 async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mocker) -> None:

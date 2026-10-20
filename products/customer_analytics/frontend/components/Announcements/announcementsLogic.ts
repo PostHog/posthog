@@ -12,6 +12,7 @@ import { AccountsQuery, NodeKind } from '~/queries/schema/schema-general'
 import type { TeamPublicType, TeamType, UserType } from '../../../../../frontend/src/types'
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { announcementsChannelsList, announcementsCreate, announcementsList } from '../../generated/api'
+import { AnnouncementSendAsEnumApi } from '../../generated/api.schemas'
 import type { AnnouncementApi, AnnouncementChannelApi } from '../../generated/api.schemas'
 
 // The account channel id lives in the account's JSON properties, not a top-level
@@ -56,6 +57,9 @@ export interface announcementsLogicValues {
     messageDraft: string
     selectedChannelIds: string[]
     selectedChannelLabels: string[]
+    sendAs: AnnouncementSendAsEnumApi
+    senderDisabledReason: string | undefined
+    senderName: string
     slackConnected: boolean
     submitDisabledReason: string | undefined
     submitting: boolean
@@ -142,6 +146,9 @@ export interface announcementsLogicActions {
     setSelectedChannelIds: (channelIds: string[]) => {
         channelIds: string[]
     }
+    setSendAs: (sendAs: AnnouncementSendAsEnumApi) => {
+        sendAs: AnnouncementSendAsEnumApi
+    }
     setSubmitting: (submitting: boolean) => {
         submitting: boolean
     }
@@ -158,6 +165,8 @@ export interface announcementsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackConnected: (currentTeam: TeamPublicType | TeamType | null) => boolean
         currentUserId: (user: UserType | null) => number | null
+        senderName: (user: UserType | null) => string
+        senderDisabledReason: (user: UserType | null) => string | undefined
         filtersActive: (accountSearch: string, accountTags: string[], assignmentStatus: AssignmentStatus) => boolean
         assignedToCurrentUser: (assignedTo: number[], currentUserId: number | null) => boolean
         filteredChannels: (
@@ -207,6 +216,7 @@ export const announcementsLogic = kea<announcementsLogicType>([
     actions({
         setMessage: (message: string) => ({ message }),
         setSelectedChannelIds: (channelIds: string[]) => ({ channelIds }),
+        setSendAs: (sendAs: AnnouncementSendAsEnumApi) => ({ sendAs }),
         submitAnnouncement: true,
         setSubmitting: (submitting: boolean) => ({ submitting }),
         setAccountSearch: (search: string) => ({ search }),
@@ -297,6 +307,10 @@ export const announcementsLogic = kea<announcementsLogicType>([
     reducers({
         messageDraft: ['', { setMessage: (_state, { message }) => message }],
         selectedChannelIds: [[] as string[], { setSelectedChannelIds: (_state, { channelIds }) => channelIds }],
+        sendAs: [
+            AnnouncementSendAsEnumApi.Bot as AnnouncementSendAsEnumApi,
+            { setSendAs: (_state, { sendAs }) => sendAs },
+        ],
         submitting: [false, { setSubmitting: (_state, { submitting }) => submitting }],
         accountSearch: ['', { setAccountSearch: (_state, { search }) => search }],
         accountTags: [[] as string[], { setAccountTags: (_state, { tags }) => tags }],
@@ -310,6 +324,18 @@ export const announcementsLogic = kea<announcementsLogicType>([
                 !!currentTeam?.conversations_settings?.slack_enabled,
         ],
         currentUserId: [(s) => [s.user], (user: UserType | null): number | null => user?.id ?? null],
+        // Label for the "send as me" option. The name Slack renders comes from the user's Slack
+        // profile, which the backend resolves by email at send time, so this is only a label.
+        senderName: [(s) => [s.user], (user: UserType | null): string => user?.first_name || user?.email || 'you'],
+        // The backend refuses an unverified address, so say so on the option instead of letting the
+        // send fail: it is the email that decides whose name and avatar the customer sees.
+        senderDisabledReason: [
+            (s) => [s.user],
+            (user: UserType | null): string | undefined =>
+                user?.is_email_verified === true
+                    ? undefined
+                    : 'Verify your email address to send announcements as yourself',
+        ],
         filtersActive: [
             (s) => [s.accountSearch, s.accountTags, s.assignmentStatus],
             (accountSearch: string, accountTags: string[], assignmentStatus: AssignmentStatus): boolean =>
@@ -433,13 +459,15 @@ export const announcementsLogic = kea<announcementsLogicType>([
                 await announcementsCreate(String(values.currentTeam?.id), {
                     message: values.messageDraft.trim(),
                     channels: values.selectedChannelIds,
+                    send_as: values.sendAs,
                 })
                 lemonToast.success('Announcement sent')
                 actions.setMessage('')
                 actions.setSelectedChannelIds([])
                 actions.loadAnnouncements()
-            } catch {
-                lemonToast.error('Failed to send announcement')
+            } catch (error) {
+                const detail = (error as { detail?: string } | null)?.detail
+                lemonToast.error(detail || 'Failed to send announcement')
             } finally {
                 actions.setSubmitting(false)
             }

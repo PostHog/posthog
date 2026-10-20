@@ -20,6 +20,8 @@ and columns that are `null=True` at the DB layer (`HogFunction.type`/`kind`,
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -67,20 +69,29 @@ class SignalSourceConfigs(_Section):
 
 
 class EmitEligibility(_Section):
-    """Whether a scout's findings can actually reach the inbox for this team.
+    """Whether a scout's findings and reports can actually reach the inbox.
 
-    Both the signal channel (`emit_signal`) and the report channel (`emit_report`) pass the
-    same team/org-level preflight gates: the organization must have approved AI data processing
-    and the `signals_scout` signal source must be enabled. When either is off, every emit is
-    silently dropped — so a scout can read this at cold start and quick-close instead of doing
-    throwaway investigation whose output never surfaces. `remediation` is the one-line next step
-    when `can_emit` is False. Per-scout state (the config's dry-run `emit` toggle) is not covered
-    here — this is the team-wide floor, not a single scout's config.
+    `can_emit` is the one value to read, and `blocking_reason` names the gate behind a False: the
+    same reason code `emit_report` returns as `skipped_reason` and `edit_report` refuses with, with
+    `remediation` as the one-line next step. Three gates sit behind it: the organization must have
+    approved AI data processing, the `signals_scout` signal source must be enabled, and the calling
+    scout's own config must not be in dry-run (`emit=False`). When any is off every write is
+    dropped. A dry-run scout continues its investigation without emitting findings or reports.
+    For other blocks, a scout can stop after it checks the reason and remediation.
+
+    As stored on a profile row these are the two team-wide gates only, because the row is shared by
+    every scout on the team: `scout_emit_enabled` is null and `can_emit` is the team-wide floor. The
+    profile endpoint re-derives both for the scout that is reading, which is what makes the value it
+    returns the effective one.
     """
 
     ai_processing_approved: bool
     source_enabled: bool
+    # The calling scout's own dry-run toggle. Null on a stored row (no scout in hand) and whenever
+    # the run's dispatch-time config is gone, which fails closed as `scout_config_missing`.
+    scout_emit_enabled: bool | None
     can_emit: bool
+    blocking_reason: str | None
     remediation: str | None
 
 
@@ -104,6 +115,13 @@ class ScoutFleetEntry(_Section):
     # The cause behind an `auto_paused` entry (`no_output` / `ignored` / `repeated_failures`);
     # null for every other entry.
     pause_reason: str | None
+    # Where the scout's pre-check query comes from: `config` or `skill_default`. Null means no
+    # pre-check, so the scout runs on every due tick.
+    precheck_source: str | None
+    # The latest scheduled pre-check. A `skip` writes no run row, so a gated scout with nothing new
+    # on its surface keeps a stale `last_run_at` while `last_precheck_at` stays fresh.
+    last_precheck_at: str | None
+    last_precheck_outcome: str | None
 
 
 class ScoutFleet(_Section):
@@ -316,6 +334,25 @@ class TopEvent(_Section):
     last_seen_in_window: str | None
 
 
+class SurfaceEntry(_Section):
+    """Whether one canonical scout's surface is in use, from the scout's default pre-check query.
+
+    Read this, not `top_events`, to decide whether a surface is in use: `top_events` keeps only the
+    top events by volume, so a quiet surface that is in use falls off it.
+    """
+
+    # True when the query found rows. False when it found none, or one false value such as a zero
+    # count. Null when the profile could not answer, so a reader must check the surface itself.
+    in_use: bool | None
+    evaluated_at: str | None
+    # `skill_default` when the shipped default query answered. Otherwise the reason `in_use` is
+    # null: `query_error`, `no_acting_user`, `time_budget`, or `deferred` when a background build
+    # has not run the query yet.
+    source: Literal["skill_default", "query_error", "no_acting_user", "time_budget", "deferred"]
+    # The rows the query returned, capped at the pre-check row cap. Null when `in_use` is null.
+    row_count: int | None
+
+
 class Inventory(_Section):
     """The deterministic inventory layer of a `SignalProjectProfile.payload`.
 
@@ -325,6 +362,8 @@ class Inventory(_Section):
     """
 
     project_context: ProjectContext
+    # The products the team finished onboarding for. Onboarding is not usage: read `surfaces` to
+    # decide whether a surface is in use.
     products_in_use: list[str]
     product_intents: list[ProductIntentEntry]
     integrations: list[IntegrationEntry]
@@ -347,3 +386,5 @@ class Inventory(_Section):
     recent_actions: RecentActions
     business_knowledge: BusinessKnowledge
     top_events: list[TopEvent] | None
+    # Keyed by scout name. One entry for each canonical scout that ships a default pre-check.
+    surfaces: dict[str, SurfaceEntry]

@@ -5,8 +5,7 @@ import hashlib
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.webhook_template import template
 
 SOURCE_ID = "source_test_123"
@@ -110,15 +109,29 @@ class TestFourthwallWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         assert res.result == {"httpResponse": {"status": 400, "body": "Bad signature"}}
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
+    def test_missing_signing_secret_drops_delivery(self):
+        body = self._event()
+        globals = {
+            "request": {
+                "method": "POST",
+                "headers": {"x-fourthwall-hmac-sha256": "x"},
+                "body": body,
+                "stringBody": json.dumps(body),
+                "query": {},
+            }
+        }
+
+        res = self.run_function(self._inputs(signing_secret=""), globals=globals)
+
+        assert res.result == {
+            "httpResponse": {"status": 200, "body": "Signing secret not configured, delivery dropped"},
+            "appMetric": "missing_credential",
+        }
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
     @parameterized.expand(
         [
             ("missing_signature", {}, {"signing_secret": SIGNING_SECRET}, "Missing signature"),
-            (
-                "no_secret_configured",
-                {"x-fourthwall-hmac-sha256": "x"},
-                {"signing_secret": ""},
-                "Signing secret not configured",
-            ),
         ]
     )
     def test_unverifiable_delivery_is_rejected(self, _name, headers, input_overrides, expected_body):

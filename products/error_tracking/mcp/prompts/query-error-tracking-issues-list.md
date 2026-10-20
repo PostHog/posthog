@@ -2,7 +2,9 @@ List and filter Error tracking issues. Returns compact issue rows with aggregate
 
 Use this first when the user asks which errors are happening, which errors are most common, or wants to narrow issues by status, severity, release, library, fingerprint, URL, user, person, or properties.
 
-Defaults are intentionally useful: active issues, last 7 days, sorted by occurrences, test accounts filtered out, and compact aggregate counts.
+Defaults are intentionally useful: active issues, last 7 days, sorted by occurrences, test accounts filtered out, 10 rows per page, and compact aggregate counts. Each row carries a short `description` preview. Use `query-error-tracking-issue` for the full description.
+
+Keep `limit` small. When `hasMore` is true and you need more rows, fetch the next page with `offset` set to `nextOffset`. Set `volumeResolution` only when the user asks for volume over time. It is an integer count of equal-width buckets across `dateRange`, from 0 to 200, not a unit such as `hour` or `day`. For daily volume over the default 7-day range, send `7`. For hourly volume over the last 24 hours, send `24` with `dateRange.date_from` set to `-24h`.
 
 For all-time issue counts by status or severity, query `system.error_tracking_issues` with `posthog:execute-sql`. The table follows the connected user's Error tracking access and only returns issues from the current project. This list tool only includes issues observed during `dateRange`.
 

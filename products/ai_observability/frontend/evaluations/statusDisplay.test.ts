@@ -11,6 +11,7 @@ describe('statusDisplay', () => {
             ['provider_key_quota_exceeded' as const, 'Provider API key quota exceeded'],
             ['provider_key_rate_limited' as const, 'Provider API key is rate limited'],
             ['model_not_found' as const, 'Model not found'],
+            ['model_not_supported' as const, 'Model does not support chat completions'],
             ['hog_error' as const, 'Hog evaluation code failed'],
         ])('maps %s to user-facing copy', (reason, expected) => {
             expect(statusReasonLabel(reason)).toBe(expected)
@@ -53,6 +54,7 @@ describe('statusDisplay', () => {
                 'Choose an available model, then re-enable the evaluation to resume running.',
             ],
             ['model_not_found' as const, 'Choose an available model, then re-enable the evaluation to resume running.'],
+            ['model_not_supported' as const, 'Choose a chat model, then re-enable the evaluation to resume running.'],
             ['hog_error' as const, 'Fix the Hog code, then re-enable the evaluation to resume running.'],
         ])('maps %s to recovery copy', (reason, expected) => {
             expect(statusReasonRecoveryLabel(reason)).toBe(expected)

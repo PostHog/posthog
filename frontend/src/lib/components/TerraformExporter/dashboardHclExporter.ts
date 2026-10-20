@@ -81,7 +81,7 @@ const DASHBOARD_EXPORTER: ResourceExporter<Partial<DashboardBasicType>, Dashboar
 }
 
 export function generateDashboardHCL(
-    dashboard: Partial<DashboardType<any>>,
+    dashboard: Partial<DashboardType>,
     options: DashboardHclExportOptions = {}
 ): DashboardExportResult {
     const allWarnings: string[] = []

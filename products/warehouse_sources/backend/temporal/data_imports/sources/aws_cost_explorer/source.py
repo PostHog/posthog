@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -8,6 +9,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.aws_cost_explorer import (
+    THROTTLING_ERROR_CODES,
     VALIDATION_ERROR_MESSAGES,
     AwsCostExplorerResumeConfig,
     aws_cost_explorer_source,
@@ -37,6 +39,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCostExplorerResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_COST_EXPLORER|AWSCOSTEXPLORER)_",),
+        npm=("@aws-sdk/client-cost-explorer",),
+        cargo=("aws-sdk-costexplorer",),
+        go=("github.com/aws/aws-sdk-go-v2/service/costexplorer",),
+        maven=(
+            "software.amazon.awssdk:costexplorer",
+            "com.amazonaws:aws-java-sdk-costexplorer",
+            "software.amazon.awssdk:cost-explorer",
+        ),
+        rubygems=("aws-sdk-costexplorer",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Cost_Explorer_Service.html"
 
@@ -52,6 +67,18 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
             "Enter both an AWS access key ID and a secret access key."
         )
         return errors
+
+    def get_retryable_errors(self) -> set[str]:
+        # `send_operation` already exhausts a transport-level retry (429/5xx) and, for the
+        # app-level throttling codes, a tenacity retry loop before any of these reach here. AWS's
+        # own server-side hiccups (a generic InternalFailure, or a 5xx with no recognizable AWS
+        # error type) recover the same way. Temporal retries the whole activity next, so log these
+        # at warning instead of raising an error tracking issue for a transient AWS outage.
+        return {f"AWS Cost Explorer request failed: {code}" for code in THROTTLING_ERROR_CODES} | {
+            "AWS Cost Explorer request failed: InternalFailure",
+            "AWS Cost Explorer request failed: ServiceUnavailable",
+            "AWS Cost Explorer request failed: HTTP 5",
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.canonical_descriptions import (
@@ -115,7 +142,9 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
             label="AWS Cost Explorer",
             caption="""Sync your AWS cost and usage data into the PostHog Data warehouse.
 
-Create an IAM user or role with the `ce:GetCostAndUsage`, `ce:GetReservationUtilization` and `ce:GetSavingsPlansUtilization` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+Create an IAM user or role with the `ce:GetCostAndUsage`, `ce:GetCostAndUsageWithResources`, `ce:GetDimensionValues`, `ce:GetReservationUtilization`, `ce:GetReservationCoverage`, `ce:GetSavingsPlansUtilization` and `ce:GetSavingsPlansCoverage` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+
+The per-resource cost table needs resource-level data turned on in your Cost Explorer settings, and only covers the last 14 days.
 
 Connect the management (payer) account to see spend across every member account. AWS charges $0.01 per Cost Explorer API request, so syncs ask for wide date ranges at a time.""",
             iconPath="/static/services/aws_cost_explorer.png",

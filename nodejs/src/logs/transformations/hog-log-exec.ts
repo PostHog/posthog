@@ -6,6 +6,7 @@ import { execHogImmediate } from '~/cdp/utils/hog-exec'
 
 import { decodeLogAttributeValue, encodeLogAttributeValue } from '../attribute-value'
 import type { LogRecord } from '../log-record-avro'
+import { MAX_LOG_RECORD_BYTES, logRecordSizeBytes } from '../log-record-size'
 import { idToHex } from '../metrics-rules/tally'
 
 // Per-record execution primitives for log transformations. Pure functions, no I/O:
@@ -24,7 +25,7 @@ export const MAX_LOG_TRANSFORMATION_PRINT_LOGS = 5
 /** Capture bounds whole ingest requests at 2MB; a transformation must not inflate a
  * stored record past that boundary. The cap applies to the complete transformed
  * output (body + severity + attribute map totals); oversize output is invalid. */
-export const MAX_TRANSFORMED_FIELD_BYTES = 1024 * 1024
+export const MAX_TRANSFORMED_FIELD_BYTES = MAX_LOG_RECORD_BYTES
 
 export interface LogTransformationGlobals {
     project: { id: number; name: string; url: string }
@@ -57,22 +58,47 @@ export function buildLogRecordGlobals(
 ): LogTransformationGlobals {
     return {
         project,
-        record: {
-            body: record.body ?? null,
-            attributes: decodeAttributeMap(record.attributes),
-            resource_attributes: decodeAttributeMap(record.resource_attributes),
-            severity_text: record.severity_text ?? null,
-            severity_number: record.severity_number ?? null,
-            service_name: record.service_name ?? null,
-            instrumentation_scope: record.instrumentation_scope ?? null,
-            event_name: record.event_name ?? null,
-            timestamp: record.timestamp ?? null,
-            observed_timestamp: record.observed_timestamp ?? null,
-            trace_id: idToHex(record.trace_id, 16),
-            span_id: idToHex(record.span_id, 8),
-        },
+        record: buildLogRecordGlobalsRecord(record),
         inputs,
     }
+}
+
+/** The `record` half of the globals, with attribute maps decoded once. */
+export function buildLogRecordGlobalsRecord(record: LogRecord): LogTransformationGlobals['record'] {
+    return {
+        body: record.body ?? null,
+        attributes: decodeAttributeMap(record.attributes),
+        resource_attributes: decodeAttributeMap(record.resource_attributes),
+        severity_text: record.severity_text ?? null,
+        severity_number: record.severity_number ?? null,
+        service_name: record.service_name ?? null,
+        instrumentation_scope: record.instrumentation_scope ?? null,
+        event_name: record.event_name ?? null,
+        timestamp: record.timestamp ?? null,
+        observed_timestamp: record.observed_timestamp ?? null,
+        trace_id: idToHex(record.trace_id, 16),
+        span_id: idToHex(record.span_id, 8),
+    }
+}
+
+/**
+ * Refreshes the mutable record fields of an already-built globals object from the
+ * (possibly transformed) record. Lets the per-function loop reuse one globals build
+ * per record instead of re-decoding every attribute map per function.
+ */
+export function refreshLogRecordGlobalsRecord(target: LogTransformationGlobals['record'], record: LogRecord): void {
+    target.body = record.body ?? null
+    target.attributes = decodeAttributeMap(record.attributes)
+    target.resource_attributes = decodeAttributeMap(record.resource_attributes)
+    target.severity_text = record.severity_text ?? null
+    target.severity_number = record.severity_number ?? null
+    target.service_name = record.service_name ?? null
+    target.instrumentation_scope = record.instrumentation_scope ?? null
+    target.event_name = record.event_name ?? null
+    target.timestamp = record.timestamp ?? null
+    target.observed_timestamp = record.observed_timestamp ?? null
+    target.trace_id = idToHex(record.trace_id, 16)
+    target.span_id = idToHex(record.span_id, 8)
 }
 
 function decodeAttributeMap(map: Record<string, string> | null | undefined): Record<string, string> {
@@ -91,16 +117,22 @@ function decodeAttributeMap(map: Record<string, string> | null | undefined): Rec
  */
 function encodeAttributeMap(
     map: Record<string, string>,
-    original: Record<string, string> | null | undefined
+    original: Record<string, string> | null | undefined,
+    // The map already decoded by the globals build: comparing against it decides
+    // "untouched" without decoding every original wire value a second time.
+    originalDecoded?: Record<string, string>
 ): Record<string, string> {
     const out: Record<string, string> = {}
     for (const [key, value] of Object.entries(map)) {
         const originalValue = original?.[key]
-        if (originalValue !== undefined && decodeLogAttributeValue(originalValue) === value) {
-            out[key] = originalValue
-        } else {
-            out[key] = encodeLogAttributeValue(value)
+        if (originalValue !== undefined) {
+            const decoded = originalDecoded?.[key] ?? decodeLogAttributeValue(originalValue)
+            if (decoded === value) {
+                out[key] = originalValue
+                continue
+            }
         }
+        out[key] = encodeLogAttributeValue(value)
     }
     return out
 }
@@ -195,7 +227,14 @@ function redactSensitiveStrings(
     return value
 }
 
-export function applyTransformResult(record: LogRecord, execResult: unknown): 'mutated' | 'dropped' | 'invalid' {
+export function applyTransformResult(
+    record: LogRecord,
+    execResult: unknown,
+    decodedOriginals?: {
+        attributes?: Record<string, string>
+        resource_attributes?: Record<string, string>
+    }
+): 'mutated' | 'dropped' | 'invalid' {
     if (execResult === null || execResult === undefined || execResult === false) {
         return 'dropped'
     }
@@ -254,23 +293,16 @@ export function applyTransformResult(record: LogRecord, execResult: unknown): 'm
     // stored record past the boundary.
     // Retained fields count too: a partial result (e.g. {body}) must not slip the
     // record past the cap by riding on large fields it left untouched.
-    let totalBytes = 0
     const finalBody = body !== undefined ? body : record.body
     const finalSeverity = severityText !== undefined ? severityText : record.severity_text
-    for (const text of [finalBody, finalSeverity]) {
-        if (typeof text === 'string') {
-            totalBytes += Buffer.byteLength(text)
-        }
-    }
     const finalAttributes = attributes !== undefined ? attributes : record.attributes
     const finalResourceAttributes = resourceAttributes !== undefined ? resourceAttributes : record.resource_attributes
-    for (const map of [finalAttributes, finalResourceAttributes]) {
-        if (map) {
-            for (const [key, value] of Object.entries(map)) {
-                totalBytes += Buffer.byteLength(key) + Buffer.byteLength(value)
-            }
-        }
-    }
+    const totalBytes = logRecordSizeBytes({
+        body: finalBody,
+        severity_text: finalSeverity,
+        attributes: finalAttributes,
+        resource_attributes: finalResourceAttributes,
+    })
     if (totalBytes > MAX_TRANSFORMED_FIELD_BYTES) {
         return 'invalid'
     }
@@ -282,11 +314,18 @@ export function applyTransformResult(record: LogRecord, execResult: unknown): 'm
         record.severity_text = severityText
     }
     if (attributes !== undefined) {
-        record.attributes = attributes === null ? null : encodeAttributeMap(attributes, record.attributes)
+        record.attributes =
+            attributes === null ? null : encodeAttributeMap(attributes, record.attributes, decodedOriginals?.attributes)
     }
     if (resourceAttributes !== undefined) {
         record.resource_attributes =
-            resourceAttributes === null ? null : encodeAttributeMap(resourceAttributes, record.resource_attributes)
+            resourceAttributes === null
+                ? null
+                : encodeAttributeMap(
+                      resourceAttributes,
+                      record.resource_attributes,
+                      decodedOriginals?.resource_attributes
+                  )
     }
 
     return 'mutated'
@@ -388,7 +427,10 @@ export function executeLogTransformation(
     // can copy a decrypted input into a writable field, and Logs readers must not be
     // able to recover encrypted input values that way.
     const converted = redactSensitiveStrings(convertHogToJS(execResult.result), options.sensitiveValues)
-    const applied = applyTransformResult(record, converted)
+    const applied = applyTransformResult(record, converted, {
+        attributes: globals.record.attributes,
+        resource_attributes: globals.record.resource_attributes,
+    })
 
     if (applied === 'invalid') {
         return {

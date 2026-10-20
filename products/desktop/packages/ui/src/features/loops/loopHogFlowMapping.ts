@@ -4,13 +4,8 @@ import {
   type HogFlowScheduleWrite,
   LOOPS_ORIGIN_PRODUCT,
 } from "@posthog/api-client/hogFlowLoops";
-import type { LoopSchemas } from "@posthog/api-client/loops";
-import {
-  defaultLoopBehaviors,
-  defaultLoopContextOutputs,
-  type LoopContextTargetDraft,
-  type LoopFormValues,
-} from "./loopFormTypes";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
+import type { LoopContextTargetDraft, LoopFormValues } from "./loopFormTypes";
 import {
   hogFlowScheduleToScheduleConfig,
   scheduleConfigToHogFlowSchedule,
@@ -64,6 +59,9 @@ export interface LoopHogFlowSource {
    * the detail carries it; a list row leaves it undefined. */
   draft?: unknown;
   draft_updated_at?: string | null;
+  /** The newest task the workflow created. A backend that predates the field
+   * omits it, which reads as a loop that never ran. */
+  last_run?: { task_id: string; status: string; ran_at: string } | null;
 }
 
 /** Task inputs the form owns. Anything else on the step is left as found. */
@@ -95,7 +93,7 @@ function githubTriggerConfig(
 ): Json {
   // Only people with write access can start a run: the event body reaches an
   // AI task that acts with the owner's access, so a drive-by issue or comment
-  // must not be able to steer it. Same gate the loops webhook applied.
+  // must not be able to steer it.
   const properties = [
     exactFilter("repository", [config.repository]),
     exactFilter("event_type", config.events),
@@ -137,13 +135,8 @@ function triggerFromForm(values: LoopFormValues): {
     }
     return { config: { type: "schedule" }, schedule };
   }
-  if (trigger.type === "github") {
-    const config = trigger.config as LoopSchemas.LoopGithubTriggerConfig;
-    return { config: githubTriggerConfig(config), schedule: null };
-  }
-  throw new UnsupportedLoopShapeError(
-    `Trigger type "${trigger.type}" is not supported for workflow-backed loops.`,
-  );
+  const config = trigger.config as LoopSchemas.LoopGithubTriggerConfig;
+  return { config: githubTriggerConfig(config), schedule: null };
 }
 
 function taskInputs(values: LoopFormValues): Json {
@@ -190,11 +183,7 @@ function spaceFromTaskInputs(
     "|",
   );
   if (!folderId) return null;
-  return {
-    folder_id: folderId,
-    name: rest.join("|"),
-    outputs: defaultLoopContextOutputs(),
-  };
+  return { channel_id: folderId, name: rest.join("|") };
 }
 
 /** Task inputs on an existing flow that the form does not manage, so a save
@@ -488,8 +477,6 @@ function loopTrigger(
     type,
     enabled: true,
     config,
-    schedule_sync_status: null,
-    last_fired_at: null,
     created_at: flow.created_at,
     updated_at: flow.updated_at,
   };
@@ -531,10 +518,9 @@ function notificationsFromNotify(
 ): LoopSchemas.LoopNotifications {
   const off = (): LoopSchemas.LoopNotificationChannel => ({
     enabled: false,
-    events: [],
     params: {},
   });
-  const notifications = { push: off(), email: off(), slack: off() };
+  const notifications = { email: off(), slack: off() };
   if (!notify) return notifications;
   if (notify.type === "function_email") {
     notifications.email.enabled = true;
@@ -570,7 +556,6 @@ export function hogFlowToLoop(
     created_by_id: flow.created_by?.id ?? null,
     name: flow.name ?? "",
     description: flow.description ?? "",
-    visibility: "team",
     instructions: readString(inputValue(inputs, "prompt")),
     runtime_adapter: "claude",
     model: isRecord(model) ? readString(model.model) : "",
@@ -580,24 +565,14 @@ export function hogFlowToLoop(
     repositories: repository
       ? [{ github_integration_id: 0, full_name: repository }]
       : [],
-    sandbox_environment_id: null,
     enabled: flow.status === "active",
-    disabled_reason: null,
-    overlap_policy: "skip",
-    behaviors: defaultLoopBehaviors(),
-    connectors: { mcp_installation_ids: [], posthog_mcp_scopes: "read_only" },
     notifications: notificationsFromNotify(parsed?.actions.notify ?? null),
     context_target: spaceFromTaskInputs(inputs),
-    internal: false,
-    origin_product: LOOPS_ORIGIN_PRODUCT,
-    last_run_at: null,
-    last_run_status: null,
-    last_error: null,
-    consecutive_failures: 0,
+    last_run_at: flow.last_run?.ran_at ?? null,
+    last_run_status: flow.last_run ? loopRunStatus(flow.last_run.status) : null,
     created_at: flow.created_at,
     updated_at: flow.updated_at,
     triggers: trigger ? [trigger] : [],
-    skill_bundles: [],
   };
 }
 
@@ -625,7 +600,7 @@ function loopRunStatus(status: unknown): LoopSchemas.LoopRunStatusEnum {
  * the sandbox picks it up.
  */
 export function taskToLoopRun(
-  task: Schemas.TaskDetailDTO,
+  task: Schemas.TaskDetailDTO | Schemas.TaskListItem,
 ): LoopSchemas.LoopRun {
   const run = task.latest_run ?? null;
   const status = loopRunStatus(run?.status);
@@ -633,7 +608,6 @@ export function taskToLoopRun(
   return {
     id: run?.id ?? task.id,
     task_id: task.id,
-    loop_trigger_id: null,
     status,
     environment: run?.environment === "local" ? "local" : "cloud",
     branch: run?.branch ?? null,

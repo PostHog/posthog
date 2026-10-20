@@ -1,3 +1,5 @@
+import { IconChevronRight } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
@@ -35,7 +37,9 @@ export function DashboardInsightDisplayOptions({
                 placement="right-start"
                 fallbackPlacements={['left-start']}
             >
-                <LemonButton fullWidth>Display options</LemonButton>
+                <LemonButton fullWidth sideIcon={<IconChevronRight className="size-3" />}>
+                    Display options
+                </LemonButton>
             </LemonDropdown>
         </>
     )

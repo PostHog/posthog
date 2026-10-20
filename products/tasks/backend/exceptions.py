@@ -6,6 +6,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.errors import NonReportableError
 
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 
@@ -101,6 +102,11 @@ class GitHubRateLimitedError(ProcessTaskTransientError):
 
 class TaskInvalidStateError(ProcessTaskFatalError):
     pass
+
+
+class OrganizationExecutionError(ProcessTaskError):
+    def __init__(self, message: str, team_id: int, reason: str) -> None:
+        super().__init__(message, {"team_id": team_id, "reason": reason}, None, capture=False, non_retryable=True)
 
 
 class SandboxProvisionError(ProcessTaskTransientError):
@@ -278,7 +284,7 @@ class GitHubAuthenticationError(ProcessTaskFatalError):
     pass
 
 
-class CredentialUnavailableError(ProcessTaskFatalError):
+class CredentialUnavailableError(ProcessTaskFatalError, NonReportableError):
     """A sandbox credential can never be resolved again for this run — the backing
     integration row was deleted mid-run or the user must re-authorize.
 
@@ -288,6 +294,14 @@ class CredentialUnavailableError(ProcessTaskFatalError):
 
     def __init__(self, message: str, context: dict[str, Any], cause: Exception | None = None):
         ProcessTaskError.__init__(self, message, context, cause, capture=False, non_retryable=True)
+
+
+class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
+    """No Go token for a posthog_code run, for a reason a retry won't change. Expected customer
+    state, so not captured."""
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
 
 
 class PersonalAPIKeyError(ProcessTaskTransientError):

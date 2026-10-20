@@ -3,12 +3,20 @@ from __future__ import annotations
 import os
 import json
 import zipfile
+import itertools
+from functools import partial
 from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.posthog_ai.eval_harness import long_lived_subprocess
 from products.posthog_ai.eval_harness.harness.services import package_local_skills_archive, start_mcp_server
+from products.posthog_ai.eval_harness.long_lived_subprocess import (
+    LongLivedSubprocessManager,
+    SubprocessReadinessTimeout,
+    SubprocessStartupError,
+)
 
 
 def test_package_local_skills_archive_is_deterministic_and_excludes_cache_markers(tmp_path: Path) -> None:
@@ -71,3 +79,77 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
     else:
         assert env["POSTHOG_MCP_SKILLS_URL"] == skill_archive_url
     assert result is stop
+
+
+@pytest.mark.parametrize("failures,retries,recovers", [(1, 2, True), (3, 2, False), (1, 0, False)])
+def test_service_readiness_retries_stop_each_failed_process(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failures: int,
+    retries: int,
+    recovers: bool,
+) -> None:
+    manager = LongLivedSubprocessManager()
+    manager.startup_retries = retries
+    processes: list[MagicMock] = []
+    stopped: list[MagicMock] = []
+
+    def spawn(*_args: object, **_kwargs: object) -> MagicMock:
+        assert stopped == processes
+        process = MagicMock(pid=len(processes) + 1)
+        process.poll.return_value = None
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(long_lived_subprocess.subprocess, "Popen", spawn)
+    clock = itertools.count()
+    monkeypatch.setattr(long_lived_subprocess.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(long_lived_subprocess.time, "sleep", lambda _delay: None)
+    monkeypatch.setattr(manager, "_stop_stale_managed_process", lambda **_kwargs: None)
+    monkeypatch.setattr(manager, "_fail_if_port_bound", lambda *_args: None)
+    monkeypatch.setattr(manager, "_pipe_output", lambda *_args: None)
+    monkeypatch.setattr(manager, "_write_pid_file", lambda **_kwargs: None)
+    monkeypatch.setattr(manager, "_remove_pid_file", lambda _port: None)
+    monkeypatch.setattr(manager, "_stop_process_group", stopped.append)
+    socket = MagicMock()
+    monkeypatch.setattr(
+        long_lived_subprocess.socket,
+        "create_connection",
+        MagicMock(side_effect=[OSError("Not ready")] * failures + [socket]),
+    )
+    start = partial(
+        manager.start,
+        name="test service",
+        port=12345,
+        cmd=["fake-service"],
+        cwd=tmp_path,
+        env={},
+        log_prefix="test",
+        readiness_timeout=2,
+    )
+    if recovers:
+        process, stop = start()
+        assert process is processes[-1]
+        assert len(processes) == failures + 1
+        stop()
+        socket.close.assert_called_once()
+    else:
+        with pytest.raises(SubprocessReadinessTimeout):
+            start()
+        assert len(processes) == retries + 1
+    assert stopped == processes
+    assert manager._stops == []
+
+
+@pytest.mark.parametrize(
+    "error", [SubprocessStartupError("Port in use"), FileNotFoundError("Missing executable"), KeyboardInterrupt()]
+)
+def test_service_startup_does_not_retry_permanent_errors_or_interrupts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, error: BaseException
+) -> None:
+    manager = LongLivedSubprocessManager()
+    start = MagicMock(side_effect=error)
+    monkeypatch.setattr(manager, "_start_once", start)
+    with pytest.raises(type(error)):
+        manager.start(name="test service", port=12345, cmd=["fake-service"], cwd=tmp_path, env={}, log_prefix="test")
+    assert start.call_count == 1

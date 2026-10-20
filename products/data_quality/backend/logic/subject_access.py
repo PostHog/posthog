@@ -35,12 +35,13 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ..facade.enums import SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun
+from . import posthog_tables
 from .checks import latest_run_ids
 from .contracts import SubjectIdentity, SubjectRef
 from .exceptions import SubjectAccessUnverifiable
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
-from .subjects import resolve_metric_subjects, resolve_subject, resolve_subject_by_name
+from .subjects import resolve_metric_subjects, resolve_subject, resolve_subject_by_name, unqueryable_table_ids
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -52,7 +53,16 @@ _SUBJECT_UUID_KEY = "subject_uuid"
 _SYSTEM_SCHEMA = SystemTables().name
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
 _CHECK_VISIBILITY_BATCH_SIZE = 200
-_CHECK_VISIBILITY_FIELDS = ("id", "subject_type", "table_id", "saved_query_id", "metric_id", "check_type", "config")
+_CHECK_VISIBILITY_FIELDS = (
+    "id",
+    "subject_type",
+    "table_id",
+    "saved_query_id",
+    "metric_id",
+    "posthog_table",
+    "check_type",
+    "config",
+)
 
 
 def can_be_object_denied(user_access_control: Optional["UserAccessControl"]) -> bool:
@@ -83,6 +93,7 @@ class ReadableSubjects:
     table_ids: frozenset[UUID]
     view_ids: frozenset[UUID]
     metric_ids: frozenset[UUID] = frozenset()
+    posthog_table_ids: frozenset[UUID] = frozenset()
 
     def contains(self, subject_type: str, subject_uuid: str | UUID | None) -> bool:
         if subject_uuid is None:
@@ -97,6 +108,8 @@ class ReadableSubjects:
             return identifier in self.view_ids
         if subject_type == SubjectType.METRIC:
             return identifier in self.metric_ids
+        if subject_type == SubjectType.POSTHOG_TABLE:
+            return identifier in self.posthog_table_ids
         return False
 
 
@@ -223,6 +236,7 @@ def reference_gate(
         # left out of the lookup and fails closed in ``ReadableSubjects.contains``.
         if reference.subject_type in referenced and (identifier := _as_uuid(reference.subject_uuid)) is not None:
             referenced[reference.subject_type].add(identifier)
+    matcher = DeniedTableMatcher(system_table_denials(team, user, user_access_control, unentitled=unentitled))
     return ReferenceGate(
         readable=ReadableSubjects(
             table_ids=warehouse_facade.allowed_table_ids(
@@ -231,9 +245,18 @@ def reference_gate(
             view_ids=data_modeling_facade.allowed_saved_query_ids(
                 team.id, user_access_control, ids=referenced[SubjectType.VIEW]
             ),
+            posthog_table_ids=readable_posthog_table_ids(user_access_control, matcher),
         ),
-        matcher=DeniedTableMatcher(system_table_denials(team, user, user_access_control, unentitled=unentitled)),
+        matcher=matcher,
     )
+
+
+def readable_posthog_table_ids(
+    user_access_control: "UserAccessControl", matcher: DeniedTableMatcher
+) -> frozenset[UUID]:
+    if not user_access_control.check_access_level_for_resource(posthog_tables.RESOURCE, "viewer"):
+        return frozenset()
+    return frozenset(entry.id for entry in posthog_tables.TABLES if not matcher.matches([entry.name]))
 
 
 @frozen
@@ -248,8 +271,7 @@ class SubjectMetadata:
 
 def subject_metadata(team_id: int) -> SubjectMetadata:
     tables = warehouse_facade.all_queryable_table_keys(team_id)
-    excluded_table_ids = set(data_modeling_facade.backing_table_ids_by_saved_query(team_id))
-    excluded_table_ids.update(warehouse_facade.direct_access_table_ids(team_id))
+    excluded_table_ids = unqueryable_table_ids(team_id)
     included = {table_id: names for table_id, names in tables.items() if table_id not in excluded_table_ids}
     return SubjectMetadata(
         table_names={table_id: names.row_name for table_id, names in included.items()},
@@ -283,6 +305,7 @@ def readable_subjects(
             for metric in metadata.metrics
             if can_read_catalog and not matcher.matches(metric.referenced_table_names)
         ),
+        posthog_table_ids=frozenset(entry.id for entry in posthog_tables.TABLES if not matcher.matches([entry.name])),
     )
 
 
@@ -486,6 +509,10 @@ def readable_check_subjects(
         Q(subject_type=SubjectType.TABLE, table_id__in=readable.table_ids)
         | Q(subject_type=SubjectType.VIEW, saved_query_id__in=readable.view_ids)
         | Q(subject_type=SubjectType.METRIC, metric_id__in=readable.metric_ids)
+        | Q(
+            subject_type=SubjectType.POSTHOG_TABLE,
+            posthog_table__in=posthog_tables.names_of(readable.posthog_table_ids),
+        )
     )
 
 
@@ -662,6 +689,7 @@ def _readable_subject_q(readable: ReadableSubjects) -> Q:
         Q(subject_type=SubjectType.TABLE, subject_uuid__in=readable.table_ids)
         | Q(subject_type=SubjectType.VIEW, subject_uuid__in=readable.view_ids)
         | Q(subject_type=SubjectType.METRIC, subject_uuid__in=readable.metric_ids)
+        | Q(subject_type=SubjectType.POSTHOG_TABLE, subject_uuid__in=readable.posthog_table_ids)
     )
 
 
@@ -672,6 +700,7 @@ def _readable_identities(readable: ReadableSubjects) -> list[dict[str, str]]:
             (SubjectType.TABLE, readable.table_ids),
             (SubjectType.VIEW, readable.view_ids),
             (SubjectType.METRIC, readable.metric_ids),
+            (SubjectType.POSTHOG_TABLE, readable.posthog_table_ids),
         )
         for subject_uuid in ids
     ]

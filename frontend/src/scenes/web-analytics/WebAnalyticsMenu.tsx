@@ -37,6 +37,7 @@ const ANALYTICS_TILES = [
 
 export const WebAnalyticsMenu = (): JSX.Element => {
     const {
+        exportAllDisabledReason,
         hasSavedFocusMode,
         hiddenTiles,
         isFocusModeActive,
@@ -63,6 +64,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                 <ButtonPrimitive
                     menuItem
                     data-attr="web-analytics-export-all-csv"
+                    disabledReasons={exportAllDisabledReason ? { [exportAllDisabledReason]: true } : undefined}
                     onClick={() => {
                         if (exportAllTilesAsCsvZip(tiles)) {
                             exportTriggered()

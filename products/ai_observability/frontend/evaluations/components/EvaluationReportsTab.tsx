@@ -14,6 +14,7 @@ import { EvaluationReportViewer, summarizeEvaluationReportResults } from './Eval
 
 interface EvaluationReportsTabProps {
     evaluationId: string
+    generationDisabledReason?: string
     userAccessLevel?: AccessControlLevel
     /** Called when the user clicks the "Set up scheduled reports" CTA in the empty state. */
     onConfigureClick: () => void
@@ -32,6 +33,7 @@ const STATUS_STYLES: Record<
 
 export function EvaluationReportsTab({
     evaluationId,
+    generationDisabledReason,
     userAccessLevel,
     onConfigureClick,
 }: EvaluationReportsTabProps): JSX.Element {
@@ -47,11 +49,11 @@ export function EvaluationReportsTab({
                 <div className="bg-bg-light border rounded p-8 text-center space-y-3">
                     <h3 className="text-lg font-semibold m-0">No scheduled reports yet</h3>
                     <p className="text-muted text-sm m-0">
-                        Scheduled reports deliver AI-generated analysis of this evaluation's results to email or Slack
-                        on a recurring basis.
+                        {generationDisabledReason ??
+                            "Scheduled reports deliver AI-generated analysis of this evaluation's results to email or Slack on a recurring basis."}
                     </p>
                     <LemonButton type="primary" onClick={onConfigureClick}>
-                        Set up scheduled reports
+                        {generationDisabledReason ? 'Configure evaluation' : 'Set up scheduled reports'}
                     </LemonButton>
                 </div>
             </div>
@@ -60,8 +62,8 @@ export function EvaluationReportsTab({
 
     return (
         <div className="max-w-6xl">
-            <div className="flex items-start justify-between gap-6 mb-4">
-                <p className="min-w-0 text-muted text-sm m-0">
+            <div className="flex flex-wrap items-start justify-between gap-6 mb-4">
+                <p className="min-w-0 flex-1 basis-64 text-muted text-sm m-0">
                     History of AI-generated reports for this evaluation. Click a row to expand the full report. Schedule
                     and delivery targets are configured in the <Link onClick={onConfigureClick}>Configuration tab</Link>
                     .
@@ -86,6 +88,7 @@ export function EvaluationReportsTab({
                                 size="small"
                                 onClick={() => generateReport(activeReport.id)}
                                 loading={generateResultLoading}
+                                disabledReason={generationDisabledReason}
                             >
                                 Generate now
                             </LemonButton>

@@ -34,6 +34,7 @@ with workflow.unsafe.imports_passed_through():
         AI_REPLY_TRACE_NAMESPACE,
         BLOCKER_AWARE_LOOP_PATCH,
         DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
+        DRAFT_ACTIVITY_MAX_ATTEMPTS,
         LEGACY_MAX_ATTEMPTS,
         MAX_ATTEMPTS,
         MAX_CLARIFICATION_ROUNDS,
@@ -181,14 +182,17 @@ class SupportReplyWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             ),
         )
+        if ctx_output.ticket_gone:
+            return "skipped_ticket_deleted"
         if input.clarification_round >= 1 and ctx_output.followup_cancelled:
             return "skipped_human_engaged"
 
         # Record lifecycle start
+        run_started_at = workflow.now().isoformat()
         await _record_triage(
             {
                 "status": "in_progress",
-                "started_at": workflow.now().isoformat(),
+                "started_at": run_started_at,
             }
         )
 
@@ -234,6 +238,10 @@ class SupportReplyWorkflow:
             except TypeError:
                 return True
             return posted
+
+        # `finally` reads this on every exit path, including the branches that return
+        # before the draft loop starts.
+        last_draft: DraftOutput | None = None
 
         try:
             # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
@@ -291,7 +299,6 @@ class SupportReplyWorkflow:
             best_citations: list[str] = []
             best_sources: list[dict[str, str]] = []
             best_missing: list[str] = []
-            last_draft = None
             last_validate = None
             attempts_used = 0
             blocker_aware = workflow.patched(BLOCKER_AWARE_LOOP_PATCH)
@@ -314,6 +321,11 @@ class SupportReplyWorkflow:
                     "validator_confidence": validate.confidence,
                     "coverage": validate.coverage,
                     "grounded": validate.grounded,
+                    "citations": list(draft.citations),
+                    "investigation_summary": draft.investigation_summary,
+                    "unknowns": list(draft.unknowns),
+                    "clarifying_questions": list(draft.clarifying_questions),
+                    "missing": list(validate.missing),
                 }
 
             for attempt in range(max_attempts):
@@ -349,8 +361,8 @@ class SupportReplyWorkflow:
                 )
 
                 # Don't short-circuit on empty in-process retrieval — the draft agent has
-                # read-only MCP tools (PostHog docs via docs-search, the team's business
-                # knowledge) and can find sources itself. Seed chunks are just a head start.
+                # read-only MCP tools (team business knowledge, and docs-search when this
+                # team uses PostHog docs) and can find sources itself. Seed chunks are a head start.
                 if not retrieve_output.chunk_ids:
                     workflow.logger.info("support_reply: no seed chunks; drafting via MCP tools only")
 
@@ -371,9 +383,11 @@ class SupportReplyWorkflow:
                             diagnostics_allowed=ctx_output.diagnostics_allowed,
                             auto_publishable=auto_publishable,
                             clarification_round=input.clarification_round,
+                            docs_source=ctx_output.docs_source,
+                            custom_instructions=ctx_output.custom_instructions,
                         ),
                         start_to_close_timeout=timedelta(minutes=20),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
+                        retry_policy=RetryPolicy(maximum_attempts=DRAFT_ACTIVITY_MAX_ATTEMPTS),
                     ),
                 )
                 sandbox_seconds += draft_output.sandbox_seconds or 0.0
@@ -790,6 +804,8 @@ class SupportReplyWorkflow:
                 triage_patch = {
                     **outcome,
                     "status": triage_status,
+                    # The start write is best effort, so the stored started_at can belong to an earlier run.
+                    "started_at": run_started_at,
                     "finished_at": workflow.now().isoformat(),
                     "ai_trace_id": trace_id,
                     "draft_task_run_ids": draft_task_run_ids,
@@ -798,6 +814,16 @@ class SupportReplyWorkflow:
                         "llm_calls": llm_calls,
                     },
                 }
+                if last_draft is not None:
+                    last_draft = coerce_dataclass(DraftOutput, last_draft)
+                    if last_draft.playbook_content_hash:
+                        triage_patch["playbook"] = {
+                            "layers": list(last_draft.playbook_layers),
+                            "default_version": last_draft.playbook_default_version,
+                            "posthog_overlay_version": last_draft.playbook_posthog_overlay_version,
+                            "content_hash": last_draft.playbook_content_hash,
+                            "warnings": list(last_draft.playbook_warnings),
+                        }
                 followup_reopen = input.clarification_round >= 1
                 if followup_reopen:
                     triage_patch["clear_clarification"] = True

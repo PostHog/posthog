@@ -2,6 +2,7 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
+import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
@@ -126,7 +127,7 @@ export interface TaxonomicFilterProps {
     onClose?: () => void
     /** The series/entity filter the picker is editing — lets the list surface
      *  the committed selection with its rename (`custom_name`) applied. */
-    filter?: EntityFilter | ActionFilter
+    filter?: EntityFilter | ActionFilter | SeriesNode
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -139,6 +140,7 @@ export interface TaxonomicFilterProps {
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     autoSelectItem?: boolean
+    promoteSelectedItemToFirstPosition?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
     /**
@@ -235,6 +237,7 @@ export type DefinitionPopoverRendererProps = {
     group: TaxonomicFilterGroup
     defaultView: JSX.Element
 }
+/** Return `defaultView` itself for an item the renderer does not handle. The popover compares it by reference. */
 export type DefinitionPopoverRenderer = (props: DefinitionPopoverRendererProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
@@ -284,6 +287,8 @@ export interface TaxonomicFilterGroup {
     componentProps?: Record<string, any>
     /** Minimum number of characters before a remote search is issued. */
     minSearchQueryLength?: number
+    shouldSearch?: (query: string) => boolean
+    searchQueryHint?: string
     /** Description shown in the empty state when minSearchQueryLength is set. */
     searchDescription?: string
     /** Synthetic results surfaced inline when the search query matches a keyword.
@@ -374,6 +379,27 @@ export enum TaxonomicFilterGroupType {
     RecentFilters = 'recent_filters',
     PinnedFilters = 'pinned_filters',
     Empty = 'empty',
+}
+
+/**
+ * Value shortcut groups that stay searched and keep feeding the All list, but are not offered as categories.
+ * Their items are found through All and search, so a separate category only adds a place to come up empty.
+ */
+export const SEARCH_ONLY_GROUP_TYPES: ReadonlySet<TaxonomicFilterGroupType> = new Set([
+    TaxonomicFilterGroupType.EmailAddresses,
+    TaxonomicFilterGroupType.AutocaptureEvents,
+    TaxonomicFilterGroupType.PageviewEvents,
+    TaxonomicFilterGroupType.ScreenEvents,
+])
+
+/** The categories to offer: everything except search-only groups, unless that leaves no real category. */
+export function withoutSearchOnlyGroups<T>(
+    items: T[],
+    groupTypeOf: (item: T) => TaxonomicFilterGroupType,
+    isMetaGroupType: (groupType: TaxonomicFilterGroupType) => boolean
+): T[] {
+    const kept = items.filter((item) => !SEARCH_ONLY_GROUP_TYPES.has(groupTypeOf(item)))
+    return kept.some((item) => !isMetaGroupType(groupTypeOf(item))) ? kept : items
 }
 
 export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([

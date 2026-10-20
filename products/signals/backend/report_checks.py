@@ -9,6 +9,14 @@ The soak window is the check's own clock. A fix does not always arrive as a merg
 plenty land in the skills store with nothing to date the window from — so the author says when the
 check runs rather than the system reading it off a merge.
 
+A check on a report that has not resolved cannot name a useful date, because the fix it tests is
+not live yet. The research turn is the clearest case: it writes its check while the report is still
+being authored, so it names a soak duration instead. Such a check is stored `pending`, and the
+report's own transition to `resolved` starts its clock — whatever caused the transition, a merged
+pull request, a manual resolve, or an MCP state write. A scout that names a date on an open report
+gets the same treatment, with the gap it left as the soak. See ``CheckSpec`` and
+``report_check_authoring.arm_pending_checks``.
+
 This module stays Django-free and schema-free for the same reason as ``report_metrics``: model and
 Temporal payload modules import it during process setup.
 """
@@ -16,14 +24,27 @@ Temporal payload modules import it during process setup.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from products.signals.backend.report_metrics import validate_live_metric_query, validate_metric_id
+from products.signals.backend.report_charts import _unstorable_text
+from products.signals.backend.report_metrics import (
+    MAX_LIVE_METRIC_WINDOW_DAYS,
+    MAX_METRIC_UNIT_LENGTH,
+    ReportMetric,
+    ReportMetricKind,
+    ReportMetricValueFormat,
+    validate_live_metric_query,
+    validate_metric_id,
+    validate_metric_number,
+)
 
-CheckOutcome = Literal["passed", "failed", "errored"]
+CheckOutcome = Literal["passed", "failed", "errored", "inconclusive"]
+# Why an `inconclusive` verdict could not settle the claim. Only `awaiting_data` keeps the check open.
+CheckInconclusiveReason = Literal["awaiting_data", "unmeasurable", "needs_manual_verification", "no_fix_to_measure"]
 CheckOperator = Literal["lte", "gte", "between"]
 
 MAX_ACTIVE_CHECKS_PER_REPORT = 5
@@ -45,10 +66,34 @@ MAX_CHECK_INTERVAL_MINUTES = int(MAX_CHECK_HORIZON.total_seconds() // 60)
 # A soak needs the fix to have been live a while. A week is the default first look; an author who
 # knows the window says so.
 DEFAULT_FIRST_RUN_AFTER = timedelta(days=7)
+# The soak a resolve-armed check waits out before its first run. A day is long enough for a merged
+# fix to be deployed and for a day's traffic to accumulate behind it, which is what the comparison
+# needs; an author who knows the fix is slower to reach users (a mobile release, a cached client
+# bundle) says so.
+DEFAULT_CHECK_SOAK_HOURS = 24
+MIN_CHECK_SOAK_HOURS = 1
+MAX_CHECK_SOAK_HOURS = 30 * 24
 DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN = timedelta(days=30)
 # A check whose query keeps failing is misconfigured, not unlucky. Three errored runs retire it so a
 # broken lane stops costing a query per tick.
 MAX_CONSECUTIVE_CHECK_ERRORS = 3
+# How long an `awaiting_data` check waits before each look again. The list is short, because a check
+# on a surface with almost no traffic can wait forever. After the last wait, the next
+# `awaiting_data` verdict ends the check as `inconclusive`.
+AWAITING_DATA_RETRY_WAITS = (timedelta(hours=24), timedelta(hours=72), timedelta(days=7))
+
+
+def check_schedule_expires_at(
+    *,
+    next_run_at: datetime,
+    run_interval_minutes: int | None,
+    runs_remaining: int,
+    start_at: datetime,
+) -> datetime:
+    last_run_at = next_run_at
+    if run_interval_minutes:
+        last_run_at += timedelta(minutes=run_interval_minutes * max(0, runs_remaining - 1))
+    return min(last_run_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN, start_at + MAX_CHECK_HORIZON)
 
 
 class CheckThresholdBounds(BaseModel):
@@ -106,6 +151,32 @@ class CheckComparison(BaseModel):
         return self
 
 
+class MonitoringMetricConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reference_period_minutes: int = Field(
+        strict=True,
+        gt=0,
+        le=MAX_LIVE_METRIC_WINDOW_DAYS * 24 * 60,
+        description="The period the comparison target describes, in minutes. Independent of the soak and run schedule.",
+    )
+    threshold_scaling: Literal["linear", "fixed"] = Field(
+        description=(
+            "How the target applies to a measurement from Monitoring start to the observation time. "
+            "`linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive "
+            "event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. "
+            "This definition does not enable Monitoring execution."
+        ),
+    )
+    baseline_period_minutes: int | None = Field(
+        default=None,
+        strict=True,
+        gt=0,
+        le=MAX_LIVE_METRIC_WINDOW_DAYS * 24 * 60,
+        description="The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.",
+    )
+
+
 class MetricThresholdConfig(BaseModel):
     """A deterministic check: measure one number, compare it, record the verdict.
 
@@ -134,7 +205,19 @@ class MetricThresholdConfig(BaseModel):
         default=None,
         description=(
             "Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named "
-            "metric when the check is created."
+            "metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, "
+            "and `date_to` must be empty, so the check measures the days before each run rather than the days "
+            "before it was written. The query must produce exactly one output series: use one event or action "
+            "series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. "
+            "A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for "
+            "you unless `metricSummary` is `latest`, which keeps compare mode off already."
+        ),
+    )
+    monitoring: MonitoringMetricConfig | None = Field(
+        default=None,
+        description=(
+            "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. "
+            "Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
         ),
     )
     comparison: CheckComparison = Field(description="What the measured value must satisfy to pass.")
@@ -142,6 +225,20 @@ class MetricThresholdConfig(BaseModel):
         default=None,
         description="The value observed when the check was written, recorded on each result for context.",
     )
+    metric_kind: ReportMetricKind | None = Field(
+        default=None, description="How to draw this measurement; copied from a referenced metric."
+    )
+    value_format: ReportMetricValueFormat | None = Field(
+        default=None, description="How to format measured values; copied from a referenced metric."
+    )
+    unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH, description="Optional value suffix.")
+
+    @field_validator("unit")
+    @classmethod
+    def unit_must_be_storable(cls, value: str | None) -> str | None:
+        if value is not None and (reason := _unstorable_text(value)) is not None:
+            raise ValueError(f"unit must not contain {reason}")
+        return value
 
     @field_validator("baseline_value", mode="before")
     @classmethod
@@ -237,6 +334,16 @@ class AgentCheckConfig(BaseModel):
         return hints
 
 
+def soak_minutes_from_gap(next_run_at: datetime, since: datetime) -> int:
+    """The soak a dated check keeps while its report has not resolved.
+
+    The author left a gap before the first run to allow for deploy and soak time, so that gap is
+    what the check waits out once the report resolves, bounded by what a soak may be.
+    """
+    minutes = round((next_run_at - since).total_seconds() / 60)
+    return max(MIN_CHECK_SOAK_HOURS * 60, min(minutes, MAX_CHECK_SOAK_HOURS * 60))
+
+
 CHECK_CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "metric_threshold": MetricThresholdConfig,
     "agent": AgentCheckConfig,
@@ -260,3 +367,102 @@ def parse_check_config(kind: str, config: object) -> BaseModel:
         return schema.model_validate(config)
     except ValidationError as error:
         raise CheckConfigValidationError(str(error)) from error
+
+
+def validate_metric_check_for_write(config: MetricThresholdConfig) -> None:
+    if config.query is None:
+        raise CheckConfigValidationError("The metric query must be resolved before writing a check.")
+    if config.monitoring is not None:
+        if config.baseline_value is not None and config.monitoring.baseline_period_minutes is None:
+            raise CheckConfigValidationError("A Monitoring baseline needs its measured baseline_period_minutes.")
+        if config.monitoring.threshold_scaling == "linear":
+            source = config.query["source"]
+            series = source["series"]
+            if (
+                len(series) != 1
+                or any((source.get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes"))
+                or series[0].get("math") not in {None, "total", "sum"}
+                or (
+                    series[0].get("math") == "sum"
+                    and (
+                        series[0].get("math_property") == "$session_duration"
+                        or series[0].get("math_property_type") == "session_properties"
+                    )
+                )
+            ):
+                raise CheckConfigValidationError(
+                    "Linear Monitoring targets require one additive event count or property sum, without a formula."
+                )
+    kind = config.metric_kind or "custom"
+    value_format = config.value_format or "number"
+    try:
+        ReportMetric(
+            metric_id=config.metric_id or "check",
+            title="Follow-up measurement",
+            kind=kind,
+            query=config.query,
+            value_format=value_format,
+            unit=config.unit,
+        )
+        if config.baseline_value is not None:
+            validate_metric_number(kind, value_format, config.baseline_value, "baseline")
+        comparison = config.comparison
+        if comparison.bounds is not None:
+            validate_metric_number(kind, value_format, comparison.bounds.lower, "lower bound")
+            validate_metric_number(kind, value_format, comparison.bounds.upper, "upper bound")
+        elif comparison.value is not None:
+            validate_metric_number(kind, value_format, comparison.value, "goal")
+    except ValueError as error:
+        raise CheckConfigValidationError(str(error)) from error
+
+
+class CheckSpec(BaseModel):
+    """A check whose clock starts when its report resolves, written before any fix exists.
+
+    The research turn's shape. It authors the check in the same pass that writes the report, so
+    there is nothing to date a soak window from yet: the spec names how long to wait after the
+    report is resolved rather than a date to look on. Everything else is the REST body's own
+    vocabulary, and the config goes through the same `parse_check_config` boundary, so a spec
+    cannot express a check the endpoint would refuse.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    existing_check_id: UUID | None = Field(
+        default=None, description="ID of the existing check being retained or revised. Omit for a new check."
+    )
+
+    title: str = Field(
+        max_length=MAX_CHECK_TITLE_LENGTH,
+        description="Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.",
+    )
+    rationale: str = Field(
+        default="",
+        max_length=MAX_CHECK_RATIONALE_LENGTH,
+        description="Why the check is worth running.",
+    )
+    kind: Literal["metric_threshold", "agent"] = Field(description="How the check is evaluated.")
+    config: dict[str, Any] = Field(description="What the check measures and what the result must satisfy.")
+    soak_hours: int = Field(
+        default=DEFAULT_CHECK_SOAK_HOURS,
+        ge=MIN_CHECK_SOAK_HOURS,
+        le=MAX_CHECK_SOAK_HOURS,
+        description=(
+            "How long after the report is resolved to wait before measuring. The fix has to have "
+            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours "
+            "for a new check; omission preserves an existing check’s wait."
+        ),
+    )
+
+    @field_validator("title")
+    @classmethod
+    def title_must_say_something(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty or whitespace-only")
+        return stripped
+
+    @model_validator(mode="after")
+    def config_must_match_its_kind(self) -> CheckSpec:
+        parse_check_config(self.kind, self.config)
+        return self

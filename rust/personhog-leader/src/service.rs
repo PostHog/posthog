@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use common_kafka::kafka_producer::KafkaContext;
 use dashmap::DashMap;
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
@@ -11,7 +10,6 @@ use personhog_proto::personhog::types::v1::{
     Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
     SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
-use rdkafka::producer::FutureProducer;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -21,16 +19,17 @@ use personhog_common::partitioning::partition_for_person;
 use personhog_coordination::authority::AuthorityClock;
 
 use crate::cache::{
-    approx_person_bytes, CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache,
-    PersonCacheKey,
+    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
 };
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
 use crate::fence::{
     fenced_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap, FenceState,
+    MarkVerifier,
 };
+#[cfg(test)]
+use crate::fencing::FencedProducerConfig;
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::{InflightGuard, InflightTracker};
-use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 use crate::pg::{load_person_from_pg, PgFallback};
 use crate::recovery::ChangelogRecovery;
@@ -82,9 +81,7 @@ struct Committer {
     cache: Arc<PartitionedCache>,
     dirty_index: Arc<DirtyIndex>,
     emitted_versions: Arc<EmittedVersions>,
-    producer: FutureProducer<KafkaContext>,
-    changelog_topic: String,
-    fenced: Option<Arc<FencedChangelogProducers>>,
+    fenced: Arc<FencedChangelogProducers>,
 }
 
 /// A committed document, with the locks the handler took for it, so the
@@ -126,13 +123,15 @@ pub struct PersonHogLeaderService {
     /// construction. Absent without one (dev fixtures) — ghost fences
     /// then last until the partition changes hands, as before.
     fence_healer: Option<Arc<FenceHealer>>,
+    /// The committed-release mark check, one query per op per pod. Absent
+    /// without a fallback pool, in which case a release is refused.
+    mark_verifier: Option<MarkVerifier>,
     /// Memory fuse for the fence map (see `fence_map_max_entries` in the
     /// config for the full policy): at this many live fences, FencePerson
     /// sheds new fences with RESOURCE_EXHAUSTED.
     fence_map_max_entries: usize,
-    /// This pod's claim to serve, consulted before answering a strong
-    /// read. Present only when lease-gated reads are enabled.
-    authority: Option<Arc<AuthorityClock>>,
+    /// This pod's claim to serve, consulted before answering a strong read.
+    authority: Arc<AuthorityClock>,
     /// Versions emitted without a confirmed outcome, so a later write for
     /// the same person cannot reuse one.
     emitted_versions: Arc<EmittedVersions>,
@@ -157,9 +156,7 @@ impl PersonHogLeaderService {
     /// actually owns the partition.
     #[allow(clippy::result_large_err)]
     fn check_authority(&self, partition: u32) -> Result<(), Status> {
-        let Some(authority) = &self.authority else {
-            return Ok(());
-        };
+        let authority = &self.authority;
         if authority.is_valid() {
             return Ok(());
         }
@@ -208,8 +205,6 @@ impl PersonHogLeaderService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         cache: Arc<PartitionedCache>,
-        producer: FutureProducer<KafkaContext>,
-        changelog_topic: String,
         fallback: Option<PgFallback>,
         locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
         inflight: Arc<InflightTracker>,
@@ -219,16 +214,14 @@ impl PersonHogLeaderService {
         size_limits: PropertySizeLimits,
         warnings: WarningsProducer,
         fences: FenceMap,
-        fenced: Option<Arc<FencedChangelogProducers>>,
-        authority: Option<Arc<AuthorityClock>>,
+        fenced: Arc<FencedChangelogProducers>,
+        authority: Arc<AuthorityClock>,
         emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
         let committer = Arc::new(Committer {
             cache: Arc::clone(&cache),
             dirty_index: Arc::clone(&dirty_index),
             emitted_versions: Arc::clone(&emitted_versions),
-            producer,
-            changelog_topic,
             fenced,
         });
         Self {
@@ -238,6 +231,7 @@ impl PersonHogLeaderService {
             fence_healer: fallback
                 .as_ref()
                 .map(|f| Arc::new(FenceHealer::new(f.clone(), Arc::clone(&fences)))),
+            mark_verifier: fallback.as_ref().map(MarkVerifier::new),
             fallback,
             inflight,
             num_partitions,
@@ -322,7 +316,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         let Some(mark) = self.dirty_index.get(key) else {
             // "No mark" means PG is current — but only while this pod owns
             // the partition. Handoffs drain writes, not reads, so a read
@@ -361,7 +355,7 @@ impl PersonHogLeaderService {
                 )
                 .increment(1);
                 self.cache.put(partition, key.clone(), person.clone());
-                Ok(Arc::new(person))
+                Ok(person)
             }
             Err(e) => {
                 counter!(
@@ -389,7 +383,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         let Some(fallback) = &self.fallback else {
             // Without the pool a cache miss answers NotFound, which callers
             // read as authoritative death; production always sets it.
@@ -411,7 +405,7 @@ impl PersonHogLeaderService {
                 )
                 .increment(1);
                 self.cache.put(partition, key.clone(), person.clone());
-                Ok(Arc::new(person))
+                Ok(person)
             }
             Ok(None) => {
                 counter!(
@@ -448,7 +442,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         // Fast path: cache hit (no lock needed)
         match self.cache.get(partition, key) {
             CacheLookup::Found(person) => {
@@ -483,7 +477,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         match self.cache.get(partition, key) {
             CacheLookup::Found(person) => {
                 Self::record_cache_hit();
@@ -525,7 +519,7 @@ impl PersonHogLeaderService {
             )));
         }
 
-        let proto = cached_person_to_proto(&person);
+        let proto = cached_person_into_proto(person.clone());
 
         // Re-check before producing, for the same reason the read path
         // re-checks before answering: admission proves nothing about the
@@ -588,166 +582,100 @@ impl Committer {
 
         // Produce to Kafka first, then update the cache on success.
         // Readers only ever see durably committed state.
-        let offset = if let Some(fenced) = &self.fenced {
-            match fenced.produce(partition, &proto).await {
-                Ok(offset) => offset,
-                // The broker fenced this pod: a newer owner holds the
-                // partition, so this claim is stale. FailedPrecondition
-                // is the admission fence's own vocabulary — the router
-                // classifies it as a bounce and re-resolves toward the
-                // real owner.
-                Err(e @ FencedProduceError::Fenced) => {
-                    // Rejected at the broker, so the record does not
-                    // exist and its version is free.
-                    emitted.discarded();
-                    tracing::error!(
-                        team_id = cache_key.team_id,
-                        person_id = cache_key.person_id,
-                        partition,
-                        "changelog producer fenced; rejecting write as stale owner"
-                    );
-                    // Deliberately no local reaction beyond failing the
-                    // write. A broker fence proves *someone* newer
-                    // initialized the transactional id, not that this pod
-                    // lost the partition: a zombie waking inside its
-                    // lease window re-acquires on the way to noticing it
-                    // is dead, which fences the legitimate owner. So the
-                    // fence is given up here as unusable and nothing
-                    // more; `heal_fence`, on the next convergence to
-                    // Serving, re-takes the epoch once the authority
-                    // stamp confirms this pod's standing. Reads stay
-                    // served meanwhile under the same stamp — the
-                    // `check_authority` calls at admission and before
-                    // answering are what refuse them once the claim
-                    // lapses.
-                    return Err(Status::failed_precondition(format!(
-                        "partition ownership fenced: {e}"
-                    )));
-                }
-                // This pod holds no producer for the partition — an
-                // ownership statement, in the same vocabulary the
-                // admission fence uses, so the router bounces and
-                // re-resolves instead of surfacing a hard error.
-                // The partition moved *and* this window's outcome was
-                // never settled. The router still needs the ownership
-                // answer, but the version cannot be handed back: the
-                // commit may have succeeded on an attempt librdkafka
-                // re-issued internally.
-                Err(e @ FencedProduceError::FencedUncertain(_)) => {
-                    // Deliberately not settled: the partition moved and
-                    // the window's own outcome never came back, so the
-                    // record may or may not be in the log. Keeping the
-                    // version spent is the whole of what safety needs.
-                    counter!(
-                        "personhog_leader_indeterminate_outcomes_total",
-                        "fenced" => "true"
-                    )
-                    .increment(1);
-                    tracing::error!(
-                        team_id = cache_key.team_id,
-                        person_id = cache_key.person_id,
-                        partition,
-                        error = %e,
-                        "changelog producer fenced with an unknown outcome; version kept spent"
-                    );
-                    return Err(Status::failed_precondition(format!(
-                        "partition ownership fenced: {e}"
-                    )));
-                }
-                Err(e @ FencedProduceError::NotAcquired) => {
-                    emitted.discarded();
-                    tracing::warn!(
-                        team_id = cache_key.team_id,
-                        person_id = cache_key.person_id,
-                        partition,
-                        "no changelog fence held for partition; rejecting write"
-                    );
-                    return Err(Status::failed_precondition(format!(
-                        "partition fence not held: {e}"
-                    )));
-                }
-                // The commit's outcome is unknown, so this pod cannot
-                // say whether the record became visible. A caller
-                // retrying against a cache still holding the pre-write
-                // version would produce a second record at the same
-                // version as the one that may already have committed,
-                // and the writer's strict guard keeps whichever arrived
-                // first — which the floor prevents by holding the
-                // version spent.
-                Err(e @ FencedProduceError::Indeterminate(_)) => {
-                    // Deliberately not settled: whether the record exists
-                    // is exactly what is unknown, so the version stays
-                    // spent and the retry derives past it.
-                    counter!(
-                        "personhog_leader_indeterminate_outcomes_total",
-                        "fenced" => "false"
-                    )
-                    .increment(1);
-                    tracing::error!(
-                        team_id = cache_key.team_id,
-                        person_id = cache_key.person_id,
-                        partition,
-                        error = %e,
-                        "changelog commit outcome unknown; version kept spent"
-                    );
-                    return Err(Status::unknown(format!(
-                        "person state may or may not have been stored: {e}"
-                    )));
-                }
-                // The window aborted, so no record became visible: the
-                // write is safe to retry, and ABORTED is the code the
-                // clients actually retry on.
-                Err(e) => {
-                    // The window aborted, so no record became visible and
-                    // the version can be derived again.
-                    emitted.discarded();
-                    tracing::error!(
-                        team_id = cache_key.team_id,
-                        person_id = cache_key.person_id,
-                        error = %e,
-                        "failed to produce person state changelog (fenced path)"
-                    );
-                    return Err(Status::aborted(format!(
-                        "failed to durably store person state: {e}"
-                    )));
-                }
+        let offset = match self.fenced.produce(partition, &proto).await {
+            Ok(offset) => offset,
+            // The broker fenced this pod: a newer owner holds the
+            // partition, so this claim is stale. FailedPrecondition
+            // is the admission fence's own vocabulary — the router
+            // classifies it as a bounce and re-resolves toward the
+            // real owner.
+            Err(e @ FencedProduceError::Fenced) => {
+                // Rejected at the broker, so the record does not
+                // exist and its version is free.
+                emitted.discarded();
+                tracing::error!(
+                    team_id = cache_key.team_id,
+                    person_id = cache_key.person_id,
+                    partition,
+                    "changelog producer fenced; rejecting write as stale owner"
+                );
+                // No local reaction beyond failing the write: a fence
+                // proves someone newer took the id, not that this pod
+                // lost the partition. `heal_fence` re-takes the epoch
+                // on the next convergence, once the stamp allows it.
+                return Err(Status::failed_precondition(format!(
+                    "partition ownership fenced: {e}"
+                )));
             }
-        } else {
-            match produce_person_changelog(&self.producer, &self.changelog_topic, partition, &proto)
-                .await
-            {
-                Ok(offset) => offset,
-                Err(e) => {
-                    // Deliberately not settled. This path collapses an
-                    // enqueue that never left the client with a delivery
-                    // that timed out after the broker may already have
-                    // appended it, and idempotence is off by default, so
-                    // the record's fate is genuinely unknown. Freeing the
-                    // version here let a retry derive the same number and
-                    // put a second record behind one that may be in the
-                    // log — the writer's strict guard then keeps whichever
-                    // arrived first and discards the acked one.
-                    //
-                    // The floor alone carries that: the next write
-                    // derives past it whether or not the cache still
-                    // holds the pre-write state. The entry stays, so
-                    // reads may answer with a version older than the
-                    // changelog until a later write for this person
-                    // settles one. Evicting instead would resolve
-                    // nothing — recovery reads the last *marked* offset,
-                    // which is the previous write that did succeed — and
-                    // would answer NOT_FOUND outright once that mark is
-                    // pruned and no fallback pool is configured.
-                    tracing::error!(
-                        team_id = cache_key.team_id,
-                        person_id = cache_key.person_id,
-                        error = %e,
-                        "failed to produce person state changelog"
-                    );
-                    return Err(Status::internal(format!(
-                        "failed to durably store person state: {e}"
-                    )));
-                }
+            // The partition moved and this window's outcome never
+            // came back, so the router gets its ownership answer but
+            // the version cannot be handed back.
+            Err(e @ FencedProduceError::FencedUncertain(_)) => {
+                // The record may or may not be in the log, so the
+                // version stays spent.
+                counter!(
+                    "personhog_leader_indeterminate_outcomes_total",
+                    "fenced" => "true"
+                )
+                .increment(1);
+                tracing::error!(
+                    team_id = cache_key.team_id,
+                    person_id = cache_key.person_id,
+                    partition,
+                    error = %e,
+                    "changelog producer fenced with an unknown outcome; version kept spent"
+                );
+                return Err(Status::failed_precondition(format!(
+                    "partition ownership fenced: {e}"
+                )));
+            }
+            Err(e @ FencedProduceError::NotAcquired) => {
+                emitted.discarded();
+                tracing::warn!(
+                    team_id = cache_key.team_id,
+                    person_id = cache_key.person_id,
+                    partition,
+                    "no changelog fence held for partition; rejecting write"
+                );
+                return Err(Status::failed_precondition(format!(
+                    "partition fence not held: {e}"
+                )));
+            }
+            // Whether the record became visible is unknown, so the
+            // version stays spent: a retry reusing it would race a
+            // record that may already have committed.
+            Err(e @ FencedProduceError::Indeterminate(_)) => {
+                // The retry derives past the spent version.
+                counter!(
+                    "personhog_leader_indeterminate_outcomes_total",
+                    "fenced" => "false"
+                )
+                .increment(1);
+                tracing::error!(
+                    team_id = cache_key.team_id,
+                    person_id = cache_key.person_id,
+                    partition,
+                    error = %e,
+                    "changelog commit outcome unknown; version kept spent"
+                );
+                return Err(Status::unknown(format!(
+                    "person state may or may not have been stored: {e}"
+                )));
+            }
+            // The window aborted, so nothing became visible and
+            // ABORTED is the code clients retry on.
+            Err(e) => {
+                // Nothing became visible, so the version is free.
+                emitted.discarded();
+                tracing::error!(
+                    team_id = cache_key.team_id,
+                    person_id = cache_key.person_id,
+                    error = %e,
+                    "failed to produce person state changelog"
+                );
+                return Err(Status::aborted(format!(
+                    "failed to durably store person state: {e}"
+                )));
             }
         };
 
@@ -805,7 +733,7 @@ const MS_PER_HOUR: i64 = 3_600_000;
 /// uuid must parse, team_id must fit the column's `integer`, and the
 /// timestamps must sit inside a sanity range ([1970, 9999]) any
 /// legitimate value satisfies. The legacy jsonb columns have no cache
-/// field and are unconditionally empty in `cached_person_to_proto`, so a
+/// field and are unconditionally empty in `cached_person_into_proto`, so a
 /// record structurally cannot carry values the writer would refuse there.
 fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     if Uuid::parse_str(&p.uuid).is_err() {
@@ -831,13 +759,12 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     Ok(())
 }
 
-fn cached_person_to_proto(p: &CachedPerson) -> Person {
-    let properties_bytes = p.properties.clone();
+fn cached_person_into_proto(p: CachedPerson) -> Person {
     Person {
         id: p.id,
-        uuid: p.uuid.clone(),
+        uuid: p.uuid,
         team_id: p.team_id,
-        properties: properties_bytes,
+        properties: p.properties,
         properties_last_updated_at: Vec::new(),
         properties_last_operation: Vec::new(),
         created_at: p.created_at,
@@ -990,7 +917,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
 
         Ok(Response::new(GetPersonResponse {
-            person: Some(cached_person_to_proto(&person)),
+            person: Some(cached_person_into_proto(person)),
         }))
     }
 
@@ -1186,7 +1113,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !updates.has_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1196,7 +1123,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !updates.has_non_filtered_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "filtered_only").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1209,7 +1136,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !actually_updated && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1314,7 +1241,6 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let properties_bytes = serde_json::to_vec(&new_properties)
             .map_err(|e| Status::internal(format!("serialize updated properties: {e}")))?;
-        let approx_bytes = approx_person_bytes(properties_bytes.len());
         // A version this pod already put on the wire is spent even when
         // it never learned the outcome, so the next one has to clear that
         // floor as well as the state it derived from. Reusing it produces
@@ -1333,7 +1259,6 @@ impl PersonHogLeader for PersonHogLeaderService {
             is_identified: identified_now,
             is_deleted: false,
             last_seen_at: merged_last_seen,
-            approx_bytes,
         };
 
         let committed = self
@@ -1609,7 +1534,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                         return self.authoritative_ok(
                             partition,
                             FoldPersonDocumentResponse {
-                                person: Some(cached_person_to_proto(&person)),
+                                person: Some(cached_person_into_proto(person)),
                             },
                         );
                     }
@@ -1661,7 +1586,6 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let folded_bytes = serde_json::to_vec(&folded)
             .map_err(|e| Status::internal(format!("serialize folded properties: {e}")))?;
-        let approx_bytes = approx_person_bytes(folded_bytes.len());
         let folded_person = CachedPerson {
             id: person.id,
             uuid: person.uuid.clone(),
@@ -1672,7 +1596,6 @@ impl PersonHogLeader for PersonHogLeaderService {
             is_identified: true,
             is_deleted: false,
             last_seen_at,
-            approx_bytes,
         };
 
         let committed = self
@@ -1868,14 +1791,14 @@ mod tests {
         let liveness = HealthRegistry::new("test")
             .register("kafka".to_string(), Duration::from_secs(60))
             .await;
-        let producer: rdkafka::producer::FutureProducer<KafkaContext> = ClientConfig::new()
+        let producer: rdkafka::producer::FutureProducer<
+            common_kafka::kafka_producer::KafkaContext,
+        > = ClientConfig::new()
             .set("bootstrap.servers", "127.0.0.1:1")
-            .create_with_context(KafkaContext::from(liveness))
+            .create_with_context(common_kafka::kafka_producer::KafkaContext::from(liveness))
             .unwrap();
         PersonHogLeaderService::new(
             Arc::new(PartitionedCache::new(16)),
-            producer.clone(),
-            "personhog_updates".to_string(),
             None,
             Arc::new(DashMap::new()),
             Arc::new(InflightTracker::new()),
@@ -1894,10 +1817,29 @@ mod tests {
             PropertySizeLimits::new(655360, 524288),
             WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
             Arc::new(DashMap::new()),
-            None,
-            None,
+            // Lazily built: nothing here connects until a write acquires
+            // a partition, which these tests never do.
+            Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
+                kafka: KafkaConfig::init_from_hashmap(&HashMap::new()).unwrap(),
+                topic: "personhog_updates".to_string(),
+                init_timeout: Duration::from_secs(1),
+                commit_timeout: Duration::from_secs(1),
+                broker_txn_timeout: Duration::from_secs(10),
+                window: Duration::from_millis(5),
+                window_max_writes: 32,
+                settle_budget: Duration::from_secs(1),
+                lanes: 1,
+            })),
+            test_authority(),
             Arc::new(EmittedVersions::new(1_000_000)),
         )
+    }
+
+    /// A claim that stays valid for the whole of any test.
+    fn test_authority() -> Arc<AuthorityClock> {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(3600), Instant::now());
+        clock
     }
 
     /// The guarantee the clock exists for: a pod whose renewals have
@@ -1915,7 +1857,7 @@ mod tests {
             margin + Duration::from_secs(1),
         ));
         let service = PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         };
 
@@ -1937,7 +1879,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         };
 
@@ -1965,7 +1907,7 @@ mod tests {
             margin + Duration::from_secs(1),
         ));
         let service = PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         };
         // The fixture's single partition makes 0 the only routing answer.
@@ -1984,7 +1926,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2024,7 +1965,7 @@ mod tests {
             margin + Duration::from_secs(1),
         ));
         let service = PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         };
         let (team_id, person_id) = (7, 42);
@@ -2042,7 +1983,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2083,7 +2023,7 @@ mod tests {
             margin + Duration::from_secs(1),
         ));
         let service = PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         };
         let (team_id, person_id) = (7, 42);
@@ -2124,7 +2064,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = Arc::new(PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         });
         let (team_id, person_id) = (7, 42);
@@ -2145,7 +2085,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2196,7 +2135,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = Arc::new(PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         });
         let (team_id, person_id) = (7, 42);
@@ -2208,6 +2147,7 @@ mod tests {
             FenceState {
                 op_id,
                 op_type: LifecycleOpType::Delete,
+                sealed_at: None,
             },
         );
 
@@ -2255,7 +2195,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = Arc::new(PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         });
         let (team_id, person_id) = (7, 42);
@@ -2267,6 +2207,7 @@ mod tests {
             FenceState {
                 op_id,
                 op_type: LifecycleOpType::Delete,
+                sealed_at: None,
             },
         );
 
@@ -2316,7 +2257,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = Arc::new(PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         });
         let (team_id, person_id) = (7, 42);
@@ -2372,7 +2313,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = Arc::new(PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         });
         let (team_id, person_id) = (7, 42);
@@ -2391,7 +2332,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2442,7 +2382,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = Arc::new(PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         });
         let (team_id, person_id) = (7, 42);
@@ -2463,7 +2403,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: true,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2540,7 +2479,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2586,7 +2524,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         };
         let (team_id, person_id) = (7, 42);
@@ -2604,7 +2542,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2659,7 +2596,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = Arc::new(PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         });
         let (team_id, person_id) = (7, 42);
@@ -2707,7 +2644,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
         drop(held);
@@ -2734,7 +2670,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = Arc::new(PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         });
         let (team_id, person_id) = (7, 42);
@@ -2753,7 +2689,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2817,7 +2752,7 @@ mod tests {
         let clock = Arc::new(AuthorityClock::unclaimed());
         clock.begin_session(Duration::from_secs(30), Instant::now());
         let service = Arc::new(PersonHogLeaderService {
-            authority: Some(Arc::clone(&clock)),
+            authority: Arc::clone(&clock),
             ..make_test_service().await
         });
         let (team_id, person_id) = (7, 42);
@@ -2873,15 +2808,6 @@ mod tests {
         .expect("the write must be refused at admission, not behind the load")
         .expect_err("a lapsed claim must not be admitted");
         assert_eq!(err.code(), Code::FailedPrecondition);
-    }
-
-    /// With the gate off the pod serves exactly as before, so the flag
-    /// is a real off switch rather than a partial one.
-    #[tokio::test]
-    async fn an_ungated_service_serves_regardless_of_renewals() {
-        let service = make_test_service().await;
-        assert!(service.authority.is_none());
-        service.check_authority(0).expect("no gate, no refusal");
     }
 
     #[test]

@@ -10,6 +10,7 @@ import type {
   SourceProduct,
   SourceType,
   StoredLogEntry,
+  TaskClientProvenance,
   TaskRunArtifactMetadata,
 } from "@posthog/shared";
 import {
@@ -41,6 +42,9 @@ import type {
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
   ProvisionedTaskChannels,
+  RankingHead,
+  RankingModelResult,
+  RankingScoreArtefact,
   RepoSelectionArtefact,
   SafetyJudgmentArtefact,
   SandboxCustomImage,
@@ -61,6 +65,8 @@ import type {
   SignalUserAutonomyConfig,
   SlackChannelsQueryParams,
   SlackChannelsResponse,
+  SpaceSetupInput,
+  SpaceSetupStarted,
   SuggestedReviewersArtefact,
   SuggestedReviewerWriteEntry,
   Task,
@@ -75,8 +81,14 @@ import type {
   TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
+  WorkClaimArtefact,
+  WorkReleaseArtefact,
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import {
+  spaceSetupInputSchema,
+  spaceSetupStartedSchema,
+} from "@posthog/shared/schemas";
 import {
   activitySection,
   compactCount,
@@ -172,9 +184,16 @@ export function setPosthogApiClientLogger(logger: ApiClientLogger): void {
 // Host build version, set by the host at boot (default "unknown"); avoids a
 // build-time global so the package typechecks standalone and across importers.
 let clientAppVersion = "unknown";
+let taskClientProvenance: TaskClientProvenance = "posthog_desktop";
 
 export function setPosthogApiClientAppVersion(version: string): void {
   clientAppVersion = version;
+}
+
+export function setPosthogApiClientTaskClientProvenance(
+  provenance: TaskClientProvenance,
+): void {
+  taskClientProvenance = provenance;
 }
 
 export interface PostHogAPIClientOptions {
@@ -182,6 +201,7 @@ export interface PostHogAPIClientOptions {
   appVersion?: string;
   userAgent?: string | null;
   githubConnectFrom?: string;
+  taskClientProvenance?: TaskClientProvenance;
 }
 
 export function getPosthogApiClientAppVersion(): string {
@@ -220,6 +240,8 @@ export const DESKTOP_BILLING_LIMIT_ERROR_CODE =
 
 export const SESSION_LOGS_MAX_PAGE_SIZE = 5000;
 export const SESSION_LOGS_PAGE_TIMEOUT_MS = 30_000;
+// The task list endpoint caps a page at this many rows (TasksPagination.max_limit).
+export const TASK_LIST_MAX_PAGE_SIZE = 100;
 
 export interface TaskRunSessionLogsResult {
   entries: StoredLogEntry[];
@@ -319,6 +341,11 @@ export interface TaskListOptions {
   ciStatus?: string;
   /** List only tasks the requesting user has pinned. */
   pinned?: boolean;
+  /**
+   * List only tasks from any of these sources, in the desktop source filter's words. Filtering on
+   * the server keeps sources the user hid, such as scheduled runs, from filling the page.
+   */
+  sources?: readonly string[];
   /** Filter to tasks with a thread comment from this user ID. */
   commentedBy?: number;
   /** Filter to tasks whose thread mentions this user ID. */
@@ -392,10 +419,17 @@ export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
   reasoning_effort: null,
 };
 
+/** The signed-in user's defaults for new tasks. Null means never set. */
+export interface TaskDefaults {
+  start_in_plan_mode: boolean | null;
+  auto_publish_cloud_runs: boolean | null;
+}
+
 /** What the signed-in user has stored for this project, and what it resolves to. */
 export interface MyTaskRunConfig {
   preferences: TaskRunPreferences;
   resolved: TaskRunDefaults;
+  taskDefaults: TaskDefaults;
 }
 
 export interface TaskSessionStorageAccess {
@@ -409,7 +443,8 @@ export interface TaskSessionStorageAccess {
  * free-form column on the backend `Comment` model, so adding a resource is a
  * new member here plus a caller — no migration and no endpoint.
  */
-export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
+export const COMMENT_SCOPES = ["task_artifact", "canvas", "task"] as const;
+export type CommentScope = (typeof COMMENT_SCOPES)[number];
 
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a
@@ -469,6 +504,26 @@ export type {
 export type Evaluation = Schemas.Evaluation;
 
 export type GithubInstallationStatus = "connected" | "unavailable";
+
+export type CodexIntegrationStatus =
+  | "not_connected"
+  | "connected"
+  | "reauth_required";
+
+/** `GET /api/users/@me/integrations/codex/`: the ChatGPT account PostHog holds for the user's cloud Codex runs. */
+export interface UserCodexIntegration {
+  status: CodexIntegrationStatus;
+  plan_type: string | null;
+  email: string | null;
+  connected_at: string | null;
+}
+
+/** The `tokens` object of the `auth.json` that `codex login` writes. */
+export interface CodexAuthTokens {
+  access_token: string;
+  refresh_token: string;
+  id_token?: string | null;
+}
 
 export interface UserGitHubIntegration {
   id: string;
@@ -720,7 +775,6 @@ export interface ScoutEmission {
   finding_id: string;
   description: string;
   weight: number;
-  confidence: number;
   severity: string | null;
   /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). */
   tags?: string[];
@@ -1101,6 +1155,7 @@ export interface CloudRunOptions {
   /** Only false is sent: opts the run out of rtk command-output compression. */
   rtkEnabled?: boolean;
   claudeModelAccess?: ModelAccess;
+  codexModelAccess?: ModelAccess;
   runSource?: CloudRunSource;
   signalReportId?: string;
   initialPermissionMode?: ExecutionMode;
@@ -1113,6 +1168,7 @@ export interface CloudRunOptions {
 }
 
 export type CloudRunCommandMethod =
+  | "pi/rpc"
   | "user_message"
   | "permission_response"
   | "set_config_option"
@@ -1254,6 +1310,9 @@ function buildCloudRunRequestBody(
   if (!options?.piRuntime && options?.claudeModelAccess) {
     body.claude_model_access = options.claudeModelAccess;
   }
+  if (!options?.piRuntime && options?.codexModelAccess) {
+    body.codex_model_access = options.codexModelAccess;
+  }
   if (options?.runSource) {
     body.run_source = options.runSource;
   }
@@ -1330,7 +1389,10 @@ type AnyArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | WorkClaimArtefact
+  | WorkReleaseArtefact
+  | RankingScoreArtefact;
 
 // Reasons valid on a dismissal artefact. Resolve reasons are included because the
 // backend stores resolve feedback on the same artefact type (a resolve writes a
@@ -1672,6 +1734,134 @@ function normalizeNoteArtefact(
   };
 }
 
+function normalizeWorkClaimArtefact(
+  value: Record<string, unknown>,
+): WorkClaimArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  return {
+    id,
+    type: "work_claim",
+    ...artefactBase(value),
+    content: { display_name: optionalString(value.content.display_name) },
+  };
+}
+
+function normalizeWorkReleaseArtefact(
+  value: Record<string, unknown>,
+): WorkReleaseArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  const reason = value.content.reason;
+  if (reason !== "released" && reason !== "taken_over") return null;
+  return {
+    id,
+    type: "work_release",
+    ...artefactBase(value),
+    content: { reason },
+  };
+}
+
+/** Reads the stored lift first. Otherwise mirrors `head_lifts` in `ranking/model_contract.py`. */
+function rankingHeadLift(
+  stored: unknown,
+  probability: number,
+  threshold: number | undefined,
+): number | null {
+  if (typeof stored === "number" && Number.isFinite(stored)) return stored;
+  return threshold !== undefined && threshold > 0
+    ? probability / threshold
+    : null;
+}
+
+function compareRankingHeads(a: RankingHead, b: RankingHead): number {
+  if (a.lift !== null && b.lift !== null) return b.lift - a.lift;
+  if (a.lift !== null || b.lift !== null) return a.lift === null ? 1 : -1;
+  return b.probability - a.probability;
+}
+
+function normalizeRankingModelResult(
+  key: string,
+  value: unknown,
+): RankingModelResult | null {
+  if (!isObjectRecord(value)) return null;
+  const status = value.status;
+  if (status !== "scored" && status !== "skipped") return null;
+  // Mirrors `readable_head_names` in `ranking/model_contract.py`.
+  const metadataHeads =
+    isObjectRecord(value.metadata) && Array.isArray(value.metadata.heads)
+      ? value.metadata.heads
+      : [];
+  const readable = new Set(
+    metadataHeads
+      .filter((entry) => isObjectRecord(entry) && entry.readable === true)
+      .map((entry) => String((entry as Record<string, unknown>).head)),
+  );
+  // Mirrors `classification_thresholds` in `ranking/model_contract.py`.
+  const thresholds = new Map<string, number>();
+  for (const entry of metadataHeads) {
+    if (
+      isObjectRecord(entry) &&
+      typeof entry.refit_classification_threshold === "number"
+    ) {
+      thresholds.set(String(entry.head), entry.refit_classification_threshold);
+    }
+  }
+  const lifts = isObjectRecord(value.lifts) ? value.lifts : {};
+  const scores = isObjectRecord(value.scores) ? value.scores : {};
+  const heads = Object.entries(scores)
+    .filter(
+      (entry): entry is [string, number] =>
+        typeof entry[1] === "number" && Number.isFinite(entry[1]),
+    )
+    .map(([name, probability]) => ({
+      name,
+      probability,
+      lift: rankingHeadLift(lifts[name], probability, thresholds.get(name)),
+      readable: readable.has(name),
+    }))
+    .sort(compareRankingHeads);
+  return {
+    key,
+    roles: Array.isArray(value.roles)
+      ? value.roles.filter((role): role is string => typeof role === "string")
+      : [],
+    status,
+    skip_reason: optionalString(value.skip_reason),
+    heads,
+  };
+}
+
+/** Null when the content does not parse or `served_key` is missing from `results`. */
+function normalizeRankingScoreArtefact(
+  value: Record<string, unknown>,
+): RankingScoreArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  const c = value.content;
+  const servedKey = optionalString(c.served_key);
+  if (!servedKey || !isObjectRecord(c.results)) return null;
+  const models = Object.entries(c.results).map(([key, result]) =>
+    normalizeRankingModelResult(key, result),
+  );
+  const served = models.find((model) => model?.key === servedKey);
+  if (!served) return null;
+  return {
+    id,
+    type: "ranking_score",
+    ...artefactBase(value),
+    content: {
+      scored_at: optionalString(c.scored_at),
+      manifest_version: optionalString(c.manifest_version),
+      served,
+      challengers: models.filter(
+        (model): model is RankingModelResult =>
+          !!model && model.key !== servedKey,
+      ),
+    },
+  };
+}
+
 /** Best human-readable one-liner from arbitrary artefact content. */
 function contentPreview(content: unknown): string {
   if (typeof content === "string") return content;
@@ -1771,6 +1961,21 @@ function normalizeSignalReportArtefact(value: unknown): AnyArtefact | null {
   }
   if (dispatchType === "note") {
     return normalizeNoteArtefact(value) ?? normalizeFallbackArtefact(value);
+  }
+  if (dispatchType === "work_claim") {
+    return (
+      normalizeWorkClaimArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
+  if (dispatchType === "work_release") {
+    return (
+      normalizeWorkReleaseArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
+  if (dispatchType === "ranking_score") {
+    return (
+      normalizeRankingScoreArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
   }
 
   const id = optionalString(value.id);
@@ -1902,6 +2107,7 @@ export class PostHogAPIClient {
   private _teamId: number | null = null;
   private githubConnectFrom: string;
   private readonly apiHost: string;
+  private readonly taskClientProvenance: TaskClientProvenance;
 
   constructor(
     apiHost: string,
@@ -1913,6 +2119,8 @@ export class PostHogAPIClient {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
     this.apiHost = baseUrl;
     this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
+    this.taskClientProvenance =
+      options.taskClientProvenance ?? taskClientProvenance;
     this.api = createApiClient(
       buildApiFetcher({
         getAccessToken,
@@ -2105,6 +2313,65 @@ export class PostHogAPIClient {
     if (!response.ok && response.status !== 404) {
       throw new Error(
         `Failed to disconnect GitHub integration: ${response.statusText}`,
+      );
+    }
+  }
+
+  async getCodexUserIntegration(): Promise<UserCodexIntegration> {
+    const urlPath = `/api/users/@me/integrations/codex/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch the ChatGPT account: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as UserCodexIntegration;
+  }
+
+  /**
+   * `POST /api/users/@me/integrations/codex/`. PostHog refreshes the chain once and keeps
+   * the rotated tokens, so the local `auth.json` is stale after this call.
+   */
+  async connectCodexUserIntegration(
+    tokens: CodexAuthTokens,
+  ): Promise<UserCodexIntegration> {
+    const urlPath = `/api/users/@me/integrations/codex/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify({ tokens }) },
+    });
+    if (!response.ok) {
+      const err = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new Error(
+        typeof err.detail === "string"
+          ? err.detail
+          : `Failed to connect the ChatGPT account: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as UserCodexIntegration;
+  }
+
+  async disconnectCodexUserIntegration(): Promise<void> {
+    const urlPath = `/api/users/@me/integrations/codex/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(
+        `Failed to disconnect the ChatGPT account: ${response.statusText}`,
       );
     }
   }
@@ -2350,6 +2617,42 @@ export class PostHogAPIClient {
     ).preferences;
   }
 
+  /** The signed-in user's personal instructions for cloud runs in this project. Empty when unset. */
+  async getMyAgentInstructions(projectId: number): Promise<string> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Agent instructions request failed: ${response.status}`);
+    }
+    const payload = (await response.json()) as {
+      agent_instructions?: string | null;
+    };
+    return payload.agent_instructions ?? "";
+  }
+
+  /** Replace the signed-in user's personal instructions for cloud runs in this project. */
+  async setMyAgentInstructions(
+    projectId: number,
+    instructions: string,
+  ): Promise<void> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/agent_instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ agent_instructions: instructions }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Agent instructions update failed: ${response.status}`);
+    }
+  }
+
   private async taskRunConfigRequest(
     method: "get" | "post",
     urlPath: string,
@@ -2367,6 +2670,7 @@ export class PostHogAPIClient {
     const payload = (await response.json()) as {
       ai_run_preferences?: Partial<TaskRunPreferences> | null;
       resolved_ai_run_defaults?: TaskRunDefaults | null;
+      task_defaults?: Partial<TaskDefaults> | null;
     };
     return {
       // The API stores a cleared preference as `{}`, so read each field rather than
@@ -2378,7 +2682,29 @@ export class PostHogAPIClient {
         reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
       },
       resolved: payload.resolved_ai_run_defaults ?? NO_TASK_RUN_DEFAULTS,
+      taskDefaults: {
+        start_in_plan_mode: payload.task_defaults?.start_in_plan_mode ?? null,
+        auto_publish_cloud_runs:
+          payload.task_defaults?.auto_publish_cloud_runs ?? null,
+      },
     };
+  }
+
+  /** Save some of the signed-in user's task defaults. Fields left out keep their value. */
+  async setMyTaskDefaults(
+    projectId: number,
+    changes: Partial<Record<keyof TaskDefaults, boolean>>,
+  ): Promise<void> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/task_defaults/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(changes) },
+    });
+    if (!response.ok) {
+      throw new Error(`Task defaults update failed: ${response.status}`);
+    }
   }
 
   async listSignalSourceConfigs(
@@ -2915,10 +3241,9 @@ export class PostHogAPIClient {
       "/api/projects/{project_id}/external_data_sources/{id}/bulk_update_schemas/",
       {
         path: { project_id: projectId.toString(), id: sourceId },
-        query: {},
         body: {
           schemas,
-        } as unknown as Schemas.PatchedExternalDataSourceBulkUpdateSchemas,
+        } as unknown as Schemas.ExternalDataSourceBulkUpdateSchemas,
         withResponse: true,
         throwOnStatusError: false,
       },
@@ -2945,7 +3270,10 @@ export class PostHogAPIClient {
     const maxPages = pagination?.fetchAll
       ? Number.POSITIVE_INFINITY
       : (pagination?.maxPages ?? 1);
-    const pageSize = Math.min(options?.limit ?? 100, 100);
+    const pageSize = Math.min(
+      options?.limit ?? TASK_LIST_MAX_PAGE_SIZE,
+      TASK_LIST_MAX_PAGE_SIZE,
+    );
     const tasks: Task[] = [];
     let count = 0;
 
@@ -2985,7 +3313,7 @@ export class PostHogAPIClient {
     options?: TaskListOptions,
   ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
-    const params: Record<string, string | number | boolean> = {
+    const params: Record<string, string | number | boolean | string[]> = {
       limit: options?.limit ?? 500,
     };
 
@@ -3033,6 +3361,10 @@ export class PostHogAPIClient {
       params.pinned = true;
     }
 
+    if (options?.sources?.length) {
+      params.sources = [...options.sources];
+    }
+
     if (options?.commentedBy) {
       params.commented_by = options.commentedBy;
     }
@@ -3070,7 +3402,6 @@ export class PostHogAPIClient {
     // the largest page, then pull any remaining pages in parallel by offset. The
     // old code walked `next` one blocking request at a time, so a large sidebar
     // turned into a chain of serial round-trips on every inbox open.
-    const PAGE_LIMIT = 100;
     const MAX_PAGES = 50;
     const teamId = await this.getTeamId();
     const basePath = `/api/projects/${teamId}/tasks/summaries/`;
@@ -3078,7 +3409,7 @@ export class PostHogAPIClient {
     const fetchPage = async (
       offset: number,
     ): Promise<TaskSummariesResponse> => {
-      const urlPath = `${basePath}?limit=${PAGE_LIMIT}&offset=${offset}`;
+      const urlPath = `${basePath}?limit=${TASK_LIST_MAX_PAGE_SIZE}&offset=${offset}`;
       const response = await this.api.fetcher.fetch({
         method: "post",
         url: new URL(`${this.api.baseUrl}${urlPath}`),
@@ -3097,15 +3428,19 @@ export class PostHogAPIClient {
 
     const first = await fetchPage(0);
     const all: TaskSummaryDTO[] = [...first.results];
-    const capped = Math.min(first.count, PAGE_LIMIT * MAX_PAGES);
-    if (first.count > PAGE_LIMIT * MAX_PAGES) {
+    const capped = Math.min(first.count, TASK_LIST_MAX_PAGE_SIZE * MAX_PAGES);
+    if (first.count > TASK_LIST_MAX_PAGE_SIZE * MAX_PAGES) {
       log.warn(
         `getTaskSummaries capped at ${MAX_PAGES} pages; returning partial results`,
         { ids: ids.length, count: first.count },
       );
     }
     const offsets: number[] = [];
-    for (let offset = PAGE_LIMIT; offset < capped; offset += PAGE_LIMIT) {
+    for (
+      let offset = TASK_LIST_MAX_PAGE_SIZE;
+      offset < capped;
+      offset += TASK_LIST_MAX_PAGE_SIZE
+    ) {
       offsets.push(offset);
     }
     // Cap how many page POSTs are in flight at once. A large sidebar can span
@@ -3126,6 +3461,14 @@ export class PostHogAPIClient {
       path: { project_id: teamId.toString(), id: taskId },
     });
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  async getTaskReview(taskId: string, page = 1): Promise<Schemas.TaskReview> {
+    const teamId = await this.getTeamId();
+    return this.api.get("/api/projects/{project_id}/tasks/{id}/review/", {
+      path: { project_id: teamId.toString(), id: taskId },
+      query: { page },
+    });
   }
 
   async getTaskUsage(taskId: string): Promise<TaskUsage> {
@@ -3216,6 +3559,7 @@ export class PostHogAPIClient {
         channel?: string | null;
         pending_user_message?: string;
         pending_user_artifact_ids?: string[];
+        initial_permission_mode?: ExecutionMode;
         auto_publish?: boolean;
         naming_source?: string;
       },
@@ -3225,6 +3569,9 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
+        header: {
+          "X-PostHog-Client-Provenance": this.taskClientProvenance,
+        },
         path: { project_id: teamId.toString() },
         body: {
           ...taskOptions,
@@ -3234,6 +3581,25 @@ export class PostHogAPIClient {
     );
 
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  async createSignalReportTask(options: {
+    reportId: string;
+    relationship: "implementation" | "discussion";
+    description: string;
+    title?: string;
+    question?: string;
+  }): Promise<Task> {
+    return this.createTask({
+      description: options.description,
+      title: options.title,
+      origin_product: "signal_report",
+      signal_report: options.reportId,
+      signal_report_task_relationship: options.relationship,
+      ...(options.relationship === "discussion"
+        ? { signal_report_discussion_question: options.question?.trim() ?? "" }
+        : {}),
+    });
   }
 
   async updateTask(
@@ -3760,7 +4126,7 @@ export class PostHogAPIClient {
   async putContextWikiPage(input: {
     path: string;
     content: string;
-    baseHead: string;
+    baseHead?: string;
   }): Promise<{ head_sha: string }> {
     const urlPath = `/api/organizations/@current/context_layer/pages/`;
     try {
@@ -3772,7 +4138,7 @@ export class PostHogAPIClient {
           body: JSON.stringify({
             path: input.path,
             content: input.content,
-            base_head: input.baseHead,
+            ...(input.baseHead ? { base_head: input.baseHead } : {}),
           }),
         },
       });
@@ -3834,6 +4200,34 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch channel feed: ${response.statusText}`);
     }
     return (await response.json()) as ChannelFeedMessage[];
+  }
+
+  // Start the task that sets a space up for a goal or a feature. The server builds
+  // the prompt and files the task into the channel.
+  async setupTaskChannel(
+    channelId: string,
+    input: SpaceSetupInput,
+  ): Promise<SpaceSetupStarted> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/setup/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(spaceSetupInputSchema.parse(input)),
+        },
+      });
+      return spaceSetupStartedSchema.parse(await response.json());
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(
+          error,
+          "Could not start space setup. Try again.",
+        ),
+      );
+    }
   }
 
   // Post a system announcement into a channel's feed. The row is authored by the
@@ -4175,6 +4569,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/{id}/run/`, {
+        header: {},
         path: { project_id: teamId.toString(), id: taskId },
         body,
       }),
@@ -4191,6 +4586,7 @@ export class PostHogAPIClient {
     runtime_adapter?: string | null;
     model?: string | null;
     reasoning_effort?: string | null;
+    initial_permission_mode?: ExecutionMode | null;
     context_window?: "200k" | "1m" | null;
     fast_mode?: boolean | null;
     sandbox_environment_id?: string | null;
@@ -4204,6 +4600,11 @@ export class PostHogAPIClient {
         method: "post",
         url,
         path: urlPath,
+        parameters: {
+          header: {
+            "X-PostHog-Client-Provenance": this.taskClientProvenance,
+          },
+        },
         overrides: {
           body: JSON.stringify({
             repository: options.repository,
@@ -4213,6 +4614,7 @@ export class PostHogAPIClient {
             runtime_adapter: options.runtime_adapter ?? null,
             model: options.model ?? null,
             reasoning_effort: options.reasoning_effort ?? null,
+            initial_permission_mode: options.initial_permission_mode ?? null,
             ...(options.context_window
               ? { context_window: options.context_window }
               : {}),
@@ -5304,6 +5706,59 @@ export class PostHogAPIClient {
     }
   }
 
+  async getReportReadStates(
+    reportIds: string[],
+    read?: boolean,
+  ): Promise<Record<string, boolean>> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.post(
+      "/api/projects/{project_id}/signals/reports/read_state/",
+      {
+        path: { project_id: teamId.toString() },
+        body: {
+          report_ids: reportIds,
+          ...(read === undefined ? {} : { read }),
+        },
+      },
+    );
+    return data.states;
+  }
+
+  private readRequests = new Map<
+    string,
+    { resolve: (read: boolean) => void; reject: (error: unknown) => void }[]
+  >();
+
+  getReportReadState(reportId: string): Promise<boolean> {
+    const pending = this.readRequests;
+    const first = pending.size === 0;
+    const result = new Promise<boolean>((resolve, reject) => {
+      pending.set(reportId, [
+        ...(pending.get(reportId) ?? []),
+        { resolve, reject },
+      ]);
+    });
+    if (first)
+      queueMicrotask(() => {
+        const entries = [...pending.entries()];
+        pending.clear();
+        for (let offset = 0; offset < entries.length; offset += 100) {
+          const batch = entries.slice(offset, offset + 100);
+          void this.getReportReadStates(batch.map(([id]) => id))
+            .then((states) => {
+              for (const [id, listeners] of batch)
+                for (const listener of listeners)
+                  listener.resolve(states[id] === true);
+            })
+            .catch((error) => {
+              for (const [, listeners] of batch)
+                for (const listener of listeners) listener.reject(error);
+            });
+        }
+      });
+    return result;
+  }
+
   async getSignalReports(
     params?: SignalReportsQueryParams,
   ): Promise<SignalReportsResponse> {
@@ -5324,6 +5779,9 @@ export class PostHogAPIClient {
     if (params?.ordering) {
       url.searchParams.set("ordering", params.ordering);
     }
+    if (params?.search) url.searchParams.set("search", params.search);
+    if (params?.unread !== undefined)
+      url.searchParams.set("unread", String(params.unread));
     if (params?.source_product) {
       url.searchParams.set("source_product", params.source_product);
     }
@@ -7330,6 +7788,39 @@ export class PostHogAPIClient {
   }
 
   /**
+   * The insight's name and description by short id. Reads the cache only, so
+   * a reference card never runs the insight's query.
+   */
+  async getInsightSummary(shortId: string): Promise<{
+    name: string | null;
+    description: string | null;
+  } | null> {
+    const projectId = (await this.getTeamId()).toString();
+    try {
+      const urlPath = `/api/projects/${projectId}/insights/${encodeURIComponent(shortId)}/`;
+      const url = new URL(`${this.api.baseUrl}${urlPath}`);
+      url.searchParams.set("basic", "true");
+      url.searchParams.set("refresh", "force_cache");
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      const insight = (await response.json()) as Pick<
+        Schemas.Insight,
+        "name" | "derived_name" | "description"
+      >;
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
+  }
+
+  /**
    * Resolves an `evidence:<kind>/<id>` citation from an agent message to a
    * small live summary of the object it points at. Returns null for kinds
    * without a lookup and for ids that don't resolve, so the caller can fall
@@ -7538,7 +8029,7 @@ export class PostHogAPIClient {
         const [issue, totals, daily] = await Promise.all([
           this.api.get(
             "/api/projects/{project_id}/error_tracking/issues/{id}/",
-            { path: { project_id: projectId, id } },
+            { path: { project_id: projectId, id }, query: {} },
           ),
           this.runQuery({
             kind: "HogQLQuery",
@@ -7549,6 +8040,8 @@ export class PostHogAPIClient {
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE ${scope} GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
         ]);
+        if (!("id" in issue))
+          throw new Error("This issue moved. Open it in PostHog.");
         const preview = shapeErrorIssuePreview(issue);
         const totalRow = gridRows(totals)[0];
         const facts = [...(preview.facts ?? [])];

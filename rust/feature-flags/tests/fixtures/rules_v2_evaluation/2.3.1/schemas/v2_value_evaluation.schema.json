@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:posthog:feature-flag-rules-v2:corpus:v2_value_evaluation:1.0.0",
+  "type": "object",
+  "properties": {
+    "corpus_version": {
+      "const": "1.0.0"
+    },
+    "config_version": {
+      "const": 2
+    },
+    "description": {
+      "type": "string"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^v2_value(\\.[a-z0-9_]+)+$"
+          },
+          "family": {
+            "enum": [
+              "ordering",
+              "values",
+              "parser"
+            ]
+          },
+          "flag": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "active": {
+                "const": true
+              },
+              "deleted": {
+                "const": false
+              },
+              "requested": {
+                "const": true
+              }
+            },
+            "required": [
+              "key",
+              "name",
+              "active",
+              "deleted",
+              "requested"
+            ],
+            "additionalProperties": false
+          },
+          "config": {
+            "type": "object",
+            "properties": {
+              "return_type": {
+                "enum": [
+                  "string",
+                  "number",
+                  "object"
+                ]
+              }
+            },
+            "required": [
+              "return_type"
+            ],
+            "additionalProperties": true,
+            "x-posthog-open-object": "validated separately against the canonical config schema, including rejected examples"
+          },
+          "context": {
+            "type": "object",
+            "properties": {
+              "identifier": {
+                "type": "string",
+                "minLength": 1
+              },
+              "properties": {
+                "type": "object",
+                "additionalProperties": true,
+                "x-posthog-open-object": "supplied person property values"
+              },
+              "properties_complete": {
+                "const": true
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "explicit_exact_matching": {
+                "type": "boolean"
+              },
+              "now": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "identifier",
+              "properties",
+              "properties_complete",
+              "timezone",
+              "explicit_exact_matching",
+              "now"
+            ],
+            "additionalProperties": false
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "success"
+                  },
+                  "value": {
+                    "type": [
+                      "string",
+                      "number",
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "enum": [
+                      "targeting_match",
+                      "rollout_miss",
+                      "no_rule_match"
+                    ]
+                  },
+                  "rule": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "rule_type": {
+                        "enum": [
+                          "targeted_release",
+                          "percentage_rollout"
+                        ]
+                      },
+                      "index": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "rule_type",
+                      "index"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "reason"
+                ],
+                "if": {
+                  "properties": {
+                    "reason": {
+                      "const": "no_rule_match"
+                    }
+                  }
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "rule"
+                    ]
+                  }
+                },
+                "else": {
+                  "required": [
+                    "rule"
+                  ]
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "parse_error"
+                  },
+                  "kind": {
+                    "const": "malformed"
+                  }
+                },
+                "required": [
+                  "status",
+                  "kind"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "legacy": {
+            "type": "object",
+            "description": "Legacy rendering of expected.value. enabled is the detailed record's enabled field and decides inclusion in the enabled-only maps and lists; variant is the detailed record's variant; value is the flag map entry; payload is the decoded JSON-encoded payload string, or null for no payload.",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "variant": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                ]
+              },
+              "payload": {
+                "type": [
+                  "number",
+                  "object",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "enabled",
+              "variant",
+              "value",
+              "payload"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "family",
+          "flag",
+          "config",
+          "context",
+          "expected"
+        ],
+        "if": {
+          "properties": {
+            "expected": {
+              "properties": {
+                "status": {
+                  "const": "success"
+                }
+              }
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "legacy"
+          ]
+        },
+        "else": {
+          "not": {
+            "required": [
+              "legacy"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "corpus_version",
+    "config_version",
+    "description",
+    "cases"
+  ],
+  "additionalProperties": false
+}

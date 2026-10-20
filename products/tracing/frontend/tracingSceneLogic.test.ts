@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
+import { tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
 
@@ -40,6 +41,65 @@ describe('tracingSceneLogic', () => {
     const enableOperationsView = (): void => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]: true })
     }
+
+    it.each([
+        ['an uppercase hex trace id', '4BF92F3577B34DA6A3CE929D0E0E4736', '4BF92F3577B34DA6A3CE929D0E0E4736'],
+        ['a lowercase hex trace id', '4bf92f3577b34da6a3ce929d0e0e4736', '4BF92F3577B34DA6A3CE929D0E0E4736'],
+        ['a trace id with path characters', 'a/b', null],
+    ])('opens the trace drawer from the URL only for %s', (_name, traceId, expected) => {
+        jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
+        mountAt({ trace: traceId })
+        expect(logic.values.selectedTraceId).toBe(expected)
+    })
+
+    const LOWER_TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736'
+    const UPPER_TRACE_ID = '4BF92F3577B34DA6A3CE929D0E0E4736'
+
+    it.each([
+        ['a lowercase trace id', null, { trace: LOWER_TRACE_ID }, UPPER_TRACE_ID],
+        [
+            'a lowercase trace id next to a filter',
+            null,
+            { trace: LOWER_TRACE_ID, dateRange: JSON.stringify({ date_from: '-7d', date_to: null }) },
+            UPPER_TRACE_ID,
+        ],
+        ['a trace id with path characters', UPPER_TRACE_ID, { trace: 'a/b' }, undefined],
+    ])('cleans up %s in the URL without adding a back step', (_name, openTraceId, urlParams, expected) => {
+        jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
+        mountAt(openTraceId ? { trace: openTraceId } : {})
+        router.actions.push('/tracing', urlParams)
+        expect(router.values.searchParams.trace).toBe(expected)
+        expect(router.values.lastMethod).toBe('REPLACE')
+    })
+
+    it.each([
+        [
+            'a lowercase span id with the trace',
+            null,
+            { trace: LOWER_TRACE_ID, span: '00f067aa0ba902b7' },
+            '00F067AA0BA902B7',
+        ],
+        [
+            'a lowercase span id in an open trace',
+            UPPER_TRACE_ID,
+            { trace: UPPER_TRACE_ID, span: '00f067aa0ba902b7' },
+            '00F067AA0BA902B7',
+        ],
+        ['an AI span id', null, { trace: LOWER_TRACE_ID, span: 'ai:AbC-123' }, 'ai:AbC-123'],
+    ])('selects %s from the URL in the case the trace API returns', (_name, openTraceId, urlParams, expected) => {
+        jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
+        mountAt(openTraceId ? { trace: openTraceId } : {})
+        router.actions.push('/tracing', urlParams)
+        expect(logic.values.selectedSpanId).toBe(expected)
+    })
+
+    it('opens a lowercase trace id from code only once', () => {
+        const getTrace = jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
+        mountAt({})
+        logic.actions.openTrace(LOWER_TRACE_ID)
+        expect(router.values.searchParams.trace).toBe(UPPER_TRACE_ID)
+        expect(getTrace).toHaveBeenCalledTimes(1)
+    })
 
     it('migrates legacy compare=true links to the custom time comparison', () => {
         const filtersLogic = mountAt({ compare: 'true' })
@@ -107,6 +167,25 @@ describe('tracingSceneLogic', () => {
         expect(router.values.searchParams.view).toBe('operations')
     })
 
+    it('refetches the Operations aggregation when the impact flag resolves late', () => {
+        // Flags load asynchronously, so rows can arrive while the flag is still off. Without the
+        // refetch the Sessions and Users columns render over rows that carry no impact fields.
+        enableOperationsView()
+        mountAt({ view: 'operations' })
+        tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }).actions.fetchAggregationSuccess({
+            current: [{ service_name: 'web', name: 'GET /', count: 1 }],
+            previous: null,
+        } as any)
+        const aggregate = jest.spyOn(api.tracing, 'aggregate')
+
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]: true,
+            [FEATURE_FLAGS.TRACING_IMPACT_STRIP]: true,
+        })
+
+        expect(aggregate).toHaveBeenCalledWith(expect.objectContaining({ includeImpact: true }), expect.anything())
+    })
+
     it('resets the operations tab to traces when the flag is disabled mid-session', () => {
         enableOperationsView()
         mountAt({ view: 'operations' })
@@ -138,6 +217,42 @@ describe('tracingSceneLogic', () => {
         router.actions.push('/tracing', { view: 'spans' })
         expect(logic.values.activeTracingTab).toBe('traces')
         expect(logic.values.displayMode).toBe('spans')
+    })
+
+    it.each([
+        ['already loaded', () => mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })],
+        [
+            'arriving after the URL parse',
+            () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
+                mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
+                featureFlagLogic.actions.setFeatureFlags([], {})
+            },
+        ],
+    ])('drops a tab=sql deep link when the scene tabs flag is off, with flags %s', (_, mount) => {
+        mount()
+        expect(logic.values.sceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+        expect(router.values.searchParams.serviceNames).toEqual(['checkout'])
+    })
+
+    it('restores the SQL tab from a deep link without dropping the filter params', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
+        mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
+        expect(logic.values.activeSceneTab).toBe('sql')
+        expect(router.values.searchParams).toMatchObject({ tab: 'sql', serviceNames: ['checkout'] })
+
+        logic.actions.selectSceneTab('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+        expect(router.values.searchParams.serviceNames).toEqual(['checkout'])
+
+        logic.actions.selectSceneTab('sql')
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        expect(logic.values.activeSceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
+        expect(logic.values.activeSceneTab).toBe('viewer')
     })
 
     // Guards the operations-tab rate denominator: on the operations tab the aggregate must always

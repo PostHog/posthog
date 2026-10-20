@@ -12,11 +12,12 @@ use common_types::TeamId;
 
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
+use crate::flags::feature_flag_list::{UndecodableDocument, UndecodableFlags};
+use crate::flags::flag_filters::FlagRequirements;
 use crate::flags::flag_models::{
     EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
     HypercacheFlagsWrapper,
 };
-use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
 
 /// Maximum BFS depth when resolving transitive cohort-on-cohort dependencies.
@@ -50,12 +51,7 @@ pub async fn build_flags_cache(
     pg_reader: PostgresReader,
     team_id: TeamId,
 ) -> Result<HypercacheFlagsWrapper, FlagError> {
-    let mut flags = FeatureFlagList::from_pg(pg_reader.clone(), team_id).await?;
-    // Python's builder (`facade/references.py`) raises `ConfigFormatError` here and fails
-    // the whole team rebuild; both writers of this entry must agree.
-    for flag in flags.iter().filter(|flag| is_evaluable(flag)) {
-        flag.filters.require_v1()?;
-    }
+    let mut flags = load_supported_flags(pg_reader.clone(), team_id).await?;
     retain_evaluable_and_referenced_flags(&mut flags);
     let evaluation_metadata = compute_flag_dependencies(&flags)?;
     let cohorts = fetch_referenced_cohorts(pg_reader, team_id, &flags).await?;
@@ -79,6 +75,71 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
     flag.active && !flag.deleted
 }
 
+/// The team's rows minus those this cache cannot carry; the PostgreSQL fallback loads here too.
+pub(crate) async fn load_supported_flags(
+    pg_reader: PostgresReader,
+    team_id: TeamId,
+) -> Result<Vec<FeatureFlag>, FlagError> {
+    let (mut flags, undecodable) =
+        FeatureFlagList::from_pg_keeping_undecodable(pg_reader, team_id).await?;
+    omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    Ok(flags)
+}
+
+/// Drop the stored rows this cache cannot carry, and their dependents transitively:
+/// non-v1 documents unless active and their v2 parse succeeded, non-object documents
+/// whatever their lifecycle, and evaluable v1 objects the typed decoder rejected. Mirrors
+/// Python's `_omit_unsupported_flags()` in `products/feature_flags/backend/flags_cache.py`.
+fn omit_unsupported_flags(
+    team_id: TeamId,
+    flags: &mut Vec<FeatureFlag>,
+    undecodable: &UndecodableFlags,
+) {
+    let unsupported: HashSet<FeatureFlagId> = flags
+        .iter()
+        .filter(|flag| {
+            if !flag.filters.is_v1() {
+                return !(is_evaluable(flag) && flag.filters.supported_v2().is_some());
+            }
+            match undecodable.get(&flag.id) {
+                Some(UndecodableDocument::NotAnObject) => true,
+                Some(UndecodableDocument::UnreadableV1Object) => is_evaluable(flag),
+                None => false,
+            }
+        })
+        .map(|flag| flag.id)
+        .collect();
+    if unsupported.is_empty() {
+        return;
+    }
+    let mut dependents: HashMap<FeatureFlagId, Vec<FeatureFlagId>> = HashMap::new();
+    for flag in flags.iter() {
+        for dependency_id in extract_direct_flag_dependency_ids(flag) {
+            dependents.entry(dependency_id).or_default().push(flag.id);
+        }
+    }
+    let mut excluded = unsupported.clone();
+    let mut pending: Vec<FeatureFlagId> = unsupported.iter().copied().collect();
+    while let Some(id) = pending.pop() {
+        for &dependent_id in dependents.get(&id).into_iter().flatten() {
+            if excluded.insert(dependent_id) {
+                pending.push(dependent_id);
+            }
+        }
+    }
+    let mut unsupported_flag_ids: Vec<_> = unsupported.iter().copied().collect();
+    unsupported_flag_ids.sort_unstable();
+    let mut dependent_flag_ids: Vec<_> = excluded.difference(&unsupported).copied().collect();
+    dependent_flag_ids.sort_unstable();
+    tracing::warn!(
+        team_id,
+        ?unsupported_flag_ids,
+        ?dependent_flag_ids,
+        "Omitted flags the service cache cannot carry"
+    );
+    flags.retain(|flag| !excluded.contains(&flag.id));
+}
+
 /// Keep the flags worth caching: evaluable ones, plus unevaluable ones that another
 /// flag's dependency conditions reference — those pre-seed as false in the matcher,
 /// so a dependent's `flag_evaluates_to: false` condition still matches.
@@ -88,8 +149,7 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
 fn retain_evaluable_and_referenced_flags(flags: &mut Vec<FeatureFlag>) {
     let referenced_ids: HashSet<FeatureFlagId> = flags
         .iter()
-        .flat_map(active_flag_properties)
-        .filter_map(|p| p.get_feature_flag_id())
+        .flat_map(|flag| active_flag_requirements(flag).flag_ids)
         .collect();
     flags.retain(|flag| is_evaluable(flag) || referenced_ids.contains(&flag.id));
 }
@@ -105,24 +165,19 @@ fn blank_inactive_filters(flags: &mut [FeatureFlag]) {
     }
 }
 
-/// Yields all property filters from an active, non-deleted flag's filter groups.
-fn active_flag_properties(flag: &FeatureFlag) -> impl Iterator<Item = &PropertyFilter> {
-    let groups = if is_evaluable(flag) {
-        flag.filters.groups.as_slice()
+fn active_flag_requirements(flag: &FeatureFlag) -> FlagRequirements {
+    if is_evaluable(flag) {
+        flag.filters.requirements()
     } else {
-        &[]
-    };
-    groups.iter().flat_map(|g| g.properties.iter().flatten())
+        FlagRequirements::default()
+    }
 }
 
 /// Extract direct flag dependency IDs from a single flag's filters.
-///
-/// Scans `filters.groups[*].properties` for `type == "flag"` properties and
-/// parses their `key` as an integer flag ID. Inactive/deleted flags return
-/// empty deps to match Python's `_extract_direct_dependency_ids()`.
 fn extract_direct_flag_dependency_ids(flag: &FeatureFlag) -> HashSet<FeatureFlagId> {
-    active_flag_properties(flag)
-        .filter_map(|p| p.get_feature_flag_id())
+    active_flag_requirements(flag)
+        .flag_ids
+        .into_iter()
         .collect()
 }
 
@@ -130,9 +185,27 @@ fn extract_direct_flag_dependency_ids(flag: &FeatureFlag) -> HashSet<FeatureFlag
 pub fn extract_cohort_ids_from_flag_filters(flags: &[FeatureFlag]) -> HashSet<CohortId> {
     flags
         .iter()
-        .flat_map(active_flag_properties)
-        .filter_map(|p| p.get_cohort_id())
+        .flat_map(|flag| active_flag_requirements(flag).cohort_ids)
         .collect()
+}
+
+/// Computes evaluation metadata for flags read straight from Postgres. On a graph error, it
+/// places every flag in one stage so that the flags still evaluate.
+///
+/// `compute_flag_dependencies` returns no error for flag input, because `remove_all_cycles`
+/// removes every cycle before the stage computation runs. The fallback guards against a later
+/// change to the graph code. In one stage, a dependent can evaluate before its dependency. It
+/// also does not see a failure raised during that stage. In both cases its `flag_evaluates_to`
+/// condition reads as a non-match. A dependency that failed before evaluation, such as in
+/// persons DB preparation, still fails its dependents with `dependency_failed`.
+pub(crate) fn compute_flag_dependencies_or_single_stage(
+    team_id: TeamId,
+    flags: &[FeatureFlag],
+) -> EvaluationMetadata {
+    compute_flag_dependencies(flags).unwrap_or_else(|e| {
+        tracing::warn!(team_id, "Falling back to single-stage flag metadata: {e}");
+        EvaluationMetadata::single_stage(flags)
+    })
 }
 
 /// Compute flag dependency metadata via the shared `DependencyGraph` framework.
@@ -266,7 +339,9 @@ async fn load_cohorts_with_deps(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flags::config_v2::Subject;
     use crate::flags::flag_models::{FeatureFlagRow, FlagFilters, FlagPropertyGroup};
+    use crate::flags::test_helpers::v2_filters_referencing;
     use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
     use crate::utils::test_utils::TestContext;
     use test_case::test_case;
@@ -362,6 +437,27 @@ mod tests {
         flag.deleted = deleted;
         let deps = extract_direct_flag_dependency_ids(&flag);
         assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_v2_references_reach_cohort_and_dependency_extraction() {
+        let mut v2 = make_flag(1, "v2_flag", true, vec![]);
+        v2.filters = v2_filters_referencing(&[Subject::Cohort(42), Subject::Flag(2)], None);
+        let mut flags = vec![
+            v2.clone(),
+            make_flag(2, "referenced", false, vec![]),
+            make_flag(3, "unreferenced", false, vec![]),
+        ];
+
+        assert_eq!(extract_direct_flag_dependency_ids(&v2), HashSet::from([2]));
+        assert_eq!(
+            extract_cohort_ids_from_flag_filters(&flags),
+            HashSet::from([42])
+        );
+        retain_evaluable_and_referenced_flags(&mut flags);
+        assert_eq!(flags.iter().map(|f| f.id).collect::<Vec<_>>(), vec![1, 2]);
+        let metadata = compute_flag_dependencies(&flags).unwrap();
+        assert_eq!(metadata.dependency_stages, vec![vec![2], vec![1]]);
     }
 
     // -------------------------------------------------------------------------
@@ -1034,23 +1130,134 @@ mod tests {
         assert!(meta.flags_with_missing_deps.is_empty());
     }
 
-    #[test]
-    fn test_blank_inactive_filters_blanks_every_config_format() {
-        for version in [
-            serde_json::json!(1),
-            serde_json::json!(2),
-            serde_json::json!(3),
-            serde_json::json!(null),
-        ] {
-            let flag: FeatureFlag = serde_json::from_value(serde_json::json!({
-                "id": 1, "team_id": 1, "key": "inactive", "active": false,
-                "filters": {"version": version, "groups": [{"rollout_percentage": 100}]}
-            }))
-            .unwrap();
-            let mut flags = vec![flag];
-            blank_inactive_filters(&mut flags);
-            let after = serde_json::to_value(&flags[0]).unwrap();
-            assert_eq!(after["filters"], serde_json::json!({"groups": []}));
+    /// Insert the shared config-format fixture for one team and return each fixture
+    /// key's row id. Dependency properties name fixture keys, so rows go in with a
+    /// placeholder document first and get their real filters once every id is known.
+    async fn insert_config_format_fixture(
+        context: &TestContext,
+        team_id: i32,
+    ) -> (serde_json::Value, HashMap<String, i32>) {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/flags_cache_config_formats.json"
+        ))
+        .unwrap();
+        let mut ids: HashMap<String, i32> = HashMap::new();
+        for flag in fixture["flags"].as_array().unwrap() {
+            let key = flag["key"].as_str().unwrap();
+            let inserted = context
+                .insert_flag(
+                    team_id,
+                    Some(FeatureFlagRow {
+                        key: key.to_string(),
+                        active: flag["active"].as_bool().unwrap(),
+                        filters: serde_json::json!({}),
+                        ..base_flag_row(team_id)
+                    }),
+                )
+                .await
+                .expect("Failed to insert fixture flag");
+            ids.insert(key.to_string(), inserted.id);
         }
+        let missing_id = fixture["missing_dependency_id"].as_i64().unwrap();
+        let mut connection = context.non_persons_writer.get_connection().await.unwrap();
+        for flag in fixture["flags"].as_array().unwrap() {
+            let mut filters = flag["filters"].clone();
+            if let Some(groups) = filters.get_mut("groups").and_then(|g| g.as_array_mut()) {
+                for property in groups
+                    .iter_mut()
+                    .filter_map(|group| group.get_mut("properties")?.as_array_mut())
+                    .flatten()
+                    .filter(|property| property["type"] == "flag")
+                {
+                    let reference = property["key"].as_str().unwrap();
+                    let id = if reference == "$missing" {
+                        missing_id
+                    } else {
+                        i64::from(ids[reference])
+                    };
+                    property["key"] = serde_json::json!(id.to_string());
+                }
+            }
+            sqlx::query("UPDATE posthog_featureflag SET filters = $1::jsonb WHERE id = $2")
+                .bind(filters.to_string())
+                .bind(ids[flag["key"].as_str().unwrap()])
+                .execute(&mut *connection)
+                .await
+                .unwrap();
+        }
+        (fixture, ids)
+    }
+
+    #[tokio::test]
+    async fn test_build_flags_cache_omits_unsupported_configs_and_their_dependents() {
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+        let (fixture, ids) = insert_config_format_fixture(&context, team.id).await;
+
+        let wrapper = build_flags_cache(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to build flags cache");
+
+        let rows = fixture["flags"].as_array().unwrap();
+        let published: HashMap<i32, &FeatureFlag> =
+            wrapper.flags.iter().map(|f| (f.id, f)).collect();
+        let expected_keys: HashSet<&str> = rows
+            .iter()
+            .filter(|flag| flag["expect"] == "kept")
+            .map(|flag| flag["key"].as_str().unwrap())
+            .collect();
+        let published_keys: HashSet<&str> = wrapper.flags.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(published_keys, expected_keys);
+        for flag in rows {
+            let key = flag["key"].as_str().unwrap();
+            if flag["expect"] != "kept" {
+                continue;
+            }
+            let filters = serde_json::to_value(published[&ids[key]]).unwrap()["filters"].take();
+            if flag["blanked"] == true {
+                assert_eq!(filters, serde_json::json!({"groups": []}), "{key}");
+            } else if flag["filters"]["version"] == 2 {
+                assert_eq!(filters, flag["filters"], "{key}");
+            } else {
+                // Group count and payloads rather than the whole document, because a
+                // JSONB round trip renders `rollout_percentage` as a float.
+                let stored_groups = flag["filters"]["groups"].as_array().map_or(0, Vec::len);
+                assert_eq!(
+                    filters["groups"].as_array().unwrap().len(),
+                    stored_groups,
+                    "{key}"
+                );
+                assert_eq!(
+                    filters.get("payloads"),
+                    flag["filters"].get("payloads"),
+                    "{key}"
+                );
+            }
+        }
+
+        let meta = &wrapper.evaluation_metadata;
+        let mut expected_missing: Vec<i32> = rows
+            .iter()
+            .filter(|flag| flag["missing_dependency"] == true)
+            .map(|flag| ids[flag["key"].as_str().unwrap()])
+            .collect();
+        expected_missing.sort_unstable();
+        assert_eq!(meta.flags_with_missing_deps, expected_missing);
+        let staged: HashSet<i32> = meta.dependency_stages.iter().flatten().copied().collect();
+        let published_ids: HashSet<i32> = published.keys().copied().collect();
+        assert_eq!(
+            staged,
+            published_ids
+                .difference(&HashSet::from([ids["cycle-a"], ids["cycle-b"]]))
+                .copied()
+                .collect::<HashSet<_>>()
+        );
+        assert_eq!(
+            meta.transitive_deps[&ids["depends-true-on-v1-true"]],
+            HashSet::from([ids["v1-boolean-true"]])
+        );
     }
 }

@@ -1,0 +1,154 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Two-phase clinical note generation via Azure and Groq",
+  "scenario": "A clinical scribe app (notekeeper) runs a trace with two generations for one visit: an Azure-hosted gpt-5-mini call that drafts the history-taking section from the recorded conversation, then a Groq-hosted call that summarizes the full visit note. The trace event ties both generations together under one run id.",
+  "summary": {
+    "events": {
+      "$ai_generation": 2,
+      "$ai_trace": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "posthog-node"
+    ],
+    "providers": [
+      "azure",
+      "groq"
+    ],
+    "frameworks": [],
+    "models": [
+      "gpt-5-mini",
+      "openai/gpt-oss-120b"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "name": "scribe",
+        "note_phase": "history",
+        "$ai_input_metadata": [
+          {
+            "content_length": 387,
+            "role": "user"
+          },
+          {
+            "content_length": 487,
+            "role": "user"
+          }
+        ],
+        "$ai_model": "gpt-5-mini",
+        "azure_deployment": "gpt-5-mini-aue-01",
+        "$ai_api_surface": "responses",
+        "topic_slug": "annual-wellness-visit-01",
+        "$ai_tool_count": 2,
+        "$geoip_disable": true,
+        "$ai_reasoning_tokens": 960,
+        "$ai_trace_id": "notes-run-8f3a9c1d2e",
+        "$ai_stream": false,
+        "$ai_input_cost_usd": 9.425e-05,
+        "$ai_output_cost_usd": 0.002104,
+        "$lib": "posthog-node",
+        "app": "notekeeper-hGgM1VgU",
+        "$ai_deployment_region": "europe-OqWf96ZwEO",
+        "$ai_input_message_count": 2,
+        "$ai_input_tokens": 377,
+        "$ai_latency": 9.3977036489998,
+        "$lib_version": "4.18.0",
+        "$ai_deployment_resource": "gpt-5-mini-aue-01",
+        "$ai_span_name": "inspect_hVH5fczmqY",
+        "$ai_provider": "azure",
+        "$ai_output_metadata": [
+          {
+            "content_length": 0,
+            "finish_reason": "tool_calls",
+            "used_reasoning": true,
+            "role": "assistant"
+          }
+        ],
+        "$ai_total_tokens": 1429,
+        "$ai_output_tokens": 1052,
+        "$ai_total_cost_usd": 0.00219825
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 2526854,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_id": "notes-run-8f3a9c1d2e",
+        "$ai_input_cost_usd": 0.0038985,
+        "$ai_latency": 12.297900393999996,
+        "$ai_input_metadata": [
+          {
+            "content_length": 92488,
+            "role": "system"
+          },
+          {
+            "content_length": 9700,
+            "role": "user"
+          }
+        ],
+        "$ai_input_tokens": 25990,
+        "$ai_total_tokens": 31228,
+        "$lib": "posthog-node",
+        "$ai_provider": "groq",
+        "topic_slug": "annual-wellness-visit-01",
+        "$ai_deployment_region": "europe-OqWf96ZwEO",
+        "app": "notekeeper-hGgM1VgU",
+        "$ai_deployment_resource": "aue2",
+        "$ai_span_name": "summarize-visit-note-draft",
+        "$ai_max_tokens": 8192,
+        "$ai_temperature": 0,
+        "$ai_output_cost_usd": 0.0031428,
+        "$lib_version": "4.18.0",
+        "$ai_api_surface": "chat_FtAUt9FXfQk",
+        "$ai_output_tokens": 5238,
+        "$ai_reasoning_tokens": 3657,
+        "name": "scribe",
+        "$ai_input_message_count": 2,
+        "$ai_stream": false,
+        "$ai_session_id": "notes-run-8f3a9c1d2e",
+        "note_phase": "summary",
+        "$ai_model": "openai/gpt-oss-120b",
+        "$ai_output_metadata": [
+          {
+            "content_length": 5097,
+            "finish_reason": "stop",
+            "used_reasoning": false,
+            "role": "assistant"
+          }
+        ],
+        "$geoip_disable": true,
+        "azure_deployment": "gpt-5-mini-aue-01",
+        "$ai_total_cost_usd": 0.0070413
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 2527471,
+      "distinct_id": "user-1",
+      "properties": {
+        "run_id": "68fbec79-b8d2-781f-c8d4-976a66bd785d",
+        "$lib": "posthog-node",
+        "$ai_session_id": "notes-run-8f3a9c1d2e",
+        "azure_deployment": "gpt-5-mini-aue-01",
+        "$lib_version": "4.18.0",
+        "sessionId": "notes-run-8f3a9c1d2e",
+        "$ai_latency": 12.862184619000008,
+        "$geoip_disable": true,
+        "$ai_trace_name": "summarize-visit-note-draft",
+        "$ai_trace_id": "notes-run-8f3a9c1d2e"
+      }
+    }
+  ],
+  "sets": [
+    "core"
+  ],
+  "why": "Metadata only: hand-written captures that omit $ai_input and $ai_output_choices"
+}

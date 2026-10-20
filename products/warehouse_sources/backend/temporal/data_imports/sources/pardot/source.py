@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pardot import PardotSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot import (
+    QUERY_REJECTED_MESSAGE,
     PardotResumeConfig,
     pardot_source,
     validate_credentials as validate_pardot_credentials,
@@ -37,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig], OAuthMixin):
+    codebase_detection = detect(env=("^PARDOT_",), script_hosts=("pi.pardot.com", "cdn.pardot.com"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v5",)
     default_version = "v5"
@@ -63,6 +67,9 @@ class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig], OAut
             "Integration not found": "The linked Account Engagement integration no longer exists. Please reconnect the source.",
             "401 Client Error: Unauthorized for url": "Account Engagement rejected the access token. Please reconnect the source.",
             "403 Client Error: Forbidden for url": "Account Engagement denied access. Check that the connected user has API access and that the business unit ID is correct.",
+            # A refused query is deterministic, so retrying burns the activity's whole budget
+            # on the same 400. None keeps the raised message, which carries the reason v5 gave.
+            QUERY_REJECTED_MESSAGE: None,
         }
 
     @property

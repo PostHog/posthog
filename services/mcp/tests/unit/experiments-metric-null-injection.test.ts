@@ -82,6 +82,21 @@ describe('experiment-update metric null injection', () => {
         expect(injectedNullKeys(metric, parsedMetric)).toEqual([])
     })
 
+    it('preserves a stored strict funnel order', () => {
+        // A narrower write schema would reject a stored strict metric, so the round trip fails
+        // before the request reaches the API.
+        const metric = {
+            kind: 'ExperimentMetric',
+            metric_type: 'funnel',
+            name: 'strict funnel',
+            series: [{ kind: 'EventsNode', event: '$pageview' }],
+            funnel_order_type: 'strict',
+        }
+        const parsed = updateSchema().parse({ id: 123, metrics: [metric] }) as Record<string, unknown>
+        const parsedMetric = (parsed.metrics as Record<string, unknown>[])[0]!
+        expect(parsedMetric).toHaveProperty('funnel_order_type', 'strict')
+    })
+
     it('still preserves explicit nulls the caller sends', () => {
         // conversion_window is a valid mean field; an explicit null must survive.
         const metric = {

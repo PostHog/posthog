@@ -58,6 +58,13 @@ It picks that volume by name (`<project>_objectstorage`) and refuses to guess wh
 Its preflight checks warn instead, whenever the legacy volume is still on the host, and ask you to confirm before the upgrade continues.
 The warning clears once you copy the objects across and delete the old volume.
 
+## Upgrade rendering checks
+
+The hobby smoke test starts the Go installer, which copies the Compose file directly.
+It does not execute `bin/upgrade-hobby` or its environment substitution step.
+The separate `Test hobby upgrade rendering` CI job exercises `bin/helpers/render-hobby-compose.sh`, which the upgrade script calls.
+It checks that deployment values render while container shell variables and Compose defaults stay intact.
+
 ## Option 2: stay on your current version
 
 Answer `N` at the upgrade prompt.

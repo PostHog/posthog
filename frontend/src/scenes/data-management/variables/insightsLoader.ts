@@ -2,8 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightModel, QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { insightUsesVariable } from './utils'
 
@@ -19,30 +18,26 @@ import { insightUsesVariable } from './utils'
  * @returns Array of insights that use the variable
  * @throws Error if the fetch fails
  */
-export async function fetchInsightsUsingVariable(
-    teamId: number,
-    variableId: string
-): Promise<QueryBasedInsightModel[]> {
+export async function fetchInsightsUsingVariable(teamId: number, variableId: string): Promise<InsightModel[]> {
     try {
-        const matchingInsights: QueryBasedInsightModel[] = []
+        const matchingInsights: InsightModel[] = []
         let offset = 0
         const limit = 100
 
         // Paginate through all insights
         while (true) {
-            const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
-                `api/environments/${teamId}/insights/?basic=true&limit=${limit}&offset=${offset}`
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
+            const response: CountedPaginatedResponse<InsightModel> = await api.get(
+                `api/projects/${teamId}/insights/?basic=true&limit=${limit}&offset=${offset}`
             )
 
-            const insights = legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
-
             // Filter insights that use this variable
-            const filtered = insights.filter((insight) => insightUsesVariable(insight, variableId))
+            const filtered = response.results.filter((insight) => insightUsesVariable(insight, variableId))
 
             matchingInsights.push(...filtered)
 
             // Stop if we've fetched all insights
-            if (legacyResponse.results.length < limit || !legacyResponse.next) {
+            if (response.results.length < limit || !response.next) {
                 break
             }
 

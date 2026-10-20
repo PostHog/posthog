@@ -1,10 +1,10 @@
 /**
- * Client-side bot detection — mirrors `posthog.hogql_queries.web_analytics.bot_definitions`
+ * Client-side bot detection — mirrors `products.web_analytics.backend.hogql_queries.bot_definitions`
  * and the `getBotName` / `isLikelyBot` / `getTrafficCategory`
  * HogQL functions. Used by real-time dashboards where events arrive via the
  * livestream SSE feed and therefore cannot be classified server-side.
  *
- * Keep this file in sync with `posthog/hogql_queries/web_analytics/bot_definitions.py`.
+ * Keep this file in sync with `products/web_analytics/backend/hogql_queries/bot_definitions.py`.
  */
 
 export type BotTrafficType = 'AI Agent' | 'Bot' | 'Automation' | 'Regular'
@@ -715,6 +715,10 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
             operator: 'swissaitalent.ch',
         },
     },
+    {
+        pattern: 'AtlasSearchBot',
+        definition: { name: 'AtlasSearch', category: 'search_crawler', trafficType: 'Bot', operator: 'AtlasSearch' },
+    },
     // SEO / marketing crawlers
     {
         pattern: 'LaunchReadyCodeBot',
@@ -790,6 +794,14 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'BenchRankBot',
         definition: { name: 'BenchRank', category: 'seo_crawler', trafficType: 'Bot', operator: 'BenchRank' },
     },
+    {
+        pattern: 'QlyzeBot',
+        definition: { name: 'Qlyze', category: 'seo_crawler', trafficType: 'Bot', operator: 'Qlyze' },
+    },
+    {
+        pattern: 'AutozellaBot',
+        definition: { name: 'Autozella', category: 'seo_crawler', trafficType: 'Bot', operator: 'Autozella' },
+    },
     // Social / link-preview crawlers
     {
         pattern: 'PagePeeker',
@@ -852,6 +864,15 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     {
         pattern: 'MrAnandPortfolio',
         definition: { name: 'MrAnandPortfolio', category: 'http_client', trafficType: 'Bot', operator: 'mranand.com' },
+    },
+    {
+        pattern: 'PostHogImageFetcherBot',
+        definition: {
+            name: 'PostHog Image Fetcher',
+            category: 'http_client',
+            trafficType: 'Bot',
+            operator: 'PostHog',
+        },
     },
 ]
 

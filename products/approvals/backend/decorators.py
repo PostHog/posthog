@@ -1,12 +1,15 @@
+import json
 import logging
 from dataclasses import dataclass, field
 from functools import wraps
 from typing import Any, Literal, Optional, Union
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 
+from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -23,6 +26,23 @@ from products.approvals.backend.policies import PolicyDecision, PolicyEngine
 from products.approvals.backend.serializers import ChangeRequestSerializer
 
 logger = logging.getLogger(__name__)
+
+# ChangeRequest creates that raised inside the approval gate. The caller always gets
+# "Failed to create approval request", but that message does not tell a responder
+# whether the row exists. The counted block covers get_display_data (before the
+# insert), the insert itself, and the post-insert analytics call. A failure before or
+# in the insert leaves no row. A failure in the analytics call can leave a PENDING
+# row, unless an enclosing transaction rolls the insert back. A responder must check
+# for a PENDING request before advising a retry. The on_commit notification is only
+# queued here, not run. It cannot raise inside this block. Drives the
+# ApprovalsChangeRequestCreateFailing alert in PostHog/charts.
+# error_type carries the exception class name only, because the message would make the
+# label unbounded.
+CHANGE_REQUEST_CREATE_FAILURE_COUNTER = Counter(
+    "posthog_approvals_change_request_create_failures_total",
+    "ChangeRequest creations that failed inside the approval gate",
+    labelnames=["action", "error_type"],
+)
 
 
 @dataclass
@@ -75,24 +95,40 @@ def _is_approvals_enabled(organization) -> bool:
 def _check_policy_for_action(action_class, team, organization) -> Optional[Any]:
     """Check if there's an enabled policy for this action."""
     policy_engine = PolicyEngine()
-    policy = policy_engine.get_policy(
-        action_key=action_class.key,
-        team=team,
-        organization=organization,
-    )
+    policy = policy_engine.get_policy_for_action(action_class, team, organization)
     if policy and policy.enabled:
         return policy
     return None
 
 
-def _check_for_duplicate(action_class, team, resource_id: Optional[str]) -> Optional[ChangeRequest]:
+def _policy_conditions_match(action_class, policy, request, view_or_serializer, args: tuple, kwargs: dict) -> bool:
+    """Whether the policy's conditions match this change, so the action needs approval at all.
+
+    A change that more than one policy-backed action detects is rejected as a policy conflict. An
+    action whose policy conditions do not match needs no approval, so it must not count toward that
+    conflict. For example, enabling a flag and editing a property under a rollout-only update policy
+    needs the enable approval only. A policy found through a fallback action key is evaluated with
+    its conditions ignored, so it always matches.
+    """
+    if not policy.conditions or policy.action_key != action_class.key:
+        return True
+    intent = action_class.extract_intent(request, view_or_serializer, *args, **kwargs)
+    return PolicyEngine().conditions_match(policy.conditions, intent)
+
+
+def _check_for_duplicate(
+    action_class, team, resource_id: Optional[str], intent_data: dict[str, Any]
+) -> Optional[ChangeRequest]:
     """Check if there's already a pending/approved change request."""
+    target_filter = action_class.get_target_filter(intent_data) if resource_id is None else {}
+
     return ChangeRequest.objects.filter(
         action_key=action_class.key,
         team=team,
         resource_type=action_class.resource_type,
         resource_id=resource_id,
         state__in=[ChangeRequestState.PENDING, ChangeRequestState.APPROVED],
+        **target_filter,
     ).first()
 
 
@@ -115,6 +151,18 @@ def _check_for_policy_conflicts(action_class, team, organization, intent_data: d
     return []
 
 
+def _json_safe(value: dict[str, Any]) -> dict[str, Any]:
+    """Render a payload as the plain JSON a JSONField can store.
+
+    `intent` carries the endpoint serializer's `validated_data` verbatim, and DRF deserializes a
+    typed field into its native Python object — a `DateTimeField` arrives as a `datetime`, which
+    psycopg refuses to dump. Any such value made the whole save fail with an opaque
+    "Failed to create approval request". DjangoJSONEncoder renders those as the ISO strings the
+    serializer parses again on the apply path, so the replayed change is unchanged.
+    """
+    return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
+
+
 def _create_change_request(
     action_class,
     team,
@@ -135,9 +183,10 @@ def _create_change_request(
         organization=organization,
         resource_type=action_class.resource_type,
         resource_id=resource_id,
-        intent=intent_data,
-        intent_display=display_data,
-        policy_snapshot=policy_snapshot,
+        intent=_json_safe(intent_data),
+        intent_display=_json_safe(display_data),
+        policy_snapshot=_json_safe(policy_snapshot),
+        owner_kind=action_class.derive_owner_kind(team, resource_id, intent_data),
         created_by=user,
         state=ChangeRequestState.PENDING,
         expires_at=expires_at,
@@ -276,6 +325,7 @@ def _evaluate_gate(
         actor=request.user,
         intent=intent_data,
         context=context,
+        ignore_conditions=policy.action_key != action_class.key,
     )
 
     if decision.result == "ALLOW":
@@ -289,10 +339,14 @@ def _evaluate_gate(
         logger.warning("Policy denied request", extra={"action": action_class.key, "reason": decision.reason})
         return GateResult(action="deny", error_message=decision.reason)
 
+    refusal = action_class.refuse_change_request(request, intent_data)
+    if refusal is not None:
+        raise refusal
+
     # Step 5: REQUIRE_APPROVAL - check for duplicates and create change request
     resource_id = _extract_resource_id(request, args, kwargs)
 
-    existing = _check_for_duplicate(action_class, team, resource_id)
+    existing = _check_for_duplicate(action_class, team, resource_id, intent_data)
     if existing:
         logger.info(
             "Rejecting duplicate change request",
@@ -342,6 +396,7 @@ def _evaluate_gate(
             extra={"action": action_class.key, "error": str(e), "error_type": type(e).__name__},
             exc_info=True,
         )
+        CHANGE_REQUEST_CREATE_FAILURE_COUNTER.labels(action=action_class.key, error_type=type(e).__name__).inc()
         error_msg = (
             f"Failed to create approval request: {type(e).__name__}: {str(e)}"
             if settings.DEBUG
@@ -517,18 +572,19 @@ def approval_gate(action_refs: Union[type, str, list]):
             if not _is_approvals_enabled(organization):
                 return method(self, *args, **kwargs)
 
-            # Collect every action that matches this change AND has an enabled policy — not just
-            # the first. The approved change is applied by replaying the full validated payload
+            # Collect every action that matches this change AND has an enabled policy whose conditions
+            # match it — not just the first. The approved change is applied by replaying the full validated payload
             # (see actions.feature_flags._apply_create / apply), so a change that trips more than one
             # policy-backed action (e.g. a create that both enables the flag and sets its rollout)
             # would satisfy a single policy while the other policies' gated fields sail through
             # unapproved. Gating on only the first match reopens exactly that bypass.
             matches: list[tuple[Any, Any]] = []
+            detection_failed = False
             for action_class in actions:
                 try:
                     if action_class.detect(request, self, *args, **kwargs):
                         policy = _check_policy_for_action(action_class, team, organization)
-                        if policy:
+                        if policy and _policy_conditions_match(action_class, policy, request, self, args, kwargs):
                             matches.append((action_class, policy))
                 except Exception as e:
                     logger.error(
@@ -536,11 +592,19 @@ def approval_gate(action_refs: Union[type, str, list]):
                         extra={"action": action_class.key, "error": str(e)},
                         exc_info=True,
                     )
+                    detection_failed = True
 
-            if not matches:
+            if detection_failed:
+                # Unknown means deny. Carrying on would read a broken detect() as "no policy
+                # applies", which silently disables the policy that action implements.
+                result = GateResult(
+                    action="error",
+                    error_message="Could not determine whether this change needs approval. Try again.",
+                )
+            elif not matches:
                 return method(self, *args, **kwargs)
 
-            if len(matches) > 1:
+            elif len(matches) > 1:
                 # A single ChangeRequest can only carry one action's approval, but the apply path
                 # replays the whole payload — so we cannot safely gate a change that needs approval
                 # under several policies at once. Reject it (fail closed) and tell the caller to

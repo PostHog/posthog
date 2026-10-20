@@ -29,6 +29,7 @@ import {
 } from "@posthog/agent/adapters/claude/subscription-login";
 import {
   type CodexLoginSession,
+  codexCloudAuthTerminalCommand,
   hasCodexChatgptLogin,
   signOutCodexChatgpt,
   startCodexChatgptLogin,
@@ -44,7 +45,6 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
-import { buildTaskSystemPrompt } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   findPrUrls,
@@ -58,7 +58,9 @@ import {
 import type * as AgentTypes from "@posthog/agent/types";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch } from "@posthog/git/queries";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import { fetchPosthogPiModelCatalog } from "@posthog/harness/extensions/posthog-provider/model-catalog";
+import { buildTaskSystemPrompt } from "@posthog/harness/extensions/task-system-prompt";
 import { APP_META_SERVICE, type IAppMeta } from "@posthog/platform/app-meta";
 import {
   BUNDLED_RESOURCES_SERVICE,
@@ -93,10 +95,14 @@ import {
   TypedEventEmitter,
 } from "@posthog/shared";
 import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
-import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
+import {
+  appendRichOutputPrompt,
+  getProjectWebUrl,
+} from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
+import { AUTH_PROXY_PLACEHOLDER_CREDENTIAL } from "../auth-proxy/ports";
 import { POSTHOG_PLUGIN_SERVICE } from "../posthog-plugin/identifiers";
 import type { PosthogPluginService } from "../posthog-plugin/posthog-plugin";
 import { PROCESS_TRACKING_SERVICE } from "../process-tracking/identifiers";
@@ -106,8 +112,11 @@ import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import {
   cleanupCodexHome,
+  getCodexCloudAuthFilePath,
+  getCodexCloudHomeDir,
   getCodexHomeDir,
   prepareCodexHome,
+  writeCodexGatewayProvider,
 } from "./codex-home";
 import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
@@ -128,10 +137,12 @@ import type {
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
-  type ClaudeAuthTerminal,
+  type AuthTerminal,
   type ClaudeSubscriptionStatus,
+  type CodexCloudAuthTokens,
   type CodexSubscriptionStatus,
   type Credentials,
+  codexCloudAuthTokensOutput,
   type EffortLevel,
   type InterruptReason,
   type PromptOutput,
@@ -368,6 +379,7 @@ interface ManagedSession {
   steering?: string;
   /** Adapter's negotiated side-question capability from initialize (`_meta.posthog.sideQuestion`). */
   sideQuestion?: boolean;
+  gatewayMode: "legacy" | "go";
   /** Tracks in-flight MCP tool calls (toolCallId → toolKey) for cancellation */
   inFlightMcpToolCalls: Map<string, string>;
   /** Count of "/btw" side questions awaiting a response, so the idle timer does not reap the session mid-answer. */
@@ -530,6 +542,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   private codexLogin?: CodexLoginSession;
   private codexAuthGeneration = 0;
+  private codexCloudAttemptId: string | null = null;
   private claudeAuthGeneration = 0;
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
@@ -558,9 +571,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     };
   }
 
-  async getClaudeAuthTerminal(
-    action: ClaudeAuthAction,
-  ): Promise<ClaudeAuthTerminal> {
+  async getClaudeAuthTerminal(action: ClaudeAuthAction): Promise<AuthTerminal> {
     if (action === "logout") {
       await this.prepareClaudeAccountChange();
     }
@@ -607,11 +618,92 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return { authUrl: login.authUrl };
   }
 
+  async getCodexCloudAuthTerminal(attemptId: string): Promise<AuthTerminal> {
+    if (this.codexCloudAttemptId !== null) {
+      throw new Error(
+        "Another ChatGPT login is in progress. Wait for it to finish.",
+      );
+    }
+    this.codexCloudAttemptId = attemptId;
+    try {
+      const codexHome = getCodexCloudHomeDir();
+      await fs.promises.mkdir(codexHome, { recursive: true });
+      await this.removeCodexCloudAuthFile(attemptId);
+      const { command, env } = codexCloudAuthTerminalCommand(
+        this.getCodexBinaryPath(),
+        codexHome,
+      );
+      return {
+        command,
+        cwd: homedir(),
+        additionalEnv: env.set,
+        unsetEnv: env.unset,
+      };
+    } catch (error) {
+      this.finishCodexCloudAuth(attemptId);
+      throw error;
+    }
+  }
+
+  finishCodexCloudAuth(attemptId: string): void {
+    if (this.codexCloudAttemptId === attemptId) this.codexCloudAttemptId = null;
+  }
+
+  private requireCodexCloudAttempt(attemptId: string): void {
+    if (this.codexCloudAttemptId !== attemptId) {
+      throw new Error("This ChatGPT login attempt is no longer active.");
+    }
+  }
+
   async signOutCodexSubscription(): Promise<void> {
     await this.prepareCodexAccountChange();
     await signOutCodexChatgpt({
       binaryPath: this.getCodexBinaryPath(),
     });
+  }
+
+  /**
+   * Reads the `auth.json` that `CODEX_HOME=~/.codex-posthog codex login` wrote,
+   * so the user can hand its tokens to PostHog. Only the Desktop-only home is
+   * read: the user's own `~/.codex` login stays on this machine.
+   */
+  async readCodexCloudAuthFile(
+    attemptId: string,
+  ): Promise<CodexCloudAuthTokens> {
+    this.requireCodexCloudAttempt(attemptId);
+    const authPath = getCodexCloudAuthFilePath();
+    let raw: string;
+    try {
+      raw = await fs.promises.readFile(authPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(
+          `No ChatGPT login found at ${authPath}. Run the login command first.`,
+        );
+      }
+      throw error;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`The file at ${authPath} is not valid JSON.`);
+    }
+    const tokens = codexCloudAuthTokensOutput.safeParse(
+      (parsed as { tokens?: unknown } | null)?.tokens,
+    );
+    if (!tokens.success) {
+      throw new Error(
+        `The file at ${authPath} has no ChatGPT tokens. Log in with ChatGPT, not with an API key.`,
+      );
+    }
+    return tokens.data;
+  }
+
+  /** PostHog rotated the refresh token on connect, so the local copy is stale and only a liability. */
+  async removeCodexCloudAuthFile(attemptId: string): Promise<void> {
+    this.requireCodexCloudAttempt(attemptId);
+    await fs.promises.rm(getCodexCloudAuthFilePath(), { force: true });
   }
 
   private async prepareCodexAccountChange(): Promise<void> {
@@ -778,7 +870,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
    */
   private async mountContextWiki(
     credentials: Credentials,
-  ): Promise<AgentTypes.ContextWikiEnv | null> {
+  ): Promise<ContextWikiEnv | null> {
     const authToken = await this.agentAuthAdapter.gatewayAuthToken();
     if (!authToken) {
       return null;
@@ -813,11 +905,17 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   ): {
     append: string;
   } {
+    const projectUrl = getProjectWebUrl(
+      credentials.apiHost,
+      credentials.projectId,
+    );
     // Overrides replace task guidance, but product engineering and rich-output rules stay available.
     if (systemPromptOverride) {
       return {
         append: appendRichOutputPrompt(
           prependProductEngineerPrompt(systemPromptOverride),
+          undefined,
+          projectUrl,
         ),
       };
     }
@@ -840,7 +938,11 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     );
 
     return {
-      append: appendRichOutputPrompt(prependProductEngineerPrompt(prompt)),
+      append: appendRichOutputPrompt(
+        prependProductEngineerPrompt(prompt),
+        undefined,
+        projectUrl,
+      ),
     };
   }
 
@@ -958,9 +1060,11 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
 
     const channel = `agent-event:${taskRunId}`;
-    const proxyUrl = await this.agentAuthAdapter.ensureGatewayProxy(
+    const gatewayProxy = await this.agentAuthAdapter.ensureGatewayProxy(
       credentials.apiHost,
+      credentials.projectId,
     );
+    const proxyUrl = gatewayProxy.proxyUrl;
     // The wiki mount only needs the auth adapter, so it runs alongside the
     // env configuration instead of serializing another round-trip before it.
     const [, contextWiki] = await Promise.all([
@@ -1025,6 +1129,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       const claudeAuthGeneration = this.claudeAuthGeneration;
 
       let codexHome: string | undefined;
+      let codexBaseUrlInConfig = false;
       if (adapter === "codex") {
         if (codexSubscription) {
           codexHome = getCodexHomeDir(this.storagePaths.appDataPath, taskRunId);
@@ -1036,6 +1141,19 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             bundledSkillsDir,
             log: this.log,
           });
+          // The proxy URL carries a secret, so it never falls back to argv.
+          if (
+            !(await writeCodexGatewayProvider(
+              codexHome,
+              `${proxyUrl}/v1`,
+              this.log,
+            ))
+          ) {
+            throw new Error(
+              "Could not write the Codex gateway config; not starting the session.",
+            );
+          }
+          codexBaseUrlInConfig = true;
         }
       }
 
@@ -1044,6 +1162,8 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         codexModelAccess: codexSubscription ? "own-subscription" : undefined,
         claudeModelAccess: claudeSubscription ? "own-subscription" : undefined,
         gatewayUrl: proxyUrl,
+        gatewayApiKey: AUTH_PROXY_PLACEHOLDER_CREDENTIAL,
+        codexBaseUrlInConfig,
         contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
           adapter === "codex" ? this.getCodexBinaryPath() : undefined,
@@ -1351,6 +1471,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         configOptions,
         steering,
         sideQuestion,
+        gatewayMode: gatewayProxy.mode,
         inFlightMcpToolCalls: new Map(),
         pendingSideQuestions: 0,
         mcpToolApprovals: toolApprovals,
@@ -1398,6 +1519,12 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         this.log.debug("Agent cleanup failed during error handling", {
           taskRunId,
         });
+      }
+      // The run's config.toml names the proxy URL and its path token.
+      if (adapter === "codex") {
+        await cleanupCodexHome(this.storagePaths.appDataPath, taskRunId).catch(
+          () => this.log.debug("Codex home cleanup failed", { taskRunId }),
+        );
       }
 
       if (!isRetry && isAuthError(err)) {
@@ -2361,6 +2488,7 @@ For git operations while detached:
       configOptions: session.configOptions,
       steering: session.steering,
       sideQuestion: session.sideQuestion,
+      gatewayMode: session.gatewayMode,
     };
   }
 
@@ -2559,13 +2687,47 @@ For git operations while detached:
   }
 
   async getPiModelCatalog(apiHost: string, region: CloudRegion) {
-    const gatewayUrl = getLlmGatewayUrl(apiHost);
+    const models = await this.catalogueSource(apiHost);
     return fetchPosthogPiModelCatalog(
-      gatewayUrl,
+      models.gatewayUrl,
       region,
-      (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
-      this.agentAuthAdapter.gatewayProjectId() ?? undefined,
+      models.authToken,
+      models.projectId,
     );
+  }
+
+  /**
+   * Where the pickers read `/v1/models`: through the proxy for the selected
+   * project, so Go's list gets the same filter and marks a session sees.
+   */
+  private async catalogueSource(apiHost: string): Promise<{
+    gatewayUrl: string;
+    authToken: string | undefined;
+    projectId: number | undefined;
+  }> {
+    const projectId = this.agentAuthAdapter.gatewayProjectId();
+    const authToken =
+      (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined;
+    if (projectId !== null) {
+      try {
+        // The pickers keep no mode, so a due re-check runs in the background.
+        const proxy = await this.agentAuthAdapter.ensureGatewayProxy(
+          apiHost,
+          projectId,
+          { awaitRecheck: false },
+        );
+        return { gatewayUrl: proxy.proxyUrl, authToken, projectId };
+      } catch (err) {
+        this.log.warn("Gateway proxy unavailable for the model catalogue", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return {
+      gatewayUrl: getLlmGatewayUrl(apiHost),
+      authToken,
+      projectId: projectId ?? undefined,
+    };
   }
 
   async getPreviewConfigOptions(
@@ -2573,12 +2735,9 @@ For git operations while detached:
     adapter: Adapter = "claude",
     allHarnessModels = false,
   ): Promise<SessionConfigOption[]> {
-    const gatewayUrl = getLlmGatewayUrl(apiHost);
-    const gatewayModels = await fetchGatewayModels({
-      gatewayUrl,
-      authToken: (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
-      projectId: this.agentAuthAdapter.gatewayProjectId() ?? undefined,
-    });
+    const gatewayModels = await fetchGatewayModels(
+      await this.catalogueSource(apiHost),
+    );
     const configOptions = buildCloudTaskConfigOptions(
       gatewayModels,
       adapter,

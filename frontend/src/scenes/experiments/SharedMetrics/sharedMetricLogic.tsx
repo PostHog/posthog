@@ -191,6 +191,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 const { sharedMetricId } = props
 
                 if (sharedMetricId) {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentSavedMetricsRetrieve() from 'products/experiments/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiment_saved_metrics/${sharedMetricId}`
                     )
@@ -230,6 +231,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             }
             actions.setMetricSaving(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentSavedMetricsCreate() from 'products/experiments/frontend/generated/api' instead.
                 const response = await api.create(
                     `api/projects/${values.currentProjectId}/experiment_saved_metrics/`,
                     values.sharedMetric
@@ -257,6 +259,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             }
             actions.setMetricSaving(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentSavedMetricsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                 const response = await api.update(
                     `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`,
                     values.sharedMetric
@@ -282,6 +285,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         },
         deleteSharedMetric: async () => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentSavedMetricsDestroy() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(
                     `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`
                 )

@@ -1,13 +1,17 @@
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rocketlane import (
     RocketlaneSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.rocketlane import (
+    RocketlaneResumeConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source import RocketlaneSource
 
 
@@ -17,49 +21,9 @@ class TestRocketlaneSource:
         self.team_id = 123
         self.config = RocketlaneSourceConfig(api_key="rl-key")
 
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Rocketlane"
-        assert config.label == "Rocketlane"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible — it must not carry the scaffolding flag.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/rocketlane"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret `api_key`; the base URL is hardcoded and the account is
-        # implicit in the key, so there is no non-secret field that retargets where the key is sent.
-        assert self.source.connection_host_fields == []
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Rocketlane's list endpoints have no single server-side timestamp cursor, so every schema
-        # is full refresh.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["tasks"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "tasks"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # Exercises the credential-free catalog path used by the posthog.com docs.
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all("Full refresh" in t["sync_methods"] for t in tables)
 
     @parameterized.expand(
         [
@@ -97,51 +61,32 @@ class TestRocketlaneSource:
             ("unauthorized", 401, False, "Invalid Rocketlane API key"),
             ("forbidden", 403, False, "Invalid Rocketlane API key"),
             ("server_error", 500, False, "Rocketlane returned HTTP 500"),
-            ("connection_error", 0, False, "Could not connect to Rocketlane: boom"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source.check_access")
     def test_validate_credentials(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-        mock_check: mock.MagicMock,
+        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
     ) -> None:
-        message = (
-            "Rocketlane returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Rocketlane: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
+            is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is expected_valid
         assert returned == expected_message
+        assert network.requests_log[0].headers["api-key"] == "rl-key"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source.check_access")
-    def test_validate_credentials_probes_the_account_key(self, mock_check: mock.MagicMock) -> None:
-        # The api-key is account-wide, so validation probes the key, not a per-schema scope.
-        mock_check.return_value = (200, None)
-        self.source.validate_credentials(self.config, self.team_id, schema_name="tasks")
-        mock_check.assert_called_once_with("rl-key")
+    def test_validate_credentials_connection_error(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
+        assert is_valid is False
+        assert returned is not None and returned.startswith("Could not connect to Rocketlane:")
+        assert "boom" in returned
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source.rocketlane_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_rocketlane_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "projects"
-        manager = mock.MagicMock()
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "projects",
+            [ScriptedResponse(json={"data": [], "pagination": {"hasMore": False}})],
+            resume_state=RocketlaneResumeConfig(page_token="t2"),
+        )
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_rocketlane_source.assert_called_once()
-        kwargs = mock_rocketlane_source.call_args.kwargs
-        assert kwargs["api_key"] == "rl-key"
-        assert kwargs["endpoint"] == "projects"
-        assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Rocketlane schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        assert result.requests[0].headers["api-key"] == "rl-key"
+        assert result.paths == ["/api/1.0/projects"]
+        # The resume manager reaches the extraction: the first request carries the saved token.
+        assert result.requests[0].param("pageToken") == "t2"

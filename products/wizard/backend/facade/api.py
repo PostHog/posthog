@@ -8,16 +8,20 @@ dataclasses. Never return ORM instances or import DRF.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
 from typing import Any
 from uuid import UUID
+
+from redis.asyncio.client import PubSub
 
 from products.wizard.backend import metrics
 from products.wizard.backend.facade.contracts import (
     CreatePullRequestArtifactInput,
     CreateWizardRunInput,
     ListWizardRunsInput,
+    RecordWizardScanInput,
+    UpdateWizardRunTaskInput,
     UpsertWizardSessionInput,
     WizardProgram,
     WizardRunArtifactDTO,
@@ -26,6 +30,8 @@ from products.wizard.backend.facade.contracts import (
     WizardRunGitDiffArtifactDTO,
     WizardRunPage,
     WizardRunPullRequestArtifactDTO,
+    WizardRunTaskDTO,
+    WizardScanResult,
     WizardSessionDTO,
 )
 from products.wizard.backend.facade.enums import WizardRunStage, WizardRunStatus
@@ -33,15 +39,31 @@ from products.wizard.backend.facade.validation import validate_wizard_version as
 from products.wizard.backend.logic import (
     registry as registry_service,
     runs as run_service,
+    scans,
     sessions,
 )
 from products.wizard.backend.logic.artifacts import service as artifacts
+from products.wizard.backend.logic.runs import pubsub as run_pubsub
 from products.wizard.backend.logic.sessions import pubsub
+from products.wizard.backend.tool_catalog.catalog import tool_catalog_json
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
     """Returns `(dto, created)` so callers can pick 201 vs 200."""
     return sessions.upsert_session(params)
+
+
+def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
+    return scans.record_scan(params)
+
+
+def organization_has_detected_tool(*, organization_id: str, kinds: Collection[str]) -> bool:
+    """Whether the latest scan of any workspace in the organization still finds one of `kinds`."""
+    return scans.organization_has_detected_tool(organization_id=organization_id, kinds=kinds)
+
+
+def get_tool_catalog_json() -> bytes:
+    return tool_catalog_json()
 
 
 def get(team_id: int, session_id: str) -> WizardSessionDTO | None:
@@ -111,6 +133,12 @@ def get_run(team_id: int, run_id: UUID) -> WizardRunDTO:
     return run_service.get_run(team_id, run_id)
 
 
+@asynccontextmanager
+async def subscribe_to_run_updates(team_id: int, run_id: UUID) -> AsyncIterator[PubSub]:
+    async with run_pubsub.subscribe(team_id, run_id) as subscription:
+        yield subscription
+
+
 def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
     return run_service.list_runs(params)
 
@@ -131,6 +159,12 @@ def update_run_status(
     error_code: str | None = None,
 ) -> WizardRunDTO:
     return run_service.transition_run(team_id, run_id, status, error_code=error_code)
+
+
+def update_run_task_list(
+    team_id: int, run_id: UUID, tasks: tuple[UpdateWizardRunTaskInput, ...]
+) -> tuple[WizardRunTaskDTO, ...]:
+    return run_service.update_run_task_list(team_id, run_id, tasks)
 
 
 def create_git_diff_artifact(team_id: int, run_id: UUID, content: bytes) -> WizardRunGitDiffArtifactDTO | None:

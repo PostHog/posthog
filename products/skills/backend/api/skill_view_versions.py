@@ -287,6 +287,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
         parameters=[LLMSkillFetchQuerySerializer],
         responses={200: LLMSkillMarkdownSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["GET"],
         detail=False,

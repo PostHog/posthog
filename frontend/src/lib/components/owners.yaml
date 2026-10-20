@@ -1,11 +1,23 @@
 version: 1
 owners: []
 rules:
+    - match: '/HogQLEditor/'
+      owners: team-data-tools
+    - match: '/LiveUserCount/'
+      owners: team-web-analytics
     - match: '/MarkdownNotebook/'
       owners: team-data-tools
+    # Growth runs the sidebar promotion slot, so every change to it goes to Growth, however small.
+    - match: '/NavPanelAdvertisement/'
+      owners: team-growth
+      sensitive: true
+    - match: '/ProductEmptyState/'
+      owners: team-growth
     - match: '/ReverseProxyChecker/'
       owners: team-platform-features
     - match: '/RichContentEditor/'
       owners: team-data-tools
+    - match: '/SkillPicker/'
+      owners: team-self-driving
     - match: '/heatmaps/'
       owners: team-web-analytics

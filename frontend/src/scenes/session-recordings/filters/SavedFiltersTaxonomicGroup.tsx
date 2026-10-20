@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { TaxonomicFilterRenderProps } from 'lib/components/TaxonomicFilter/types'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { SessionRecordingPlaylistType } from '~/types'
 
@@ -18,8 +19,10 @@ export function SavedFiltersTaxonomicGroup({
 
     if (isLoading && !hasResults) {
         return (
-            <div className="p-2 flex items-center justify-center">
-                <Spinner className="text-2xl" />
+            <div className="px-3 py-2 space-y-2">
+                <LemonSkeleton className="h-7 w-full" />
+                <LemonSkeleton className="h-7 w-4/5" />
+                <LemonSkeleton className="h-7 w-3/5" />
             </div>
         )
     }
@@ -32,6 +35,7 @@ export function SavedFiltersTaxonomicGroup({
                         const name = filter.name || filter.derived_name || 'Unnamed'
                         return (
                             <LemonButton
+                                data-attr="filters-saved-filter-apply"
                                 key={filter.short_id}
                                 size="small"
                                 fullWidth

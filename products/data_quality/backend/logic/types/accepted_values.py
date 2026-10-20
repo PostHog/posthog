@@ -107,7 +107,11 @@ class AcceptedValuesSpec(CheckTypeSpec):
         if not column_type:
             return config
         bare = _unwrap_type(column_type)
-        return AcceptedValuesConfig(values=[_coerce_value(value, bare) for value in config.values])
+        # Rebuilt over the whole config, not from the values alone: the model is constructed so the
+        # set validator re-runs -- coercion can make two values equal -- and the dump carries the
+        # base fields across, so a lookback window survives.
+        coerced = {**config.model_dump(), "values": [_coerce_value(value, bare) for value in config.values]}
+        return AcceptedValuesConfig(**coerced)
 
     def build(
         self, subject: SubjectRef, column_name: str, config: CheckConfig, related: SubjectRef | None = None

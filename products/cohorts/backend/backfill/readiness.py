@@ -148,7 +148,9 @@ def _stamp_readiness(run: CohortBackfillRun, cohort_id: int, spec: _ReadinessSpe
         try:
             current_shape = FilterShapeHashes.from_filters(cohort.filters)
             pinned_shape = FilterShapeHashes.from_filters(participation.pinned_filters)
-            composition_stale = current_shape.composition_repair_kind(pinned_shape, cohort.filters) == run.backfill_kind
+            composition_stale = run.backfill_kind in current_shape.composition_repair_kinds(
+                pinned_shape, cohort.filters
+            )
         except Exception:
             # An unreadable definition cannot prove readiness and must not trap the finalizer in retries.
             composition_stale = True

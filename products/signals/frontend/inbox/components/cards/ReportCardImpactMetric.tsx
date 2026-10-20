@@ -4,23 +4,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { formatReportMetricValue, reportMetricChartType, reportMetricRowParts } from '../../utils/reportMetrics'
+import { reportMetricChartType, reportMetricRowParts, selectReportCardImpactMetric } from '../../utils/reportMetrics'
 import { ReportCardSparkline } from './ReportCardSparkline'
-
-export function selectReportCardImpactMetric(metrics?: ReportMetricApi[]): ReportMetricApi | null {
-    if (!metrics?.length) {
-        return null
-    }
-
-    const hasSnapshot = (metric: ReportMetricApi): boolean =>
-        metric.value !== null && Number.isFinite(metric.value) && formatReportMetricValue(metric, metric.value) !== null
-
-    return (
-        metrics.find((metric) => metric.kind === 'affected_users' && hasSnapshot(metric)) ??
-        metrics.find((metric) => metric.role === 'primary' && hasSnapshot(metric)) ??
-        null
-    )
-}
 
 /**
  * The row's headline impact: the trailing buckets as a bar or line strip, then the figure over its unit word.

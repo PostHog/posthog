@@ -9,7 +9,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import groups
+from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.rate_limit import SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle
 
 from products.error_tracking.backend.facade import (
@@ -37,6 +37,17 @@ class ErrorTrackingSymbolSetUploadSerializer(serializers.Serializer):
         allow_null=True,
         default=None,
         help_text="Optional hash of the symbol set content, used to skip unchanged uploads.",
+    )
+    content_length = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        min_value=0,
+        help_text=(
+            "Optional byte count of the content about to be uploaded. When given, the upload "
+            "response also carries a presigned PUT signed for exactly this length, which "
+            "S3-compatible stores without presigned POST support (such as Cloudflare R2) accept."
+        ),
     )
 
 
@@ -123,6 +134,14 @@ class ErrorTrackingSymbolSetBulkStartUploadEntrySerializer(serializers.Serialize
     fallback_presigned_url = ErrorTrackingSymbolSetPresignedPostSerializer(
         required=False,
         help_text="Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint.",
+    )
+    presigned_put_url = serializers.URLField(
+        required=False,
+        help_text="Presigned PUT for the upload, present only when the request declared `content_length`. Send the raw bytes with a matching `Content-Length` header. Prefer this over `presigned_url`: presigned POST is an AWS extension that some S3-compatible stores reject.",
+    )
+    fallback_presigned_put_url = serializers.URLField(
+        required=False,
+        help_text="Presigned PUT against the standard S3 endpoint, present only when the primary PUT uses transfer acceleration.",
     )
 
 
@@ -276,7 +295,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         posthoganalytics.capture(
             "error_tracking_symbol_set_deprecated_endpoint",
             distinct_id=request.user.pk,
-            properties={"team_id": self.team.id, "endpoint": "create"},
+            properties={**get_request_analytics_properties(request), "team_id": self.team.id, "endpoint": "create"},
         )
 
         if not chunk_id:
@@ -305,7 +324,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         posthoganalytics.capture(
             "error_tracking_symbol_set_deprecated_endpoint",
             distinct_id=request.user.pk,
-            properties={"team_id": self.team.id, "endpoint": "start_upload"},
+            properties={
+                **get_request_analytics_properties(request),
+                "team_id": self.team.id,
+                "endpoint": "start_upload",
+            },
         )
 
         if not chunk_id:
@@ -368,6 +391,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         posthoganalytics.capture(
             "error_tracking_symbol_set_upload_checked",
             properties={
+                **get_request_analytics_properties(request),
                 "team_id": self.team.id,
                 "force": force,
                 "skip_on_conflict": skip_on_conflict,
@@ -414,6 +438,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         posthoganalytics.capture(
             "error_tracking_symbol_set_upload_started",
             properties={
+                **get_request_analytics_properties(request),
                 "team_id": self.team.id,
                 "endpoint": "bulk_start_upload",
                 "force": force,
@@ -440,6 +465,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             # we can early exit here.
             return Response({"success": True}, status=status.HTTP_201_CREATED)
 
-        symbol_sets_facade.bulk_finish_upload(self.team, content_hashes)
+        symbol_sets_facade.bulk_finish_upload(
+            self.team, content_hashes, analytics_props=get_request_analytics_properties(request)
+        )
 
         return Response({"success": True}, status=status.HTTP_201_CREATED)

@@ -2,6 +2,7 @@ import json
 import time
 import shlex
 import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -12,6 +13,7 @@ import posthoganalytics
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
@@ -21,6 +23,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
@@ -29,19 +32,27 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxMissingRepositoryError,
 )
-from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
+from products.tasks.backend.logic.services.connection_token import (
+    create_codex_subscription_run_token,
+    create_sandbox_event_ingest_token,
+)
 from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
     SNAPSHOT_KIND_DIRECTORY,
+    SUBSCRIPTION_CLI_FLAGS,
     SandboxBase,
     get_sandbox_class_for_sandbox_id,
     sandbox_repo_path,
 )
+from products.tasks.backend.logic.stream.redis_stream import release_task_run_milestone_claims
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_agent_server_readiness_retry,
+    record_agent_server_boot_phases_ms,
     record_agent_server_session_init_ms,
     record_agent_server_step_ms,
     record_boot_total_ms,
@@ -50,6 +61,7 @@ from products.tasks.backend.temporal.metrics import (
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.process_task.organization import guard_organization_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     format_allowed_domains_for_log,
@@ -60,6 +72,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_user_mcp_server_configs,
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
+    mcp_exclude_tools_from_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -67,6 +80,8 @@ from .get_task_processing_context import TaskProcessingContext
 logger = get_logger(__name__)
 
 AGENT_SERVER_SHADOW_FEATURE_FLAG = "agent-server-shadow-observer"
+
+PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS = 30.0
 
 
 def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
@@ -119,14 +134,28 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
     if not ctx.has_github_credentials:
         return branch
 
+    # A stacked run starts on the head branch of the pull request it builds on, and that branch is
+    # its PR base. Only the exact branch the run was created for counts, so a resume that moved to
+    # the run's own head branch takes the lookup below.
+    if (ctx.state or {}).get("stack_base_branch") == branch:
+        return branch
+
     try:
         integration: GitHubIntegration | UserGitHubIntegration
         if ctx.github_integration_id:
-            integration = GitHubIntegration(Integration.objects.get(id=ctx.github_integration_id))
+            integration = GitHubIntegration(
+                Integration.objects.get(id=ctx.github_integration_id),
+                source="tasks_sandbox",
+                priority=Priority.CRITICAL,
+            )
             if integration.access_token_expired():
                 integration.refresh_access_token()
         else:
-            integration = UserGitHubIntegration(UserIntegration.objects.get(id=str(ctx.github_user_integration_id)))
+            integration = UserGitHubIntegration(
+                UserIntegration.objects.get(id=str(ctx.github_user_integration_id)),
+                source="tasks_sandbox",
+                priority=Priority.CRITICAL,
+            )
         pr_base = integration.get_open_pr_base_for_head(ctx.repository, branch)
     except Exception:
         logger.warning("resolve_protected_base_branch_failed", task_id=ctx.task_id, run_id=ctx.run_id, exc_info=True)
@@ -143,6 +172,7 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
     return branch
 
 
+@StepTimer("repository_directory_check")
 def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
     """Fail fast when the repository the agent-server will use as its cwd was never materialized.
 
@@ -154,13 +184,17 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
     """
     if not ctx.repositories:
         return
-    for repository in ctx.repositories:
+    for index, repository in enumerate(ctx.repositories):
         repo_path = sandbox_repo_path(repository)
-        result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
+        if index == 0:
+            probe = f"test -e {shlex.quote(f'{repo_path}/.git')}"
+        else:
+            probe = f"test -d {shlex.quote(repo_path)}"
+        result = sandbox.execute(probe, timeout_seconds=10)
         if result.exit_code != 0:
             raise SandboxMissingRepositoryError(
-                f"Repository {repository} is not present in the sandbox at {repo_path} — it was never "
-                "cloned (no snapshot restored and no usable GitHub credentials for this task)",
+                f"Repository {repository} has no checkout in the sandbox at {repo_path} (no snapshot "
+                "restored, no usable GitHub credentials, or the clone failed)",
                 {
                     "task_id": ctx.task_id,
                     "run_id": ctx.run_id,
@@ -360,6 +394,7 @@ class _LaunchParams:
     protected_base_branch: str | None
     event_ingest_token: str | None = field(repr=False)
     task_run_session_token: str | None = field(repr=False)
+    codex_run_token: str | None = field(repr=False)
     event_ingest_url: str | None
     event_ingest_keep_stream_open: bool
 
@@ -395,11 +430,50 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     return not task.internal
 
 
+def _start_protected_base_branch_lookup(
+    ctx: TaskProcessingContext,
+) -> tuple[ThreadPoolExecutor, Future[str | None]] | None:
+    if not ctx.branch or not ctx.repository or not ctx.has_github_credentials:
+        return None
+
+    def _resolve() -> str | None:
+        try:
+            return _resolve_protected_base_branch(ctx)
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"protected-base-branch-{ctx.run_id}")
+    return executor, executor.submit(_resolve)
+
+
+def _join_protected_base_branch_lookup(
+    ctx: TaskProcessingContext, lookup: tuple[ThreadPoolExecutor, Future[str | None]] | None
+) -> str | None:
+    if lookup is None:
+        return _resolve_protected_base_branch(ctx)
+
+    executor, future = lookup
+    try:
+        return future.result(timeout=PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS)
+    except TimeoutError:
+        logger.warning("resolve_protected_base_branch_timed_out", task_id=ctx.task_id, run_id=ctx.run_id)
+        return ctx.branch
+    except Exception:
+        logger.warning("resolve_protected_base_branch_failed", task_id=ctx.task_id, run_id=ctx.run_id, exc_info=True)
+        return ctx.branch
+    finally:
+        executor.shutdown(wait=False)
+
+
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
+    protected_base_branch_lookup = _start_protected_base_branch_lookup(ctx)
     task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
     try:
         actor_user = get_task_run_credential_user(task, ctx.state)
-        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
+        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes, run_id=ctx.run_id)
     except OAuthTokenError:
         raise
     except Exception as e:
@@ -425,10 +499,13 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             {"task_id": ctx.task_id, "run_id": ctx.run_id},
             cause=TaskRun.DoesNotExist(f"TaskRun {ctx.run_id} not found"),
         )
+    release_task_run_milestone_claims(ctx.run_id, run_uses_dedicated_stream(task_run.state))
     task_run_session_token: str | None = None
     if event_stream_ingest_enabled or task.runtime == Task.Runtime.PI:
         try:
-            run_token = create_sandbox_event_ingest_token(task_run, sandbox_id=sandbox_id)
+            run_token = create_sandbox_event_ingest_token(
+                task_run, sandbox_id=sandbox_id, stream_generation=ctx.stream_generation
+            )
         except Exception as e:
             raise SandboxExecutionError(
                 "Failed to create sandbox task run token",
@@ -439,6 +516,9 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             event_ingest_token = run_token
         if task.runtime == Task.Runtime.PI:
             task_run_session_token = run_token
+    codex_run_token: str | None = None
+    if ctx.model_access.adapter == "codex":
+        codex_run_token = create_codex_subscription_run_token(task_run, sandbox_id=sandbox_id)
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
@@ -448,6 +528,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         slack_reply_context=ctx.slack_reply_context,
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
+        exclude_tools=mcp_exclude_tools_from_state(ctx.state),
     )
     include_personal = _include_personal_mcp_for_task(task)
     user_mcp_configs = get_user_mcp_server_configs(
@@ -514,7 +595,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             f"Sandbox environment '{environment_name}' grants full network access; starting without agentsh restrictions",
         )
 
-    protected_base_branch = _resolve_protected_base_branch(ctx)
+    protected_base_branch = _join_protected_base_branch_lookup(ctx, protected_base_branch_lookup)
 
     return _LaunchParams(
         mcp_configs=mcp_configs,
@@ -524,6 +605,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
         task_run_session_token=task_run_session_token,
+        codex_run_token=codex_run_token,
         event_ingest_url=event_ingest_url,
         event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
@@ -538,7 +620,7 @@ def _invoke_start_agent_server(
     wait_for_health: bool = False,
 ) -> int | None:
     try:
-        _enforce_claude_subscription_support(sandbox, ctx)
+        _enforce_subscription_support(sandbox, ctx)
         health_duration_ms = sandbox.start_agent_server(
             repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
@@ -569,7 +651,13 @@ def _invoke_start_agent_server(
             rtk_enabled=ctx.rtk_enabled,
             benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
-            claude_model_access=ctx.claude_model_access,
+            pi_acp_conversation=ctx.pi_acp_conversation_enabled,
+            claude_model_access=ctx.model_access.access_for("claude"),
+            codex_model_access=ctx.model_access.access_for("codex"),
+            codex_run_token=params.codex_run_token,
+            sandbox_runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+            if isinstance(sandbox, ModalSandbox)
+            else None,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
@@ -596,19 +684,19 @@ def _invoke_start_agent_server(
         )
 
 
-def _enforce_claude_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
-    if ctx.claude_model_access != "own-subscription":
+def _enforce_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
+    adapter = ctx.model_access.adapter
+    if adapter is None:
         return
-    result = sandbox.execute(
-        "grep -q -- --claudeSubscription /scripts/node_modules/.bin/agent-server",
-        timeout_seconds=10,
-    )
+    plan_name = SUBSCRIPTION_PLAN_NAMES[adapter]
+    flag = SUBSCRIPTION_CLI_FLAGS[adapter]
+    result = sandbox.execute(f"grep -q -- {flag} /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
     if result.exit_code != 0:
         raise ProcessTaskFatalError(
-            "This sandbox build cannot use your Claude plan yet. Start a new task. "
-            'To use PostHog credits instead, turn off "Use your Claude plan for cloud tasks".',
+            f"This sandbox build cannot use your {plan_name} yet. Start a new task. "
+            f'To use PostHog credits instead, turn off "Use your {plan_name} for cloud tasks".',
             {"task_id": ctx.task_id, "run_id": ctx.run_id},
-            cause=RuntimeError("agent-server lacks --claudeSubscription"),
+            cause=RuntimeError(f"agent-server lacks {flag}"),
             capture=False,
         )
 
@@ -670,8 +758,34 @@ def _record_boot_total(input: StartAgentServerInput) -> int | None:
     return boot_total_ms
 
 
+def _read_agent_boot_metrics(sandbox: SandboxBase, input: StartAgentServerInput) -> tuple[int | None, dict[str, int]]:
+    ctx = input.context
+    runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+    with StepTimer(
+        "read_agent_boot_metrics",
+        origin_product=ctx.origin_product,
+        runtime=runtime,
+        boot_path=input.boot_path,
+        used_snapshot=input.used_snapshot,
+    ):
+        session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
+    if session_init_ms is not None:
+        record_agent_server_session_init_ms(
+            session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+        )
+    record_agent_server_boot_phases_ms(
+        boot_phases_ms,
+        input.boot_path,
+        used_snapshot=input.used_snapshot,
+        origin_product=ctx.origin_product,
+        runtime=runtime,
+    )
+    return session_init_ms, boot_phases_ms
+
+
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     """Start the agent-server HTTP server in the sandbox.
 
@@ -681,17 +795,25 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
     with (
-        log_activity_execution("start_agent_server", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        log_activity_execution(
+            "start_agent_server",
+            sandbox_id=input.sandbox_id,
+            boot_path=input.boot_path,
+            used_snapshot=input.used_snapshot,
+            **ctx.to_log_context(),
+        ),
         launch_preparation_metric_context(
             boot_path=input.boot_path,
             runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
             origin_product=ctx.origin_product,
             used_snapshot=input.used_snapshot,
         ),
+        guard_organization_execution(ctx.team_id),
     ):
         emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
-        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+        with StepTimer("sandbox_lookup"):
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         # Classic (non-deferred) path only: any clone has already happened by now, so a missing
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.
@@ -773,11 +895,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 ) as health_timer:
                     sandbox.wait_for_agent_server_ready(
                         params.agentsh_domains,
-                        **(
-                            {"claude_model_access": ctx.claude_model_access}
-                            if ctx.claude_model_access == "own-subscription"
-                            else {}
-                        ),
+                        claude_model_access=ctx.model_access.access_for("claude"),
                     )
                 invoke_ms = invoke_timer.elapsed_ms
                 health_poll_ms = health_timer.elapsed_ms
@@ -788,12 +906,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
         activity.logger.info(f"Agent server started at {input.sandbox_url} for task {ctx.task_id}")
 
-        session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
-        if session_init_ms is not None:
-            record_agent_server_session_init_ms(
-                session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
-            )
-
+        session_init_ms, boot_phases_ms = _read_agent_boot_metrics(sandbox, input)
         boot_total_ms = _record_boot_total(input)
 
         _spawn_post_ready_diagnostics(ctx, sandbox, params.agentsh_domains)
@@ -814,21 +927,30 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
     with (
-        log_activity_execution("launch_agent_server", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        log_activity_execution(
+            "launch_agent_server",
+            sandbox_id=input.sandbox_id,
+            boot_path=input.boot_path,
+            used_snapshot=input.used_snapshot,
+            **ctx.to_log_context(),
+        ),
         launch_preparation_metric_context(
             boot_path=input.boot_path,
             runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
             origin_product=ctx.origin_product,
             used_snapshot=input.used_snapshot,
         ),
+        guard_organization_execution(ctx.team_id),
     ):
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
-        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+        with StepTimer("sandbox_lookup"):
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
         with StepTimer(
@@ -859,15 +981,19 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def mark_repo_ready(input: MarkRepoReadyInput) -> None:
-    sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+    posthoganalytics.tag("run_id", input.run_id)
+    with StepTimer("sandbox_lookup"):
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     for repository in input.failed_repositories or []:
         repo_path = sandbox_repo_path(repository)
         result = sandbox.execute(f"mkdir -p {shlex.quote(repo_path)}", timeout_seconds=10)
         if result.exit_code != 0:
             raise RuntimeError(f"Failed to create fallback workspace for {repository}: {result.stderr}")
     if input.release_barrier:
-        sandbox.mark_repo_ready(REPO_READY_FILE)
+        with StepTimer("release_repository_gate"):
+            sandbox.mark_repo_ready(REPO_READY_FILE)
     if input.failed_repositories:
         action = "released agent with" if input.release_barrier else "created"
         emit_agent_log(
@@ -881,19 +1007,28 @@ def mark_repo_ready(input: MarkRepoReadyInput) -> None:
 
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
     with (
-        log_activity_execution("await_agent_server_ready", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        log_activity_execution(
+            "await_agent_server_ready",
+            sandbox_id=input.sandbox_id,
+            boot_path=input.boot_path,
+            used_snapshot=input.used_snapshot,
+            **ctx.to_log_context(),
+        ),
         launch_preparation_metric_context(
             boot_path=input.boot_path,
             runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
             origin_product=ctx.origin_product,
             used_snapshot=input.used_snapshot,
         ),
+        guard_organization_execution(ctx.team_id),
     ):
-        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+        with StepTimer("sandbox_lookup"):
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         agentsh_domains = _agentsh_domains_for(ctx)
         attempt = current_activity_attempt()
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
@@ -913,11 +1048,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     ) as health_timer:
                         sandbox.wait_for_agent_server_ready(
                             agentsh_domains,
-                            **(
-                                {"claude_model_access": ctx.claude_model_access}
-                                if ctx.claude_model_access == "own-subscription"
-                                else {}
-                            ),
+                            claude_model_access=ctx.model_access.access_for("claude"),
                         )
                 else:
                     logger.warning(
@@ -952,11 +1083,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     ) as health_timer:
                         sandbox.wait_for_agent_server_ready(
                             agentsh_domains,
-                            **(
-                                {"claude_model_access": ctx.claude_model_access}
-                                if ctx.claude_model_access == "own-subscription"
-                                else {}
-                            ),
+                            claude_model_access=ctx.model_access.access_for("claude"),
                         )
                     _record_agent_server_launch(sandbox, ctx, params)
         except Exception as error:
@@ -988,12 +1115,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         emit_agent_log(ctx.run_id, "debug", f"Agent server ready at {input.sandbox_url}")
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")
 
-        session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
-        if session_init_ms is not None:
-            record_agent_server_session_init_ms(
-                session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
-            )
-
+        session_init_ms, boot_phases_ms = _read_agent_boot_metrics(sandbox, input)
         boot_total_ms = _record_boot_total(input)
 
         _spawn_post_ready_diagnostics(ctx, sandbox, agentsh_domains)

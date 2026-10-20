@@ -1,6 +1,6 @@
-from datetime import timedelta
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,8 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     DEFAULT_USAGE_HOURLY_HISTORY_DAYS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY,
     METRONOME_ENDPOINTS,
-    USAGE_HISTORY,
     usage_history_window,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -41,6 +41,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConfig]):
+    codebase_detection = detect(
+        env=("^METRONOME_BEARER_TOKEN$",),
+        npm=("@metronome/sdk",),
+        pypi=("metronome-sdk",),
+        go=("github.com/Metronome-Industries/metronome-go",),
+        maven=(
+            "com.metronome.api:metronome-java",
+            "com.metronome.api:metronome-java-client-okhttp",
+            "com.metronome.api:metronome-java-core",
+        ),
+        rubygems=("metronome-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Metronome exposes no pinnable API version. `/v1/` and `/v2/` are route namespaces that
     # coexist permanently — v2 contracts sit alongside v1 rate cards and packages — and no header,
@@ -77,9 +90,9 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
-            # Appending would duplicate every period the lookback re-reads, so a bucketed usage
+            # Appending would duplicate every period the lookback re-reads, so a windowed
             # table has to merge on its primary key.
-            merge_only=tuple(USAGE_HISTORY),
+            merge_only=MERGE_ONLY,
             should_sync_default={name: METRONOME_ENDPOINTS[name].should_sync_default for name in ENDPOINTS},
         )
         for schema in schemas:
@@ -87,18 +100,6 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
                 schema.name
             ].default_incremental_lookback_seconds
         return schemas
-
-    def history_lookback_for_schema(
-        self, schema_name: str, config: MetronomeSourceConfig | None = None
-    ) -> timedelta | None:
-        # Only the bucketed usage tables bound their first sync. Everything else reads a list the
-        # account already bounds, and the lifetime `usage` aggregate is one row per customer and
-        # metric however far back it reaches.
-        return usage_history_window(
-            schema_name,
-            config.usage_hourly_history_days if config else None,
-            config.usage_daily_history_months if config else None,
-        )
 
     def validate_credentials(
         self,
@@ -129,7 +130,14 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
-            history_start=inputs.history_start,
+            # Resolved per run rather than recorded once, so a depth the user edits after the first
+            # sync takes effect, and the window stays the size they asked for rather than widening
+            # as the source ages.
+            usage_history=usage_history_window(
+                inputs.schema_name,
+                config.usage_hourly_history_days,
+                config.usage_daily_history_months,
+            ),
         )
 
     @property

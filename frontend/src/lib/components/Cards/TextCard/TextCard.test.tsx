@@ -2,13 +2,11 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, render } from '@testing-library/react'
 
-import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile } from '~/types'
 
 import { TextCard, TextContent } from './TextCard'
 
-const makeTextTile = (
-    overrides: Partial<DashboardTile<QueryBasedInsightModel>> = {}
-): DashboardTile<QueryBasedInsightModel> =>
+const makeTextTile = (overrides: Partial<DashboardTile> = {}): DashboardTile =>
     ({
         id: 1,
         text: {
@@ -18,7 +16,7 @@ const makeTextTile = (
         layouts: {},
         color: null,
         ...overrides,
-    }) as DashboardTile<QueryBasedInsightModel>
+    }) as DashboardTile
 
 describe('TextCard', () => {
     it('shows the more button when placement is not Public', () => {
@@ -48,7 +46,7 @@ describe('TextCard', () => {
         )
 
         // Wiring guard only: the exact zone count is pinned by EditModeEdgeOverlay's own test.
-        const edges = getAllByTitle('Click to edit layout')
+        const edges = getAllByTitle('Drag to resize')
         expect(edges.length).toBeGreaterThan(0)
 
         fireEvent.mouseDown(edges[0])
@@ -71,18 +69,15 @@ describe('TextCard', () => {
     })
 
     describe('resize handles', () => {
-        it('shows all 8 handles when showResizeHandles is true', () => {
+        it('shows only the bottom-right handle when showResizeHandles is true', () => {
             const { container } = render(
                 <TextCard textTile={makeTextTile()} placement={DashboardPlacement.Dashboard} showResizeHandles={true} />
             )
 
-            const horizontalHandles = container.querySelectorAll('.handle.horizontal')
-            const verticalHandles = container.querySelectorAll('.handle.vertical')
-            const cornerHandles = container.querySelectorAll('.handle.corner')
+            const handles = container.querySelectorAll('.handle')
 
-            expect(horizontalHandles.length).toBe(2)
-            expect(verticalHandles.length).toBe(2)
-            expect(cornerHandles.length).toBe(4)
+            expect(handles).toHaveLength(1)
+            expect(handles[0]).toHaveClass('corner', 'bottom-right')
         })
     })
 })

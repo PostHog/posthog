@@ -1,9 +1,9 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import React, { useEffect, useState } from 'react'
+import React, { Suspense, useEffect, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter/IntervalFilter'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -23,6 +23,8 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils/guards'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Scene } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -63,17 +65,22 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 import { AgentAnalytics } from 'products/web_analytics/frontend/agent_analytics/AgentAnalytics'
 import { AgentAnalyticsFilters } from 'products/web_analytics/frontend/agent_analytics/AgentAnalyticsFilters'
 import { ContentAutopilot } from 'products/web_analytics/frontend/contentAutopilot/ContentAutopilot'
+import { MarketingAnalyticsFilterHint } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsFilterHint'
 
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveBotTiles } from './LiveMetricsDashboard/LiveBotTiles'
-import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { PagePerformance } from './PagePerformance'
 import { PagePerformanceFilters } from './PagePerformanceFilters'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
+
+// Only the live tab renders this dashboard, and its world map holds about 1 MiB of country shapes.
+const LiveWebAnalyticsMetrics = lazyWithRetry(() =>
+    import('./LiveMetricsDashboard/LiveWebAnalyticsMetrics').then((m) => ({ default: m.LiveWebAnalyticsMetrics }))
+)
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
     const { tiles: tilesFromProps, compact = false } = props
@@ -244,7 +251,8 @@ const QueryTileItemLegacy = ({
                     })
                 }}
             >
-                Open as new insight
+                <span className="@min-[26rem]/web-tile:hidden">Open insight</span>
+                <span className="hidden @min-[26rem]/web-tile:inline">Open as new insight</span>
             </LemonButton>
         ) : null,
         tile.canOpenModal !== false ? (
@@ -255,13 +263,14 @@ const QueryTileItemLegacy = ({
                 size="small"
                 type="secondary"
             >
-                Show more
+                <span className="@min-[26rem]/web-tile:hidden">Expand</span>
+                <span className="hidden @min-[26rem]/web-tile:inline">Show more</span>
             </LemonButton>
         ) : null,
     ].filter(isNotNil)
 
     return (
-        <div className={containerClassName}>
+        <div className={clsx(containerClassName, '@container/web-tile')}>
             {title && (
                 <div className="flex flex-row items-center mb-2">
                     <h2>{title}</h2>
@@ -279,9 +288,7 @@ const QueryTileItemLegacy = ({
                 tileId={tile.tileId}
             />
 
-            {buttonsRow.length > 0 ? (
-                <div className="flex justify-end my-2 deprecated-space-x-2">{buttonsRow}</div>
-            ) : null}
+            {buttonsRow.length > 0 ? <div className="flex flex-wrap justify-end gap-2 my-2">{buttonsRow}</div> : null}
         </div>
     )
 }
@@ -479,6 +486,7 @@ export const WebTabs = ({
     const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
 
     const activeTabData = tabs.find((t) => t.id === activeTabId)
+    const tabOptions = tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))
 
     const buttonsRow = [
         activeTab && activeTabData ? (
@@ -503,7 +511,8 @@ export const WebTabs = ({
                     })
                 }}
             >
-                Open as new insight
+                <span className="@min-[26rem]/web-tile:hidden">Open insight</span>
+                <span className="hidden @min-[26rem]/web-tile:inline">Open as new insight</span>
             </LemonButton>
         ) : null,
         activeTab?.canOpenModal !== false ? (
@@ -514,15 +523,16 @@ export const WebTabs = ({
                 size="small"
                 type="secondary"
             >
-                Show more
+                <span className="@min-[26rem]/web-tile:hidden">Expand</span>
+                <span className="hidden @min-[26rem]/web-tile:inline">Show more</span>
             </LemonButton>
         ) : null,
     ].filter(isNotNil)
 
     return (
-        <div className={clsx(className, 'flex flex-col')}>
-            <div className="flex flex-row items-center self-stretch mb-2">
-                <h2 className="flex-1 m-0 flex flex-row ml-1">
+        <div className={clsx(className, '@container/web-tile flex flex-col')}>
+            <div className="flex flex-row flex-wrap items-center gap-2 self-stretch mb-2">
+                <h2 className="flex-1 m-0 flex flex-row ml-1 whitespace-nowrap">
                     {activeTab?.title}
                     {activeTab?.docs && (
                         <LearnMorePopover
@@ -548,22 +558,24 @@ export const WebTabs = ({
                             },
                         ]}
                         size="small"
-                        className="mr-2"
                     />
                 )}
 
-                <LemonSegmentedDropdown
-                    splitIndices={splitIndices ?? tabSplitIndicesMap[tileId]}
-                    size="small"
-                    value={activeTabId}
-                    onChange={setActiveTabId}
-                    options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
-                />
+                <div className="hidden @min-[30rem]/web-tile:block">
+                    <LemonSegmentedDropdown
+                        splitIndices={splitIndices ?? tabSplitIndicesMap[tileId]}
+                        size="small"
+                        value={activeTabId}
+                        onChange={setActiveTabId}
+                        options={tabOptions}
+                    />
+                </div>
+                <div className="@min-[30rem]/web-tile:hidden">
+                    <LemonSelect size="small" value={activeTabId} onChange={setActiveTabId} options={tabOptions} />
+                </div>
             </div>
             <div className="flex-1 flex flex-col">{activeTab?.content}</div>
-            {buttonsRow.length > 0 ? (
-                <div className="flex justify-end my-2 deprecated-space-x-2">{buttonsRow}</div>
-            ) : null}
+            {buttonsRow.length > 0 ? <div className="flex flex-wrap justify-end gap-2 my-2">{buttonsRow}</div> : null}
         </div>
     )
 }
@@ -676,7 +688,13 @@ const MainContent = (): JSX.Element => {
     }
 
     if (productTab === ProductTab.LIVE) {
-        return <LiveWebAnalyticsMetrics />
+        return (
+            <ChunkLoadErrorBoundary>
+                <Suspense fallback={<LemonSkeleton className="h-96 w-full" />}>
+                    <LiveWebAnalyticsMetrics />
+                </Suspense>
+            </ChunkLoadErrorBoundary>
+        )
     }
 
     if (productTab === ProductTab.BOT_ANALYTICS) {
@@ -862,6 +880,7 @@ const WebAnalyticsSurveyModal = (): JSX.Element | null => {
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
+    const { currentTeamId } = useValues(teamLogic)
     useOnMountEffect(() => {
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
     })
@@ -882,6 +901,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                         <WebAnalyticsShareColleagueBanner />
                         <WebAnalyticsSavePresetNudge />
                         <ShareNudgePrompt />
+                        {currentTeamId ? <MarketingAnalyticsFilterHint teamId={currentTeamId} /> : null}
                         <WebAnalyticsHealthCheck />
                         <MainContent />
                     </>
@@ -988,8 +1008,12 @@ const getEmptyOnboardingContent = (
                     isEmpty={true}
                     titleOverride="Nothing to investigate yet!"
                     description="Install PostHog on your site or app to start capturing events. Head to the installation guide to get set up in just a few minutes."
+                    hogLayout="responsive"
+                    useMainContentContainerQueries
+                    className="p-4 @min-[48rem]/main-content:p-8"
+                    hogClassName="w-40 sm:w-40 lg:w-56"
                     actionElementOverride={
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col @min-[30rem]/main-content:flex-row items-center gap-x-2 gap-y-3">
                             <LemonButton
                                 type="primary"
                                 to={urls.onboarding({
@@ -1000,10 +1024,12 @@ const getEmptyOnboardingContent = (
                             >
                                 Open installation guide
                             </LemonButton>
-                            <span className="text-muted-alt">or</span>
-                            <Link target="_blank" to="/web/web-vitals">
-                                Set up web vitals while you wait
-                            </Link>
+                            <span className="text-muted-alt text-center">
+                                or{' '}
+                                <Link target="_blank" to="/web/web-vitals">
+                                    Set up web vitals while you wait
+                                </Link>
+                            </span>
                         </div>
                     }
                 />

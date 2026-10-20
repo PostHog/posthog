@@ -1,0 +1,599 @@
+[
+    {
+        "letter": "GA",
+        "run": "glm-high-1b",
+        "matches": {
+            "GA1": {
+                "id": "GA1",
+                "cluster": 26,
+                "confidence": "high",
+                "reason": "Same claim: the PATCH path accepts stamphog_review_inbox_prs=true with no server-side has_reviewable_repo_config precondition, exactly cluster 26's 'PATCH-writable without a stamphog_connected precondition validator'."
+            },
+            "GA2": {
+                "id": "GA2",
+                "cluster": 13,
+                "confidence": "high",
+                "reason": "Same root cause and anchor (tasks.py:113): _parse_pr_url's re.search pattern is not host-anchored so lookalike hosts parse as GitHub URLs; the extra ?/# character-class point is a consequence of the same loose regex, not a separate defect."
+            },
+            "GA3": {
+                "id": "GA3",
+                "cluster": null,
+                "confidence": "high",
+                "reason": "New claim: the tach.toml comment says facade-only enforcement while stamphog's [[interfaces]] block also exposes presentation views; runner-up cluster 55 asserts the dependency is not declared at all, which GA3 accepts as declared."
+            },
+            "GA4": {
+                "id": "GA4",
+                "cluster": null,
+                "confidence": "medium",
+                "reason": "New claim about input-shape validation (blank/malformed pr_url, non-positive ids) at the facade boundary; runner-up cluster 17 is about a team-membership ownership check on acting_user_id, a different root cause (authorization, not shape)."
+            },
+            "GA5": {
+                "id": "GA5",
+                "cluster": null,
+                "confidence": "high",
+                "reason": "New claim: the `author_is_bot and not self_driving` guard is duplicated in review_pr.py and review_local.py with drift risk; no cluster is about guard-condition duplication (cluster 19 is an AGENTS.md cross-reference gap, not code duplication)."
+            },
+            "GA6": {
+                "id": "GA6",
+                "cluster": null,
+                "confidence": "medium",
+                "reason": "New claim: the audit-trail comment at review_pr.py:937 overstates what classification.self_driving records (a bare boolean, no linkage ids); runner-up cluster 24 says relaxed gates leave no trace at all, which GA6 contradicts, and cluster 67 is about review_local's empty pipeline.provenance."
+            },
+            "GA7": {
+                "id": "GA7",
+                "cluster": 57,
+                "confidence": "high",
+                "reason": "Same claim and anchor (receivers.py:111-126): the gate checks one canonical acting reviewer's toggle, so an opted-in non-canonical assigned reviewer is ignored, contradicting the PR's 'any assigned reviewer opted in' description."
+            },
+            "GA8": {
+                "id": "GA8",
+                "cluster": 41,
+                "confidence": "high",
+                "reason": "Same claim: the receiver-leg head-keyed dedupe excludes FAILED, so a persistently failing head spawns a fresh run on every refire with no cap or cooldown."
+            },
+            "GA9": {
+                "id": "GA9",
+                "cluster": 18,
+                "confidence": "high",
+                "reason": "Same claim and anchor (facade/api.py:120): has_reviewable_repo_config omits the provider=\"github\" filter that sibling repo-config lookups apply."
+            },
+            "GA10": {
+                "id": "GA10",
+                "cluster": 53,
+                "confidence": "medium",
+                "reason": "Its second claim is exactly cluster 53 ('New commits were pushed' rendered on a reopened/non-push dismissal); its lead claim (resolver-None ambiguity yielding a false opt-out comment) has no cluster and is stated standalone by GA31, so the known half decides the match."
+            },
+            "GA11": {
+                "id": "GA11",
+                "cluster": 44,
+                "confidence": "high",
+                "reason": "Same claim and anchor (tasks.py:1236): stamphog_inbox_pr_create_run_failed omits error=str(e) that sibling handlers include."
+            },
+            "GA12": {
+                "id": "GA12",
+                "cluster": 36,
+                "confidence": "high",
+                "reason": "Same claim: the webhook leg's _supersede_prior_runs + create path has no head-based dedupe against a receiver-leg run at the same head, so both legs review the same commit."
+            },
+            "GA13": {
+                "id": "GA13",
+                "cluster": 33,
+                "confidence": "medium",
+                "reason": "Same claim (repo-config read + tasks-facade lookup + resolver chain paid on every skipped bot head-changing delivery, with the unindexed branch fallback) but anchored at tasks.py:179 rather than facade/api.py:504; runner-ups 23 (index only) and 12 (resolver chain only) each cover just a sub-claim."
+            },
+            "GA14": {
+                "id": "GA14",
+                "cluster": 31,
+                "confidence": "high",
+                "reason": "Same claim and anchor (tasks.py:1109-1127): process_inbox_pr_review never re-checks the acting reviewer's toggle, trusting the queue-time decision unlike the webhook leg."
+            },
+            "GA15": {
+                "id": "GA15",
+                "cluster": null,
+                "confidence": "high",
+                "reason": "New claim: README describes the receiver trigger as a one-shot PR-open event while it re-fires on every TaskRun save carrying pr_url; runner-up cluster 59 is the stale-checkout 'contracts do not exist' false positive, and 60 is the em-dash style nit."
+            },
+            "GA16": {
+                "id": "GA16",
+                "cluster": null,
+                "confidence": "medium",
+                "reason": "New claim: has_reviewable_repo_config (via get_stamphog_connected) reads the stamphog product-DB reader with no writer pin, so replica lag reports a just-connected repo as disconnected; runner-up cluster 76 is about ReviewUserSettings (main DB) and cluster 15 about find_task_run, both different reads."
+            },
+            "GA17": {
+                "id": "GA17",
+                "cluster": 51,
+                "confidence": "medium",
+                "reason": "Same root cause (the broad except + logger.exception in get_stamphog_connected) with a different consequence framing (per-request ERROR traceback flood during an outage vs. collapsing transient and real failures into one log level)."
+            },
+            "GA18": {
+                "id": "GA18",
+                "cluster": 2,
+                "confidence": "high",
+                "reason": "Same claim: process_inbox_pr_review stamps inbox_review provenance without re-verifying bot authorship or head-repo == config repo, unlike the webhook carve-out, and activities.py turns self_driving on from that provenance alone."
+            },
+            "GA19": {
+                "id": "GA19",
+                "cluster": 3,
+                "confidence": "high",
+                "reason": "Same claim and anchor (review_local.py:321): bool(context.get(\"self_driving_review\")) truthy coercion instead of a strict `is True` check."
+            },
+            "GA20": {
+                "id": "GA20",
+                "cluster": 27,
+                "confidence": "high",
+                "reason": "Same claim: fail-soft False from get_stamphog_connected is indistinguishable from genuinely not-connected, so the UI shows wrong 'connect a repository' guidance during an outage; the broad-except aside overlaps cluster 51 but is secondary."
+            },
+            "GA21": {
+                "id": "GA21",
+                "cluster": 8,
+                "confidence": "high",
+                "reason": "Same claim: stamphog_connected is a team-wide any-repo .exists() while the review gate is per-repository, so the switch can be enabled and silently no-op for PRs in uncovered repos."
+            },
+            "GA22": {
+                "id": "GA22",
+                "cluster": 40,
+                "confidence": "high",
+                "reason": "Same claim and anchor (receivers.py:144): resolve_stamphog_acting_reviewer has no try/except although it is invoked from stamphog's webhook Celery path, turning a transient DB error into a retried delivery."
+            },
+            "GA23": {
+                "id": "GA23",
+                "cluster": 4,
+                "confidence": "high",
+                "reason": "Same claim: nothing in the engine gates _attach_familiarity/_maybe_compute_familiarity or _format_familiarity on self_driving, so a familiarity band can render next to the provenance block that says familiarity carries no signal; cluster 4 names exactly this engine-side gap."
+            },
+            "GA24": {
+                "id": "GA24",
+                "cluster": 35,
+                "confidence": "high",
+                "reason": "Same claim: _format_self_driving's 'It is a draft on purpose' sentence is unconditional and renders for a self-driving PR that is no longer a draft."
+            },
+            "GA25": {
+                "id": "GA25",
+                "cluster": 16,
+                "confidence": "high",
+                "reason": "Same claim and anchor (receivers.py:222-224): the deferred queue_inbox_pr_review import sits outside _start_stamphog_review's try, so an ImportError can raise into the TaskRun save path."
+            },
+            "GA26": {
+                "id": "GA26",
+                "cluster": 7,
+                "confidence": "high",
+                "reason": "Same claim: get_stamphog_connected performs an uncached cross-product-DB read on every ReviewUserSettings serialization, GET and PATCH alike."
+            },
+            "GA27": {
+                "id": "GA27",
+                "cluster": 58,
+                "confidence": "high",
+                "reason": "Same claim: the initial review dispatch is fire-and-forget, so a broker publish failure caught in _start_stamphog_review is logged once and dropped with no retry or reconciliation; runner-up 54 is the opposite concern (errors raising into the caller, not being swallowed)."
+            },
+            "GA28": {
+                "id": "GA28",
+                "cluster": null,
+                "confidence": "medium",
+                "reason": "New claim: the resolver itself emits no log distinguishing no_artefact / no_resolved_reviewer / toggle_off on the skip path; runner-up cluster 24 is about the positive relaxed-gate path leaving no trace, a different code path."
+            },
+            "GA29": {
+                "id": "GA29",
+                "cluster": 58,
+                "confidence": "medium",
+                "reason": "Same root cause as cluster 58's 'exhaustion of the task's three retries silently drops the review', narrowed to GitHub rate-limit windows outrunning max_retries=3 with no terminal log; anchored at tasks.py:1155 instead of the dispatch site."
+            },
+            "GA30": {
+                "id": "GA30",
+                "cluster": 9,
+                "confidence": "high",
+                "reason": "Same claim: every receiver refire enqueues process_inbox_pr_review which does a live GitHub get_pr before the head-keyed dedupe can early-exit."
+            },
+            "GA31": {
+                "id": "GA31",
+                "cluster": null,
+                "confidence": "medium",
+                "reason": "New claim: a resolver None caused by artefact/org-login resolution failure is mapped to opted_out=True and posts the public 'No reviewer currently has stamphog inbox reviews enabled' comment, a false user-facing statement; no cluster covers the None-ambiguity-to-wrong-comment path (53 covers only the 'New commits were pushed' wording, 40 the resolver raising)."
+            },
+            "GA32": {
+                "id": "GA32",
+                "cluster": null,
+                "confidence": "medium",
+                "reason": "New claim: the stamphog_connected help_text (which flows into the generated schema and MCP descriptions) says the toggle renders disabled when false, but the UI keeps an already-on switch interactive; runner-ups 8 (per-repo scope) and 27 (fail-soft copy) assert different mismatches."
+            },
+            "GA33": {
+                "id": "GA33",
+                "cluster": 11,
+                "confidence": "medium",
+                "reason": "Same claim as cluster 11 (the webhook-leg resolver re-runs _resolve_assigned_reviewer against the latest suggested_reviewers artefact per push, so the gating identity can drift from the initial reviewer), framed as an AGENTS.md documentation gap and anchored on the contract file rather than receivers.py."
+            },
+            "GA34": {
+                "id": "GA34",
+                "cluster": null,
+                "confidence": "high",
+                "reason": "New claim: the AGENTS.md opening sentence describes only the webhook leg's facade-match identification as if it covered the receiver leg; none of the AGENTS.md clusters (30, 37, 48, 49, 71, 72) make this two-legs-identification point."
+            },
+            "GA35": {
+                "id": "GA35",
+                "cluster": null,
+                "confidence": "high",
+                "reason": "New claim: AGENTS.md's carve-out section omits the deliberate ready_for_review no-op (draft-time approval stays standing); no cluster covers this missing contract note (72 is about StamphogRepoConfig.enabled, 71 about the 'exactly two gates' wording)."
+            },
+            "GA36": {
+                "id": "GA36",
+                "cluster": 3,
+                "confidence": "high",
+                "reason": "Same claim and anchor (review_local.py:316-321) as GA19 and cluster 3: truthiness coercion of self_driving_review instead of a strict `is True` check."
+            }
+        },
+        "verified": [
+            {
+                "id": "GA1",
+                "cluster": 26,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Premise confirmed but the conclusion does not hold. /Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/backend/api/settings.py:27-33 declares `stamphog_review_inbox_prs` as a plain `BooleanField(required=False)` with no `validate_*` method, and the PATCH path at :133-136 saves whatever passes field validation. So yes, the API accepts `true` with no synced repo. However, that is the designed contract, not a gap: (1) the field's own help_text at :31-32 says \"Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected)\", and the model docstring at products/review_hog/backend/models.py:277-280 says the toggle \"only takes effect for teams with a synced, enabled StamphogRepoConfig covering the PR's repository\" \u2014 the preference is explicitly decoupled from connection state. (2) The existing test products/review_hog/backend/tests/test_settings_api.py:36-46 (`test_patch_updates_only_the_provided_fields`) PATCHes `stamphog_review_inbox_prs: True` in a project whose `stamphog_connected` is False (:33) and asserts 200 and `row.stamphog_review_inbox_prs is True` \u2014 the \"defect\" is pinned as intended behavior. (3) The UI itself deliberately keeps the on-while-disconnected state reachable: CodeReviewScene.tsx:1063-1068 only disables the switch when `!stamphog_connected && !stamphog_review_inbox_prs`, so a user who opts in and later loses the repo connection sits in exactly the \"armed and dormant\" state the finding calls invalid; the API does not create a state the UI forbids. (4) The runtime gate is per-repository, not per-team: products/stamphog/backend/tasks/tasks.py:1140-1153 resolves a config for the PR's repository and silently returns without one, and `has_reviewable_repo_config` (products/stamphog/backend/facade/api.py:112-125) is a team-wide `.exists()`. The proposed validator would therefore not prevent the \"dormant then activates\" scenario even for UI users (repo X connected, PR lands on repo Y, later connect Y). (5) The suggested fix has concrete downsides: `has_reviewable_repo_config` reads the stamphog product DB behind a circuit breaker (settings.py:73-81 fails soft to False), so validation would either 500 the PATCH during an outage or block opt-in, and it reads the reader replica so a just-connected user would be rejected until replication catches up.",
+                        "refutation": "The toggle is a per-user preference whose effect is gated at dispatch time (receivers.py:126 checks the toggle; tasks.py:1140-1153 checks the repo config for the PR's repository), and every layer \u2014 help_text, model docstring, the existing PATCH test, and the UI's own \"already-on stays interactive while disconnected\" rule \u2014 treats \"toggle on, no repo connected\" as a valid, expected state. The UI's disabled switch is a UX hint, not a contract the API is violating. The \"activates without fresh confirmation\" concern is the ordinary semantics of an opt-in preference (identical to `review_inbox_prs` sitting dormant with no self-driving tasks), and the user connecting the Stamphog App is itself an explicit act by that team. Adding the validator would not close the described window (team-wide flag vs per-repo gate) and would introduce real failure modes (outage/replication-lag rejections of a legitimate opt-in). Design choice, not a defect."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Premise check: the serializer at /Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/backend/api/settings.py:27-33 is a plain `BooleanField(required=False)` with no `validate_*` hook, and the PATCH path at settings.py:133-137 calls `is_valid(raise_exception=True)` then `save()`. So the factual observation (API accepts `true` without a repo check) is correct. It is not a defect.\n\n1. The existing test asserts the exact behavior the finding calls a bug. /Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/backend/tests/test_settings_api.py:37-46 (`test_patch_updates_only_the_provided_fields`) PATCHes `{\"stamphog_review_inbox_prs\": True}` in a project with no `StamphogRepoConfig` at all (the same fixture returns `\"stamphog_connected\": False` at line 33) and asserts `row.stamphog_review_inbox_prs is True`. The proposed `validate_stamphog_review_inbox_prs` would turn this test red; the contract \"opt-in is storable while disconnected\" is tested on purpose.\n\n2. The \"UI and API disagree about what a valid state is\" premise is contradicted by the UI itself. /Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/frontend/CodeReviewScene.tsx:1063-1068 disables the switch only when `!stamphog_connected && !stamphog_review_inbox_prs`, with the comment \"An already-on switch stays interactive while disconnected\". On-while-disconnected is therefore a state the UI explicitly renders and keeps (reachable via the UI alone: enable while connected, then the repo is disabled/unsynced). The API accepting that state is consistent with the UI, not in conflict with it.\n\n3. The toggle is documented everywhere as a dormant preference, and the real gates live on the stamphog side. help_text at settings.py:31-32 (\"Only takes effect when the project has a synced, enabled Stamphog repository\"); /Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/backend/models.py:277-280 (\"it only takes effect for teams with a synced, enabled StamphogRepoConfig covering the PR's repository\"); /Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/tasks/tasks.py:1123-1124 (\"Silent no-op without a synced+enabled config for the PR's repository (self-scoping: inert for teams without the Stamphog App installed)\"). `has_reviewable_repo_config` (/Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/facade/api.py:112-125) itself says it merely \"Drives the Code review scene's Stamphog inbox toggle\" \u2014 an informational UI flag, not a security invariant. Connecting a Stamphog repo is a separate, deliberate admin action (authenticated sync flow with `connected_by_user_id`), so \"activates without any fresh confirmation\" mischaracterizes it: the user confirmed the opt-in, and the team confirmed the repo.\n\n4. The suggested fix conflicts with the fail-soft design already in the file. `get_stamphog_connected` (settings.py:73-81) deliberately swallows stamphog-DB errors because that DB sits behind a fail-fast circuit breaker and \"must not be able to take the whole settings endpoint down\". A validator calling `has_reviewable_repo_config` on PATCH would either 500/400 every settings save during a stamphog outage or need its own fail-soft, at which point it cannot enforce anything reliably.",
+                        "refutation": "Attempted refutation succeeded: (a) test_settings_api.py:37-46 explicitly PATCHes the toggle to true with no repo config and asserts it persists, so the \"unconditional accept\" is the tested, intended contract; (b) CodeReviewScene.tsx:1063-1068 keeps an already-on switch interactive while disconnected, so on-while-disconnected is a valid UI state too and there is no UI/API disagreement; (c) help_text, model docstring, facade docstring and task docstring all describe the toggle as a preference that is inert until a synced+enabled config covers the PR's repo, with the effective gates (config, connected user, bot-authored draft, task linkage) enforced in stamphog, so an \"armed\" preference has no reachable harmful trigger. The finding is a design preference (API should mirror a UX affordance), not a defect."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Trigger reachability: the claimed callers (\"MCP clients, direct API calls\") cannot reach this PATCH. `ReviewUserSettingsViewSet` declares `scope_object = \"INTERNAL\"` (/Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/backend/api/settings.py:93). In posthog/permissions.py:514-515 `_get_required_scopes` returns None for INTERNAL, and for any token authenticator (personal API key, OAuth, MCP) permissions.py:600-602 then denies with \"This action does not support personal API key access\"; the `*` wildcard is also excluded for INTERNAL at permissions.py:619. Only session auth (the logged-in browser user, permissions.py:568-582) can PATCH, and that is the same user the UI serves. The state the finding calls invalid is by design and already reachable through the UI: CodeReviewScene.tsx:1063-1068 deliberately keeps an already-on switch interactive while `stamphog_connected` is false, so toggle=on with no synced repo is an accepted state (connect, opt in, disable/disconnect the repo). The model contract (products/review_hog/backend/models.py:277-280) defines the toggle as a preference that \"only takes effect for teams with a synced, enabled StamphogRepoConfig covering the PR's repository\", i.e. armed-and-dormant is the documented semantics, not a defect; `has_reviewable_repo_config` (products/stamphog/backend/facade/api.py:112-125) is documented as a UI hint (\"renders disabled\"), and it is team-wide while the runtime gate is per-repo, so a toggle with \"nothing to act on\" for a given repo is the normal state even when connected. The receiver (receivers.py:126) gates only the acting reviewer's own inbox PRs, and connecting a repo is itself a deliberate act by the team.",
+                        "refutation": "The premise that non-UI API consumers can set the toggle is contradicted by the INTERNAL scope: personal API keys, OAuth tokens and MCP are rejected before validation runs, so the only PATCH caller is the session user the UI already serves. And the \"armed but disconnected\" state is not a contract violation: the frontend intentionally permits it (already-on switch stays interactive while disconnected) and the model docstring defines the toggle as a preference that takes effect only when a covering repo config exists. Adding cross-DB validation would also couple a settings PATCH to the stamphog product DB, which the serializer deliberately fails soft on (settings.py:73-81), turning an outage into 400s on an unrelated preference write. Speculative, no reachable trigger beyond what the UI already allows by design."
+                    }
+                ]
+            },
+            {
+                "id": "GA2",
+                "cluster": 13,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Traced the only call path of `_parse_pr_url` (products/stamphog/backend/tasks/tasks.py:116-121): it is called once, from `process_inbox_pr_review` at tasks.py:1130. The parsed `repository` string is used solely as a lookup key against the team's own configs: tasks.py:1137-1146 runs `StamphogRepoConfig.objects.for_team(team_id).using(write_db).filter(provider=\"github\", repository__iexact=repository, enabled=True, ...)`. The GitHub call at tasks.py:1157 is `StamphogGitHubClient(repo_config.installation_id).get_pr(repo_config.repository, pr_number)` - it passes `repo_config.repository` (the DB row's slug), NOT the parsed string. `get_pr` (products/stamphog/backend/logic/github_client.py:466-469) builds `f\"/repos/{repo}/pulls/{number}\"` from that DB value and an `int` (`\\d+` group cast at tasks.py:121). So `foo/bar?x=1` never reaches the request path; it fails the `iexact` config match and returns at tasks.py:1147-1149 (`stamphog_inbox_pr_repo_not_reviewable`). A lookalike host like `https://evil.example/github.com/foo/bar/pull/1` parses to `(foo/bar, 1)` and then can only fetch PR #1 of a repo the team itself has synced and enabled, which is exactly what a legitimate `https://github.com/foo/bar/pull/1` would do. Callers: the facade `queue_inbox_pr_review` (products/stamphog/backend/facade/api.py:128-154) is called only from products/review_hog/backend/receivers.py:225, with `pr_url` read from `TaskRun.output[\"pr_url\"]` (receivers.py:93), which is written from GitHub's `pull_request.html_url` (products/tasks/backend/webhooks.py:136) or by the agent server.",
+                        "refutation": "The finding's central premise - that the parsed repo string \"flows into StamphogGitHubClient.get_pr\" and becomes part of the request path - is contradicted by the code: tasks.py:1157 fetches with `repo_config.repository`, a value from the team-scoped config row that the parsed string merely had to `iexact`-match. Injectable characters cannot match any stored slug, so they yield a silent no-op, not path manipulation. The `pr_number` is `\\d+` and cast to int. The lookalike-host case degrades to \"review a PR in a repo this team already connected\", indistinguishable from a valid URL. Anchoring the regex would be a harmless hardening nicety with no reachable defect behind it."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "The finding's premise (\"a repo value like foo/bar?x=1 flows into StamphogGitHubClient.get_pr\") is contradicted by the only consumer of _parse_pr_url. In /Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/tasks/tasks.py, process_inbox_pr_review (line 1130) parses pr_url, then at line 1143 uses the parsed `repository` solely as a parameterized Django ORM filter (`repository__iexact=repository`) against StamphogRepoConfig, and at line 1159 calls `StamphogGitHubClient(repo_config.installation_id).get_pr(repo_config.repository, pr_number)` \u2014 i.e. the GitHub request path is built from the DB-stored config row's `repository`, never from the parsed string. `pr_number` is captured by `\\d+` and cast to int (line 120), so it cannot carry `?`/`#`. A parsed value such as `foo/bar?x=1` therefore fails the iexact match, hits the `repo_config is None` early return at line 1152 (logged as stamphog_inbox_pr_repo_not_reviewable), and never reaches the client. The lookalike-host case (`https://evil.example/github.com/foo/bar/pull/1`) parses to (foo/bar, 1), but the fetch only proceeds if foo/bar is already one of the team's own synced+enabled configs (line 1140-1150), and then goes to real api.github.com for that same repo via the team's own installation token \u2014 the identical request a legitimate URL produces, so there is nothing to gain. The URL source is also trusted: products/review_hog/backend/receivers.py line 93 reads pr_url from TaskRun output, written by the agent server or by products/tasks/backend/webhooks.py line 325 (`pull_request.get(\"html_url\")` from GitHub's payload). Existing tests exercise the happy path (products/stamphog/backend/tests/test_integration.py lines 1122, 1194, 1400-1402 call process_inbox_pr_review with github.com URLs).",
+                        "refutation": "Attempted refutation succeeded: the parsed repository string is only ever used as an ORM filter value and is never interpolated into a GitHub API path; get_pr receives repo_config.repository from the database row. The pr_number group is digits-only and int-cast. So neither \"request-path manipulation\" nor a meaningful lookalike-host bypass is reachable, even for a hypothetical future untrusted caller of queue_inbox_pr_review. Anchoring the regex would be a harmless tidy-up but fixes no defect."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "The parsed repository string never reaches a GitHub API request. In `/Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/tasks/tasks.py`: line 1130 parses the URL; line 1143 uses the parsed `repository` only as a lookup key `.filter(provider=\"github\", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)` scoped with `StamphogRepoConfig.objects.for_team(team_id)`; line 1151-1153 returns silently when no config matches; line 1159 fetches with `StamphogGitHubClient(repo_config.installation_id).get_pr(repo_config.repository, pr_number)` \u2014 the DB row's `repository`, not the parsed one. `StamphogRepoConfig.repository` is populated from GitHub's installation `full_name` (tasks.py:654-669) and is `read_only` on the API serializer (presentation/serializers.py:63), so a value like `foo/bar?x=1` can never exist as a config and the `iexact` filter will never match it. The lookalike-host case (`https://evil.example/github.com/foo/bar/pull/1`) can only resolve to the calling team's own connected `foo/bar` config and fetch PR #1 through that team's own installation \u2014 the same thing a legitimate URL would do. Production trigger: `pr_url` originates from a TaskRun `output.pr_url` written by the agent server (receivers.py:93), passes through `queue_inbox_pr_review` (facade/api.py:128-155) to the Celery task; the only caller is `_start_stamphog_review` in products/review_hog/backend/receivers.py:222-231. `get_pr` (logic/github_client.py:466-468) builds `f\"/repos/{repo}/pulls/{number}\"` from the config's repository, so no injectable characters can enter the request path.",
+                        "refutation": "The finding's premise \u2014 \"a repo value like foo/bar?x=1 flows into StamphogGitHubClient.get_pr\" \u2014 is contradicted by tasks.py:1159, which passes `repo_config.repository` (the DB value) rather than the parsed string. The parsed value is only a team-scoped, case-insensitive equality lookup key against rows GitHub itself populated; any malformed or lookalike input either matches nothing (silent no-op at line 1151) or resolves to the team's own already-connected repository. The \"future caller\" concern is speculative: there is one caller in production and the guard sits inside the task, not the caller, so any future caller inherits it. Anchoring the regex would be a harmless tidy-up but fixes no reachable defect."
+                    }
+                ]
+            },
+            {
+                "id": "GA3",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Premise confirmed but the claim is not a defect. tach.toml:623-625 (worktree /Users/woutut/.worktrees/posthog/frozen-75215/tach.toml) carries the comment \"Facade-only (enforced by stamphog's [[interfaces]] block)\" on review_hog's `products.stamphog` dependency. The stamphog interface block at tach.toml:1098-1105 exposes `backend\\.facade.*` and `backend\\.presentation\\.views.*`. Every actual cross-product import from review_hog goes through the facade: products/review_hog/backend/receivers.py:53 (`products.stamphog.backend.facade.inbox_hooks`), receivers.py:222 (`products.stamphog.backend.facade.api`), products/review_hog/backend/api/settings.py:16 (`products.stamphog.backend.facade.api`). The only non-facade import (products/review_hog/backend/tests/test_settings_api.py:10 imports `stamphog.backend.models`) is in a tests dir, which tach.toml:4-8 excludes. The `presentation.views.*` exposure is the house-standard seal, not a stamphog-specific widening: six identical interface blocks in tach.toml use the same two-pattern expose list, tools/hogli-commands/hogli_commands/product/isolation.py:10 defines a sealed product as one that \"only exposes facade + presentation.views + routes\", isolation.py:97-112 treats `backend.presentation` as public surface, and products/architecture.md:71 states \"tach proves the import half of that claim - no external code reaches past `facade.*` / `presentation.views.*`\". The block does enforce what matters: review_hog cannot import stamphog models, tasks, or logic, which is the drift the comment guards against.",
+                        "refutation": "The finding's only concrete gap is that tach would let review_hog import stamphog's DRF viewset module. That module is exposed because posthog core assembles the API router from each product's routes.py, which imports its own views (products/stamphog/backend/routes.py:5); it is exposed on every sealed product by the repo's own definition of the public surface, and nothing in review_hog imports it or has a reason to. In the vocabulary this repo uses (architecture.md:71, isolation.py:10), \"facade-only\" for an in-process consumer means \"confined to the sealed surface\", and the interface block does enforce exactly that. The suggested fix of narrowing stamphog's expose list to facade-only would deviate from the standard six-block pattern and the isolation.py seal definition. A one-word precision nit in a config comment with no reachable misbehavior is not a real finding."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "consider",
+                        "evidence": "The finding's premise is confirmed by the config. /Users/woutut/.worktrees/posthog/frozen-75215/tach.toml:623-625 says `# Facade-only (enforced by stamphog's [[interfaces]] block)` above `\"products.stamphog\"` in review_hog's depends_on. The stamphog interface block at tach.toml:1098-1105 is `expose = [\"backend\\\\.facade.*\", \"backend\\\\.presentation\\\\.views.*\"]` with `from = [\"products.stamphog\"]`, so `tach check --dependencies --interfaces` (run in CI at .github/workflows/ci-backend.yml:1104-1105) allows review_hog to import `products.stamphog.backend.presentation.views.*`. No other guard narrows this: tools/hogli-commands/hogli_commands/product/isolation.py:9-10 documents the public surface as \"facade + presentation.views + routes\" (the repo-wide convention, matching every other interface block, e.g. tach.toml:790-793, 1054-1057, 1069-1072), and no semgrep rule or product:lint check forbids a cross-product import of presentation views (`grep` of .semgrep/rules and hogli_commands/product/ found nothing). Actual review_hog imports today are all facade: products/review_hog/backend/receivers.py:53 and :222, products/review_hog/backend/api/settings.py:16. No external code imports stamphog's presentation views (grep of the repo outside products/stamphog/ returns nothing), so the tool would not catch a future one. Impact is limited to a misleading comment about what the tooling enforces; there is no runtime behavior at stake.",
+                        "refutation": "Attempted refutation: (1) Maybe the interface block only exposes facade -> false, tach.toml:1099-1102 exposes presentation.views too. (2) Maybe another linter (product:lint isolation checks, semgrep) blocks cross-product presentation imports -> none found; isolation.py:9-10 explicitly treats presentation.views as public surface. (3) Maybe \"facade-only\" is trivially true because nothing in review_hog imports presentation -> true today (receivers.py:53,222; api/settings.py:16), but that is convention, not enforcement, which is exactly the finding's point. (4) The suggestion's first option (narrowing stamphog's expose to facade.*) would diverge from the repo convention where every product exposes presentation.views; nothing external imports stamphog views so it would pass tach, but the cheaper and convention-consistent fix is rewording the comment. The refutation fails on the factual claim; the finding is real but minor (a comment overstating tool enforcement)."
+                    }
+                ]
+            },
+            {
+                "id": "GA4",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Facade: /Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/facade/api.py:128-155 \u2014 `queue_inbox_pr_review` takes keyword-only `team_id, pr_url, acting_user_id, signal_report_id, task_run_id` and calls `process_inbox_pr_review.delay(...)` with no validation (premise confirmed as a fact). Its docstring (lines 136-143) states the contract: \"the caller has already resolved the acting reviewer and checked their toggle\", and repo-config resolution is a \"silent no-op without one\" inside the Celery task.\n\nSole caller: /Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/backend/receivers.py:222-234 (`_start_stamphog_review`), reached only from `handle_task_run_saved` at lines 127-138. Inputs at that call site: `pr_url = output.get(\"pr_url\") or None` (line 93) and the facade is only called under `if pr_url is not None` (line 127), so it is never blank; `acting_user_id` is `acting.id` from a resolved org member (line 206, guarded by `is None` return at line 108); `signal_report_id = str(task.signal_report_id)` after the `is None` check at line 97; `task_run_id = str(instance.id)`. None of the \"blank\" cases the finding worries about can be produced by any caller in the tree (grep shows no other callers outside tests).\n\nWorker: /Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/tasks/tasks.py:116-121 `_parse_pr_url` returns None for non-GitHub-PR URLs; lines 1130-1133 log `stamphog_inbox_pr_unparseable_url` and return. The same task deliberately treats \"no reviewable repo config\" (line 1151-1153) and \"PR not open\" (line 1167-1170) as logged no-ops \u2014 a non-reviewable target being dropped with a log line is the designed behavior of this path, not a defect.",
+                        "refutation": "The suggested fix would not change observable behavior. `_start_stamphog_review` wraps the facade call in `try/except Exception: logger.exception(\"review_hog_stamphog_inbox_review_queue_failed\")` (receivers.py:224-234) and runs inside `transaction.on_commit`, so a `ValueError` raised at the boundary is swallowed into a log line exactly as the worker's warning is today; \"fail loudly so the calling save path fails loudly\" is impossible by design (the receiver docstring at lines 74-80 says it \"must never raise into\" the TaskRun save path). The only cost saved is one broker publish for a URL that is not a GitHub PR, which the only caller cannot produce for the blank case and which stamphog cannot review anyway. Adding the regex to the facade would also duplicate `_PR_URL_RE` from tasks.py, which the facade deliberately does not import (api.py:144-147 keeps the task module off the light import surface). This is a defensive-programming preference against a contract the single caller already satisfies, not a reachable defect. The finding's own record marks it `is_valid: false`."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Facade: /Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/facade/api.py:128-154 \u2014 `queue_inbox_pr_review` is documented as fire-and-forget (\"the caller's save path never blocks on GitHub or the product DB\") and only calls `process_inbox_pr_review.delay(...)`. Sole caller: /Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/backend/receivers.py:93 (`pr_url = output.get(\"pr_url\") or None`) and :127 (`if pr_url is not None and settings.stamphog_review_inbox_prs:`) \u2014 a blank/None pr_url never reaches the facade. Caller wraps the facade call in try/except and logs `review_hog_stamphog_inbox_review_queue_failed` (receivers.py:224-234), so a ValueError raised at the facade would be swallowed and logged, not \"fail loudly\" as the suggestion claims. Worker: /Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/tasks/tasks.py:1130-1134 \u2014 `_parse_pr_url` runs FIRST in `process_inbox_pr_review`, before the repo-config lookup at :1136, so the finding's \"after a broker round-trip and a DB lookup\" premise is wrong (no DB lookup precedes the parse), and a malformed URL is logged as `stamphog_inbox_pr_unparseable_url`, not silently dropped. pr_url origin is GitHub's `html_url` (products/tasks/backend/webhooks.py:136) or the agent server's run output, both trusted producers. Existing test /Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/backend/tests/test_inbox_trigger.py:358 (`@patch(_STAMPHOG_QUEUE, side_effect=RuntimeError(\"broker down\"))`) already pins that the caller swallows facade failures.",
+                        "refutation": "The only real caller already excludes blank pr_url before dispatch, the worker parses the URL as its very first step and logs a warning on failure (no broker+DB waste beyond the publish itself), and raising at the facade would be caught by the caller's deliberate exception guard, producing an exception log instead of a warning log \u2014 the same observability, no behavior change. The inputs come from GitHub html_url or the agent server, not user text. This is a defense-in-depth style preference with no reachable trigger and a partially incorrect premise, not a defect."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Facade: /Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/facade/api.py:128-154 \u2014 `queue_inbox_pr_review` has keyword-only typed params and calls `process_inbox_pr_review.delay(...)` with no validation, as the finding says. Worker: products/stamphog/backend/tasks/tasks.py:1130-1133 parses with `_parse_pr_url` (line 116, regex `github\\.com/([^/\\s]+/[^/\\s]+)/pull/(\\d+)`, tolerates None via `pr_url or \"\"`) and logs `stamphog_inbox_pr_unparseable_url` then returns. Sole production caller: products/review_hog/backend/receivers.py:222-231 (`_start_stamphog_review`), reached from `handle_task_run_saved` at receivers.py:93-96 and 128-139, which only dispatches when `output.get(\"pr_url\")` is truthy (line 93: `pr_url = output.get(\"pr_url\") or None`; line 128: `if pr_url is not None and ...`). `pr_url` comes from `TaskRun.output[\"pr_url\"]`, written by tasks' own process_task workflow from `pr_context.pr_url` (products/tasks/backend/temporal/process_task/workflow.py:607,629,640) \u2014 a GitHub PR URL the agent created. `acting_user_id` is a resolved `User.id` (receivers.py:118-120, `_resolve_assigned_reviewer` returns `acting.id`), `signal_report_id=str(task.signal_report_id)` after a `is None` guard (line 98), `task_run_id=str(instance.id)` \u2014 none can be blank/None. The caller also wraps the call in `try/except Exception: logger.exception(...)` (receivers.py:224-233) and the whole receiver body in another (line 140-141), and runs inside `transaction.on_commit` on a hot TaskRun save path whose docstring says it \"must never raise into it\" (receivers.py:74-76). Test file products/review_hog/backend/tests/test_inbox_trigger.py mocks the facade at `_STAMPHOG_QUEUE`.",
+                        "refutation": "The described trigger (blank/malformed pr_url, non-positive acting_user_id, empty ids) is not reachable in production: the only caller filters out falsy pr_url before dispatch, derives every other argument from persisted model ids after None guards, and the URL originates from tasks' own PR-creation workflow rather than user input. Even if it were reachable, the suggested `raise ValueError` would be swallowed by the caller's `except Exception: logger.exception(...)` (receivers.py:232-233), producing exactly the same outcome as today (a logged, dropped review) minus the worker's own explicit warning \u2014 the caller is deliberately fire-and-forget and must never raise into the TaskRun save path. The worker already handles the malformed case explicitly at tasks.py:1130-1133 with a team-scoped warning, so the \"silently dropped\" premise is also inaccurate. This is a defensive-validation style preference with no reachable production trigger and no behavior change from the proposed fix."
+                    }
+                ]
+            },
+            {
+                "id": "GA5",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Premise confirmed: `if self.pr.author_is_bot and not self.self_driving:` at /Users/woutut/.worktrees/posthog/frozen-75215/tools/pr-approval-agent/review_pr.py:225 (Pipeline.run) and `if pipeline.pr.author_is_bot and not pipeline.self_driving:` at /Users/woutut/.worktrees/posthog/frozen-75215/tools/pr-approval-agent/review_local.py:324 (review_local.run). Both read the same `self.self_driving` attribute set once in Pipeline.__init__ (review_pr.py:209) from the hosted context (review_local.py:321). The other relaxed gate, the draft prerequisite, exists in exactly one place (review_pr.py:590, `if pr.draft and not self.self_driving`) and is reached by both entry points, so only the bot-author guard is duplicated. Each copy is covered by a regression test: test_review_pr.py:195 `test_bot_author_refuses_before_classification` for Pipeline.run, and test_review_local.py:283 `test_bot_authored_context_without_the_flag_is_refused` + :294 `test_self_driving_flag_reviews_the_bot_authored_draft` for review_local.run. No behavior differs between the two paths today.",
+                        "refutation": "The finding names no incorrect behavior, only a hypothetical future drift (\"a future edit to one copy ... can silently miss the other\"). The two copies are identical, evaluate the same attribute, and each is locked by its own test, so a divergence in either entry point would fail a test rather than ship silently. The duplication is a two-term boolean with an explicit parity comment (review_local.py:316-320); extracting a `_should_refuse_bot_author` predicate is a refactor preference, not a fix. Per the severity rubric, a duplicated safeguard / style preference with no reachable trigger is not a real finding."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Worktree /Users/woutut/.worktrees/posthog/frozen-75215. The two copies are review_pr.py:225 (`if self.pr.author_is_bot and not self.self_driving: return self._refuse_bot_author()`) and review_local.py:324-326 (`if pipeline.pr.author_is_bot and not pipeline.self_driving: pipeline._refuse_bot_author(); return pipeline.to_dict()`). Both today evaluate identically and share the same refusal implementation (`_refuse_bot_author`). Each entry point is pinned by its own test: test_review_pr.py:195 `test_bot_author_refuses_before_classification` (Pipeline.run refuses a bot author before `_classify`), test_review_local.py:283 `test_bot_authored_context_without_the_flag_is_refused` (review_local.run refuses when `self_driving_review` is absent) and test_review_local.py:294 `test_self_driving_flag_reviews_the_bot_authored_draft` (flag set -> passes both bot refusal and draft prerequisite, asserts `classification.self_driving is True`). review_local.py:316-320 also carries a comment naming the mirror and the parity requirement. The draft prerequisite relaxation lives in one place only (review_pr.py:590, inside Pipeline), which review_local reaches via `_run_gates_offline`, so the only duplicated fragment is the two-term boolean. The finding itself is recorded with is_valid=false in GA.json.",
+                        "refutation": "The claim describes no reachable wrong behavior at the reviewed commit: both conditions are identical and both refuse/relax exactly the same way. The hypothetical drift (\"a future edit adds a third relaxed gate to one copy\") is speculative; if it happened, the per-entry-point tests at test_review_pr.py:195 and test_review_local.py:283/294 would have to be touched, which is where the divergence would surface. Extracting a `_should_refuse_bot_author` predicate is a style/maintainability preference, not a defect, so the finding is not real."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Both copies exist as the finding says: /Users/woutut/.worktrees/posthog/frozen-75215/tools/pr-approval-agent/review_pr.py:225 `if self.pr.author_is_bot and not self.self_driving: return self._refuse_bot_author()` and /Users/woutut/.worktrees/posthog/frozen-75215/tools/pr-approval-agent/review_local.py:324 `if pipeline.pr.author_is_bot and not pipeline.self_driving: pipeline._refuse_bot_author()`. The flag itself has one definition (Pipeline.__init__, review_pr.py:196-209) and review_local.py:321 passes it through the same constructor; the draft-prerequisite relaxation lives once, inside Pipeline._check_prerequisites (review_pr.py:590), and is shared by both entry points since review_local calls pipeline._classify/_run_gates_offline. So the only duplicated line is the two-term bot-author early return. Both entry points are behaviorally pinned by tests on this commit: test_review_pr.py:195 (bot author refused before classification), test_review_local.py:282 (context without the flag is refused) and test_review_local.py:294 (flag reviews the bot-authored draft). Production configuration: the Action path never sets self_driving (review_pr.py:200-203 comment, no caller passes it), the hosted sandbox path sets it only from server-stamped context (review_local.py:316-321); in both, the two copies evaluate identically today.",
+                        "refutation": "The finding describes no runtime defect and no reachable production trigger: the two copies are byte-equivalent in semantics, and the \"trigger\" is a hypothetical future edit that changes one copy but not the other. That hypothetical is already guarded by the existing per-entry-point tests (test_review_pr.py:195, test_review_local.py:282/294), which would fail if either copy stopped refusing bot authors or stopped honoring the flag. The rest of the carve-out (constructor default, draft gate at review_pr.py:590) is single-sourced, so the drift surface is one two-term boolean, and the parity comment at review_local.py:316-320 names the mirror explicitly. Extracting a `_should_refuse_bot_author` predicate is a reasonable tidy-up, but by the rubric this is a style/maintainability preference with no user-facing or correctness consequence on the reviewed code, hence not a real finding."
+                    }
+                ]
+            },
+            {
+                "id": "GA6",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Cited comment at /Users/woutut/.worktrees/posthog/frozen-75215/tools/pr-approval-agent/review_pr.py:937-938: `# Audit trail for the carve-out: which gates ran relaxed, and why (see __init__).` followed by `\"self_driving\": self.self_driving`. The parenthetical `(see __init__)` points at review_pr.py:200-208, where the __init__ comment states exactly which two gates the flag relaxes (bot-author refusal at :225, draft prerequisite at :590) and why (hosted runtime positively linked the PR to a signals implementation task). The comment's \"why\" is that static explanation, not a promise that the JSON carries runtime provenance ids.\n\nThe finding's core premise \u2014 that the engine output and `run.output.inbox_review` are \"a different store\" \u2014 is contradicted by the code. In the hosted path, the engine stdout (the `to_dict()` JSON, review_local.py:315-326, :407) is persisted at products/stamphog/backend/temporal/activities.py:485-490 as `run.output = {**(run.output or {}), \"reviewer_raw\": ..., \"reviewer_exit_code\": ...}`, i.e. spread onto the same `ReviewRun.output` JSON that already holds `inbox_review` (stamped at products/stamphog/backend/tasks/tasks.py:1064 and :1229, with `signal_report_id`, `task_run_id`, `acting_user_id` at :1176-1181). The persisted audit record therefore contains both the boolean and the provenance ids in one row. activities.py:451 also shows the flag is derived exclusively from `output.get(\"inbox_review\")`, so the boolean being True is in one-to-one correspondence with the provenance keys existing alongside it.\n\nOutside the hosted path (GitHub Action `--output-json`), `self_driving` is never set (review_pr.py:202-203: \"nothing in the Action runtime ever sets it\"), so there is no self-driving output without the hosted provenance record.",
+                        "refutation": "Attempted to refute by (1) reading what `(see __init__)` refers to: it points to the __init__ comment that documents which gates are relaxed and why, so the comment's \"why\" is satisfied by that pointer rather than by runtime ids; (2) tracing where the engine output lands: activities.py:485-490 merges `reviewer_raw` into the same `run.output` dict that tasks.py:1064/:1229 seeded with `inbox_review` (signal_report_id, task_run_id, acting_user_id), so the claim that provenance lives in \"a different store from the engine output the contract persists\" is false; the auditor reading the persisted run sees both. Both refutation attempts succeed. What remains is at most a wording preference about a code comment, with no reachable defect."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Cited code: /Users/woutut/.worktrees/posthog/frozen-75215/tools/pr-approval-agent/review_pr.py:937-938 emits `\"self_driving\": self.self_driving` (a bool) under `classification`, with the comment \"Audit trail for the carve-out: which gates ran relaxed, and why (see __init__)\". The \"(see __init__)\" pointer resolves to review_pr.py:200-207, which states the why in code terms: the hosted runtime positively linked the PR to a PostHog Code signals task, and exactly two gates (bot-author refusal at :225, draft prerequisite at :587-591) are relaxed. The comment never promises runtime provenance ids.\n\nDesign intent is explicitly that the engine sees only the boolean: /Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/temporal/activities.py:448-451 passes `self_driving_review=bool(output.get(\"inbox_review\"))` with the comment \"keys off this and ONLY this \u2014 it is set exclusively from the run's inbox provenance\". review_local.py:316-321 reads that flag from the hosted context JSON.\n\nThe \"different store\" premise fails in the hosted path: activities.py:485-490 persists the engine output as `run.output[\"reviewer_raw\"]` by spreading `**(run.output or {})`, so `reviewer_raw` sits in the same `ReviewRun.output` JSON as `inbox_review` ({trigger, signal_report_id, task_run_id, acting_user_id}, tasks.py:1176-1181). Existing tests pin both halves: products/stamphog/backend/tests/test_tasks.py:782-787 and :938 assert the provenance dict is persisted on `run.output`; tools/pr-approval-agent/test_review_local.py:315 asserts `classification.self_driving is True` in the engine contract; test_integration.py:1385-1419 covers the end-to-end linkage. Also activities.py:175-176 stamps `stamphog_self_driving_review` into STAMPHOG_EXTRA_PROPERTIES for analytics attribution. The finding itself is marked `is_valid: false`, priority \"consider\".",
+                        "refutation": "The claim is a comment-wording preference, not a defect. The comment's \"why\" is satisfied by the `(see __init__)` pointer to review_pr.py:200-207, which explains the reason the gates relax; it does not claim the boolean carries signal_report_id/task_run_id/acting_user_id. The stated premise that the provenance \"lives in a different store from the engine output the contract persists for audit\" is contradicted by activities.py:485-490: the hosted runtime writes the engine output (`reviewer_raw`) into the same `ReviewRun.output` row that already holds `inbox_review`, so an auditor reading the persisted run sees both the relaxed-gate marker and the linkage ids together. Echoing the ids into the engine contract would also break the deliberate boolean-only coupling documented at activities.py:448-451. No behavior, security, or data outcome changes either way, so is_real=false."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Cited code: /Users/woutut/.worktrees/posthog/frozen-75215/tools/pr-approval-agent/review_pr.py:937-938 emits `\"self_driving\": self.self_driving` (a bool) under `classification`, with the comment \"Audit trail for the carve-out: which gates ran relaxed, and why (see __init__)\". The `(see __init__)` parenthetical points at review_pr.py:200-209, whose docstring-comment explains what the carve-out is and which two gates it relaxes (run(): line 225 bot-author refusal; _check_prerequisites: line 590 draft gate). So the \"why\" the comment promises is the design rationale in `__init__`, not runtime provenance ids.\n\nProduction reachability of the claimed audit gap: the flag is only ever set on the hosted path. review_local.py:321 reads `context.get(\"self_driving_review\")`, which products/stamphog/backend/temporal/activities.py:451 sets from `bool(output.get(\"inbox_review\"))` where `output = run.output`. On that same hosted path the engine's JSON output is persisted as `run.output[\"reviewer_raw\"]` (activities.py:485-490, `run.output = {**(run.output or {}), \"reviewer_raw\": ..., \"reviewer_exit_code\": ...}`), i.e. the same `ReviewRun.output` JSON that already holds `inbox_review = {trigger, signal_report_id, task_run_id, acting_user_id}` (tasks.py:1176-1181, 1229). The Action path (.github/workflows/pr-approval-agent.yml:88, the only place the `--output-json` bundle is uploaded as a standalone artifact) never sets the flag, so there `self_driving` is always False and no provenance is missing.",
+                        "refutation": "The finding's premise that the provenance \"lives in a different store from the engine output the contract persists for audit\" is contradicted by activities.py:485-490: in the only configuration where `self_driving` can be True, the engine output and `inbox_review` (signal_report_id, task_run_id, acting_user_id) are stored side by side in the same `ReviewRun.output` row, so an auditor reading that record sees both. The standalone evidence bundle exists only on the Action path, where the flag is always False by construction (AGENTS.md:92-95, review_pr.py:202-204). What remains is a wording quibble about whether \"why (see __init__)\" could be misread as promising runtime ids rather than the rationale documented in `__init__`; that is a comment-style preference with no reachable defect, not a real finding."
+                    }
+                ]
+            },
+            {
+                "id": "GA7",
+                "cluster": 57,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "consider",
+                        "evidence": "Premise confirmed on both sides. PR #75215 body (head a7fb363bef6947e4e7fc30a0fe8a0a4cc4deaa82) says under Changes: \"at least one of the assigned users has `stamphog_review_inbox_prs` enabled\"; Case 1 step 3: \"checks whether any assigned reviewer opted in\"; Case 2 step 2: \"someone is still opted in\"; Case 3: \"everyone turns the toggle off ... nobody is opted in\". The code checks exactly one user: /Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/backend/receivers.py:112 `acting_user_id = _resolve_assigned_reviewer(...)`, :115 `settings = ReviewUserSettings.load(instance.team_id, acting_user_id)`, :126 `if pr_url is not None and settings.stamphog_review_inbox_prs:`; the re-review hook does the same at :152-156. The resolver returns a single id at :206-207: `acting = next((user for user in resolved if user.id == task_created_by_id), resolved[0]); return acting.id`. A second assigned reviewer with the toggle on and the acting reviewer with it off therefore yields no stamphog review. The single-reviewer semantics are deliberate and enshrined everywhere in-repo: receivers.py:160-175 docstring (\"first resolved reviewer is canonical (maintainer decisions, 2026-07-02/03)\"), products/stamphog/README.md:14 and products/stamphog/AGENTS.md:86-87 (\"whose acting reviewer opted in via ... per-user toggle\"), and the test `test_opted_out_canonical_reviewer_blocks_the_review` (products/review_hog/backend/tests/test_inbox_trigger.py ~:227-237) asserts the exact scenario the PR body denies: first reviewer bob not opted in, alice opted in, no review runs (\"a later reviewer's opt-in must not hijack\"). Only the PR description is out of line with the code; the fix is a prose edit to the PR body, not a code change.",
+                        "refutation": "Attempted refutations: (1) maybe the stamphog toggle is checked per-reviewer somewhere downstream \u2014 no: `queue_inbox_pr_review` receives the single `acting_user_id` (receivers.py:216-222) and stamphog's facade/api.py:139 and tasks/tasks.py:151,1116 say they trust review_hog's single acting-reviewer check; (2) maybe the PR body's wording is elsewhere qualified \u2014 no, all four statements (Changes, Case 1.3, Case 2.2, Case 3) use any/at-least-one/nobody semantics; (3) maybe in-repo docs also promise any-assigned semantics, making this a code bug \u2014 no, every in-repo doc, docstring and the test suite state single acting-reviewer gating, so the code is correct as designed. The refutation fails only for the PR description itself; since the code ships intended, documented, tested behavior, this is a description-accuracy issue rather than a shipping defect, hence 'consider'."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Code behavior confirmed: /Users/woutut/.worktrees/posthog/frozen-75215/products/review_hog/backend/receivers.py:111-126 resolves exactly one acting reviewer via `_resolve_assigned_reviewer` (line 197: `acting = next((user for user in resolved if user.id == task_created_by_id), resolved[0])`) and checks only that user's `stamphog_review_inbox_prs` (line 121). The webhook-leg hook `resolve_stamphog_acting_reviewer` (lines 144-156) uses the same single-reviewer rule. The PR #75215 body does say \"at least one of the assigned users has `stamphog_review_inbox_prs` enabled\" and Case 1 step 3 says \"whether any assigned reviewer opted in\", so the description is looser than the code. But every in-repo artifact says the acting-reviewer semantics and marks them deliberate: receivers.py module docstring lines 8-15 and 17-19 (\"The same resolved acting reviewer carries a second, independent toggle\"); `_resolve_assigned_reviewer` docstring lines 159-172 (\"the first resolved reviewer is canonical (maintainer decisions, 2026-07-02/03)... Their review_inbox_prs / stamphog_review_inbox_prs toggles gate the respective reviews\"); products/stamphog/README.md:14 (\"gated by the acting reviewer's per-user stamphog_review_inbox_prs toggle\"); products/stamphog/AGENTS.md:86-87 and 110-111 (\"whose acting reviewer opted in\", \"the acting reviewer's toggle is their gate\"); products/stamphog/backend/tasks/tasks.py:151-155 carve-out docstring (\"the acting reviewer currently opted in\"). Tests pin it: products/review_hog/backend/tests/test_inbox_trigger.py:229-238 `test_opted_out_canonical_reviewer_blocks_the_review` (\"a later reviewer's opt-in must not hijack\"), :214-226 `test_the_first_resolved_reviewer_is_canonical`, :315-343 `test_the_two_toggles_gate_their_reviews_independently` (comment: \"the two toggles on the one acting reviewer\"), :379-385 `test_resolve_stamphog_acting_reviewer_keys_on_the_stamphog_toggle`.",
+                        "refutation": "The finding concedes the code is intentional and locates the defect in the PR description only. Nothing that ships (code, docstrings, README, AGENTS.md, help_text, tests) claims any-assigned-user semantics; all of them consistently state the single acting-reviewer gate, and the tests explicitly assert that a non-acting reviewer's opt-in does not trigger a review. There is no code change to make, no user-facing copy that is wrong, and no test gap. The only inaccuracy is two loose phrases in the GitHub PR body (\"at least one of the assigned users\", \"any assigned reviewer\"), which is a PR-copy nit the author can tighten, not a code-review defect at should_fix. The finding's \"if any-assigned semantics is wanted, dispatch per reviewer\" branch is contradicted by the recorded maintainer decision and the test that forbids exactly that."
+                    }
+                ]
+            },
+            {
+                "id": "GA8",
+                "cluster": 41,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA9",
+                "cluster": 18,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA10",
+                "cluster": 53,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA11",
+                "cluster": 44,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA12",
+                "cluster": 36,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA13",
+                "cluster": 33,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA14",
+                "cluster": 31,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA15",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA16",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA17",
+                "cluster": 51,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA18",
+                "cluster": 2,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA19",
+                "cluster": 3,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA20",
+                "cluster": 27,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA21",
+                "cluster": 8,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA22",
+                "cluster": 40,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA23",
+                "cluster": 4,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA24",
+                "cluster": 35,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA25",
+                "cluster": 16,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA26",
+                "cluster": 7,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA27",
+                "cluster": 58,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA28",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA29",
+                "cluster": 58,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA30",
+                "cluster": 9,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA31",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA32",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA33",
+                "cluster": 11,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA34",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA35",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            },
+            {
+                "id": "GA36",
+                "cluster": 3,
+                "is_real": false,
+                "severity": null,
+                "votes": []
+            }
+        ]
+    }
+]

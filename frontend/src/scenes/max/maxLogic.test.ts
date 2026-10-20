@@ -13,8 +13,11 @@ import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
+import { composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
+import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import {
     PENDING_MAX_CONTEXT_KEY,
@@ -31,15 +34,21 @@ describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
     let threadLogic: ReturnType<typeof maxThreadLogic.build> | null = null
     let actionsRequestCount: number
+    let conversationRequestCount: number
 
     beforeEach(() => {
         localStorage.clear()
         sessionStorage.clear()
         actionsRequestCount = 0
+        conversationRequestCount = 0
         useMocks({
             ...maxMocks,
             get: {
                 ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': () => {
+                    conversationRequestCount++
+                    return [200, { results: [] }]
+                },
                 '/api/projects/:team/actions/': () => {
                     actionsRequestCount++
                     return [200, { results: [], count: 0 }]
@@ -49,7 +58,58 @@ describe('maxLogic', () => {
         initKeaTests()
     })
 
-    afterEach(() => {
+    it.each(['scene', SIDE_PANEL_PANEL_ID])(
+        'moves files and the draft to the new composer from %s',
+        async (panelId) => {
+            logic = maxLogic({ panelId })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+            maxGlobalLogic.actions.setPhaiViewMode('legacy')
+            const files = [new File(['demo'], 'notes.txt', { type: 'text/plain' })]
+            const seed = composerSeedLogic({ panelId: panelId === SIDE_PANEL_PANEL_ID ? 'max-side-panel' : undefined })
+
+            const panel = runnerPanelLogic({ panelId: panelId === SIDE_PANEL_PANEL_ID ? 'max-side-panel' : undefined })
+            const unmountPanel = panel.mount()
+            panel.actions.setActiveCreation({
+                streamKey: 'previous-task',
+                taskId: 'previous-task',
+                runId: 'previous-run',
+            })
+            panel.actions.setHistoryExpanded(true)
+            maxContextLogic.actions.addOrUpdateContextNotebook({ short_id: 'example-notebook', title: 'Demo notebook' })
+
+            logic.actions.attachFilesToNewChat(files, 'Read these notes')
+
+            expect(seed.values.seed).toMatchObject({ prompt: 'Read these notes', files, autoSubmit: false })
+            expect(maxGlobalLogic.values.effectivePhaiView).toBe('new')
+            expect(panel.values.activeCreation).toBeNull()
+            expect(panel.values.historyExpanded).toBe(false)
+            expect(JSON.parse(seed.values.seed!.contextItems![0].value!).notebooks).toEqual([
+                expect.objectContaining({ id: 'example-notebook', name: 'Demo notebook' }),
+            ])
+            unmountPanel()
+        }
+    )
+
+    it('keeps the legacy view when file selection is canceled or the new runtime is unavailable', () => {
+        logic = maxLogic({ panelId: 'scene' })
+        logic.mount()
+        maxGlobalLogic.actions.setPhaiViewMode('legacy')
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+        logic.actions.attachFilesToNewChat([], 'Keep this draft')
+        expect(maxGlobalLogic.values.effectivePhaiView).toBe('legacy')
+        expect(composerSeedLogic().values.seed).toBeNull()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false })
+        logic.actions.attachFilesToNewChat([new File(['demo'], 'notes.txt')], 'Keep this draft')
+        expect(maxGlobalLogic.values.phaiViewMode).toBe('legacy')
+        expect(composerSeedLogic().values.seed).toBeNull()
+    })
+
+    afterEach(async () => {
+        if (logic?.isMounted()) {
+            await expectLogic(logic).toFinishAllListeners()
+        }
         threadLogic?.unmount()
         threadLogic = null
         sidePanelStateLogic.unmount()
@@ -70,18 +130,20 @@ describe('maxLogic', () => {
         })
     })
 
-    it('does not load actions when Max mounts', async () => {
+    it('shares the initial history request and does not load actions when Max mounts', async () => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
 
         expect(actionsRequestCount).toBe(0)
+        expect(conversationRequestCount).toBe(1)
     })
 
     it.each([
         ['Foo', 'Foo'],
         [REPORT_AI_PANEL, ''],
+        [SCOUT_AI_PANEL, ''],
     ])('seeds the question from side panel option %s', async (options, question) => {
         sidePanelStateLogic.mount()
         await expectLogic(sidePanelStateLogic, () => {

@@ -10,11 +10,12 @@ import {
     HogQuery,
     InsightQueryNode,
     InsightVizNode,
+    MetricsQuery,
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
-import { ActionType, DashboardTile, DashboardType, InsightModel, InsightType, QueryBasedInsightModel } from '~/types'
+import { ActionType, InsightModel, InsightType } from '~/types'
 
 import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'
 
@@ -41,9 +42,9 @@ export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType
 }
 
 export const getCachedResults = (
-    cachedInsight: Partial<QueryBasedInsightModel> | undefined | null,
+    cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode
-): Partial<QueryBasedInsightModel> | undefined => {
+): Partial<InsightModel> | undefined => {
     if (!cachedInsight) {
         return undefined
     }
@@ -67,32 +68,6 @@ export const getCachedResults = (
     return cachedInsight
 }
 
-// these types exist so that the return type reflects the input model
-// i.e. when given a partial model the return model is types as
-// partial as well
-type InputInsightModel = InsightModel | Partial<InsightModel>
-
-type ReturnInsightModel<T> = T extends InsightModel
-    ? QueryBasedInsightModel
-    : T extends Partial<InsightModel>
-      ? Partial<QueryBasedInsightModel>
-      : never
-
-/** Get an insight with `query` only. */
-export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
-    const { filters, ...baseInsight } = insight
-    // The API is phasing out the deprecated `dashboards` field (already omitted for token
-    // callers, eventually for all); derive it from `dashboard_tiles` so remaining readers
-    // keep working regardless of whether the response still carries it.
-    const dashboards =
-        insight.dashboards ?? insight.dashboard_tiles?.filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
-    return {
-        ...baseInsight,
-        ...(dashboards ? { dashboards } : {}),
-        query: insight.query ?? null,
-    } as unknown as ReturnInsightModel<T>
-}
-
 export const queryFromKind = (
     kind: ProductAnalyticsInsightNodeKind,
     filterTestAccountsDefault: boolean
@@ -108,11 +83,15 @@ export const queryFromKind = (
 export const getDefaultQuery = (
     insightType: InsightType,
     filterTestAccountsDefault: boolean
-): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode => {
+): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode | MetricsQuery => {
     // Web Analytics insights should always come from Web Analytics tiles with a pre-configured query
     // This is a fallback that should rarely be used
     if (insightType === InsightType.WEB_ANALYTICS) {
         throw new Error('Web Analytics insights must be created from Web Analytics tiles')
+    }
+
+    if (insightType === InsightType.METRICS) {
+        return { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } }
     }
 
     if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(insightType)) {
@@ -142,26 +121,6 @@ export const getDefaultQuery = (
     }
 
     throw new Error('encountered unexpected type for view')
-}
-
-/** Get a dashboard whose tiles carry `query` only. */
-export const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null
-): DashboardType<QueryBasedInsightModel> | null => {
-    if (dashboard == null) {
-        return null
-    }
-
-    return {
-        ...dashboard,
-        tiles: dashboard.tiles?.map(
-            (tile) =>
-                ({
-                    ...tile,
-                    ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
-                }) as DashboardTile<QueryBasedInsightModel>
-        ),
-    }
 }
 
 // Statuses whose responses carry an actionable validation message: 400 (bad query), 512 (query

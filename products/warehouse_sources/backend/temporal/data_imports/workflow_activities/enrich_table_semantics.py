@@ -27,6 +27,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     MAX_BUSINESS_CONTEXT_CHARS,
@@ -55,6 +56,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     get_canonical_descriptions_for_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
 
 # Write-only (no Kafka `log_entries` production): this is an internal background activity, not a
 # user-facing sync, and its workflow type isn't mapped in `resolve_log_source`. The temporal worker's
@@ -293,10 +295,14 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     """Generate and persist semantic annotations for one warehouse table. Safe to re-run."""
     log = logger.bind(team_id=team_id, schema_id=str(schema_id))
 
-    team = (
-        Team.objects.select_related("organization")
-        .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
-        .get(id=team_id)
+    # Retried individually, not via `with_internal_db_retries` on the whole function, because the
+    # LLM call further down is expensive and must not be repeated for a blip reaching our own database.
+    team = retry_internal_db_operation(
+        lambda: (
+            Team.objects.select_related("organization")
+            .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
+            .get(id=team_id)
+        )
     )
 
     # Context accumulated as we learn it; shared by the "started" and "completed" analytics events.
@@ -312,10 +318,12 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         emit_completed("skipped", reason="ai_data_processing_not_approved")
         return {"status": "skipped", "reason": "ai_data_processing_not_approved"}
 
-    schema = (
-        ExternalDataSchema.objects.select_related("source", "table")
-        .filter(team_id=team_id, deleted=False)
-        .get(id=schema_id)
+    schema = retry_internal_db_operation(
+        lambda: (
+            ExternalDataSchema.objects.select_related("source", "table")
+            .filter(team_id=team_id, deleted=False)
+            .get(id=schema_id)
+        )
     )
     table = schema.table
     event_props["source_type"] = schema.source.source_type
@@ -432,6 +440,25 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             columns_needing_description=columns_needing_description,
             business_context=business_context,
         )
+    except GatewayNotConfiguredError:
+        # No gateway in this deployment, so the call never went out. It fails identically for every
+        # team until one is configured, which no retry and no exception report can change. The
+        # canonical descriptions above are already persisted, and the columns left undescribed carry
+        # no annotation, so a later sync asks for them.
+        log.warning("warehouse_enrichment.llm_gateway_not_configured", canonical=canonical_count)
+        emit_completed(
+            "partial",
+            canonical_annotations=canonical_count,
+            ai_annotations=0,
+            llm_called=False,
+            reason="llm_gateway_not_configured",
+        )
+        return {
+            "status": "partial",
+            "canonical_annotations": canonical_count,
+            "ai_annotations": 0,
+            "error": "llm_gateway_not_configured",
+        }
     except Exception as e:
         capture_exception(e)
         log.error(

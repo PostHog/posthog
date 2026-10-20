@@ -51,7 +51,13 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_q
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import (
+    GENERIC_INTERNAL_CH_ERROR_MESSAGE,
+    ExposedCHQueryError,
+    InternalCHQueryError,
+    internal_ch_error_user_message,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
@@ -151,6 +157,12 @@ def _mark_explicit_date_boundaries(query: BaseModel) -> None:
         date_range.explicitDate = True
 
 
+def set_query_id_on_span(span: trace.Span, query_id: str) -> None:
+    # Client IDs are free text in the API, so only export opaque UUIDs to traces.
+    if re.fullmatch(r"[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", query_id):
+        span.set_attribute("query.client_query_id", query_id)
+
+
 def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
 ) -> tuple[BaseModel, str, ExecutionMode]:
@@ -191,9 +203,13 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
     "ErrorTrackingReleasesQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
+    "MetricsHistogramQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
+    "MCPHarnessBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPMissingCapabilitiesQuery": ["query:read", "mcp_analytics:read"],
+    "MCPModelBreakdownQuery": ["query:read", "mcp_analytics:read"],
+    "MCPProtocolVersionBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
@@ -313,12 +329,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 limit_context = None
 
             reset_request_query_cost()
+            is_query_service = get_query_tag_value("access_method") == "personal_api_key"
+            if is_query_service:
+                tag_queries(api_queries_budgeted=True)
             with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
                 process_span.set_attribute("team_id", self.team.pk)
                 process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
-                process_span.set_attribute(
-                    "query.is_query_service", get_query_tag_value("access_method") == "personal_api_key"
-                )
+                process_span.set_attribute("query.is_query_service", is_query_service)
+                set_query_id_on_span(process_span, client_query_id)
                 if limit_context is not None:
                     process_span.set_attribute("query.limit_context", limit_context.value)
                 result = process_query_model(
@@ -327,7 +345,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     execution_mode=execution_mode,
                     query_id=client_query_id,
                     user=request.user,  # type: ignore[arg-type]
-                    is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                    is_query_service=is_query_service,
                     limit_context=limit_context,
                     analytics_props=analytics_props,
                 )
@@ -397,7 +415,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            replacement = APIException("ClickHouse error while executing query.")
+            error_code = look_up_clickhouse_error_code_meta(e).name
+            user_message = internal_ch_error_user_message(error_code)
+            replacement = APIException(user_message or GENERIC_INTERNAL_CH_ERROR_MESSAGE)
             scan_extra = _scan_extra(e)
             if scan_extra:
                 replacement.extra = scan_extra  # type: ignore[attr-defined]
@@ -462,17 +482,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 detail=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
                 code=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
             )
-        query_status_response = QueryStatusResponse(query_status=query_status)
-
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
             if query_status.error_message:
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
             else:
                 http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise
+                # Add safe copy only after choosing the existing HTTP status; internal failures stay 500.
+                query_status.error_message = internal_ch_error_user_message(query_status.error_code)
         elif query_status.complete:
             http_code = status.HTTP_200_OK
 
+        query_status_response = QueryStatusResponse(query_status=query_status)
         response = JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
         if query_status.bytes_read is not None:
             _add_query_cost_headers(response, query_status.bytes_read, query_status.budget_remaining_bytes)

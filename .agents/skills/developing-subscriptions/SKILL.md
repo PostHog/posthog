@@ -15,6 +15,9 @@ Use this skill for a change to the Subscriptions product or its delivery system.
 Use the published `managing-subscriptions` skill to configure an existing subscription through MCP.
 Use `adding-product-alerting` when delivery depends on a threshold, anomaly, breach, or recovery state.
 
+When investigating a subscription whose insight is missing, or changing insight deletion or restoration, read the [insight deletion and related-resource contract](../../../products/product_analytics/AGENTS.md).
+It defines cleanup for subscriptions, alerts, and dashboard tiles, including single and bulk deletion and restore behavior.
+
 ## 1. Route the request
 
 | Request                                                              | Primary path                                 |
@@ -107,18 +110,19 @@ Use a mock destination or test transport for external delivery checks.
 
 ## 6. Code map
 
-| Concern                                             | Start here                                               |
-| --------------------------------------------------- | -------------------------------------------------------- |
-| API, serializers, validation, delivery history      | `ee/api/subscription.py`                                 |
-| Subscription and delivery models                    | `products/exports/backend/models/subscription.py`        |
-| Delivery workflows and activities                   | `products/exports/backend/temporal/subscriptions/`       |
-| Destination delivery and automatic disable behavior | `ee/tasks/subscriptions/`                                |
-| Management UI and frontend logic                    | `products/subscriptions/frontend/`                       |
-| MCP tool definitions                                | `products/subscriptions/mcp/tools.yaml`                  |
-| API behavior tests                                  | `ee/api/test/test_subscription.py`                       |
-| Destination delivery tests                          | `ee/tasks/test/subscriptions/`                           |
-| Workflow tests                                      | `posthog/temporal/tests/test_subscriptions_workflows.py` |
-| Published operational guidance                      | `products/subscriptions/skills/managing-subscriptions/`  |
+| Concern                                             | Start here                                                  |
+| --------------------------------------------------- | ----------------------------------------------------------- |
+| API, serializers, validation, delivery history      | `products/subscriptions/backend/presentation/views.py`      |
+| Subscription and delivery models                    | `products/subscriptions/backend/models/`                    |
+| Delivery workflows and activities                   | `products/subscriptions/backend/temporal/`                  |
+| Destination delivery and automatic disable behavior | `products/subscriptions/backend/logic/`                     |
+| What core and other products may import             | `products/subscriptions/backend/facade/`                    |
+| Management UI and frontend logic                    | `products/subscriptions/frontend/`                          |
+| MCP tool definitions                                | `products/subscriptions/mcp/tools.yaml`                     |
+| API behavior tests                                  | `products/subscriptions/backend/tests/test_subscription.py` |
+| Destination delivery tests                          | `products/subscriptions/backend/tests/logic/`               |
+| Workflow tests                                      | `products/subscriptions/backend/tests/temporal/`            |
+| Published operational guidance                      | `products/subscriptions/skills/managing-subscriptions/`     |
 
 ## Companion skills
 

@@ -1,4 +1,7 @@
-import { TASKS_PREWARM_SANDBOX_FLAG } from "@posthog/shared";
+import {
+  type ExecutionMode,
+  TASKS_PREWARM_SANDBOX_FLAG,
+} from "@posthog/shared";
 import { useFeatureFlag } from "posthog-react-native";
 import { useEffect, useRef } from "react";
 import { logger } from "@/lib/logger";
@@ -16,6 +19,7 @@ interface UseWarmTaskOptions {
   runtimeAdapter?: string | null;
   model?: string | null;
   reasoningEffort?: string | null;
+  permissionMode?: ExecutionMode | null;
   contextWindow?: "200k" | "1m" | null;
   fastMode?: boolean | null;
   sandboxEnvironmentId?: string | null;
@@ -30,6 +34,7 @@ export function useWarmTask({
   runtimeAdapter,
   model,
   reasoningEffort,
+  permissionMode,
   contextWindow,
   fastMode,
   sandboxEnvironmentId,
@@ -44,6 +49,9 @@ export function useWarmTask({
   const normalizedRuntimeAdapter = runtimeAdapter ?? null;
   const normalizedModel = model ?? null;
   const normalizedReasoningEffort = reasoningEffort ?? null;
+  const normalizedPermissionMode = runtimeAdapter
+    ? (permissionMode ?? null)
+    : null;
   const normalizedContextWindow = contextWindow ?? null;
   const normalizedFastMode = fastMode ?? null;
   const normalizedSandboxEnvironmentId = sandboxEnvironmentId ?? null;
@@ -55,7 +63,7 @@ export function useWarmTask({
     !composerIsEmpty;
   const key =
     repository && githubIntegrationId != null
-      ? `${githubIntegrationId}:${repository}:${normalizedBranch ?? ""}:${normalizedRuntimeAdapter ?? ""}:${normalizedModel ?? ""}:${normalizedReasoningEffort ?? ""}:${normalizedContextWindow ?? ""}:${normalizedFastMode ?? ""}:${normalizedSandboxEnvironmentId ?? ""}:${normalizedCustomImageId ?? ""}`
+      ? `${githubIntegrationId}:${repository}:${normalizedBranch ?? ""}:${normalizedRuntimeAdapter ?? ""}:${normalizedModel ?? ""}:${normalizedReasoningEffort ?? ""}:${normalizedPermissionMode ?? ""}:${normalizedContextWindow ?? ""}:${normalizedFastMode ?? ""}:${normalizedSandboxEnvironmentId ?? ""}:${normalizedCustomImageId ?? ""}`
       : null;
 
   useEffect(() => {
@@ -80,6 +88,7 @@ export function useWarmTask({
     const warmRuntimeAdapter = normalizedRuntimeAdapter;
     const warmModel = normalizedModel;
     const warmReasoningEffort = normalizedReasoningEffort;
+    const warmPermissionMode = normalizedPermissionMode;
     const warmContextWindow = normalizedContextWindow;
     const warmFastMode = normalizedFastMode;
     const warmSandboxEnvironmentId = normalizedSandboxEnvironmentId;
@@ -95,6 +104,7 @@ export function useWarmTask({
           runtime_adapter: warmRuntimeAdapter,
           model: warmModel,
           reasoning_effort: warmReasoningEffort,
+          initial_permission_mode: warmPermissionMode,
           ...(warmContextWindow ? { context_window: warmContextWindow } : {}),
           ...(warmFastMode != null ? { fast_mode: warmFastMode } : {}),
           ...(warmSandboxEnvironmentId
@@ -118,6 +128,7 @@ export function useWarmTask({
     normalizedRuntimeAdapter,
     normalizedModel,
     normalizedReasoningEffort,
+    normalizedPermissionMode,
     normalizedContextWindow,
     normalizedFastMode,
     normalizedSandboxEnvironmentId,

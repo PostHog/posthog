@@ -15,6 +15,7 @@ from .anthropic import (
     AnthropicIntegration,
     AnthropicIntegrationError,
 )
+from .assignees import Assignee, AssigneeLookupFailed, ReconnectRequired
 from .aws import (
     AWSCredentialsIntegration,
     AWSRedshiftIntegration,
@@ -49,7 +50,7 @@ from .github import (
     invalidate_github_repository_caches_for_installation,
 )
 from .gitlab import GitLabIntegration, GitLabIntegrationError
-from .google_ads import GoogleAdsIntegration, google_ads_hierarchy_level
+from .google_ads import GoogleAdsIntegration, GoogleAdsScopeInsufficientError, google_ads_hierarchy_level
 from .google_cloud import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -123,9 +124,9 @@ from .refresh_tracking import (
 )
 from .slack import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
-    SLACK_CHANNELS_MAX_PAGES,
     SLACK_CHANNELS_PAGE_SIZE,
     SLACK_INTEGRATION_KINDS,
+    SLACK_LISTING_MAX_REQUESTS,
     SlackIntegration,
     SlackIntegrationError,
     SlackRequestSignature,
@@ -190,13 +191,14 @@ __all__ = [
     "SlackIntegrationError",
     "SLACK_INTEGRATION_KINDS",
     "SLACK_CHANNELS_PAGE_SIZE",
-    "SLACK_CHANNELS_MAX_PAGES",
+    "SLACK_LISTING_MAX_REQUESTS",
     "SlackIntegration",
     "SlackRequestSignature",
     "sign_slack_request",
     "validate_slack_request",
     "google_ads_hierarchy_level",
     "GoogleAdsIntegration",
+    "GoogleAdsScopeInsufficientError",
     "is_unique_service_account_by_organization_id",
     "GoogleCloudServiceAccountIntegration",
     "GoogleCloudIntegration",
@@ -219,6 +221,9 @@ __all__ = [
     "GitHubIntegration",
     "GitHubIntegrationError",
     "GitLabIntegrationError",
+    "Assignee",
+    "AssigneeLookupFailed",
+    "ReconnectRequired",
     "GitLabIntegration",
     "MetaGraphIntegration",
     "MetaAdsIntegration",

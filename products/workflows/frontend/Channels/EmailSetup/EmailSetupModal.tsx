@@ -29,7 +29,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
 
     return (
         <>
-            <LemonModal title="Configure email sender" width="auto" onClose={props.onClose}>
+            <LemonModal title="Configure email sender" width="auto" onClose={() => props.onClose(savedIntegration?.id)}>
                 <Form logic={emailSetupModalLogic} props={props} formKey="emailSender">
                     <div className="space-y-4">
                         <FlaggedFeature flag="messaging-ses">
@@ -75,6 +75,20 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 type="text"
                                 placeholder="feedback"
                                 suffix={<>.{domain || 'yourdomain.com'}</>}
+                                disabledReason={
+                                    verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
+                                }
+                            />
+                        </LemonField>
+                        <LemonField
+                            name="reply_to"
+                            label="Default reply-to address"
+                            help="Replies go here when an email step has no reply-to address of its own. Leave empty to send replies to the sender address."
+                            showOptional
+                        >
+                            <LemonInput
+                                type="text"
+                                placeholder="support@example.com"
                                 disabledReason={
                                     verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
                                 }
@@ -222,10 +236,8 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                             </LemonButton>
                             <LemonButton
                                 type="primary"
-                                onClick={async () => {
-                                    await submitEmailSender()
-                                    props.onComplete(savedIntegration?.id)
-                                }}
+                                onClick={submitEmailSender}
+                                loading={isEmailSenderSubmitting}
                                 tooltip="You will not be able to send emails until you verify the DNS records"
                             >
                                 {isDomainVerified ? 'Save' : 'Save & finish later'}

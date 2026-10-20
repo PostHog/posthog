@@ -4,17 +4,22 @@ from typing import Any
 
 import pytest
 import time_machine
+from unittest.mock import patch
 
 from temporalio import activity
+from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    _NOT_SETTLED_ERROR_TYPES,
     INGESTION_LAG_MARGIN_SECONDS,
     MAX_SETTLE_POLLS_PER_RUN,
     CheckSessionSettledInputs,
@@ -34,6 +39,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     EmitTraceEvaluationEventInputs,
     ExecuteTraceEvaluationInputs,
 )
+from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 
 @pytest.fixture
@@ -41,6 +47,14 @@ def setup_data():
     organization = Organization.objects.create(name="Test Org")
     team = Team.objects.create(organization=organization, name="Test Team")
     return {"organization": organization, "team": team}
+
+
+@pytest.fixture
+def no_full_catalog_build():
+    # A full build loads every warehouse table and view of the team. On a large warehouse project
+    # that holds the GIL long enough to starve the worker's event loop, so eval reads must not do it.
+    with patch.object(Database, "create_for", side_effect=AssertionError("eval read built the full HogQL catalog")):
+        yield
 
 
 def _insert_ai_event(
@@ -205,7 +219,17 @@ class TestResolvePollInterval:
             assert poll_budget_seconds // interval <= MAX_SETTLE_POLLS_PER_RUN
 
 
-def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[Any]:
+class TestSettleErrorTypesAreNotReportedAsDefects:
+    def test_every_not_settled_type_is_exempt_from_error_tracking(self):
+        # A settle target whose type is absent from the exemption set files one error tracking
+        # issue per poll probe, so a new target must extend both sets together.
+        assert _NOT_SETTLED_ERROR_TYPES <= EXPECTED_CONTROL_FLOW_ERROR_TYPES
+
+    def test_a_runaway_session_still_reaches_error_tracking(self):
+        assert "session_runaway" not in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+
+
+def _mock_activities(calls: list[str], exclude: set[str] | None = None, *, output_type: str = "boolean") -> list[Any]:
     exclude = exclude or set()
 
     @activity.defn(name="fetch_evaluation_activity")
@@ -216,7 +240,7 @@ def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[
             "name": "Hog eval",
             "evaluation_type": "hog",
             "evaluation_config": {},
-            "output_type": "boolean",
+            "output_type": output_type,
             "output_config": {},
             "team_id": 1,
             "enabled": True,
@@ -226,6 +250,8 @@ def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[
     @activity.defn(name="execute_trace_hog_eval_activity")
     async def mock_execute_trace_hog(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
         calls.append("execute")
+        if output_type == "numeric":
+            return {"result_type": "numeric", "score": 0.25, "reasoning": "ok", "allows_na": False}
         return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
 
     @activity.defn(name="emit_trace_evaluation_event_activity")
@@ -244,11 +270,15 @@ def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[
     @activity.defn(name="execute_session_hog_eval_activity")
     async def mock_execute_session_hog(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
         calls.append("execute_session")
+        if output_type == "numeric":
+            return {"result_type": "numeric", "score": 0.25, "reasoning": "ok", "allows_na": False}
         return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
 
     @activity.defn(name="execute_session_llm_judge_activity")
     async def mock_execute_session_judge(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
         calls.append("execute_session")
+        if output_type == "numeric":
+            return {"result_type": "numeric", "score": 0.25, "reasoning": "ok", "allows_na": False}
         return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
 
     @activity.defn(name="find_evaluation_quiet_point_activity")
@@ -313,7 +343,10 @@ class TestQuietPoint:
 
 class TestRunAggregateEvaluationWorkflow:
     @pytest.mark.asyncio
-    async def test_fixed_window_sleeps_then_evaluates(self):
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    async def test_fixed_window_sleeps_then_evaluates(self, output_type: str, caplog: pytest.LogCaptureFixture):
+        caplog.set_level("INFO", logger="temporalio.workflow")
+        caplog.set_level("INFO", logger="temporalio.activity")
         calls: list[str] = []
         task_queue = str(uuid.uuid4())
         async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -321,7 +354,7 @@ class TestRunAggregateEvaluationWorkflow:
                 env.client,
                 task_queue=task_queue,
                 workflows=[RunAggregateEvaluationWorkflow],
-                activities=_mock_activities(calls),
+                activities=_mock_activities(calls, output_type=output_type),
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
                 start = await env.get_current_time()
@@ -330,10 +363,15 @@ class TestRunAggregateEvaluationWorkflow:
                     _workflow_inputs({"strategy": "fixed_window", "window_seconds": 600}),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
+                    execution_timeout=timedelta(minutes=20),
                 )
                 elapsed = (await env.get_current_time()) - start
         assert calls == ["fetch", "execute", "emit", "telemetry"]
-        assert result["verdict"] is True
+        if output_type == "numeric":
+            assert result["score"] == 0.25
+            assert "verdict" not in result
+        else:
+            assert result["verdict"] is True
         assert elapsed >= timedelta(seconds=600)
         assert elapsed < timedelta(seconds=900)
 
@@ -363,8 +401,7 @@ class TestRunAggregateEvaluationWorkflow:
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                start = await env.get_current_time()
-                result = await env.client.execute_workflow(
+                handle = await env.client.start_workflow(
                     RunAggregateEvaluationWorkflow.run,
                     _workflow_inputs(
                         {"strategy": "fixed_window", "window_seconds": 1800},
@@ -374,19 +411,19 @@ class TestRunAggregateEvaluationWorkflow:
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
                 )
-                elapsed = (await env.get_current_time()) - start
+                result = await handle.result()
+                history = await handle.fetch_history()
 
         assert calls == ["fetch", "execute", "emit", "telemetry"]
         assert result["verdict"] is True
+        assert "reasoning" not in result
         assert window_starts == [datetime.fromisoformat(anchor).isoformat()]
         # Bounded to the span the live path would have covered from the anchor, so the grade does
         # not sweep in everything that arrived between the anchor and now.
         assert window_ends == [
             (datetime.fromisoformat(anchor) + timedelta(seconds=1800 + INGESTION_LAG_MARGIN_SECONDS)).isoformat()
         ]
-        # Far below the 1800s window, so the settle sleep cannot have run. The slack absorbs the
-        # test environment skipping an idle activity timeout.
-        assert elapsed < timedelta(seconds=900)
+        assert EventType.EVENT_TYPE_TIMER_STARTED not in {event.event_type for event in history.events}
 
     @pytest.mark.asyncio
     async def test_a_backfilled_inactivity_unit_reads_to_its_quiet_point(self):
@@ -639,6 +676,7 @@ class TestRunAggregateEvaluationWorkflow:
         assert elapsed < timedelta(hours=1)
 
 
+@pytest.mark.usefixtures("no_full_catalog_build")
 class TestCheckTraceSettledActivity:
     @pytest.fixture(autouse=True)
     def _frozen_clock(self):
@@ -718,6 +756,7 @@ class TestCheckTraceSettledActivity:
         assert "trace active" in err.value.message
 
 
+@pytest.mark.usefixtures("no_full_catalog_build")
 class TestCheckSessionSettledActivity:
     @pytest.fixture(autouse=True)
     def _frozen_clock(self):

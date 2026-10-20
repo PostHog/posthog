@@ -22,23 +22,24 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
-from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
+from posthog.query_scan.analyze import ExplainedPlan, PlanSet, QueryScanResult, RunFacts, analyze
 from posthog.query_scan.event_filter import (
     EventFilterClass,
     EventFilterOutcome,
     EventFilterReason,
     combine_event_filter,
 )
-from posthog.query_scan.explain import QueryPlan, TimestampBounds, parse_query_plan
+from posthog.query_scan.explain import EXPLAIN_MAX_SECONDS, QueryPlan, TimestampBounds, parse_query_plan
+from posthog.query_scan.findings import finding_label
 from posthog.query_scan.flag import get_query_scan_flag
 from posthog.query_scan.slot import (
     clear as clear_slot,
     set_done,
 )
+from posthog.query_scan.tree_facts import TreeFacts
 
 logger = structlog.get_logger(__name__)
 
-EXPLAIN_MAX_SECONDS = 10
 TABLE_AVERAGES_MAX_SECONDS = 5
 
 # The two events tables and the three persons tables the persons gate compares in rows.
@@ -57,25 +58,41 @@ _EVENT_FILTER_REASONS = get_args(EventFilterReason)
 
 
 @frozen
+class Subquery:
+    """One subquery of an execution, printed on its own, with the verdict and facts for its reads."""
+
+    sql: str
+    event_filter: dict[str, Any] | None = None
+    tree: dict[str, Any] | None = None
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> Subquery:
+        return cls(sql=payload["sql"], event_filter=payload.get("event_filter"), tree=payload.get("tree"))
+
+
+@frozen
 class Execution:
     """One printed execution of the run, as the trigger enqueued it. ``event_filter`` is the tree
-    verdict the trigger classified, or None when it shipped nothing.
+    verdict the trigger classified and ``tree`` the other facts it read off the tree; either is
+    None when it shipped nothing.
     """
 
     stubbed_sql: str
-    subqueries: tuple[str, ...]
+    subqueries: tuple[Subquery, ...]
     values: dict[str, Any]
     rows_read: int
     event_filter: dict[str, Any] | None = None
+    tree: dict[str, Any] | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> Execution:
         return cls(
             stubbed_sql=payload["stubbed_sql"],
-            subqueries=tuple(payload.get("subqueries") or ()),
+            subqueries=tuple(Subquery.from_payload(subquery) for subquery in payload.get("subqueries") or ()),
             values=payload.get("values") or {},
             rows_read=payload.get("rows_read") or 0,
             event_filter=payload.get("event_filter"),
+            tree=payload.get("tree"),
         )
 
 
@@ -96,7 +113,9 @@ class QueryScanJob:
     killed: bool = False
     error_type: str | None = None
     all_time: bool = False
+    dashboard_all_time: bool = False
     all_history_by_design: bool = False
+    all_events_by_design: bool = False
 
 
 def run_query_scan(job: QueryScanJob) -> None:
@@ -127,24 +146,44 @@ def _run(job: QueryScanJob, started: float) -> None:
     )
     range_cache: dict[tuple[int | None, int | None], int | None] = {}
 
+    run = RunFacts(
+        all_time=job.all_time,
+        dashboard_all_time=job.dashboard_all_time,
+        all_history_by_design=job.all_history_by_design,
+        all_events_by_design=job.all_events_by_design,
+        open_filters_placeholder=job.open_filters_placeholder,
+    )
+
+    def explained(
+        sql: str, values: dict[str, Any], event_filter: dict[str, Any] | None, tree: dict[str, Any] | None
+    ) -> ExplainedPlan | None:
+        plan = _plan(sql, values, job.team.pk)
+        if plan is None:
+            return None
+        return ExplainedPlan(
+            plan=plan,
+            range_granules=_range_granules(job.team.pk, plan, team_granules, range_cache),
+            event_filter=_combined_event_filter(event_filter, plan),
+            tree=TreeFacts.from_payload(tree),
+        )
+
     results: list[QueryScanResult] = []
     for execution in job.executions:
-        outer = _plan(execution.stubbed_sql, execution.values, job.team.pk)
-        subqueries = tuple(
-            plan
-            for plan in (_plan(sql, execution.values, job.team.pk) for sql in execution.subqueries)
-            if plan is not None
+        outer = explained(execution.stubbed_sql, execution.values, execution.event_filter, execution.tree)
+        subqueries = (
+            explained(subquery.sql, execution.values, subquery.event_filter, subquery.tree)
+            for subquery in execution.subqueries
         )
-        range_granules = _range_granules(job.team.pk, outer, team_granules, range_cache)
         results.append(
             analyze(
-                PlanSet(outer=outer, subqueries=subqueries, team_granules=team_granules, range_granules=range_granules),
+                PlanSet(
+                    outer=outer,
+                    subqueries=tuple(subquery for subquery in subqueries if subquery is not None),
+                    team_granules=team_granules,
+                ),
                 flag,
                 query_kind=job.query_kind or "",
-                open_filters_placeholder=job.open_filters_placeholder,
-                all_time=job.all_time,
-                all_history_by_design=job.all_history_by_design,
-                event_filter=_combined_event_filter(execution, outer),
+                run=run,
                 table_row_averages=table_row_averages,
             )
         )
@@ -180,11 +219,10 @@ def _plan(sql: str, values: dict[str, Any], team_id: int) -> QueryPlan | None:
     return parse_query_plan(rows[0][0])
 
 
-def _combined_event_filter(execution: Execution, outer: QueryPlan | None) -> EventFilterOutcome | None:
-    """The tree verdict the trigger shipped, folded with the outer plan's key use. None when it shipped
-    none, so the plan alone decides.
+def _combined_event_filter(payload: dict[str, Any] | None, plan: QueryPlan) -> EventFilterOutcome | None:
+    """The tree verdict the trigger shipped for a plan, folded with the plan's key use. None when it
+    shipped none, so the plan alone decides.
     """
-    payload = execution.event_filter
     if not payload:
         return None
     classification = payload.get("classification")
@@ -194,20 +232,21 @@ def _combined_event_filter(execution: Execution, outer: QueryPlan | None) -> Eve
     outcome = EventFilterOutcome(
         classification=classification,
         reason=reason if reason in _EVENT_FILTER_REASONS else None,
+        hidden_from_plan=payload.get("hidden_from_plan") is True,
     )
-    return combine_event_filter(outcome, outer)
+    return combine_event_filter(outcome, plan)
 
 
 def _range_granules(
     team_id: int,
-    outer: QueryPlan | None,
+    plan: QueryPlan,
     team_granules: int | None,
     cache: dict[tuple[int | None, int | None], int | None],
 ) -> int | None:
-    """The team's granules over the run's date range, cached per distinct bounds. With no bound the
+    """The team's granules over the plan's date range, cached per distinct bounds. With no bound the
     range is all time, so it equals the team denominator.
     """
-    events_read = outer.heaviest_events_read() if outer is not None else None
+    events_read = plan.heaviest_events_read()
     bounds = events_read.timestamp_bounds() if events_read is not None else TimestampBounds(lower=None, upper=None)
     if bounds.lower is None and bounds.upper is None:
         return team_granules
@@ -283,15 +322,15 @@ def _explain(sql: str, values: dict[str, Any], team_id: int) -> list[Any] | None
 
 
 def _merge(results: list[QueryScanResult], executions: tuple[Execution, ...]) -> QueryScanResult:
-    """One result from the executions the job analyzed: findings deduplicated by kind and reason, and
-    the shares from the execution that read the most rows."""
+    """One result from the executions the job analyzed: findings deduplicated by label, and the
+    shares from the execution that read the most rows."""
     findings: list[QueryScanWarning] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
     for result in results:
         for finding in result.findings:
-            key = (str(finding.kind), str(finding.reason))
-            if key not in seen:
-                seen.add(key)
+            label = finding_label(finding)
+            if label not in seen:
+                seen.add(label)
                 findings.append(finding)
 
     heaviest = _heaviest_result(results, executions)
@@ -328,6 +367,11 @@ def _report(job: QueryScanJob, merged: QueryScanResult, *, flag_event_ratio: flo
         "event_ratio": flag_event_ratio,
         "explain_ok": merged.explain_ok,
         "finding_kinds": merged.finding_kinds(),
+        "finding_labels": merged.finding_labels(),
+        "actionable_finding_kinds": merged.actionable_finding_kinds(),
+        "actionable_finding_labels": merged.actionable_finding_labels(),
+        "actionable": bool(merged.actionable_finding_kinds()),
+        "all_time": job.all_time,
         "killed": job.killed,
         "error_type": job.error_type,
         "job_ms": job_ms,

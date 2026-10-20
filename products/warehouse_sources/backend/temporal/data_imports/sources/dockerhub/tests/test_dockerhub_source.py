@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -21,28 +20,15 @@ class TestDockerhubSource:
         # secret re-entry — otherwise an editor could retarget the preserved token at another org.
         assert self.source.connection_host_fields == ["namespace"]
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
+    def test_org_scoped_endpoints_report_why_they_are_unavailable(self) -> None:
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source.check_endpoint_access",
+            return_value=dict.fromkeys(ENDPOINTS),
+        ) as probe:
+            self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
 
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["tags"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "tags"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all("Full refresh" in t["sync_methods"] for t in tables)
+        # A blank namespace means the user's own, so the probe must run against the username.
+        assert probe.call_args.args == ("tom", "dckr_pat_token", "tom", list(ENDPOINTS))
 
     @parameterized.expand(
         [
@@ -80,9 +66,3 @@ class TestDockerhubSource:
         assert kwargs["namespace"] == "my-org"
         assert kwargs["endpoint"] == "repositories"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Docker Hub schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

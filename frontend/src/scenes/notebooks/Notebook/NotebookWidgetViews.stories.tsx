@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -35,7 +36,7 @@ import {
 } from 'products/error_tracking/frontend/__mocks__/error_tracking_query'
 import { NEW_WORKFLOW } from 'products/workflows/frontend/Workflows/workflowLogic'
 
-import { expect, waitFor } from 'storybook/test'
+import { expect } from 'storybook/test'
 
 import featureFlags from '../../feature-flags/__mocks__/feature_flags.json'
 import { notebookWidgetCatalog, NotebookWidgetTagName } from '../notebookWidgetCatalog'
@@ -406,6 +407,7 @@ const meta: Meta = {
                     results: recordings,
                     version: 1,
                 },
+                '/api/projects/:team_id/groups/find': group,
                 '/api/environments/:team_id/groups/find': group,
                 '/api/environments/:team_id/error_tracking/issues/:id/': errorTrackingIssue,
                 '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],
@@ -534,9 +536,29 @@ export const InsightViews: Story = {
     },
 }
 export const RecordingViews: Story = {
+    decorators: [
+        (Story) => {
+            // Skipping inactivity moves the playhead on its own, and this recording resizes its
+            // viewport part way through, so the snapshot caught the page at whichever size the skip
+            // had reached. The setting is persisted, so the story pins it before the player mounts.
+            localStorage.setItem(
+                'scenes.session-recordings.player.playerSettingsLogic.skipInactivitySetting',
+                JSON.stringify(false)
+            )
+            return <Story />
+        },
+    ],
     parameters: {
-        pageUrl: urls.notebook('recording-widget-views'),
-        testOptions: { waitForLoadersToDisappear: false },
+        // `t=0` pins the player to the first frame. Without it the player picks its own start, which
+        // depends on how much of the recording has loaded, and the recording resizes its viewport
+        // five seconds in, so the snapshot caught the page at two different sizes.
+        pageUrl: `${urls.notebook('recording-widget-views')}?t=0`,
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            // The player mounts rrweb inside its own frame document. Without this wait the snapshot is
+            // taken as soon as the notebook renders, so it catches whichever frame the replay reached.
+            waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
+        },
     },
 }
 export const RecordingPlaylistViews: Story = {

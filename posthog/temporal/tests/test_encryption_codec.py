@@ -16,8 +16,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.codec import EncryptionCodec, _load_as_bytes, _prepare_key, _resize_key
 
-from products.batch_exports.backend.service import NoOpInputs
-from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
+from products.batch_exports.backend.facade.temporal import NoOpWorkflow, noop_activity
+from products.batch_exports.backend.facade.testing import build_noop_inputs
 
 
 @pytest.mark.parametrize(
@@ -191,12 +191,7 @@ async def test_payloads_are_encrypted():
     input_str = str(uuid.uuid4())
 
     no_op_result_str = f"OK - {input_str}"
-    inputs = NoOpInputs(
-        arg=input_str,
-        batch_export_id="123",
-        team_id=1,
-        backfill_details=None,
-    )
+    inputs = build_noop_inputs(arg=input_str, team_id=1, batch_export_id="123")
 
     # The no-op Workflow can only produce a limited set of results, so we'll check if the events match any of these.
     # Either it's the final result (no_op_result_str), the input to an activity (no_op_activity_input_str), or the

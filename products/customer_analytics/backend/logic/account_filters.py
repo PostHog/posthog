@@ -308,8 +308,8 @@ def apply_account_filters(
                 queryset = queryset.filter(account_search_q(query, member_external_ids=member_external_ids))
         elif isinstance(filter_, contracts.AccountTableTagsFilter):
             if filter_.tag_names:
-                matching_tags = TaggedItem.objects.filter(
-                    account_id=OuterRef("pk"), tag__team_id=team_id, tag__name__in=filter_.tag_names
+                matching_tags = TaggedItem.objects.matching_outer(Account).filter(
+                    tag__team_id=team_id, tag__name__in=filter_.tag_names
                 )
                 queryset = queryset.filter(Exists(matching_tags))
         elif isinstance(filter_, contracts.AccountTableAssignedToFilter):

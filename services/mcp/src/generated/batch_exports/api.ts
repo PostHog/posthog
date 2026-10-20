@@ -61,7 +61,7 @@ export const BatchExportsCreateBody = () => zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -137,6 +137,12 @@ export const BatchExportsCreateBody = () => zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                             })
                             .describe(
@@ -241,6 +247,12 @@ export const BatchExportsCreateBody = () => zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -295,6 +307,12 @@ export const BatchExportsCreateBody = () => zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -437,6 +455,282 @@ export const BatchExportsCreateBody = () => zod
                 'How often the batch export should run.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `every 5 minutes` - every 5 minutes\n\* `every 15 minutes` - every 15 minutes'
             ),
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
+        hogql_query: zod
+            .string()
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'."
+            ),
+        hogql_modifiers: zod
+            .union([
+                zod.object({
+                    bounceRateDurationSeconds: zod.union([zod.number(), zod.null()]).optional(),
+                    bounceRatePageViewMode: zod
+                        .union([
+                            zod.enum(['count_pageviews', 'uniq_urls', 'uniq_page_screen_autocaptures']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    convertToProjectTimezone: zod.union([zod.boolean(), zod.null()]).optional(),
+                    cookielessTrafficIsRegular: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.'
+                        ),
+                    customBotDefinitions: zod
+                        .union([
+                            zod.array(
+                                zod.object({
+                                    category: zod
+                                        .union([zod.string(), zod.null()])
+                                        .optional()
+                                        .describe('Reported by `$virt_traffic_category`. Defaults to `custom`.'),
+                                    combiner: zod
+                                        .enum(['AND', 'OR'])
+                                        .describe('Whether every condition must match (AND) or any one of them (OR).'),
+                                    id: zod.string(),
+                                    items: zod.array(
+                                        zod.object({
+                                            id: zod.string(),
+                                            key: zod
+                                                .enum([
+                                                    '$raw_user_agent',
+                                                    '$ip',
+                                                    '$lib',
+                                                    '$host',
+                                                    '$pathname',
+                                                    '$current_url',
+                                                    '$browser',
+                                                    '$os',
+                                                    '$browser_language',
+                                                    '$screen_width',
+                                                    '$screen_height',
+                                                    '$geoip_country_code',
+                                                    '$referrer',
+                                                    '$referring_domain',
+                                                ])
+                                                .describe('The event property this condition reads.'),
+                                            matcher: zod.enum(['contains', 'regex', 'exact', 'cidr']),
+                                            pattern: zod
+                                                .string()
+                                                .describe('Matched against the property named by `key`.'),
+                                        })
+                                    ),
+                                    name: zod
+                                        .string()
+                                        .describe(
+                                            'Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.'
+                                        ),
+                                })
+                            ),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    customChannelTypeRules: zod
+                        .union([
+                            zod.array(
+                                zod.object({
+                                    channel_type: zod.string(),
+                                    combiner: zod.enum(['AND', 'OR']),
+                                    id: zod.string(),
+                                    items: zod.array(
+                                        zod.object({
+                                            id: zod.string(),
+                                            key: zod.enum([
+                                                'utm_source',
+                                                'utm_medium',
+                                                'utm_campaign',
+                                                'referring_domain',
+                                                'url',
+                                                'pathname',
+                                                'hostname',
+                                            ]),
+                                            op: zod.enum([
+                                                'exact',
+                                                'is_not',
+                                                'is_set',
+                                                'is_not_set',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                            ]),
+                                            value: zod
+                                                .union([zod.string(), zod.array(zod.string()), zod.null()])
+                                                .optional(),
+                                        })
+                                    ),
+                                })
+                            ),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    dataWarehouseEventsModifiers: zod
+                        .union([
+                            zod.array(
+                                zod.object({
+                                    distinct_id_field: zod.string(),
+                                    id_field: zod.string(),
+                                    table_name: zod.string(),
+                                    timestamp_field: zod.string(),
+                                })
+                            ),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    debug: zod.union([zod.boolean(), zod.null()]).optional(),
+                    forceClickhouseDataSkippingIndexes: zod
+                        .union([zod.array(zod.string()), zod.null()])
+                        .optional()
+                        .describe('If these are provided, the query will fail if these skip indexes are not used'),
+                    formatCsvAllowDoubleQuotes: zod.union([zod.boolean(), zod.null()]).optional(),
+                    inCohortVia: zod
+                        .union([zod.enum(['auto', 'leftjoin', 'subquery', 'leftjoin_conjoined']), zod.null()])
+                        .optional(),
+                    inlineCohortCalculation: zod.union([zod.enum(['off', 'auto', 'always']), zod.null()]).optional(),
+                    materializationMode: zod
+                        .union([
+                            zod.enum(['auto', 'legacy_null_as_string', 'legacy_null_as_null', 'disabled']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    materializedColumnsOptimizationMode: zod
+                        .union([zod.enum(['disabled', 'optimized']), zod.null()])
+                        .optional(),
+                    mergeFederatedAggregateJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
+                        ),
+                    negatedPersonFiltersNotIn: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
+                        ),
+                    optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
+                    optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
+                    parserMode: zod
+                        .union([
+                            zod.enum([
+                                'cpp_only',
+                                'cpp_with_rust_shadow',
+                                'cpp_with_rust_py_shadow',
+                                'rust_with_cpp_shadow',
+                                'rust_only',
+                                'rust_py_only',
+                                'rust_py_with_cpp_shadow',
+                            ]),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
+                        ),
+                    personIdPushdown: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                        ),
+                    personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
+                    personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
+                    personsOnEventsMode: zod
+                        .union([
+                            zod.enum([
+                                'disabled',
+                                'person_id_no_override_properties_on_events',
+                                'person_id_override_properties_on_events',
+                                'person_id_override_properties_joined',
+                            ]),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    propertyGroupsMode: zod
+                        .union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()])
+                        .optional(),
+                    pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
+                    s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionIdPushdown: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.'
+                        ),
+                    sessionPropertyPreAggregation: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
+                        ),
+                    sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                    sessionTimestampBufferMinutes: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                        ),
+                    sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
+                    timings: zod.union([zod.boolean(), zod.null()]).optional(),
+                    typeAwareCastSimplification: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
+                        ),
+                    useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
+                        ),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        ),
+                    usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
+                    usePreaggregatedTableTransforms: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
+                        ),
+                    useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
+                    webAnalyticsFirstPageviewFilters: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_\*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients."
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
+            ),
+        primary_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
+            ),
+        version_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.'
+            ),
+        incremental_mode: zod
+            .enum(['APPEND', 'MERGE'])
+            .describe('\* `APPEND` - Append\n\* `MERGE` - Merge')
+            .optional()
+            .describe('How this batch export handles incremental updates.\n\n\* `APPEND` - Append\n\* `MERGE` - Merge'),
         timezone: zod
             .string()
             .nullish()
@@ -510,7 +804,7 @@ export const BatchExportsPartialUpdateBody = () => zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -586,6 +880,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                             })
                             .describe(
@@ -692,6 +992,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -746,6 +1052,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -892,6 +1204,282 @@ export const BatchExportsPartialUpdateBody = () => zod
                 'How often the batch export should run.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `every 5 minutes` - every 5 minutes\n\* `every 15 minutes` - every 15 minutes'
             ),
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
+        hogql_query: zod
+            .string()
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'."
+            ),
+        hogql_modifiers: zod
+            .union([
+                zod.object({
+                    bounceRateDurationSeconds: zod.union([zod.number(), zod.null()]).optional(),
+                    bounceRatePageViewMode: zod
+                        .union([
+                            zod.enum(['count_pageviews', 'uniq_urls', 'uniq_page_screen_autocaptures']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    convertToProjectTimezone: zod.union([zod.boolean(), zod.null()]).optional(),
+                    cookielessTrafficIsRegular: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.'
+                        ),
+                    customBotDefinitions: zod
+                        .union([
+                            zod.array(
+                                zod.object({
+                                    category: zod
+                                        .union([zod.string(), zod.null()])
+                                        .optional()
+                                        .describe('Reported by `$virt_traffic_category`. Defaults to `custom`.'),
+                                    combiner: zod
+                                        .enum(['AND', 'OR'])
+                                        .describe('Whether every condition must match (AND) or any one of them (OR).'),
+                                    id: zod.string(),
+                                    items: zod.array(
+                                        zod.object({
+                                            id: zod.string(),
+                                            key: zod
+                                                .enum([
+                                                    '$raw_user_agent',
+                                                    '$ip',
+                                                    '$lib',
+                                                    '$host',
+                                                    '$pathname',
+                                                    '$current_url',
+                                                    '$browser',
+                                                    '$os',
+                                                    '$browser_language',
+                                                    '$screen_width',
+                                                    '$screen_height',
+                                                    '$geoip_country_code',
+                                                    '$referrer',
+                                                    '$referring_domain',
+                                                ])
+                                                .describe('The event property this condition reads.'),
+                                            matcher: zod.enum(['contains', 'regex', 'exact', 'cidr']),
+                                            pattern: zod
+                                                .string()
+                                                .describe('Matched against the property named by `key`.'),
+                                        })
+                                    ),
+                                    name: zod
+                                        .string()
+                                        .describe(
+                                            'Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.'
+                                        ),
+                                })
+                            ),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    customChannelTypeRules: zod
+                        .union([
+                            zod.array(
+                                zod.object({
+                                    channel_type: zod.string(),
+                                    combiner: zod.enum(['AND', 'OR']),
+                                    id: zod.string(),
+                                    items: zod.array(
+                                        zod.object({
+                                            id: zod.string(),
+                                            key: zod.enum([
+                                                'utm_source',
+                                                'utm_medium',
+                                                'utm_campaign',
+                                                'referring_domain',
+                                                'url',
+                                                'pathname',
+                                                'hostname',
+                                            ]),
+                                            op: zod.enum([
+                                                'exact',
+                                                'is_not',
+                                                'is_set',
+                                                'is_not_set',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                            ]),
+                                            value: zod
+                                                .union([zod.string(), zod.array(zod.string()), zod.null()])
+                                                .optional(),
+                                        })
+                                    ),
+                                })
+                            ),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    dataWarehouseEventsModifiers: zod
+                        .union([
+                            zod.array(
+                                zod.object({
+                                    distinct_id_field: zod.string(),
+                                    id_field: zod.string(),
+                                    table_name: zod.string(),
+                                    timestamp_field: zod.string(),
+                                })
+                            ),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    debug: zod.union([zod.boolean(), zod.null()]).optional(),
+                    forceClickhouseDataSkippingIndexes: zod
+                        .union([zod.array(zod.string()), zod.null()])
+                        .optional()
+                        .describe('If these are provided, the query will fail if these skip indexes are not used'),
+                    formatCsvAllowDoubleQuotes: zod.union([zod.boolean(), zod.null()]).optional(),
+                    inCohortVia: zod
+                        .union([zod.enum(['auto', 'leftjoin', 'subquery', 'leftjoin_conjoined']), zod.null()])
+                        .optional(),
+                    inlineCohortCalculation: zod.union([zod.enum(['off', 'auto', 'always']), zod.null()]).optional(),
+                    materializationMode: zod
+                        .union([
+                            zod.enum(['auto', 'legacy_null_as_string', 'legacy_null_as_null', 'disabled']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    materializedColumnsOptimizationMode: zod
+                        .union([zod.enum(['disabled', 'optimized']), zod.null()])
+                        .optional(),
+                    mergeFederatedAggregateJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
+                        ),
+                    negatedPersonFiltersNotIn: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
+                        ),
+                    optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
+                    optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
+                    parserMode: zod
+                        .union([
+                            zod.enum([
+                                'cpp_only',
+                                'cpp_with_rust_shadow',
+                                'cpp_with_rust_py_shadow',
+                                'rust_with_cpp_shadow',
+                                'rust_only',
+                                'rust_py_only',
+                                'rust_py_with_cpp_shadow',
+                            ]),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
+                        ),
+                    personIdPushdown: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                        ),
+                    personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
+                    personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
+                    personsOnEventsMode: zod
+                        .union([
+                            zod.enum([
+                                'disabled',
+                                'person_id_no_override_properties_on_events',
+                                'person_id_override_properties_on_events',
+                                'person_id_override_properties_joined',
+                            ]),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    propertyGroupsMode: zod
+                        .union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()])
+                        .optional(),
+                    pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
+                    s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionIdPushdown: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.'
+                        ),
+                    sessionPropertyPreAggregation: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
+                        ),
+                    sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                    sessionTimestampBufferMinutes: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                        ),
+                    sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
+                    timings: zod.union([zod.boolean(), zod.null()]).optional(),
+                    typeAwareCastSimplification: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
+                        ),
+                    useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
+                        ),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        ),
+                    usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
+                    usePreaggregatedTableTransforms: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
+                        ),
+                    useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
+                    webAnalyticsFirstPageviewFilters: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_\*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients."
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
+            ),
+        primary_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
+            ),
+        version_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.'
+            ),
+        incremental_mode: zod
+            .enum(['APPEND', 'MERGE'])
+            .describe('\* `APPEND` - Append\n\* `MERGE` - Merge')
+            .optional()
+            .describe('How this batch export handles incremental updates.\n\n\* `APPEND` - Append\n\* `MERGE` - Merge'),
         timezone: zod
             .string()
             .nullish()
@@ -1101,7 +1689,269 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
             hogql_query: zod
                 .string()
                 .describe(
-                    'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                    'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                ),
+            hogql_modifiers: zod
+                .object({
+                    bounceRateDurationSeconds: zod.union([zod.number(), zod.null()]).optional(),
+                    bounceRatePageViewMode: zod
+                        .union([
+                            zod.enum(['count_pageviews', 'uniq_urls', 'uniq_page_screen_autocaptures']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    convertToProjectTimezone: zod.union([zod.boolean(), zod.null()]).optional(),
+                    cookielessTrafficIsRegular: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.'
+                        ),
+                    customBotDefinitions: zod
+                        .union([
+                            zod.array(
+                                zod.object({
+                                    category: zod
+                                        .union([zod.string(), zod.null()])
+                                        .optional()
+                                        .describe('Reported by `$virt_traffic_category`. Defaults to `custom`.'),
+                                    combiner: zod
+                                        .enum(['AND', 'OR'])
+                                        .describe('Whether every condition must match (AND) or any one of them (OR).'),
+                                    id: zod.string(),
+                                    items: zod.array(
+                                        zod.object({
+                                            id: zod.string(),
+                                            key: zod
+                                                .enum([
+                                                    '$raw_user_agent',
+                                                    '$ip',
+                                                    '$lib',
+                                                    '$host',
+                                                    '$pathname',
+                                                    '$current_url',
+                                                    '$browser',
+                                                    '$os',
+                                                    '$browser_language',
+                                                    '$screen_width',
+                                                    '$screen_height',
+                                                    '$geoip_country_code',
+                                                    '$referrer',
+                                                    '$referring_domain',
+                                                ])
+                                                .describe('The event property this condition reads.'),
+                                            matcher: zod.enum(['contains', 'regex', 'exact', 'cidr']),
+                                            pattern: zod
+                                                .string()
+                                                .describe('Matched against the property named by `key`.'),
+                                        })
+                                    ),
+                                    name: zod
+                                        .string()
+                                        .describe(
+                                            'Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.'
+                                        ),
+                                })
+                            ),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    customChannelTypeRules: zod
+                        .union([
+                            zod.array(
+                                zod.object({
+                                    channel_type: zod.string(),
+                                    combiner: zod.enum(['AND', 'OR']),
+                                    id: zod.string(),
+                                    items: zod.array(
+                                        zod.object({
+                                            id: zod.string(),
+                                            key: zod.enum([
+                                                'utm_source',
+                                                'utm_medium',
+                                                'utm_campaign',
+                                                'referring_domain',
+                                                'url',
+                                                'pathname',
+                                                'hostname',
+                                            ]),
+                                            op: zod.enum([
+                                                'exact',
+                                                'is_not',
+                                                'is_set',
+                                                'is_not_set',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                            ]),
+                                            value: zod
+                                                .union([zod.string(), zod.array(zod.string()), zod.null()])
+                                                .optional(),
+                                        })
+                                    ),
+                                })
+                            ),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    dataWarehouseEventsModifiers: zod
+                        .union([
+                            zod.array(
+                                zod.object({
+                                    distinct_id_field: zod.string(),
+                                    id_field: zod.string(),
+                                    table_name: zod.string(),
+                                    timestamp_field: zod.string(),
+                                })
+                            ),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    debug: zod.union([zod.boolean(), zod.null()]).optional(),
+                    forceClickhouseDataSkippingIndexes: zod
+                        .union([zod.array(zod.string()), zod.null()])
+                        .optional()
+                        .describe('If these are provided, the query will fail if these skip indexes are not used'),
+                    formatCsvAllowDoubleQuotes: zod.union([zod.boolean(), zod.null()]).optional(),
+                    inCohortVia: zod
+                        .union([zod.enum(['auto', 'leftjoin', 'subquery', 'leftjoin_conjoined']), zod.null()])
+                        .optional(),
+                    inlineCohortCalculation: zod.union([zod.enum(['off', 'auto', 'always']), zod.null()]).optional(),
+                    materializationMode: zod
+                        .union([
+                            zod.enum(['auto', 'legacy_null_as_string', 'legacy_null_as_null', 'disabled']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    materializedColumnsOptimizationMode: zod
+                        .union([zod.enum(['disabled', 'optimized']), zod.null()])
+                        .optional(),
+                    mergeFederatedAggregateJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
+                        ),
+                    negatedPersonFiltersNotIn: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
+                        ),
+                    optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
+                    optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
+                    parserMode: zod
+                        .union([
+                            zod.enum([
+                                'cpp_only',
+                                'cpp_with_rust_shadow',
+                                'cpp_with_rust_py_shadow',
+                                'rust_with_cpp_shadow',
+                                'rust_only',
+                                'rust_py_only',
+                                'rust_py_with_cpp_shadow',
+                            ]),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
+                        ),
+                    personIdPushdown: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                        ),
+                    personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
+                    personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
+                    personsOnEventsMode: zod
+                        .union([
+                            zod.enum([
+                                'disabled',
+                                'person_id_no_override_properties_on_events',
+                                'person_id_override_properties_on_events',
+                                'person_id_override_properties_joined',
+                            ]),
+                            zod.null(),
+                        ])
+                        .optional(),
+                    propertyGroupsMode: zod
+                        .union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()])
+                        .optional(),
+                    pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
+                    s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionIdPushdown: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.'
+                        ),
+                    sessionPropertyPreAggregation: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
+                        ),
+                    sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                    sessionTimestampBufferMinutes: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                        ),
+                    sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
+                    timings: zod.union([zod.boolean(), zod.null()]).optional(),
+                    typeAwareCastSimplification: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
+                        ),
+                    useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
+                        ),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        ),
+                    usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
+                    usePreaggregatedTableTransforms: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
+                        ),
+                    useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
+                    webAnalyticsFirstPageviewFilters: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_\*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients."
+                        ),
+                })
+                .optional()
+                .describe(
+                    "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
+                ),
+            data_interval_start: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days.'
+                ),
+            data_interval_end: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
                 ),
         })
         .describe('Typed configuration for the hogql model.'),
@@ -1135,61 +1985,6 @@ export const FileDownloadBatchExportsCancelCreateParams = () => zod.object({
         ),
 })
 
-export const fileDownloadBatchExportsCancelCreateBodyFileFormatDefault = `Parquet`
-export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault = 1024
-export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin = 0
-
-export const FileDownloadBatchExportsCancelCreateBody = () => zod
-    .object({
-        file: zod
-            .object({
-                format: zod
-                    .enum(['Parquet', 'JSONLines'])
-                    .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
-                    .default(fileDownloadBatchExportsCancelCreateBodyFileFormatDefault)
-                    .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
-                compression: zod
-                    .union([
-                        zod
-                            .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
-                            .describe(
-                                '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
-                            ),
-                        zod.null(),
-                    ])
-                    .optional()
-                    .describe(
-                        'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
-                    ),
-                max_size_mb: zod
-                    .number()
-                    .min(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin)
-                    .nullish()
-                    .default(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault)
-                    .describe(
-                        'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
-                    ),
-            })
-            .describe('Typed configuration for a FileDownload batch-export destination.'),
-        model: zod
-            .enum(['events', 'persons', 'sessions', 'hogql'])
-            .describe('\* `events` - events\n\* `persons` - persons\n\* `sessions` - sessions\n\* `hogql` - hogql'),
-        include: zod.array(zod.string()).optional(),
-        exclude: zod.array(zod.string()).optional(),
-        hogql_query: zod
-            .string()
-            .optional()
-            .describe(
-                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
-            ),
-        data_interval_start: zod.iso
-            .datetime({ offset: true })
-            .optional()
-            .describe('Start of the data interval to export'),
-        data_interval_end: zod.iso.datetime({ offset: true }).optional().describe('End of the data interval to export'),
-    })
-    .describe('Request shape for a FileDownload batch export on demand.')
-
 /**
  * Count the rows a HogQL batch export would produce if started now.
  */
@@ -1210,7 +2005,259 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
         hogql_query: zod
             .string()
             .describe(
-                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+            ),
+        hogql_modifiers: zod
+            .object({
+                bounceRateDurationSeconds: zod.union([zod.number(), zod.null()]).optional(),
+                bounceRatePageViewMode: zod
+                    .union([zod.enum(['count_pageviews', 'uniq_urls', 'uniq_page_screen_autocaptures']), zod.null()])
+                    .optional(),
+                convertToProjectTimezone: zod.union([zod.boolean(), zod.null()]).optional(),
+                cookielessTrafficIsRegular: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.'
+                    ),
+                customBotDefinitions: zod
+                    .union([
+                        zod.array(
+                            zod.object({
+                                category: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Reported by `$virt_traffic_category`. Defaults to `custom`.'),
+                                combiner: zod
+                                    .enum(['AND', 'OR'])
+                                    .describe('Whether every condition must match (AND) or any one of them (OR).'),
+                                id: zod.string(),
+                                items: zod.array(
+                                    zod.object({
+                                        id: zod.string(),
+                                        key: zod
+                                            .enum([
+                                                '$raw_user_agent',
+                                                '$ip',
+                                                '$lib',
+                                                '$host',
+                                                '$pathname',
+                                                '$current_url',
+                                                '$browser',
+                                                '$os',
+                                                '$browser_language',
+                                                '$screen_width',
+                                                '$screen_height',
+                                                '$geoip_country_code',
+                                                '$referrer',
+                                                '$referring_domain',
+                                            ])
+                                            .describe('The event property this condition reads.'),
+                                        matcher: zod.enum(['contains', 'regex', 'exact', 'cidr']),
+                                        pattern: zod.string().describe('Matched against the property named by `key`.'),
+                                    })
+                                ),
+                                name: zod
+                                    .string()
+                                    .describe(
+                                        'Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.'
+                                    ),
+                            })
+                        ),
+                        zod.null(),
+                    ])
+                    .optional(),
+                customChannelTypeRules: zod
+                    .union([
+                        zod.array(
+                            zod.object({
+                                channel_type: zod.string(),
+                                combiner: zod.enum(['AND', 'OR']),
+                                id: zod.string(),
+                                items: zod.array(
+                                    zod.object({
+                                        id: zod.string(),
+                                        key: zod.enum([
+                                            'utm_source',
+                                            'utm_medium',
+                                            'utm_campaign',
+                                            'referring_domain',
+                                            'url',
+                                            'pathname',
+                                            'hostname',
+                                        ]),
+                                        op: zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'is_set',
+                                            'is_not_set',
+                                            'icontains',
+                                            'not_icontains',
+                                            'regex',
+                                            'not_regex',
+                                        ]),
+                                        value: zod
+                                            .union([zod.string(), zod.array(zod.string()), zod.null()])
+                                            .optional(),
+                                    })
+                                ),
+                            })
+                        ),
+                        zod.null(),
+                    ])
+                    .optional(),
+                dataWarehouseEventsModifiers: zod
+                    .union([
+                        zod.array(
+                            zod.object({
+                                distinct_id_field: zod.string(),
+                                id_field: zod.string(),
+                                table_name: zod.string(),
+                                timestamp_field: zod.string(),
+                            })
+                        ),
+                        zod.null(),
+                    ])
+                    .optional(),
+                debug: zod.union([zod.boolean(), zod.null()]).optional(),
+                forceClickhouseDataSkippingIndexes: zod
+                    .union([zod.array(zod.string()), zod.null()])
+                    .optional()
+                    .describe('If these are provided, the query will fail if these skip indexes are not used'),
+                formatCsvAllowDoubleQuotes: zod.union([zod.boolean(), zod.null()]).optional(),
+                inCohortVia: zod
+                    .union([zod.enum(['auto', 'leftjoin', 'subquery', 'leftjoin_conjoined']), zod.null()])
+                    .optional(),
+                inlineCohortCalculation: zod.union([zod.enum(['off', 'auto', 'always']), zod.null()]).optional(),
+                materializationMode: zod
+                    .union([zod.enum(['auto', 'legacy_null_as_string', 'legacy_null_as_null', 'disabled']), zod.null()])
+                    .optional(),
+                materializedColumnsOptimizationMode: zod
+                    .union([zod.enum(['disabled', 'optimized']), zod.null()])
+                    .optional(),
+                mergeFederatedAggregateJoins: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
+                    ),
+                negatedPersonFiltersNotIn: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
+                    ),
+                optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
+                optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
+                parserMode: zod
+                    .union([
+                        zod.enum([
+                            'cpp_only',
+                            'cpp_with_rust_shadow',
+                            'cpp_with_rust_py_shadow',
+                            'rust_with_cpp_shadow',
+                            'rust_only',
+                            'rust_py_only',
+                            'rust_py_with_cpp_shadow',
+                        ]),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
+                    ),
+                personIdPushdown: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                    ),
+                personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
+                personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
+                personsOnEventsMode: zod
+                    .union([
+                        zod.enum([
+                            'disabled',
+                            'person_id_no_override_properties_on_events',
+                            'person_id_override_properties_on_events',
+                            'person_id_override_properties_joined',
+                        ]),
+                        zod.null(),
+                    ])
+                    .optional(),
+                propertyGroupsMode: zod.union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()]).optional(),
+                pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
+                s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                sessionIdPushdown: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.'
+                    ),
+                sessionPropertyPreAggregation: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
+                    ),
+                sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                sessionTimestampBufferMinutes: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                    ),
+                sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
+                timings: zod.union([zod.boolean(), zod.null()]).optional(),
+                typeAwareCastSimplification: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
+                    ),
+                useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                useNewEventsCluster: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
+                    ),
+                useNewEventsSchema: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                    ),
+                usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
+                usePreaggregatedTableTransforms: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
+                    ),
+                useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
+                webAnalyticsFirstPageviewFilters: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_\*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients."
+                    ),
+            })
+            .optional()
+            .describe(
+                "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
+            ),
+        data_interval_start: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days.'
+            ),
+        data_interval_end: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
             ),
     })
     .describe('Request shape for counting the rows a file download batch export would produce.')

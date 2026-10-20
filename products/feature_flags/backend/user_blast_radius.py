@@ -21,13 +21,21 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.models.filters import Filter
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError, look_up_clickhouse_error_code_meta
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
+from posthog.models.property.parse import parse_properties_for_team
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
+from posthog.ph_client import feature_enabled_or_false
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.blast_radius_flag_deps import FlagDependencyEstimator
+from products.feature_flags.backend.person_sampling import (
+    build_person_count_query,
+    count_matching_persons,
+    count_settings,
+    read_person_count,
+)
 
 
 @frozen
@@ -36,11 +44,73 @@ class BlastRadiusResult:
     total: int
 
 
+BLAST_RADIUS_QUERY_V2_FLAG = "flags-blast-radius-query-v2"
+
+QUERY_TYPE_V2 = "feature_flag_blast_radius_v2"
+
+
+def use_blast_radius_query_v2(team: Team) -> bool:
+    # Local-only, so a sizing request never waits on a flag fetch. That is also why the gate
+    # targets the project group: the project id travels with the call, where a person property
+    # would need the fetch to answer.
+    return feature_enabled_or_false(
+        BLAST_RADIUS_QUERY_V2_FLAG,
+        f"team-{team.pk}",
+        groups={"project": str(team.pk)},
+        group_properties={"project": {"id": str(team.pk)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
+def sampled_person_blast_radius(team: Team, prop_group: PropertyGroup, query_type: str) -> BlastRadiusResult:
+    """
+    Person blast radius whose peak query memory does not grow with the size of the person table.
+
+    The exact counts dedup the person table with a hash GROUP BY that holds every matched
+    person in memory, and HogQL's default settings set no spill threshold, so on a large team
+    both counts cross the per-query memory limit and the caller gets an error instead of a
+    number. These counts read a sample of the persons and extrapolate, and fall back to an
+    exact count when the sample holds too few matches to extrapolate from. That fallback stays
+    bounded because count_settings overrides those defaults with in-order aggregation and a
+    spill threshold.
+    """
+    # One database build shared by both counts; each execute_hogql_query call would otherwise
+    # rebuild it, and the build cost scales with the team's warehouse size.
+    database = Database.create_for(team=team)
+
+    total = count_matching_persons(team, None, database, query_type=query_type)
+    if len(prop_group.flat) == 0:
+        return BlastRadiusResult(affected=total, total=total)
+
+    weight = _flag_dependency_weight(team, prop_group)
+    try:
+        affected = count_matching_persons(team, prop_group, database, query_type=query_type, weight=weight)
+    except InternalCHQueryError as e:
+        if weight is None or e.code not in _VALUE_PARSE_CH_ERROR_CODES:
+            raise
+        # A dependency's stored targeting failed a cast in ClickHouse. Its configuration is not
+        # the caller's input, so the dependency sizes neutrally instead of failing the request.
+        affected = count_matching_persons(team, prop_group, database, query_type=query_type)
+    return BlastRadiusResult(affected=min(affected, total), total=total)
+
+
 # ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
 # 72 CANNOT_PARSE_NUMBER — e.g. a numeric operator (gt/lt) against a null or non-numeric filter
-# value casts 'None' to Float64 and fails deterministically. Both are classified USER_ERROR in
-# posthog/errors.py but not user_safe, so they wrap to InternalCHQueryError, not Exposed.
+# value casts 'None' to Float64 and fails deterministically. These codes also identify failures
+# in stored flag dependencies, which must fall back to sizing without the dependency.
 _VALUE_PARSE_CH_ERROR_CODES = frozenset({6, 72})
+
+UNEVALUABLE_FILTERS_MESSAGE = "These filters can't be evaluated. Check the property values."
+
+
+def _group_property_globals(group_type_index: GroupTypeIndex) -> dict[str, int]:
+    """
+    HogQL reads the group type from this global to resolve group property types when a query
+    selects from `groups` directly. Without it, HogQL compares a Boolean group property as a
+    string, and ClickHouse rejects the query.
+    """
+    return {"group_id": group_type_index}
 
 
 @contextmanager
@@ -49,10 +119,13 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     # layers reject - behavioral or event filters in person scope, deleted cohort references,
     # malformed regexes, values that don't cast to the property's type - fail deterministically
     # on every request, so they're the caller's input, not a server fault: surface them as a 400
-    # carrying the layer's own message instead of an opaque 500. Only deliberately-exposed error
-    # types are converted across query build and execution - plus ObjectDoesNotExist from cohort
-    # lookups, PropertyValidationError from Property construction during query build (its message
-    # already names the offending property), and the ClickHouse cannot-parse-value codes above.
+    # instead of an opaque 500. The release condition editor and the workflow batch trigger print
+    # the 400 detail as it arrives. HogQL writes its messages for a person to read, so those are
+    # echoed. ClickHouse writes its messages for the engine, so the caller sees only copy that
+    # PostHog wrote: an ErrorCodeMeta user_safe string, or the generic message. Only
+    # deliberately-exposed error types are converted across query build and execution - plus
+    # ObjectDoesNotExist from cohort lookups and PropertyValidationError from Property
+    # construction during query build, whose message already names the offending property.
     # Caller-shaped ValueError is converted separately in the parse phase
     # (replace_proxy_properties), so a bare ValueError from HogQL internals or team config
     # during build/execution still surfaces as a server fault, as does any other
@@ -62,19 +135,18 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     except (
         ExposedHogQLError,
         HogQLNotImplementedError,
-        ExposedCHQueryError,
         ObjectDoesNotExist,
         PropertyValidationError,
     ) as e:
-        raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
+        raise ValidationError({"filters": str(e) or UNEVALUABLE_FILTERS_MESSAGE}) from e
+    except ExposedCHQueryError as e:
+        curated_copy = look_up_clickhouse_error_code_meta(e).user_safe
+        message = curated_copy if isinstance(curated_copy, str) else UNEVALUABLE_FILTERS_MESSAGE
+        raise ValidationError({"filters": message}) from e
     except InternalCHQueryError as e:
         if e.code not in _VALUE_PARSE_CH_ERROR_CODES:
             raise
-        # Unlike ExposedCHQueryError, InternalCHQueryError's str() keeps the raw server message.
-        # Rewrap so ExposedCHQueryError.__str__ strips the DB::Exception framing and any stack
-        # trace tail before the message is echoed back to the caller.
-        sanitized = str(ExposedCHQueryError(e.message, code=e.code, code_name=e.code_name))
-        raise ValidationError({"filters": sanitized or "These filters cannot be evaluated."}) from e
+        raise ValidationError({"filters": UNEVALUABLE_FILTERS_MESSAGE}) from e
 
 
 def _normalize_property_value(prop: Property) -> None:
@@ -92,13 +164,13 @@ def _normalize_property_value(prop: Property) -> None:
             prop.value = str(prop.value)
 
 
-def replace_proxy_properties(team: Team, feature_flag_condition: dict):
+def replace_proxy_properties(team: Team, feature_flag_condition: dict) -> PropertyGroup:
     # Parse phase: everything here derives directly from the caller's filter JSON, so a
     # ValueError is caller input (malformed property shape, non-numeric cohort id) and becomes
     # a 400. Cohort ids are cast eagerly so a bad id fails here instead of surfacing as a bare
     # ValueError from deep inside query building.
     try:
-        prop_groups = Filter(data=feature_flag_condition, team=team).property_groups
+        prop_groups = parse_properties_for_team(feature_flag_condition, team)
 
         for prop in prop_groups.flat:
             if prop.type in ("cohort", "static-cohort", "precalculated-cohort"):
@@ -110,9 +182,9 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict):
             else:
                 _normalize_property_value(prop)
 
-        return Filter(data={"properties": prop_groups.to_dict()}, team=team)
+        return prop_groups
     except ValueError as e:
-        raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
+        raise ValidationError({"filters": str(e) or UNEVALUABLE_FILTERS_MESSAGE}) from e
 
 
 def get_user_blast_radius(
@@ -128,6 +200,20 @@ def get_user_blast_radius(
             return _get_group_blast_radius(team, cleaned_filter, group_type_index)
         else:
             return _get_person_blast_radius(team, cleaned_filter)
+
+
+def get_person_blast_radius_v2(team: Team, feature_flag_condition: dict) -> BlastRadiusResult:
+    """
+    Flags-owned entry point for the sampled person count, behind flags-blast-radius-query-v2.
+
+    The gate is applied by the caller, not inside get_user_blast_radius: workflows shares that
+    function for group audience counts, so a gate in there would also change workflows counts.
+    """
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
+
+        tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE_V2)
 
 
 def get_user_blast_radius_persons(
@@ -146,53 +232,75 @@ def get_user_blast_radius_persons(
             return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
-def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
+def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
 
-    properties = filter.property_groups.flat
+    properties = prop_group.flat
 
     if len(properties) == 0:
         # No filters means all persons are affected
-        total_users = team.persons_seen_so_far
+        total_users = team.count_persons_seen_so_far()
         return BlastRadiusResult(affected=total_users, total=total_users)
 
-    # Build the SELECT query - property_to_expr handles all properties including cohorts
-    select_query = _build_person_query(team, filter, return_count=True)
-
-    # Execute the query
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     # Build the team's HogQL database once and share it between the two counts below.
     # Each execute_hogql_query call would otherwise build its own, and the build cost
     # scales with the team's warehouse size.
     database = Database.create_for(team=team)
-    response = execute_hogql_query(
-        query=select_query,
-        team=team,
-        context=HogQLContext(team_id=team.pk, database=database),
-    )
-
-    total_count = response.results[0][0] if response.results else 0
+    weight = _flag_dependency_weight(team, prop_group)
+    try:
+        estimate = _run_exact_person_count(team, prop_group, database, weight)
+    except InternalCHQueryError as e:
+        if weight is None or e.code not in _VALUE_PARSE_CH_ERROR_CODES:
+            raise
+        # A dependency's stored targeting failed a cast in ClickHouse. Its configuration is not
+        # the caller's input, so the dependency sizes neutrally instead of failing the request.
+        estimate = _run_exact_person_count(team, prop_group, database, weight=None)
+    # A condition with a flag dependency sums per-person match probabilities, so the count is a float.
+    total_count = int(round(estimate))
     total_users = team.count_persons_seen_so_far(database=database)
     blast_radius = min(total_count, total_users)
 
     return BlastRadiusResult(affected=blast_radius, total=total_users)
 
 
-def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
-    """Build HogQL AST query to count or select distinct persons matching filters."""
+def _run_exact_person_count(
+    team: Team, prop_group: PropertyGroup, database: Database, weight: Optional[ast.Expr]
+) -> float:
+    # property_to_expr handles all properties including cohorts
+    select_query = build_person_count_query(team, prop_group, sample_modulus=None, weight=weight)
+    response = execute_hogql_query(
+        query=select_query,
+        team=team,
+        context=HogQLContext(team_id=team.pk, database=database),
+        # The weighted count groups by person, so it takes the settings that let that aggregation
+        # stream in id order and spill to disk. The plain count keeps its historical defaults.
+        settings=count_settings(None) if weight is not None else None,
+    )
+    return read_person_count(response.results, weighted=weight is not None)[1]
 
-    # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
-    if return_count:
-        select_query = ast.SelectQuery(
-            select=[ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-        )
-    else:
-        select_query = ast.SelectQuery(
-            select=[ast.Field(chain=["persons", "id"])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-            distinct=True,
-        )
+
+def _flag_dependency_weight(team: Team, prop_group: PropertyGroup) -> Optional[ast.Expr]:
+    """
+    Per-person probability that the condition's flag dependencies evaluate to their requested
+    values, or None when the condition has none. property_to_expr neutralizes flag properties, so
+    the count paths weight each person by this instead. The persons listing stays unweighted and
+    lists everyone the plain filters match.
+    """
+    group = prop_group
+    if not any(prop.type == "flag" for prop in group.flat):
+        return None
+    return FlagDependencyEstimator(team, clean_condition=replace_proxy_properties).weight_expr(group)
+
+
+def _build_person_query(team: Team, prop_group: PropertyGroup, cursor: Optional[str] = None) -> ast.SelectQuery:
+    """Build HogQL AST query to select distinct persons matching filters, paginated by id."""
+
+    select_query = ast.SelectQuery(
+        select=[ast.Field(chain=["persons", "id"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        distinct=True,
+    )
 
     # Build WHERE clause with team_id and property filters
     # property_to_expr handles all property types including cohorts
@@ -205,11 +313,11 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
     ]
 
     # Add all property filters (including cohorts) via property_to_expr
-    property_expr = property_to_expr(filter.property_groups, team, scope="person")
+    property_expr = property_to_expr(prop_group, team, scope="person")
     where_exprs.append(property_expr)
 
-    # Add cursor-based pagination when returning IDs
-    if not return_count and cursor is not None:
+    # Add cursor-based pagination
+    if cursor is not None:
         where_exprs.append(
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Gt,
@@ -221,18 +329,18 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
     # Combine all WHERE expressions with AND
     select_query.where = ast.And(exprs=where_exprs)
 
-    # Add ORDER BY and LIMIT for pagination when returning IDs
-    if not return_count:
-        select_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["persons", "id"]), order="ASC")]
-        select_query.limit = ast.Constant(value=500)
+    select_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["persons", "id"]), order="ASC")]
+    select_query.limit = ast.Constant(value=500)
 
     return select_query
 
 
-def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> BlastRadiusResult:
+def _get_group_blast_radius(
+    team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex
+) -> BlastRadiusResult:
     """Calculate blast radius for group-based feature flags using HogQL."""
 
-    properties = filter.property_groups.flat
+    properties = prop_group.flat
 
     # Validate all group properties have correct group_type_index
     for property in properties:
@@ -248,11 +356,11 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
 
     if len(properties) == 0:
         # No filters means all groups of this type are affected
-        total_groups = team.groups_seen_so_far(group_type_index)
+        total_groups = team.count_groups_seen_so_far(group_type_index)
         return BlastRadiusResult(affected=total_groups, total=total_groups)
 
     # Build the SELECT query for groups
-    select_query = _build_group_query(team, filter, group_type_index, return_count=True)
+    select_query = _build_group_query(team, prop_group, group_type_index, return_count=True)
 
     # Execute the query with OFFLINE workload (groups queries can be massive)
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
@@ -262,7 +370,7 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
-        context=HogQLContext(team_id=team.pk, database=database),
+        context=HogQLContext(team_id=team.pk, database=database, globals=_group_property_globals(group_type_index)),
     )
 
     total_affected = response.results[0][0] if response.results else 0
@@ -276,7 +384,7 @@ PERSON_BATCH_SIZE = 500
 
 def _build_group_query(
     team: Team,
-    filter: Filter,
+    prop_group: PropertyGroup,
     group_type_index: GroupTypeIndex,
     return_count: bool = True,
     cursor: Optional[str] = None,
@@ -315,7 +423,7 @@ def _build_group_query(
     group_key_properties = []
     regular_properties = []
 
-    for prop in filter.property_groups.flat:
+    for prop in prop_group.flat:
         if prop.key == "$group_key":
             group_key_properties.append(prop)
         else:
@@ -480,11 +588,9 @@ def _build_group_query(
 
     # Add regular property filters using property_to_expr (only if there are any)
     if regular_properties:
-        regular_filter = Filter(
-            data={"properties": PropertyGroup(type=filter.property_groups.type, values=regular_properties).to_dict()},
-            team=team,
+        property_expr = property_to_expr(
+            PropertyGroup(type=prop_group.type, values=regular_properties), team, scope="group"
         )
-        property_expr = property_to_expr(regular_filter.property_groups, team, scope="group")
         where_exprs.append(property_expr)
 
     # Add cursor-based pagination when returning keys
@@ -508,11 +614,11 @@ def _build_group_query(
     return select_query
 
 
-def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optional[str] = None) -> list[str]:
+def _get_person_blast_radius_persons(team: Team, prop_group: PropertyGroup, cursor: Optional[str] = None) -> list[str]:
     """Get distinct person IDs matching person-based feature flag filters."""
 
     # Build the SELECT query to get person IDs
-    select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
+    select_query = _build_person_query(team, prop_group, cursor=cursor)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
@@ -526,11 +632,11 @@ def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optiona
 
 
 def _get_group_blast_radius_persons(
-    team: Team, filter: Filter, group_type_index: GroupTypeIndex, cursor: Optional[str] = None
+    team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex, cursor: Optional[str] = None
 ) -> list[str]:
     """Get distinct group keys matching group-based feature flag filters."""
 
-    properties = filter.property_groups.flat
+    properties = prop_group.flat
 
     # Validate all group properties have correct group_type_index
     for property in properties:
@@ -544,13 +650,14 @@ def _get_group_blast_radius_persons(
             raise ValidationError("Invalid group type index for feature flag condition.")
 
     # Build the SELECT query to get group keys
-    select_query = _build_group_query(team, filter, group_type_index, return_count=False, cursor=cursor)
+    select_query = _build_group_query(team, prop_group, group_type_index, return_count=False, cursor=cursor)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
+        context=HogQLContext(team_id=team.pk, globals=_group_property_globals(group_type_index)),
     )
 
     # Extract group keys from results

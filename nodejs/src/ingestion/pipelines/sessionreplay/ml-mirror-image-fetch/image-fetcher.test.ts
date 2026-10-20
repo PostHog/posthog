@@ -67,7 +67,7 @@ describe('HttpImageFetcher', () => {
         )
     })
 
-    it('identifies every request as PostHogImageFetcherBot', async () => {
+    it('identifies every request as PostHogImageFetcherBot referred by us.posthog.com', async () => {
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
 
         await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
@@ -78,6 +78,7 @@ describe('HttpImageFetcher', () => {
                 headers: expect.objectContaining({
                     'user-agent':
                         'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)',
+                    referer: 'https://us.posthog.com/',
                 }),
             })
         )
@@ -151,6 +152,7 @@ describe('HttpImageFetcher', () => {
         ['a type that is not an image', 'text/html', PNG, 'not_image'],
         ['a type outside the raster set', 'image/svg+xml', PNG, 'not_image'],
         ['the BMP format', 'image/bmp', Buffer.from('BM'), 'not_image'],
+        ['the AVIF format', 'image/avif', Buffer.from('\x00\x00\x00\x18ftypavif', 'binary'), 'not_image'],
         ['a payload that is not the declared format', 'image/gif', PNG, 'ok'],
         ['a payload of the wrong raster format', 'image/png', GIF, 'ok'],
     ])('handles %s', async (_name, contentType, bytes, outcome) => {

@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -13,7 +13,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
 
 
-class TestVisitor(BaseTest):
+class TestVisitor(SimpleTestCase):
     def test_visitor_pattern(self):
         class ConstantVisitor(CloningVisitor):
             def __init__(self):

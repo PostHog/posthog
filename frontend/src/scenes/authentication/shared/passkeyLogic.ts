@@ -171,6 +171,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 startPasskeyAuthentication: async () => {
                     try {
                         // Step 1: Get authentication options from server
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const beginResponse = await api.create<PasskeyLoginBeginResponse>('api/webauthn/login/begin/')
 
                         // Step 2: Use SimpleWebAuthn to get assertion from authenticator
@@ -190,6 +191,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
                         })
 
                         // Step 3: Send assertion to server to complete login
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.create('api/webauthn/login/complete/', assertion)
 
                         return null
@@ -237,6 +239,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const beginResponse = await api.create<PasskeyLoginBeginResponse>('api/webauthn/login/begin/')
                 const assertion = await startAuthentication({
                     optionsJSON: {
@@ -250,6 +253,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
                     },
                     useBrowserAutofill: true,
                 })
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/webauthn/login/complete/', assertion)
                 redirectAfterLogin()
             } catch (e: unknown) {

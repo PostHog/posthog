@@ -45,6 +45,34 @@ export const SCOUT_ROSTER_WINDOW_LABEL = `last ${SCOUT_ROSTER_WINDOW_DAYS} days`
 export const SCOUT_NO_RECENT_RUNS = 'No recent runs.'
 
 /**
+ * How many scouts one `recent-per-scout` response covers, mirroring the endpoint's
+ * `MAX_SCOUTS_PER_RUNS_QUERY`. A fleet past this is probed in part, so a scout the response holds
+ * no runs for may never have been read - which is not the same thing as never having run, and is
+ * how a paused scout came to show "No runs yet" beside a cost line proving it had run.
+ */
+export const SCOUT_RUNS_FLEET_COVERAGE_LIMIT = 2500
+
+/** Whether the per-scout run response can be read as every scout's history. */
+export function runResponseCoversFleet(scoutCount: number): boolean {
+    return scoutCount <= SCOUT_RUNS_FLEET_COVERAGE_LIMIT
+}
+
+/** Empty-state copy for a scout the run response could not speak for. */
+export const SCOUT_RUN_HISTORY_UNAVAILABLE =
+    "Run history isn't available for this scout right now. Refresh the page, and if it keeps happening contact support."
+
+/**
+ * What an empty run strip reads: still loading, genuinely empty, or empty only because the response
+ * stopped short of this scout.
+ */
+export function runStripEmptyLabel({ loadedOnce, coversFleet }: { loadedOnce: boolean; coversFleet: boolean }): string {
+    if (!loadedOnce) {
+        return '…'
+    }
+    return coversFleet ? 'No runs yet' : 'History unavailable'
+}
+
+/**
  * The time window the fleet-wide findings feed describes. Unlike the per-scout stats, that feed
  * answers "what has the troop surfaced lately?", which is a recency question — so it stays on a
  * fixed lookback, walked page by page from the runs endpoint's 100-row cap.
@@ -185,6 +213,51 @@ export function rosterRunCosts(runs: SignalScoutRunSummary[], costs: Map<string,
         }
     }
     return onRoster
+}
+
+function sameCosts(a: Map<string, number>, b: Map<string, number>): boolean {
+    if (a.size !== b.size) {
+        return false
+    }
+    for (const [runId, cost] of b) {
+        if (a.get(runId) !== cost) {
+            return false
+        }
+    }
+    return true
+}
+
+/**
+ * The roster's run costs split by scout, so each strip reads only its own runs. A scout whose
+ * costs did not change keeps its slice from `previous`. A cost batch prices runs of a few scouts,
+ * and a fresh slice for every scout would re-render every strip on the roster for each batch.
+ * A scout with no priced run has no slice.
+ */
+export function scoutRunCostSlices(
+    runs: SignalScoutRunSummary[],
+    costs: Map<string, number>,
+    previous: Map<string, Map<string, number>>
+): Map<string, Map<string, number>> {
+    const slices = new Map<string, Map<string, number>>()
+    for (const run of runs) {
+        const cost = costs.get(run.run_id)
+        if (cost === undefined) {
+            continue
+        }
+        let slice = slices.get(run.skill_name)
+        if (!slice) {
+            slice = new Map()
+            slices.set(run.skill_name, slice)
+        }
+        slice.set(run.run_id, cost)
+    }
+    for (const [skillName, slice] of slices) {
+        const prior = previous.get(skillName)
+        if (prior && sameCosts(prior, slice)) {
+            slices.set(skillName, prior)
+        }
+    }
+    return slices
 }
 
 // Below this many priced runs the top decile moves with every run that lands, so the marker would

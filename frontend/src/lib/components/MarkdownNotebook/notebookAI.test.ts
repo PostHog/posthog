@@ -1,5 +1,6 @@
 import {
     insertNotebookAIFollowUpPromptAfterResponse,
+    preserveNotebookAIQuestion,
     rebaseNotebookAIResponseRange,
     replaceNotebookAIResponseMarkdown,
     streamNotebookAIResponseMarkdown,
@@ -20,6 +21,14 @@ function replaceMarkdown(
 }
 
 describe('notebookAI', () => {
+    it.each([true, false])('preserves the prompt in a full artifact only when requested: %s', (keepQuestion) => {
+        const content = '# Chart notes\n\n---\n\n<SQLV2 code="SELECT 1" />\n\n<Widget prompt="Plot the results" />'
+        const question = '**You:** Add a chart section'
+        const result = preserveNotebookAIQuestion(content, keepQuestion ? question : undefined)
+        expect(result).toBe(keepQuestion ? content.replace('# Chart notes', `# Chart notes\n\n${question}`) : content)
+        expect(preserveNotebookAIQuestion(result, keepQuestion ? question : undefined)).toBe(result)
+        expect(result).not.toContain('Thinking...')
+    })
     it.each([
         ['SQLV2', ['Widget'], false],
         ['PythonV2', ['Widget'], false],

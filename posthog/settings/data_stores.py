@@ -128,6 +128,11 @@ if read_host:
     DATABASES["replica"] = postgres_config(read_host)
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
+# lock_timeout for every direct (migration) connection, main and product, so a migration that
+# loses a lock race fails fast and bin/migrate retries it, instead of queueing all later
+# queries on the table behind it.
+_migration_lock_timeout_option = f"-c lock_timeout={os.getenv('MIGRATE_LOCK_TIMEOUT', '20000')}"
+
 # Configure a direct database connection bypassing PgBouncer.
 # This allows using PGOPTIONS like lock_timeout which PgBouncer doesn't support.
 # Used for migrations: python manage.py migrate --database=default_direct
@@ -140,9 +145,7 @@ if direct_host:
     DATABASES["default_direct"]["PORT"] = os.getenv("POSTHOG_POSTGRES_DIRECT_PORT", "5432")
     # Disable server-side cursors is not needed for direct connection
     DATABASES["default_direct"]["DISABLE_SERVER_SIDE_CURSORS"] = False
-    # Set lock_timeout for migrations to fail fast on lock contention
-    lock_timeout_ms = os.getenv("MIGRATE_LOCK_TIMEOUT", "20000")
-    DATABASES["default_direct"]["OPTIONS"] = {"options": f"-c lock_timeout={lock_timeout_ms}"}
+    DATABASES["default_direct"]["OPTIONS"] = {"options": _migration_lock_timeout_option}
 
 # The persons database is not a Django connection. Person/group/cohort data lives behind
 # the personhog service and is reached through the personhog client or off-Django psycopg
@@ -254,6 +257,7 @@ for route in product_routes:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
         DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        DATABASES[direct_alias]["OPTIONS"]["options"] = _migration_lock_timeout_option
         _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -597,6 +601,17 @@ WORKFLOWS_STEP_RESUME_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_STEP_RESUME_JWT_SECRET", "local-dev-workflows-step-resume-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the transactional email route (an API call sending one email from a message
+# template). The web tier mints, the plugin server verifies. Its own key per the one-key-per-surface
+# rule above. Comma-separated, newest first. Empty outside dev/test, so sends fail closed until
+# provisioned. The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET",
+        "local-dev-workflows-transactional-email-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(
@@ -608,6 +623,18 @@ TASKS_CREATE_JWT_SECRETS = get_list(
 # value must match the plugin server's minting default.
 WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_SCOUT_RUN_JWT_SECRET", "local-dev-workflow-scout-run-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Classify with AI" action calls back with. The dev/test value
+# must match the plugin server's minting default.
+WORKFLOW_CLASSIFY_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_CLASSIFY_JWT_SECRET", "local-dev-workflow-classify-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's Replay Vision step calls back with. Its own
+# key for the same reason as the scout one. The dev/test value must match the plugin server's minting default.
+WORKFLOW_VISION_REQUEST_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_VISION_REQUEST_JWT_SECRET", "local-dev-workflow-vision-request-jwt" if DEBUG or TEST else "")
 )
 
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
@@ -647,12 +674,6 @@ AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381
 
 TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
 
-# Public base URL of the LLM gateway, surfaced in the app's per-gateway endpoint
-# examples (…/v1/<slug>/messages). Deployment-specific; empty until configured,
-# except in local dev where it defaults to the gateway's local listen addr
-# (AI_GATEWAY_LISTEN_ADDR=:8080 in PostHog/ai-gateway).
-AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:8080" if DEBUG else "")
-
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
@@ -662,6 +683,8 @@ HOGQL_LANGUAGE_SERVICE_URL = get_from_env(
 HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
     get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
 )
+
+MCP_SERVER_URL: str = get_from_env("MCP_SERVER_URL", "http://localhost:8787/mcp" if DEBUG and not TEST else "")
 
 # Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
 FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)
@@ -713,6 +736,26 @@ CACHES["organization_access"] = {
 # writes the new cohort's keys and then reads them back before responding, and a replica-lag miss
 # there rescans every cohort of the team inside the request.
 CACHES["cohort_dependencies"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# The inbound webhook dedup lease must read what it wrote: the fence in `release()` compares a
+# holder token against the value the primary holds, and a replica that still serves the previous
+# token would let a run delete a mark a newer run owns.
+CACHES["ingress_dedup"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+CACHES["task_artifact_preview"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# Metrics dashboard tiles wait for one loader to write the variable options and hold a lock while it runs.
+# A replica that lags would hide the result and the lock, so another tile would run the same query again.
+CACHES["metrics_variable_options"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
 }
@@ -781,6 +824,9 @@ if TEST:
     CACHES["query_cache"] = CACHES["default"]
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]
+    CACHES["ingress_dedup"] = CACHES["default"]
+    CACHES["task_artifact_preview"] = CACHES["default"]
+    CACHES["metrics_variable_options"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
@@ -797,7 +843,7 @@ PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
 
 CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)
 
-WAREHOUSE_SOURCES_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_DATABASE_URL", "")
+WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL", "")
 WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(
     "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", ""
 )

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -11,7 +12,10 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
@@ -19,6 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck import (
     MOTHERDUCK_ERROR_CLASSES,
+    MOTHERDUCK_TRANSIENT_ERRORS,
+    MOTHERDUCK_UNAVAILABLE_MESSAGE,
     MotherDuckConnectionError,
     MotherDuckImplementation,
     connect,
@@ -30,9 +36,15 @@ if TYPE_CHECKING:
 
 _MOTHERDUCK_IMPLEMENTATION = MotherDuckImplementation()
 
+_CONNECTION_DETAILS_MESSAGE = (
+    "MotherDuck rejected the connection details. Check the database name and access token, then resync."
+)
+
 
 @SourceRegistry.register
 class MotherduckSource(SQLSource[MotherduckSourceConfig]):
+    codebase_detection = detect(env=("^MOTHERDUCK_", "^motherduck_token$"), npm=("@motherduck/wasm-client",))
+
     # MotherDuck speaks the DuckDB wire protocol through the `duckdb` client, which carries no
     # vendor API version of its own.
     api_docs_url = "https://motherduck.com/docs/"
@@ -97,15 +109,39 @@ class MotherduckSource(SQLSource[MotherduckSourceConfig]):
             **self.default_non_retryable_errors(),
             "Catalog Error": "A database, schema, or table this source syncs no longer exists in MotherDuck, or your access token lost access to it. Check that it still exists, then resync.",
             "Binder Error": "A column this source syncs no longer exists in MotherDuck. Reset the table so we pick up its new shape, then resync.",
-            # `connect()` (motherduck.py) already translates a raw "Invalid Input Error" into this
-            # user-facing text before raising `MotherDuckConnectionError`, so a connection failure's
-            # message never contains the DuckDB class name to match on — only the translated text does.
-            MOTHERDUCK_ERROR_CLASSES[
-                "Invalid Input Error"
-            ]: "MotherDuck rejected the connection details. Check the database name and access token, then resync.",
+            # `connect()` translates before it raises, so the message carries this text rather than
+            # DuckDB's class name. Keying on the class would also catch an outage, which stays retryable.
+            MOTHERDUCK_ERROR_CLASSES["Invalid Input Error"]: _CONNECTION_DETAILS_MESSAGE,
             "Invalid MotherDuck token": None,
             "UNAUTHENTICATED": "Your MotherDuck token is invalid or expired. Generate a new access token and reconnect.",
+            # Raised uncaught from `get_rows`/discovery queries (they run outside `connect()`'s
+            # translation), so the raw DuckDB class prefix reaches here. DuckDB's own local 2GB
+            # `memory_limit` (`DUCKDB_LOCAL_CONFIG`) can raise the identical "Out of Memory Error"
+            # class for a failure entirely on our side, so match the remote duckling's own capacity
+            # guidance rather than the bare class name: that phrase only appears when MotherDuck's
+            # compute instance, not our worker, ran out of memory — a ceiling on the customer's
+            # account, same as the Postgres/MySQL/ClickHouse source-side OOM entries. Retrying
+            # re-runs the same query against the same duckling.
+            "duckling size": (
+                "MotherDuck ran out of memory running this sync's query. This usually means the "
+                "duckling (MotherDuck's compute instance) is too small for the amount of data being "
+                "read. Use a larger duckling size, or narrow the sync (switch to incremental, or "
+                "sync fewer tables/columns), then resync."
+            ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A MotherDuck outage clears on its own, so the next attempt recovers. Both the driver's
+        # own wording and the translation of it are matched: which one reaches classification
+        # depends on where in the sync the failure was raised.
+        return {*MOTHERDUCK_TRANSIENT_ERRORS, MOTHERDUCK_UNAVAILABLE_MESSAGE}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return dict.fromkeys(
+            self.get_retryable_errors(),
+            "MotherDuck was unavailable for this whole sync, so it couldn't finish. This isn't a "
+            "problem with your connection details. The next sync runs on schedule.",
+        )
 
     @staticmethod
     def normalized_database(config: MotherduckSourceConfig) -> str | None:
@@ -150,6 +186,8 @@ class MotherduckSource(SQLSource[MotherduckSourceConfig]):
                     False,
                     "MotherDuck rejected the access token. Check that the token is correct and has not expired.",
                 )
+            if error_message_matches(error_msg, MOTHERDUCK_TRANSIENT_ERRORS):
+                return False, MOTHERDUCK_UNAVAILABLE_MESSAGE
             for key, value in MOTHERDUCK_ERROR_CLASSES.items():
                 if key in error_msg:
                     return False, value

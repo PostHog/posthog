@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [".agent-workspace-stamp"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

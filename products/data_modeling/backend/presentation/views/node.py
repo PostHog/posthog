@@ -10,37 +10,39 @@ from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from rest_framework import filters, request, response, serializers, status, viewsets
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound
 from rest_framework.pagination import PageNumberPagination
 from temporalio.common import RetryPolicy
 
 from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import User
 from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
-from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.data_modeling.backend.facade.api import (
+    delete_node,
     endpoint_link,
     get_declared_target,
     suspension_state,
     unsuspend_nodes,
 )
 from products.data_modeling.backend.facade.models import (
-    DAG,
+    SAVED_QUERY_NODE_TYPES,
     DataModelingJob,
     DataModelingJobEngine,
     DataWarehouseSavedQuery,
     Edge,
+    LineageIssueKind,
     Node,
     NodeType,
 )
+from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
+from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, MetricNodeVisibilityMixin
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -59,6 +61,29 @@ class NodeEndpointSerializer(serializers.Serializer):
     version = serializers.IntegerField(help_text="Endpoint version this node's materialization backs.")
 
 
+class LineageLookupError(Exception):
+    """Raised when the lineage request names no node, or names one with an unparseable id."""
+
+
+class NodeLookup(models.TextChoices):
+    SAVED_QUERY = "saved_query"
+    WAREHOUSE_TABLE = "warehouse_table"
+    POSTHOG_TABLE = "posthog_table"
+    METRIC = "metric"
+
+
+class LineageIssueSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=LineageIssueKind.choices,
+        help_text="sync_failed when the last attempt to rebuild this node's edges ended in an error. "
+        "unresolved when the rebuild finished but some of the names this node reads matched no node in the DAG.",
+    )
+    detail = serializers.CharField(
+        help_text="The error for sync_failed, or the comma-separated names that did not resolve for unresolved."
+    )
+    at = serializers.DateTimeField(allow_null=True, help_text="When the issue was recorded.")
+
+
 class NodeSerializer(serializers.ModelSerializer):
     suspended = serializers.SerializerMethodField(read_only=True)
     endpoint = serializers.SerializerMethodField(read_only=True)
@@ -69,8 +94,9 @@ class NodeSerializer(serializers.ModelSerializer):
     last_run_error = serializers.SerializerMethodField(read_only=True)
     user_tag = serializers.SerializerMethodField(read_only=True)
     sync_interval = serializers.SerializerMethodField(read_only=True)
-    dag_name = serializers.SerializerMethodField(read_only=True)
-    dag = TeamScopedPrimaryKeyRelatedField(queryset=DAG.objects.all())
+    lineage_issue = serializers.SerializerMethodField(read_only=True)
+    origin = serializers.SerializerMethodField(read_only=True)
+    warehouse_table_id = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Node
@@ -78,10 +104,12 @@ class NodeSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "type",
-            "dag",
-            "dag_name",
             "description",
             "saved_query_id",
+            "metric_id",
+            "lineage_issue",
+            "origin",
+            "warehouse_table_id",
             "created_at",
             "updated_at",
             "upstream_count",
@@ -103,8 +131,11 @@ class NodeSerializer(serializers.ModelSerializer):
             "last_run_status",
             "user_tag",
             "sync_interval",
-            "dag_name",
             "saved_query_id",
+            "metric_id",
+            "lineage_issue",
+            "origin",
+            "warehouse_table_id",
         ]
 
     @extend_schema_field(
@@ -131,13 +162,16 @@ class NodeSerializer(serializers.ModelSerializer):
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)][0]
-        return len(_get_upstream_nodes(node))
+        return len(_get_upstream_nodes(node, hidden_types=self._hidden_types()))
 
     def get_downstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)][1]
-        return len(_get_downstream_nodes(node))
+        return len(_get_downstream_nodes(node, hidden_types=self._hidden_types()))
+
+    def _hidden_types(self) -> frozenset[str]:
+        return self.context.get("hidden_node_types") or frozenset()
 
     def get_last_run_at(self, node: Node) -> str | None:
         run_at = getattr(node, "_latest_job_run_at", None)
@@ -169,18 +203,50 @@ class NodeSerializer(serializers.ModelSerializer):
             return sync_frequency_interval_to_sync_frequency(node.saved_query.sync_frequency_interval)
         return None
 
-    def get_dag_name(self, node: Node) -> str:
-        return node.dag.name
+    @extend_schema_field(LineageIssueSerializer(allow_null=True))
+    def get_lineage_issue(self, node: Node) -> dict[str, Any] | None:
+        return node.lineage_issue
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=["posthog", "warehouse"],
+            allow_null=True,
+            help_text="Where a table originates, or null for legacy and unrecognized nodes.",
+        )
+    )
+    def get_origin(self, node: Node) -> str | None:
+        origin = node.properties.get("origin") if isinstance(node.properties, dict) else None
+        return origin if origin in {"posthog", "warehouse"} else None
+
+    @extend_schema_field(
+        serializers.UUIDField(
+            allow_null=True,
+            help_text="Warehouse table identifier for an imported table, or null when unavailable.",
+        )
+    )
+    def get_warehouse_table_id(self, node: Node) -> str | None:
+        table_id = node.properties.get("warehouse_table_id") if isinstance(node.properties, dict) else None
+        if not isinstance(table_id, str):
+            return None
+        try:
+            return str(UUID(table_id))
+        except ValueError:
+            return None
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
+        # Managed viewsets (e.g. Revenue Analytics) own their views' nodes; the internal sync path
         # maintains them directly via the ORM and bypasses this serializer. Block users from
-        # editing managed nodes or moving any node into a managed DAG via the API.
-        if self.instance is not None and self.instance.dag.is_managed:
-            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be modified.")
-        target_dag = attrs.get("dag")
-        if target_dag is not None and target_dag.is_managed:
-            raise serializers.ValidationError("Nodes cannot be created in or moved into a system-managed DAG.")
+        # editing those nodes via the API.
+        if self.instance is not None and self.instance.belongs_to_managed_viewset:
+            raise serializers.ValidationError("Nodes of views PostHog manages cannot be modified.")
+        if self.instance is not None and self.instance.type == NodeType.METRIC:
+            raise serializers.ValidationError("Metric nodes are maintained by the data catalog.")
+        node_type = attrs.get("type")
+        if node_type is not None and self.instance is not None:
+            # A full PUT round-trips the node's own type, so a type equal to the current one is
+            # not a retype and must not be rejected.
+            if node_type != self.instance.type:
+                raise serializers.ValidationError("A node's type cannot be changed through the API.")
         return attrs
 
 
@@ -199,7 +265,9 @@ _READ_DENIED = "Reading data models requires data warehouse read access."
 # the temporal workflow and lineage API should migrate to Graph
 
 
-def _get_upstream_nodes(node: Node, include_tables: bool = False) -> set[str]:
+def _get_upstream_nodes(
+    node: Node, include_tables: bool = False, hidden_types: frozenset[str] = frozenset()
+) -> set[str]:
     """Get all upstream (ancestor) node IDs recursively, optionally excluding TABLE nodes."""
     nodes: set[str] = set()
     current = [node.id]
@@ -208,28 +276,46 @@ def _get_upstream_nodes(node: Node, include_tables: bool = False) -> set[str]:
             team_id=node.team_id,
             dag=node.dag,
             target_id__in=current,
-        )
+        ).exclude(models.Q(source__saved_query__deleted=True) | models.Q(target__saved_query__deleted=True))
         if not include_tables:
             qs = qs.exclude(source__type=NodeType.TABLE)
+        if hidden_types:
+            qs = qs.exclude(source__type__in=hidden_types)
         current = list(qs.values_list("source_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
 
 
-def _get_downstream_nodes(node: Node) -> set[str]:
+def _managed_view_node_ids(team_id: int, node_ids: set[str]) -> set[str]:
+    return {
+        str(node_id)
+        for node_id in Node.objects.filter(
+            team_id=team_id, id__in=node_ids, saved_query__managed_viewset__isnull=False
+        ).values_list("id", flat=True)
+    }
+
+
+def _feeds_a_managed_view(node: Node) -> bool:
+    return node.outgoing_edges.filter(target__saved_query__managed_viewset__isnull=False).exists()
+
+
+def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()) -> set[str]:
     """Get all downstream (descendant) node IDs recursively, excluding TABLE nodes."""
     nodes: set[str] = set()
     current = [node.id]
     while current:
-        current = list(
+        qs = (
             Edge.objects.exclude(target__type=NodeType.TABLE)
             .filter(
                 team_id=node.team_id,
                 dag=node.dag,
                 source_id__in=current,
             )
-            .values_list("target_id", flat=True)
+            .exclude(models.Q(source__saved_query__deleted=True) | models.Q(target__saved_query__deleted=True))
         )
+        if hidden_types:
+            qs = qs.exclude(target__type__in=hidden_types)
+        current = list(qs.values_list("target_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
 
@@ -257,29 +343,81 @@ def _node_queryset_with_latest_job() -> models.QuerySet:
     return _annotate_latest_job(Node.objects.select_related("saved_query", "dag").all())
 
 
-class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class LineageResponseSerializer(serializers.Serializer):
+    nodes = NodeSerializer(many=True, help_text="Every node reachable from the requested one, plus the node itself.")
+    edges = EdgeSerializer(many=True, help_text="Every edge between two of those nodes.")
+
+
+class NodeViewSet(
+    MetricNodeVisibilityMixin,
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     scope_object = "INTERNAL"
     queryset = Node.objects.select_related("saved_query", "dag").all()
     serializer_class = NodeSerializer
     pagination_class = NodePagination
     filter_backends = [filters.SearchFilter]
-    search_fields = ["name", "dag__name"]
+    search_fields = ["name"]
     ordering = "name"
 
     def get_serializer_context(self) -> dict[str, Any]:
-        return super().get_serializer_context()
+        return {**super().get_serializer_context(), "hidden_node_types": self._hidden_node_types()}
 
     def perform_destroy(self, instance: Node) -> None:
-        if instance.dag.is_managed:
-            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
-        instance.delete()
+        self._require_warehouse_access(level="editor", message=DELETE_DENIED)
+        if instance.belongs_to_managed_viewset:
+            raise serializers.ValidationError("Nodes of views PostHog manages cannot be deleted.")
+        if _feeds_a_managed_view(instance):
+            raise serializers.ValidationError("A view PostHog manages reads from this node, so it can't be deleted.")
+        if instance.type == NodeType.METRIC:
+            raise serializers.ValidationError("Metric nodes are deleted by deleting their metric.")
+        delete_node(instance.team_id, instance.pk)
 
-    def _require_warehouse_access(self, *, level: AccessControlLevel, message: str) -> None:
-        """`scope_object = "INTERNAL"` makes AccessControlPermission skip this viewset entirely, so
-        warehouse RBAC has to be re-applied by hand (warehouse_view inherits warehouse_objects)."""
-        if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level=level):
-            raise PermissionDenied(message)
+    def safely_get_object(self, queryset: models.QuerySet) -> Node:
+        lookup = self.request.query_params.get("lookup")
+        if not lookup:
+            node = queryset.filter(pk=self.kwargs["pk"]).first()
+        elif lookup == NodeLookup.SAVED_QUERY:
+            node = queryset.filter(saved_query_id=self.kwargs["pk"]).order_by("created_at").first()
+        elif lookup == NodeLookup.WAREHOUSE_TABLE:
+            node = queryset.filter(properties__warehouse_table_id=self.kwargs["pk"]).order_by("created_at").first()
+        elif lookup == NodeLookup.POSTHOG_TABLE:
+            node = (
+                queryset.filter(
+                    name=self.kwargs["pk"],
+                    type=NodeType.TABLE,
+                    saved_query__isnull=True,
+                    properties__origin="posthog",
+                )
+                .order_by("created_at")
+                .first()
+            )
+        elif lookup == NodeLookup.METRIC:
+            node = queryset.filter(metric_id=self.kwargs["pk"]).order_by("created_at").first()
+        else:
+            raise serializers.ValidationError({"lookup": f"Unsupported node lookup: {lookup}"})
 
+        if node is None:
+            raise NotFound()
+        return node
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="lookup",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=NodeLookup.values,
+                description="Resolve the path ID as this backing resource type instead of a node ID.",
+            )
+        ]
+    )
     def retrieve(self, request, *args, **kwargs):
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
         return super().retrieve(request, *args, **kwargs)
@@ -293,8 +431,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         page = self.paginate_queryset(queryset)
         nodes = page if page is not None else queryset
 
-        dag_id = self._get_dag_id_param()
-        graph = Graph(team_id=self.team_id, dag_id=dag_id)
+        graph = Graph(team_id=self.team_id, hidden_types=self._hidden_node_types())
         node_ids = [str(n.id) for n in nodes]
         counts = graph.batch_counts(node_ids)
 
@@ -305,21 +442,10 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return self.get_paginated_response(serializer.data)
         return response.Response(serializer.data)
 
-    def _get_dag_id_param(self) -> str | None:
-        dag_id = self.request.query_params.get("dag")
-        if dag_id:
-            try:
-                UUID(dag_id)
-            except ValueError:
-                return None
-        return dag_id
-
     def safely_get_queryset(self, queryset):
-        qs = _annotate_latest_job(queryset.filter(team_id=self.team_id))
-        dag_id = self._get_dag_id_param()
-        if dag_id:
-            qs = qs.filter(dag_id=dag_id)
-        return qs.order_by(self.ordering)
+        return _annotate_latest_job(self._exclude_hidden_nodes(queryset.filter(team_id=self.team_id))).order_by(
+            self.ordering
+        )
 
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
@@ -340,9 +466,9 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if node.type == NodeType.TABLE:
+        if node.type not in SAVED_QUERY_NODE_TYPES:
             return response.Response(
-                {"error": "Cannot run a table node"},
+                {"error": f"Cannot run a {node.type} node"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -350,6 +476,8 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             node_ids = _get_upstream_nodes(node)
         else:
             node_ids = _get_downstream_nodes(node)
+        managed_view_node_ids = _managed_view_node_ids(self.team_id, node_ids)
+        node_ids = managed_view_node_ids if node.belongs_to_managed_viewset else node_ids - managed_view_node_ids
 
         node_ids.add(str(node.id))
 
@@ -390,6 +518,21 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"node_ids": list(node_ids)}, status=status.HTTP_200_OK)
 
+    def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
+        by_param = {
+            "id": req.query_params.get("node_id"),
+            "saved_query_id": req.query_params.get("saved_query_id"),
+            "metric_id": req.query_params.get("metric_id"),
+        }
+        given = {field: value for field, value in by_param.items() if value}
+        if not given:
+            raise LineageLookupError("node_id, saved_query_id or metric_id is required")
+        field, value = next(iter(given.items()))
+        try:
+            return {field: UUID(value)}
+        except ValueError:
+            raise LineageLookupError("Invalid UUID")
+
     @extend_schema(
         parameters=[
             OpenApiParameter("node_id", OpenApiTypes.UUID, description="Node to build lineage for."),
@@ -398,54 +541,56 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 OpenApiTypes.UUID,
                 description="Saved query to build lineage for, resolved to its node. Alternative to node_id.",
             ),
-        ]
+            OpenApiParameter(
+                "metric_id",
+                OpenApiTypes.UUID,
+                description="Data catalog metric to build lineage for, resolved to its node. Alternative to node_id.",
+            ),
+        ],
+        responses={200: LineageResponseSerializer},
     )
     @action(methods=["GET"], detail=False)
     def lineage(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Return the subgraph of nodes and edges reachable from a node (upstream + downstream).
 
-        Accepts either node_id or saved_query_id, so a caller holding only a saved query (the SQL
-        editor) doesn't need to resolve the node itself.
+        Accepts node_id, saved_query_id or metric_id, so a caller holding only the backing resource
+        (the SQL editor, the metric page) doesn't need to resolve the node itself.
         """
-        from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
-
         # Lineage exposes the same metadata the deleted `warehouse_view`-scoped upstream endpoint
         # gated on.
         self._require_warehouse_access(level="viewer", message="Reading lineage requires data warehouse read access.")
 
-        node_id = req.query_params.get("node_id")
-        saved_query_id = req.query_params.get("saved_query_id")
-        if not node_id and not saved_query_id:
-            return response.Response(
-                {"error": "node_id or saved_query_id is required"}, status=status.HTTP_400_BAD_REQUEST
-            )
-        # Parse UUIDs up front: unlike the detail route, query params aren't validated by URL
-        # routing, so an invalid string would surface as a 500 from the ORM instead of a 400.
         try:
-            lookup = {"id": UUID(node_id)} if node_id else {"saved_query_id": UUID(cast(str, saved_query_id))}
-        except ValueError:
-            return response.Response({"error": "Invalid UUID"}, status=status.HTTP_400_BAD_REQUEST)
+            lookup = self._lineage_lookup(req)
+        except LineageLookupError as error:
+            return response.Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
         # saved_query is a non-unique FK: a saved query synced into multiple DAGs has multiple nodes.
         # Order for a deterministic pick (the graphs are equivalent for lineage purposes).
-        node = Node.objects.filter(team_id=self.team_id, **lookup).order_by("created_at").first()
+        node = (
+            self._exclude_hidden_nodes(Node.objects.filter(team_id=self.team_id, **lookup))
+            .order_by("created_at")
+            .first()
+        )
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        upstream_ids = _get_upstream_nodes(node, include_tables=True)
-        downstream_ids = _get_downstream_nodes(node)
+        hidden_types = self._hidden_node_types()
+        upstream_ids = _get_upstream_nodes(node, include_tables=True, hidden_types=hidden_types)
+        downstream_ids = _get_downstream_nodes(node, hidden_types=hidden_types)
         all_ids = upstream_ids | downstream_ids | {str(node.id)}
 
-        nodes = _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
-        edges = Edge.objects.select_related("source", "target", "dag").filter(
-            team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
+        nodes = self._exclude_hidden_nodes(
+            _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
+        )
+        edges = self._exclude_hidden_edges(
+            Edge.objects.select_related("source", "target", "dag").filter(
+                team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
+            )
         )
 
         return response.Response(
-            {
-                "nodes": NodeSerializer(nodes, many=True, context=self.get_serializer_context()).data,
-                "edges": EdgeSerializer(edges, many=True).data,
-            }
+            LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=self.get_serializer_context()).data
         )
 
     @action(methods=["POST"], detail=True)
@@ -455,9 +600,9 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         node = self.get_object()
 
-        if node.type == NodeType.TABLE:
+        if node.type not in SAVED_QUERY_NODE_TYPES:
             return response.Response(
-                {"error": "Cannot materialize a table node"},
+                {"error": f"Cannot materialize a {node.type} node"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

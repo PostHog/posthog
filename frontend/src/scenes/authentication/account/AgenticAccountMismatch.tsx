@@ -1,12 +1,12 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { getCookie } from 'lib/api'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: AgenticAccountMismatch,
@@ -14,6 +14,7 @@ export const scene: SceneExport = {
 
 export function AgenticAccountMismatch(): JSX.Element {
     const { searchParams } = useValues(router)
+    const { logout } = useActions(userLogic)
 
     const expectedEmail = typeof searchParams.expected_email === 'string' ? searchParams.expected_email : ''
     const currentEmail =
@@ -22,30 +23,6 @@ export function AgenticAccountMismatch(): JSX.Element {
     const state = typeof searchParams.state === 'string' ? searchParams.state : ''
 
     const nextUrl = state ? `/api/agentic/authorize?state=${encodeURIComponent(state)}` : null
-
-    const submitLogout = (): void => {
-        const form = document.createElement('form')
-        form.method = 'POST'
-        form.action = '/logout'
-        form.style.display = 'none'
-
-        const csrfInput = document.createElement('input')
-        csrfInput.type = 'hidden'
-        csrfInput.name = 'csrfmiddlewaretoken'
-        csrfInput.value = getCookie('posthog_csrftoken') || ''
-        form.appendChild(csrfInput)
-
-        if (nextUrl) {
-            const nextInput = document.createElement('input')
-            nextInput.type = 'hidden'
-            nextInput.name = 'next'
-            nextInput.value = nextUrl
-            form.appendChild(nextInput)
-        }
-
-        document.body.appendChild(form)
-        form.submit()
-    }
 
     return (
         <BridgePage view="agentic-account-mismatch">
@@ -61,7 +38,7 @@ export function AgenticAccountMismatch(): JSX.Element {
                 <p>To continue, log out and sign in with the correct email.</p>
             </div>
             <div className="flex flex-col gap-2">
-                <LemonButton fullWidth type="primary" center onClick={submitLogout}>
+                <LemonButton fullWidth type="primary" center onClick={() => logout(false, nextUrl ?? undefined)}>
                     {expectedEmail ? `Log out and continue as ${expectedEmail}` : 'Log out and continue'}
                 </LemonButton>
                 <LemonButton fullWidth type="secondary" center to="/">

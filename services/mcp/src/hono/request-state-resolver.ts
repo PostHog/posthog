@@ -1,11 +1,13 @@
-import type { GroupType } from '@/api/client'
-import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
+import { env } from '@/lib/env'
+import { McpSessionResetRequiredError } from '@/lib/errors'
+import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
     evaluateFeatureFlags,
+    type FlagEvaluation,
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
@@ -20,14 +22,23 @@ import {
     getScopeGatedTools,
     type ScopeGatedTool,
 } from '@/tools/toolDefinitions'
-import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
+import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
+import {
+    type InterviewRecruitmentConfig,
+    type InterviewRecruitmentDiagnostics,
+    type InterviewRecruitmentUnavailableReason,
+    resolveInterviewRecruitmentConfig,
+    MCP_INTERVIEW_RECRUITMENT_FLAG,
+} from './interview-recruitment'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
+    getEffectiveMCPClientIdentity,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
@@ -40,8 +51,15 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
+    interviewRecruitmentConfig?: InterviewRecruitmentConfig
+    intentPrompt?: string
+    interviewRecruitmentUnavailableReason?: InterviewRecruitmentUnavailableReason
+    interviewRecruitmentDiagnostics?: InterviewRecruitmentDiagnostics
     apiKeyScopes: string[]
+    isImpersonated?: boolean
+    suppressAnalytics?: boolean
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -61,20 +79,9 @@ export interface ResolvedState {
      * the full roster into the instructions payload.
      */
     gatewayToolsEnabled: boolean
+    gatewayToolFilter?: Pick<RequestProperties, 'tools' | 'features' | 'excludeTools'> | undefined
     distinctId: string
     renderUiEnabled: boolean
-    // Active project/user environment prompt and group types. Rendered into the
-    // `instructions` payload, and (for clients that don't surface instructions to
-    // the model like Codex, or ignore it like Claude web/desktop) the exec command
-    // reference. Resolved once here so every render path reads the same source.
-    metadata: string | undefined
-    // Variant of `metadata` without the product/integration context lines, for the
-    // claude.ai exec command reference: that surface counts against the ~16 KiB
-    // connector-registry cap on the serialized inputSchema, which already sits
-    // within tens of characters of the worst-case env context. Every uncapped
-    // surface renders the full `metadata`.
-    metadataCompact: string | undefined
-    groupTypes: GroupType[] | undefined
 }
 
 // ─── Pure helpers ───
@@ -147,59 +154,106 @@ export class RequestStateResolver {
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
 
         const { features, tools, organizationId, projectId, readOnly } = props
-        const contextPromise = reqCtx.getContext()
-        const pinnedSessionContextPromise = projectId ? this.resolveSessionContext(requestContext) : undefined
+        const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })
+        reqCtx.setPinnedContext(pinned)
 
-        await reqCtx.tokenCache.setMany({
-            ...(organizationId ? { orgId: organizationId } : {}),
-            ...(projectId ? { projectId } : {}),
-        })
-
-        let cachedProjectId = projectId || (await reqCtx.tokenCache.get('projectId'))
-        if (!cachedProjectId) {
-            const contextForDefault = await contextPromise
-            await contextForDefault.stateManager.setDefaultOrganizationAndProject()
-            cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
-        }
-
-        const [context, sessionContext] = await Promise.all([
-            contextPromise,
-            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext),
+        // Start Redis reads only when Promise.all can observe their timeout rejections.
+        // A pinned request never writes a default into the token selection that other sessions share.
+        const [context, sessionContext, storedProjectId] = await Promise.all([
+            reqCtx.getContext(),
+            this.resolveSessionContext(requestContext),
+            pinned ? undefined : reqCtx.tokenCache.get('projectId'),
         ])
+        if (!pinned && !storedProjectId) {
+            await context.stateManager.setDefaultOrganizationAndProject()
+        }
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
         // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands the same way.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), MCP_GATEWAY_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG])]
+        const allFlagKeys = [
+            ...new Set([
+                ...getRequiredFeatureFlags(),
+                MCP_GATEWAY_FLAG,
+                MCP_EXEC_SKILLS_FEATURE_FLAG,
+                MCP_INTERVIEW_RECRUITMENT_FLAG,
+                MCP_INTENT_PROMPT_FLAG,
+            ]),
+        ]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
-        const [allFlags, _apiKey, distinctId] = await Promise.all([
+        const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
             this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
+        const [oauthClientName, oauthClientId] = await Promise.all([
+            reqCtx.tokenCache.get('clientName'),
+            reqCtx.tokenCache.get('oauthClientId'),
+        ])
+        props.suppressAnalytics = _apiKey?.suppress_analytics === true
+        const liveClient = getEffectiveMCPClientIdentity(requestContext, sessionContext)
+        const source = resolveEventSource({
+            mcpConsumer: liveClient.mcpConsumer,
+            clientUserAgent: props.clientUserAgent,
+            apiKeyScopes: _apiKey?.scopes,
+            oauthClientId: oauthClientId || undefined,
+        })
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
         const mergedFlags = { ...allFlags, ...overrides }
+        let recruitmentPayload = payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        if (
+            recruitmentPayload === undefined &&
+            isLocalApi() &&
+            (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') &&
+            overrides[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        ) {
+            try {
+                recruitmentPayload = JSON.parse(env.MCP_INTERVIEW_RECRUITMENT_PAYLOAD ?? '')
+            } catch {
+                // Local opt-in still requires explicit, valid invitation content.
+            }
+        }
+        const recruitmentFlagValue = mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        let interviewRecruitmentUnavailableReason: InterviewRecruitmentUnavailableReason | undefined
+        if (source !== EVENT_SOURCE.MCP) {
+            interviewRecruitmentUnavailableReason = 'surface_excluded'
+        } else if (_apiKey?.scopes?.includes('internal_run:read')) {
+            interviewRecruitmentUnavailableReason = 'internal_run'
+        } else if (props.taskId || props.taskOriginProduct) {
+            interviewRecruitmentUnavailableReason = 'task_bound'
+        } else if (recruitmentFlagValue === undefined) {
+            interviewRecruitmentUnavailableReason = 'flag_unavailable'
+        } else if (recruitmentFlagValue === false) {
+            interviewRecruitmentUnavailableReason = 'flag_disabled'
+        }
+        const interviewRecruitmentConfig = interviewRecruitmentUnavailableReason
+            ? undefined
+            : resolveInterviewRecruitmentConfig(recruitmentFlagValue, recruitmentPayload)
+        if (!interviewRecruitmentUnavailableReason && !interviewRecruitmentConfig) {
+            interviewRecruitmentUnavailableReason = 'invalid_configuration'
+        }
         // Preserve variant strings (and `undefined` for unevaluated flags) — the
         // tool filter needs raw values to support `feature_flag_variant` matching.
         // Include override keys so a forced flag reaches the tool/instructions layer
         // even when no catalog tool referenced it.
         const flagKeysForState = [...new Set([...allFlagKeys, ...Object.keys(overrides)])]
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
-
-        const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
-        const oauthClientId = (await reqCtx.tokenCache.get('oauthClientId')) || undefined
+        const intentPrompt =
+            source === EVENT_SOURCE.MCP && !_apiKey?.is_impersonated && !props.suppressAnalytics
+                ? resolveIntentPrompt(mergedFlags[MCP_INTENT_PROMPT_FLAG], payloads[MCP_INTENT_PROMPT_FLAG])
+                : undefined
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
             clientVersion: clientContext.mcpClientVersion,
             consumer: clientContext.mcpConsumer,
-            oauthClientName,
+            oauthClientName: oauthClientName || undefined,
             vendorClient: clientContext.mcpVendorClient,
             userAgent: props.clientUserAgent,
         })
@@ -227,6 +281,7 @@ export class RequestStateResolver {
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            ...(props.excludeTools ?? []),
         ]
 
         const filterOptions = {
@@ -253,27 +308,26 @@ export class RequestStateResolver {
         // Only exec redirects a call to a gated tool; tools mode just omits it.
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
 
-        const [groupTypes, metadata, metadataCompact] = await Promise.all([
-            cachedProjectId && hasScope(apiKeyScopes, 'group:read')
-                ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
-                : undefined,
-            context.stateManager.getEnvironmentPrompt(),
-            context.stateManager.getEnvironmentPrompt({ includeProductContext: false }),
-        ])
-
         return {
             reqCtx,
             context,
             useSingleExec,
+            viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
+            interviewRecruitmentConfig,
+            intentPrompt,
+            interviewRecruitmentUnavailableReason,
             apiKeyScopes,
-            oauthClientId,
+            isImpersonated: _apiKey?.is_impersonated === true,
+            suppressAnalytics: props.suppressAnalytics,
+            oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
             sessionContext,
             allTools,
             scopeGatedTools,
             flagGatedTools,
+            gatewayToolFilter: { tools, features, excludeTools },
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&
@@ -281,9 +335,110 @@ export class RequestStateResolver {
                 !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,
-            metadata,
-            metadataCompact,
-            groupTypes,
+        }
+    }
+
+    /**
+     * Resolve the org and project that a request pinned via request params into
+     * the request-scoped context every tool resolves through.
+     *
+     * A pin sets the session's default active context, not a per-request hard
+     * lock: `switch-project` stays available on a project pin (the documented
+     * cross-org flow depends on it), so a switch made mid-session must survive
+     * the client resending the same static pin on every request. The effective
+     * context is the session's recorded switch (see
+     * `Context.setSessionActiveContext`) when one exists, otherwise the pin. A
+     * genuinely changed pin retargets the session and discards the recorded switch.
+     *
+     * The result never goes into the token cache. Every concurrent session on the
+     * same credential shares that cache, so a pin written there would revert a
+     * switch and leak into the other sessions.
+     *
+     * Many clients send the pin only on `initialize`. A later request in the same
+     * session that omits the pin restores the session's saved pin and switch, so
+     * it does not fall back to whatever another session left in the token cache.
+     * A session that never sent a pin stays on the token selection, even when it
+     * recorded a switch. A pin that differs in either field replaces the whole
+     * saved pin and discards the recorded switch.
+     *
+     * Without an MCP session id nothing records a switch across requests, so the
+     * pin wins on every request and the switch tools refuse to switch.
+     */
+    private async resolvePinnedContext(
+        reqCtx: RequestContext,
+        pin: { organizationId?: string | undefined; projectId?: string | undefined }
+    ): Promise<PinnedActiveContext | undefined> {
+        const { organizationId, projectId } = pin
+        const hasPin = Boolean(organizationId || projectId)
+
+        const sessionCache = reqCtx.sessionScopedCache
+        if (!sessionCache) {
+            return hasPin ? { pin, sessionScoped: false, orgId: organizationId, projectId } : undefined
+        }
+
+        const legacyCache = reqCtx.legacySessionScopedCache
+        const [appliedPinOrg, appliedPinProject, activeOrg, activeProject, legacyPinOrg, legacyPinProject] =
+            await Promise.all([
+                sessionCache.get('appliedPinOrgId'),
+                sessionCache.get('appliedPinProjectId'),
+                sessionCache.get('activeOrgId'),
+                sessionCache.get('activeProjectId'),
+                legacyCache?.get('appliedPinOrgId'),
+                legacyCache?.get('appliedPinProjectId'),
+            ])
+        // A pin marker under the former key means a pinned session from before the
+        // key included the credential. Its saved switch would be lost silently, so
+        // stop before any tool runs. Legacy state without a pin marker never changed
+        // the selection, so it needs no reset.
+        const hasSessionState = Boolean(appliedPinOrg || appliedPinProject || activeOrg || activeProject)
+        if (!hasSessionState && (legacyPinOrg || legacyPinProject)) {
+            throw new McpSessionResetRequiredError()
+        }
+        if (!hasPin && !appliedPinOrg && !appliedPinProject) {
+            return undefined
+        }
+
+        // These keys carry a write-based TTL, but the MCP session they belong to
+        // renews its own context store on every request. Renew them too, so a
+        // switch recorded early in a long-lived session does not expire before
+        // the session ends and read back as a missing marker — which reads as a
+        // changed pin, discards the switch, and reverts to the pin mid-session.
+        await sessionCache.refreshTtl(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
+
+        // An omitted pin is not a changed pin: keep the session's saved context.
+        if (!hasPin) {
+            return {
+                pin: { organizationId: appliedPinOrg, projectId: appliedPinProject },
+                sessionScoped: true,
+                orgId: activeOrg ?? appliedPinOrg,
+                projectId: activeProject ?? appliedPinProject,
+            }
+        }
+
+        const pinChanged = appliedPinOrg !== organizationId || appliedPinProject !== projectId
+
+        let overrideOrg = activeOrg
+        let overrideProject = activeProject
+        if (pinChanged) {
+            overrideOrg = undefined
+            overrideProject = undefined
+            await Promise.all([
+                sessionCache.delete('activeOrgId'),
+                sessionCache.delete('activeProjectId'),
+                organizationId ? undefined : sessionCache.delete('appliedPinOrgId'),
+                projectId ? undefined : sessionCache.delete('appliedPinProjectId'),
+                sessionCache.setMany({
+                    ...(organizationId ? { appliedPinOrgId: organizationId } : {}),
+                    ...(projectId ? { appliedPinProjectId: projectId } : {}),
+                }),
+            ])
+        }
+
+        return {
+            pin,
+            sessionScoped: true,
+            orgId: overrideOrg ?? organizationId,
+            projectId: overrideProject ?? projectId,
         }
     }
 
@@ -298,21 +453,28 @@ export class RequestStateResolver {
         reqCtx: RequestContext,
         flagKeys: string[],
         groups?: FlagGroups
-    ): Promise<EvaluatedFlags> {
+    ): Promise<FlagEvaluation> {
         if (flagKeys.length === 0) {
-            return {}
+            return { flags: {}, payloads: {} }
         }
-        // Local dev runs against the locally-running project, where the dev-only
-        // surfaces these flags gate exist. The flags only hide those surfaces on
-        // prod until GA, so enable them all locally — the analytics flag-eval client is disabled in dev anyway.
+        // Enable product surfaces locally because the analytics flag client is disabled there.
+        // Recruitment and intent experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
-            return Object.fromEntries(flagKeys.map((key) => [key, true]))
+            return {
+                flags: Object.fromEntries(
+                    flagKeys.map((key) => [
+                        key,
+                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
+                    ])
+                ),
+                payloads: {},
+            }
         }
         try {
             const distinctId = await reqCtx.getDistinctId()
             return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {
-            return {}
+            return { flags: {}, payloads: {} }
         }
     }
 }

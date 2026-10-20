@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/gofrs/uuid/v5"
+	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -132,6 +133,82 @@ func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 		DistinctId:  event.DistinctId,
 		Count:       1,
 	}
+}
+
+// Person and group properties ride along on events under these keys, so a
+// restricted person or group property has to be removed from inside them as well.
+var (
+	personPropertyContainers = []string{"$set", "$set_once"}
+	groupPropertyContainer   = "$group_set"
+	groupTypeProperty        = "$group_type"
+)
+
+// A filter on a hidden key would let the subscriber infer its values from which events match.
+// Filters match the whole stringified $set / $set_once map, so those are hidden too once any person key is.
+func RestrictedFilterKey(filters []CompiledPropertyFilter, restrictions *auth.PropertyRestrictions) string {
+	for i := range filters {
+		key := filters[i].Key
+		if restrictions.RestrictsEventProperty(key) {
+			return key
+		}
+		if restrictions.HasPersonRestrictions() && slices.Contains(personPropertyContainers, key) {
+			return key
+		}
+		if restrictions.HasGroupRestrictions() && key == groupPropertyContainer {
+			return key
+		}
+	}
+	return ""
+}
+
+func groupTypeOf(properties map[string]interface{}) string {
+	groupType, _ := properties[groupTypeProperty].(string)
+	return groupType
+}
+
+// StripRestricted removes hidden properties from a built response. The handler calls it at
+// write time, off the fan-out goroutine, with whatever rules the latest re-check returned.
+func (e *ResponsePostHogEvent) StripRestricted(restrictions *auth.PropertyRestrictions) {
+	if restrictions == nil {
+		return
+	}
+	properties := make(map[string]interface{}, len(e.Properties))
+	groupType := groupTypeOf(e.Properties)
+	for k, v := range e.Properties {
+		if visible, ok := visibleProperty(k, v, groupType, restrictions); ok {
+			properties[k] = visible
+		}
+	}
+	if restrictions.RestrictsEventProperty("$pathname") {
+		delete(properties, "$virt_cleaned_pathname")
+	}
+	e.Properties = properties
+}
+
+func visibleProperty(key string, value interface{}, groupType string, restrictions *auth.PropertyRestrictions) (interface{}, bool) {
+	if restrictions.RestrictsEventProperty(key) {
+		return nil, false
+	}
+	var hidden func(string) bool
+	switch {
+	case restrictions.HasPersonRestrictions() && slices.Contains(personPropertyContainers, key):
+		hidden = restrictions.RestrictsPersonProperty
+	case restrictions.HasGroupRestrictions() && key == groupPropertyContainer:
+		hidden = func(k string) bool { return restrictions.RestrictsGroupProperty(groupType, k) }
+	default:
+		return value, true
+	}
+	nested, ok := value.(map[string]interface{})
+	if !ok {
+		return value, true
+	}
+	stripped := make(map[string]interface{}, len(nested))
+	for k, v := range nested {
+		if !hidden(k) {
+			stripped[k] = v
+		}
+	}
+	return stripped, true
 }
 
 func convertToResponsePostHogEvent(

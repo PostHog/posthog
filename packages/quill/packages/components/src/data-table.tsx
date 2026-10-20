@@ -100,6 +100,8 @@ export interface DataTableProps<TData, TValue> {
     data: TData[]
     /** Opens or selects a record when the user clicks a non-interactive part of its row. */
     onRowClick?: (row: TData) => void
+    /** Called when the user moves between pages. Page numbers are one-based. */
+    onPageChange?: (page: number, nextPage: number) => void
     /** Sizing/scroll classes for the table container (forwarded to the Table primitive). */
     className?: string
     /** Sticky header mode, forwarded to the Table primitive. `'page'` sticks to document scroll. */
@@ -155,9 +157,11 @@ const DEFAULT_EMPTY = (
 function DataTablePagination<TData>({
     table,
     pageSizeOptions,
+    onPageChange,
 }: {
     table: TanstackTable<TData>
     pageSizeOptions?: number[]
+    onPageChange?: (page: number, nextPage: number) => void
 }): React.ReactElement {
     const { pageIndex, pageSize } = table.getState().pagination
     const pageCount = table.getPageCount()
@@ -165,6 +169,10 @@ function DataTablePagination<TData>({
     const start = total === 0 ? 0 : pageIndex * pageSize + 1
     const end = Math.min((pageIndex + 1) * pageSize, total)
     const range = getPaginationRange(pageCount, pageIndex)
+    const goToPage = (nextPageIndex: number): void => {
+        onPageChange?.(pageIndex + 1, nextPageIndex + 1)
+        table.setPageIndex(nextPageIndex)
+    }
 
     // px-3 matches the cells' 0.75rem inline padding. Bottom padding keeps the
     // controls clear of a flush card's edge.
@@ -194,7 +202,10 @@ function DataTablePagination<TData>({
             <Pagination className="w-auto">
                 <PaginationContent>
                     <PaginationItem>
-                        <PaginationPrevious disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}>
+                        <PaginationPrevious
+                            disabled={!table.getCanPreviousPage()}
+                            onClick={() => goToPage(pageIndex - 1)}
+                        >
                             <span className="sr-only">Previous</span>
                         </PaginationPrevious>
                     </PaginationItem>
@@ -208,7 +219,7 @@ function DataTablePagination<TData>({
                                 <PaginationButton
                                     isActive={item === pageIndex}
                                     aria-label={`Go to page ${item + 1}`}
-                                    onClick={() => table.setPageIndex(item)}
+                                    onClick={() => goToPage(item)}
                                 >
                                     {item + 1}
                                 </PaginationButton>
@@ -216,7 +227,7 @@ function DataTablePagination<TData>({
                         )
                     )}
                     <PaginationItem>
-                        <PaginationNext disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>
+                        <PaginationNext disabled={!table.getCanNextPage()} onClick={() => goToPage(pageIndex + 1)}>
                             <span className="sr-only">Next</span>
                         </PaginationNext>
                     </PaginationItem>
@@ -245,6 +256,7 @@ function DataTable<TData, TValue>({
     empty = DEFAULT_EMPTY,
     pageSize,
     pageSizeOptions,
+    onPageChange,
 }: DataTableProps<TData, TValue>): React.ReactElement {
     const paginated = pageSize != null
     const [sorting, setSorting] = React.useState<SortingState>([])
@@ -385,7 +397,7 @@ function DataTable<TData, TValue>({
     return (
         <div className="flex flex-col gap-2">
             {tableElement}
-            <DataTablePagination table={table} pageSizeOptions={pageSizeOptions} />
+            <DataTablePagination table={table} pageSizeOptions={pageSizeOptions} onPageChange={onPageChange} />
         </div>
     )
 }

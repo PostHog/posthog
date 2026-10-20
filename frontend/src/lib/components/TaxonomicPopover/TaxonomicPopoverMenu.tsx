@@ -18,12 +18,12 @@
  * placeholder button is rendered — the heavy `ArmedTaxonomicPopoverMenu` is
  * mounted on first click and opened immediately via `defaultOpen`.
  */
-import { useValues } from 'kea'
-import { ReactElement, useMemo, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { ReactElement, useEffect, useMemo, useState } from 'react'
 
 import { IconChevronDown, IconFilter } from '@posthog/icons'
 
-import { SeriesRename, getSeriesRename } from 'lib/components/EntityFilterInfo'
+import { DisplayableEntity, SeriesRename, getSeriesRename } from 'lib/components/EntityFilterInfo'
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import { MenuInputTrigger } from 'lib/components/TaxonomicFilter/menu/InputTrigger'
@@ -43,7 +43,6 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { ActionFilter, EntityFilter } from '~/types'
 
 import { TaxonomicMenuToggle } from './TaxonomicMenuToggle'
 
@@ -70,7 +69,7 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     groupType: TaxonomicFilterGroupType
     value?: ValueType | null
     /** The series/entity filter being edited — surfaces its rename on the committed selection. */
-    filter?: EntityFilter | ActionFilter
+    filter?: DisplayableEntity
     groupTypes?: TaxonomicFilterGroupType[]
     /** The 4th arg is the orchestrator's resolved group — consumers that
      *  need the full `TaxonomicFilterGroup` (not just its type) can use it. */
@@ -258,6 +257,15 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     // here (not in the lazy outer component) so non-opened pickers don't
     // subscribe to it.
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { ensureAllTableFields } = useActions(databaseTableListLogic)
+    useEffect(() => {
+        if (
+            groupType === TaxonomicFilterGroupType.DataWarehouse ||
+            groupTypes?.includes(TaxonomicFilterGroupType.DataWarehouse)
+        ) {
+            ensureAllTableFields()
+        }
+    }, [groupType, groupTypes, ensureAllTableFields])
 
     // The group a synthetic `selected` entry should claim. `groupType` is
     // the popover's *default tab*, not the value's real category — and it's

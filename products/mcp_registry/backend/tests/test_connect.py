@@ -147,6 +147,31 @@ class TestConnectInstructions(SimpleTestCase):
         assert method["steps"][0]["actor"] == "human"
         assert spec in method["steps"][-1]["command"]
 
+    @parameterized.expand(
+        [
+            ("hosted_remote", {"liveness": "alive_open", "auth_method": "none"}, True),
+            (
+                "package_only",
+                {
+                    "canonical_url": "",
+                    "packages": [{"registry_type": "npm", "identifier": "@example/demo-mcp", "version": "1.0.0"}],
+                },
+                False,
+            ),
+        ]
+    )
+    def test_posthog_gateway_is_offered_only_for_a_hosted_remote(
+        self, _name: str, fields: dict, expected: bool
+    ) -> None:
+        instructions = build_connect_instructions(_server(**fields))
+
+        methods = [method["method"] for method in instructions["methods"]]
+        # The gateway installs a URL, so a package-only entry has nothing for it to reach.
+        assert ("posthog_gateway" in methods) is expected
+        # Never the recommendation: a vendor's own path outranks PostHog's, and an agent
+        # reading these instructions programmatically wants the shell command instead.
+        assert instructions["recommended"] != "posthog_gateway"
+
     def test_row_overrides_replace_derived_methods(self) -> None:
         override_methods = [
             {

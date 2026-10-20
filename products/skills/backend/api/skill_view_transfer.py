@@ -8,12 +8,14 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.monitoring import monitor
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models import User
 from posthog.permissions import posthog_feature_flag_value
 from posthog.renderers import SafeJSONRenderer
@@ -118,6 +120,16 @@ class SkillTransferActionsMixin(SkillAccessMixin):
     def bundle(self, request: Request, **kwargs) -> Response | HttpResponse:
         """One zip of the requesting user's store skills, for unpacking into a skills directory."""
         query_params = self._validated_query(LLMSkillBundleQuerySerializer, request)
+        authenticator = request.successful_authenticator
+        if (
+            query_params["content"] == "full"
+            and isinstance(authenticator, OAuthAccessTokenAuthentication)
+            and "scout_experiment_internal:read" in (authenticator.access_token.scope or "").split()
+        ):
+            # Full bundles load rows independently and cannot apply a run's pinned candidate.
+            raise PermissionDenied(
+                "Scout trials must fetch individual skills or use a stub bundle instead of a full bundle."
+            )
         user = cast(User, request.user)
         flag_value = posthog_feature_flag_value(
             SANDBOX_SKILLS_FEATURE_FLAG,

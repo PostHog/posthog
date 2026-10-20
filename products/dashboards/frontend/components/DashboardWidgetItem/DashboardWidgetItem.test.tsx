@@ -9,13 +9,7 @@ import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dash
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
-import {
-    DashboardPlacement,
-    DashboardTile,
-    PropertyFilterType,
-    PropertyOperator,
-    QueryBasedInsightModel,
-} from '~/types'
+import { DashboardPlacement, DashboardTile, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { getDashboardWidgetCatalogEntry, tryGetDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
@@ -38,6 +32,7 @@ jest.mock('../../widget_types/widgetAvailability', () => ({
 jest.mock('../../widgets/registry', () => ({
     getDashboardWidgetDefinition: () => ({
         Component: () => <div>Widget body</div>,
+        MenuItems: () => <button>Widget action</button>,
         TileFilters: () => <div data-attr="widget-tile-filters">filters</div>,
         EditModal: ({
             isOpen,
@@ -105,7 +100,7 @@ const tile = {
         config: { limit: 10, dateRange: { date_from: '-7d' } },
         dashboard_tiles: [],
     },
-} as unknown as DashboardTile<QueryBasedInsightModel>
+} as unknown as DashboardTile
 
 const tileWithoutDescription = {
     ...tile,
@@ -113,7 +108,7 @@ const tileWithoutDescription = {
         ...tile.widget!,
         description: '',
     },
-} as DashboardTile<QueryBasedInsightModel>
+} as DashboardTile
 
 describe('DashboardWidgetItem', () => {
     beforeEach(() => {
@@ -133,7 +128,6 @@ describe('DashboardWidgetItem', () => {
         dashboardWidgetMenusLogic({
             instanceKey: 'widget-10',
             dashboardId: 99,
-            dashboards: undefined,
             dashboard_tiles: [],
         }).mount()
     })
@@ -143,12 +137,11 @@ describe('DashboardWidgetItem', () => {
         dashboardWidgetMenusLogic({
             instanceKey: 'widget-10',
             dashboardId: 99,
-            dashboards: undefined,
             dashboard_tiles: [],
         }).unmount()
     })
 
-    it('does not render tile filters without product access', () => {
+    it('does not render tile filters or widget actions without product access', async () => {
         jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(false)
 
         const { container } = render(
@@ -165,6 +158,8 @@ describe('DashboardWidgetItem', () => {
         )
 
         expect(container.querySelector('[data-attr="widget-tile-filters"]')).toBeNull()
+        await userEvent.click(screen.getByLabelText('more'))
+        expect(screen.queryByText('Widget action')).not.toBeInTheDocument()
     })
 
     it('renders insight-style more menu with view, dashboard section, and refresh data', async () => {
@@ -190,6 +185,7 @@ describe('DashboardWidgetItem', () => {
 
         await userEvent.click(screen.getByLabelText('more'))
 
+        expect(screen.getByText('Widget action')).toBeVisible()
         expect(screen.getByText('View').closest('a')).toHaveAttribute('href', '/project/997/error_tracking')
         expect(
             screen

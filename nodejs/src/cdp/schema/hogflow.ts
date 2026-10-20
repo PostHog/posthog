@@ -69,6 +69,15 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('schedule'),
     }),
+    // A transactional email: Django's send endpoint runs the workflow once per call.
+    z.object({
+        type: z.literal('api'),
+    }),
+    z.object({
+        type: z.literal('cohort'),
+        cohort_id: z.number(),
+        transition: z.enum(['entered', 'left']),
+    }),
     z.object({
         type: z.literal('batch'),
         filters: z.object({
@@ -134,7 +143,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     name: z.string().optional(), // Custom name for the condition
                 })
             ),
-            delay_duration: z.string().optional(),
         }),
     }),
     z.object({
@@ -235,6 +243,17 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             // When false, no open pixel is injected, links are not rewritten, and the send uses the
             // untracked SES configuration set. Absent/true means tracked (existing behavior).
             tracking_enabled: z.boolean().optional(),
+            // When true, links get utm_source, utm_medium and utm_campaign tags they don't already carry.
+            utm_tags_enabled: z.boolean().optional(),
+            // Liquid templates that replace the default tag values. An empty value keeps the default.
+            utm_params: z
+                .object({
+                    utm_source: z.string().optional(),
+                    utm_medium: z.string().optional(),
+                    utm_campaign: z.string().optional(),
+                    utm_content: z.string().optional(),
+                })
+                .optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),
@@ -314,10 +333,6 @@ export const HogFlowSchema = z.object({
         .object({
             // Preferred form, matching how delay steps express a duration: `7d`, `12h`, `90d`.
             window: z.string().nullable().optional(),
-            // Deprecated: a bare integer whose unit lives only in the field name. Optional because a
-            // row migrated onto `window` carries no `window_minutes` key at all, and a required one
-            // would fail the whole flow to parse and stop it running.
-            window_minutes: z.number().nullable().optional(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),
             events: z

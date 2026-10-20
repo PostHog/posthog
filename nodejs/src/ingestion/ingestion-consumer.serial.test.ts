@@ -12,14 +12,12 @@ import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoi
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
-import {
-    COOKIELESS_MODE_FLAG_PROPERTY,
-    COOKIELESS_SENTINEL_VALUE,
-} from '~/ingestion/common/cookieless/cookieless-manager'
+import { COOKIELESS_MODE_FLAG_PROPERTY } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
@@ -29,7 +27,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CookielessServerHashMode, PipelineEvent, Team } from '~/types'
 
-import { IngestionConsumer } from './ingestion-consumer'
+import { IngestionConsumer, latestOffsetTimestampGauge } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
@@ -224,6 +222,21 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
 
+        it('should stop exporting the processed timestamp of revoked partitions', async () => {
+            latestOffsetTimestampGauge.reset()
+            const messages = createKafkaMessages([createEvent(), createEvent()])
+            messages[1].partition = 2
+            await ingester.handleKafkaBatch(messages)
+
+            const onPartitionsRevoked = jest.mocked(ingester['kafkaConsumer'].connect).mock.calls[0][1]!
+            await onPartitionsRevoked([{ topic: 'test', partition: 1 }])
+
+            const { values } = await latestOffsetTimestampGauge.get()
+            expect(values.filter((v) => v.labels.groupId === ingester['groupId'])).toEqual([
+                expect.objectContaining({ labels: expect.objectContaining({ topic: 'test', partition: 2 }) }),
+            ])
+        })
+
         it('should process a cookieless event', async () => {
             await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
 
@@ -239,7 +252,16 @@ describe('IngestionConsumer', () => {
             )
             await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
 
-            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+            const warningMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                'clickhouse_ingestion_warnings_test'
+            )
+            expect(warningMessages).toHaveLength(1)
+            expect(warningMessages[0].value).toMatchObject({
+                team_id: team.id,
+                type: 'cookieless_team_disabled',
+            })
+            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(1)
         })
 
         it('should not blend person properties from 2 different cookieless users', async () => {

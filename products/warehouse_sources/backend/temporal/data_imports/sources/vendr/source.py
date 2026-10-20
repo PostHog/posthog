@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VendrSource(ResumableSource[VendrSourceConfig, VendrResumeConfig]):
+    codebase_detection = detect(env=("^VENDR_",))
+
     # Every endpoint here is a static entry in ENDPOINTS with no I/O - safe for public docs.
     lists_tables_without_credentials = True
     # Vendr's OpenPrice API has no versioned path segment, version header, or dated release -
@@ -51,6 +54,7 @@ class VendrSource(ResumableSource[VendrSourceConfig, VendrResumeConfig]):
             "families, and categories. Access is partnership-gated - email "
             "[developers@vendr.com](mailto:developers@vendr.com) to request an API key.",
             iconPath="/static/services/vendr.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/vendr",
             fields=cast(
                 list[FieldType],
                 [

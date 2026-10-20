@@ -51,7 +51,6 @@ async def kafka_producer():
         security_protocol=settings.KAFKA_PROFILES["default"].security_protocol or "PLAINTEXT",
         ssl_context=ssl_context,
         acks="all",
-        api_version="2.5.0",
     )
     await producer.start()
     yield producer
@@ -68,7 +67,6 @@ async def kafka_consumer():
         ssl_context=ssl_context,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
-        api_version="2.5.0",
     )
     await consumer.start()
     yield consumer

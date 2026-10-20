@@ -7,9 +7,11 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
 from products.web_analytics.backend.hogql_queries.query_constants.stats_table_queries import (
+    CHANNEL_TYPE_TWO_PHASE_INNER_QUERY,
     FIRST_PAGEVIEW_INNER_QUERY,
     FRUSTRATION_METRICS_INNER_QUERY,
     MAIN_INNER_QUERY,
+    NO_JOIN_FIRST_PAGEVIEW_INNER_QUERY,
     NO_JOIN_MAIN_INNER_QUERY,
     NO_JOIN_PATH_BOUNCE_AND_AVG_TIME_QUERY,
     NO_JOIN_PATH_BOUNCE_QUERY,
@@ -233,31 +235,19 @@ class NoJoinSimpleBreakdownStrategy(SimpleBreakdownStrategy):
     """Simple breakdown without the events↔sessions join.
 
     Eligible when the tile displays no session-derived column (no bounce
-    rate, no conversion goal) and the breakdown value is computed from event
-    columns — the join then contributes only the session grouping key and the
-    session-start timestamp, both recoverable from the UUIDv7 session id.
+    rate) and the breakdown value is computed from event columns — the join
+    then contributes only the session grouping key and the session-start
+    timestamp, both recoverable from the UUIDv7 session id. Conversion-goal
+    columns aggregate event fields, so a goal keeps the query eligible.
     The outer query is inherited unchanged; only the inner scan differs.
     Filters (user + test account) apply inline to the single events scan, so
     filtered and unfiltered queries are equally eligible."""
 
+    INNER_QUERY = NO_JOIN_MAIN_INNER_QUERY
+
     def build_query(self) -> ast.SelectQuery:
         WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="stats_table_simple_breakdown").inc()
         return super().build_query()
-
-    def _inner_query(self, breakdown: ast.Expr) -> ast.SelectQuery:
-        query = parse_select(
-            NO_JOIN_MAIN_INNER_QUERY,
-            timings=self.runner.timings,
-            placeholders={
-                **self._event_aggregation_placeholders(),
-                "breakdown_value": breakdown,
-                "event_where": self.runner.event_type_expr,
-                "all_properties": self.runner.all_properties(),
-                "inside_periods": self.runner._periods_expression(),
-            },
-        )
-        assert isinstance(query, ast.SelectQuery)
-        return query
 
 
 class ChannelTypeStrategy(SimpleBreakdownStrategy):
@@ -274,6 +264,53 @@ class ChannelTypeStrategy(SimpleBreakdownStrategy):
     per-row work materially heavier than other simple breakdowns, which
     is why this gets its own tag for attribution even though the outer
     SQL is the same template."""
+
+
+class ChannelTypeTwoPhaseStrategy(ChannelTypeStrategy):
+    """INITIAL_CHANNEL_TYPE breakdown without the per-event sessions join.
+
+    Eligible when the tile shows only visitors and views: every other
+    session-derived column would need the join back. The outer query is
+    inherited unchanged; only the inner scan differs.
+    """
+
+    INNER_QUERY = CHANNEL_TYPE_TWO_PHASE_INNER_QUERY
+
+    def build_query(self) -> ast.SelectQuery:
+        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="stats_table_channel_type").inc()
+        return super().build_query()
+
+    def _inner_query(self, breakdown: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            self.INNER_QUERY,
+            timings=self.runner.timings,
+            placeholders={
+                **self._event_aggregation_placeholders(),
+                "event_where": self.runner.event_type_expr,
+                "all_properties": self.runner.all_properties(),
+                "inside_periods": self.runner._periods_expression(),
+                "sessions_in_range": self._sessions_start_range(),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _sessions_start_range(self) -> ast.Expr:
+        # Without a compare period the outer query counts every in-range event, so a
+        # session that started before the range still needs its channel. The lazy
+        # events↔sessions join pads its session pushdown by 3 days; pad the same way
+        # so both paths see the same sessions.
+        date_from = self.runner.query_date_range.date_from()
+        compare = self.runner.query_compare_to_date_range
+        if compare is not None:
+            date_from = min(date_from, compare.date_from())
+        return parse_expr(
+            "and(sessions.$start_timestamp >= {date_from} - toIntervalDay(3), sessions.$start_timestamp <= {date_to})",
+            placeholders={
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=self.runner.query_date_range.date_to()),
+            },
+        )
 
 
 class FirstPageviewAttributionStrategy(SimpleBreakdownStrategy):
@@ -319,6 +356,21 @@ class FirstPageviewAttributionStrategy(SimpleBreakdownStrategy):
             query.select.append(ast.Field(chain=["conversion_person_id"]))
 
         return query
+
+
+class NoJoinFirstPageviewAttributionStrategy(FirstPageviewAttributionStrategy):
+    """First-pageview attribution without the events↔sessions join.
+
+    The per-session level of ``FIRST_PAGEVIEW_INNER_QUERY`` reads the sessions
+    side only for the grouping key and the start timestamp once bounce rate is
+    off; both come from the UUIDv7 session id here. Same eligibility as
+    ``NoJoinSimpleBreakdownStrategy``."""
+
+    INNER_QUERY = NO_JOIN_FIRST_PAGEVIEW_INNER_QUERY
+
+    def build_query(self) -> ast.SelectQuery:
+        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="stats_table_first_pageview_attribution").inc()
+        return super().build_query()
 
 
 class PathBounceStrategy(StatsTableQueryStrategy):

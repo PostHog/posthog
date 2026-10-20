@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -18,21 +21,66 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paddle import PaddleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.constants import (
+    EXPLORE_METRICS_RESOURCE_NAME,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PaddlePermissionError,
     PaddleResumeConfig,
+    PaddleUnreachableError,
     paddle_source,
     validate_credentials as validate_paddle_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.settings import (
     ENDPOINTS as PADDLE_ENDPOINTS,
+    EXPLORE_METRICS_LOOKBACK_SECONDS,
     INCREMENTAL_FIELDS as PADDLE_INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Shared by the setup probe and by the sync-time error mapping below, so the same refusal reads
+# the same way in the source wizard and in the sync error panel.
+INVALID_API_KEY_ERROR = (
+    "Your Paddle API key is invalid or has been revoked. Create a new API key in your Paddle dashboard, then reconnect."
+)
+MISSING_PERMISSIONS_ERROR = (
+    "Paddle denied the request. Give your API key read permission for the data you want to sync, then reconnect."
+)
+KEY_CHECK_FAILED_ERROR = "PostHog could not check your Paddle API key. Wait a few minutes, then try again."
+
 
 @SourceRegistry.register
 class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^PADDLE_",
+            "^NEXT_PUBLIC_PADDLE_CLIENT_TOKEN$",
+            "^NEXT_PUBLIC_PADDLE_ENV$",
+            "^NEXT_PUBLIC_PADDLE_PRICE_ID$",
+        ),
+        script_hosts=(
+            "cdn.paddle.com",
+            "sandbox-cdn.paddle.com",
+            "buy.paddle.com",
+            "sandbox-buy.paddle.com",
+            "checkout.paddle.com",
+            "sandbox-checkout.paddle.com",
+        ),
+        npm=(
+            "@paddle/paddle-node-sdk",
+            "@paddle/paddle-js",
+            "@paddle/paddle-mcp",
+            "@paddle/partner-embeds",
+            "@paddle/partner-embeds-react",
+        ),
+        pypi=("paddle-python-sdk",),
+        cocoapods=("Paddle", "PaddleV4", "Paddle-MAS"),
+        composer=("paddlehq/paddle-php-sdk", "laravel/cashier-paddle"),
+        go=("github.com/PaddleHQ/paddle-go-sdk",),
+        rubygems=("paddle",),
+        swiftpm=("github.com/paddlehq/mac-framework-v4",),
+    )
+
     api_docs_url = "https://developer.paddle.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -74,8 +122,8 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "400 Client Error: Bad Request for url: https://api.paddle.com": "Paddle rejected the request parameters. Please check your source configuration and incremental sync state, then try again.",
-            "401 Client Error: Unauthorized for url: https://api.paddle.com": "Your Paddle API key is invalid or expired. Please check your API key in Paddle and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.paddle.com": "Your Paddle API key does not have the required permissions. Please check your API key permissions in Paddle and try again.",
+            "401 Client Error: Unauthorized for url: https://api.paddle.com": INVALID_API_KEY_ERROR,
+            "403 Client Error: Forbidden for url: https://api.paddle.com": MISSING_PERMISSIONS_ERROR,
             # 404 on a list endpoint we know exists means the resource isn't reachable for this
             # account — Paddle Billing isn't enabled, or the API key belongs to a different
             # environment (sandbox vs. production) than the data. Retrying can't change that.
@@ -95,12 +143,17 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
         try:
             if validate_paddle_credentials(config.paddle_api_key, schema_name):
                 return True, None
-            else:
-                return False, "Invalid Paddle API key"
-        except PaddlePermissionError as e:
-            return False, f"Paddle API key lacks permissions: {e}"
+            return False, INVALID_API_KEY_ERROR
+        except PaddlePermissionError:
+            return False, MISSING_PERMISSIONS_ERROR
+        except PaddleUnreachableError:
+            return False, KEY_CHECK_FAILED_ERROR
         except Exception as e:
-            return False, str(e)
+            # The probe names the endpoint it could not read, which does not help the person
+            # filling in the form. Capture the exception so the detail stays available for
+            # debugging, and show fixed guidance instead.
+            capture_exception(e)
+            return False, KEY_CHECK_FAILED_ERROR
 
     def get_schemas(
         self,
@@ -111,7 +164,12 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(PADDLE_ENDPOINTS, PADDLE_INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            PADDLE_ENDPOINTS,
+            PADDLE_INCREMENTAL_FIELDS,
+            names,
+            default_incremental_lookback_seconds={EXPLORE_METRICS_RESOURCE_NAME: EXPLORE_METRICS_LOOKBACK_SECONDS},
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PaddleResumeConfig]:
         return ResumableSourceManager[PaddleResumeConfig](inputs, PaddleResumeConfig)

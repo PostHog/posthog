@@ -5,6 +5,7 @@ import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
 
 import { HogFlowAction } from '../types'
+import { isDuration, isSignedDuration } from './durations'
 
 export type HogFlowStepNodeProps = NodeProps & {
     data: HogFlowAction
@@ -24,7 +25,7 @@ const DURATION_STRING = z.string().superRefine((v, ctx) => {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
         return
     }
-    if (!/^\d*\.?\d+[dhms]$/.test(v)) {
+    if (!isDuration(v)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be a number followed by s, m, h, or d' })
         return
     }
@@ -35,7 +36,7 @@ const DURATION_STRING = z.string().superRefine((v, ctx) => {
 
 // A delay offset points either side of the date it offsets, so unlike DURATION_STRING it is signed.
 const OFFSET_DURATION_STRING = z.string().superRefine((v, ctx) => {
-    if (!/^-?\d*\.?\d+[dhms]$/.test(v)) {
+    if (!isSignedDuration(v)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Offset must be a number followed by s, m, h, or d' })
     }
 })
@@ -104,6 +105,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_repository',
         'task_mcp_installations',
         'signals_scout',
+        'replay_vision_scan',
         'task_skills',
     ]),
     key: z.string(),
@@ -171,6 +173,16 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('schedule'),
     }),
+    // A transactional email: its message template's send endpoint runs the workflow once per call.
+    z.object({
+        type: z.literal('api'),
+    }),
+    z.object({
+        type: z.literal('cohort'),
+        // Null until a cohort is picked. The backend requires one before the workflow runs.
+        cohort_id: z.number().nullable(),
+        transition: z.enum(['entered', 'left']),
+    }),
     z.object({
         type: z.literal('batch'),
         filters: z.object({
@@ -232,7 +244,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     name: z.string().optional(), // Custom name for the condition
                 })
             ),
-            delay_duration: z.string().optional(),
         }),
     }),
     z.object({
@@ -368,6 +379,17 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             // untracked SES configuration set. Absent/true means tracked. Keep in sync with
             // nodejs/src/cdp/schema/hogflow.ts.
             tracking_enabled: z.boolean().optional(),
+            // When true, links get the UTM tags they don't already carry. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
+            utm_tags_enabled: z.boolean().optional(),
+            // Templates that replace the default tag values. An empty value keeps the default.
+            utm_params: z
+                .object({
+                    utm_source: z.string().optional(),
+                    utm_medium: z.string().optional(),
+                    utm_campaign: z.string().optional(),
+                    utm_content: z.string().optional(),
+                })
+                .optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),

@@ -1,0 +1,17 @@
+# serializer version: 1
+# name: test_dictionary_sql
+  '''
+  
+  CREATE DICTIONARY IF NOT EXISTS person_group_membership_config_dict
+  (
+      team_id Int64,
+      group_type_index UInt8 DEFAULT 255,
+      enabled UInt8 DEFAULT 0
+  )
+  PRIMARY KEY team_id
+  SOURCE(CLICKHOUSE(QUERY 'SELECT team_id, config.1 AS group_type_index, config.2 AS enabled FROM (SELECT team_id, argMax(tuple(group_type_index, enabled), version) AS config FROM posthog.distributed_person_group_membership_config GROUP BY team_id) WHERE enabled = 1 AND group_type_index <= 4' USER 'dict_reader' PASSWORD 'fake\'password\\with_escape'))
+  LIFETIME(MIN 60 MAX 120)
+  LAYOUT(COMPLEX_KEY_HASHED())
+  
+  '''
+# ---

@@ -12,9 +12,18 @@ import type {
 import type { WorkspaceService } from "../workspace/workspace";
 import { type GitService, mapPrState } from "./service";
 
+const REVALIDATION_TTL_MS = 30_000;
+const MAX_CONCURRENT_REVALIDATIONS = 4;
+
 @injectable()
 export class TaskPrStatusService {
   private readonly taskPrRevalidations = new Map<string, Promise<void>>();
+  private readonly lastRevalidations = new Map<
+    string,
+    { at: number; cloudPrUrl: string | null }
+  >();
+  private activeRevalidations = 0;
+  private readonly revalidationQueue: Array<() => void> = [];
 
   constructor(
     @inject(GIT_SERVICE)
@@ -99,8 +108,19 @@ export class TaskPrStatusService {
   ): Promise<void> {
     const inFlight = this.taskPrRevalidations.get(taskId);
     if (inFlight) return inFlight;
+    const last = this.lastRevalidations.get(taskId);
+    if (
+      last &&
+      last.cloudPrUrl === cloudPrUrl &&
+      Date.now() - last.at < REVALIDATION_TTL_MS
+    ) {
+      return;
+    }
+    this.lastRevalidations.set(taskId, { at: Date.now(), cloudPrUrl });
 
-    const promise = this.computeTaskPrStatus(taskId, cloudPrUrl)
+    const promise = this.withRevalidationSlot(() =>
+      this.computeTaskPrStatus(taskId, cloudPrUrl),
+    )
       .then((fresh) => {
         const cached = this.workspaceRepo.findByTaskId(taskId);
         if (!cached) return;
@@ -132,6 +152,21 @@ export class TaskPrStatusService {
 
     this.taskPrRevalidations.set(taskId, promise);
     return promise;
+  }
+
+  private async withRevalidationSlot<T>(run: () => Promise<T>): Promise<T> {
+    while (this.activeRevalidations >= MAX_CONCURRENT_REVALIDATIONS) {
+      await new Promise<void>((resolve) =>
+        this.revalidationQueue.push(resolve),
+      );
+    }
+    this.activeRevalidations++;
+    try {
+      return await run();
+    } finally {
+      this.activeRevalidations--;
+      this.revalidationQueue.shift()?.();
+    }
   }
 
   private async computeTaskPrStatus(

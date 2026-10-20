@@ -224,7 +224,7 @@ The watched surface is not analytics data at all — it's whatever that upstream
   - **Threaded / conversational sources — the thread is the unit, not the row.** For a Slack or Discord channel, a support thread, or any forum-shaped source, a single row is a tiny fragment ("they", "i made them") meaningless alone.
     Aggregate to the thread root (e.g. `coalesce(thread_ts, ts)` for Slack), **read the whole thread before judging it**, and dedupe on the thread root id, not the message row.
     A nice touch: reconstruct a permalink back to the source thread from its id so the finding links straight to it.
-  - **The table may not be in the project profile.** It's a warehouse table, not an event, so `project-profile-get` won't list it.
+  - **The table may not be in the project profile.** It's a warehouse table, not an event, so `scout-project-profile-get` won't list it.
     Rely on SQL; handle the "table missing entirely" case with a `not-in-use:<domain>:team{team_id}` close-out.
   - **Evidence citation:** cite the source record's id as the evidence `source_id` so a human can pivot to the original record.
 - **Worked example shape** — a scout over a Slack channel that's synced to the warehouse: the upstream tool posts pre-classified items into the channel, the channel syncs to a warehouse table every few hours, and the scout (running hourly) sweeps new rows past its cursor, anchors on the pre-classified discriminator, dedupes by the source post id, and files reports for the few that clear the bar.
@@ -681,6 +681,10 @@ The rule that defines the shape: **do not file a report that only describes a ch
     One such steward per product surface **replaced a dozen per-scanner digest scouts** that filed a report every day whether or not anything happened, most of which were then auto-paused for being ignored.
   - **Skill steward.** The maintained object is a shared skill: keep its catalog true to `system.*`, work its handover queue, log its changelog.
     Holds `llm_skill:write` and names the set of skills it tends.
+  - **One-canvas maintainer.** The maintained object is one canvas, for example "all the work I have in flight": open PRs, inbox reports, tasks, and next actions.
+    Holds `canvas:write`. A scout run cannot create a canvas, so a person creates it once and the body names its id; the scout stores the id in the scratchpad and never makes a second one.
+    Each run reads the source with `canvas-source-retrieve` and publishes only when the content changed, passing the version it read as `expected_current_version_id`. Every publish queues a build and adds a version, so an hourly scout that republishes unchanged content fills the version history with noise.
+    Prefer a canvas that reads live data through the `ph` SDK, so the scout changes the structure only when the shape of the work changes. Load `building-canvases` for the authoring loop.
   - **Artifact in a repo.** When the maintained thing lives in a repository (an internal research site, a docs slice, a data file), the steward has no write scope to use; it files `immediately_actionable` reports with `repository` set so autostart opens a draft PR carrying the exact edit, and treats the merged PR as the write.
     See the dispatcher pattern for the contract that makes those PRs land.
 - **Cadence:** hourly is normal for a steward over fast-moving infrastructure, because the maintained set is small and a quiet hour costs a handful of tool calls.

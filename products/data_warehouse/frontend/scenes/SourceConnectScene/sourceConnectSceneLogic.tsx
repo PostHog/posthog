@@ -11,13 +11,18 @@ import { urls } from 'scenes/urls'
 import { ApiConfig } from '~/lib/api'
 import { Breadcrumb } from '~/types'
 
+import {
+    clonePayloadPreservingFiles,
+    findUploadedFiles,
+    readJsonFile,
+} from 'products/data_warehouse/frontend/shared/sourceFieldFiles'
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import { externalDataSourcesStoreCredentialsCreate } from 'products/warehouse_sources/frontend/generated/api'
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { SourceCredentialApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
-import { getErrorsForFields } from '../NewSourceScene/sourceWizardLogic'
+import { getErrorsForFields, resolveConnectErrorMessage } from '../NewSourceScene/sourceWizardLogic'
 
 // Carries the field whose file failed to read/parse so the submit handler can name it in the toast.
 class FileUploadParseError extends Error {
@@ -36,24 +41,14 @@ const buildCredentialsPayload = async (
 ): Promise<Record<string, any>> => {
     const payload: Record<string, any> = {}
     for (const field of fields) {
-        const value = formPayload[field.name]
-        if (field.type === 'file-upload') {
-            if (value?.[0]) {
-                try {
-                    // Assumes we're loading a JSON file, same as the wizard's submit
-                    const loadedFile: string = await new Promise((resolve, reject) => {
-                        const fileReader = new FileReader()
-                        fileReader.onload = (e) => resolve(e.target?.result as string)
-                        fileReader.onerror = (e) => reject(e)
-                        fileReader.readAsText(value[0])
-                    })
-                    payload[field.name] = JSON.parse(loadedFile)
-                } catch (e) {
-                    throw new FileUploadParseError(field.name, e)
-                }
-            }
-        } else {
-            payload[field.name] = value
+        payload[field.name] = clonePayloadPreservingFiles(formPayload[field.name])
+    }
+    for (const { field, container, file } of findUploadedFiles(fields, payload)) {
+        try {
+            // Assumes we're loading a JSON file, same as the wizard's submit
+            container[field.name] = await readJsonFile(file)
+        } catch (e) {
+            throw new FileUploadParseError(field.name, e)
         }
     }
     return payload
@@ -229,10 +224,21 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                     )
                     return
                 }
-                const credential = await externalDataSourcesStoreCredentialsCreate(
-                    String(ApiConfig.getCurrentTeamId()),
-                    { source_type: values.sourceConfig.name, payload }
-                )
+                let credential: SourceCredentialApi
+                try {
+                    credential = await externalDataSourcesStoreCredentialsCreate(String(ApiConfig.getCurrentTeamId()), {
+                        source_type: values.sourceConfig.name,
+                        payload,
+                    })
+                } catch (e: any) {
+                    // The endpoint tests the credentials against a live connection, so a rejection
+                    // is the common case. kea-forms swallows a thrown submit, leaving the button inert.
+                    if (e?.status >= 500) {
+                        posthog.captureException(e)
+                    }
+                    lemonToast.error(resolveConnectErrorMessage(e))
+                    return
+                }
                 actions.setStoredCredential(credential)
             },
         },

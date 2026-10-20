@@ -2,7 +2,7 @@ import json
 import uuid
 import random
 import asyncio
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 
 from django.conf import settings
@@ -13,6 +13,7 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -25,6 +26,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.temporal import metrics
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped_event, signal_dropped_input
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
@@ -34,6 +36,7 @@ logger = structlog.get_logger(__name__)
 # TODO: Check if the size of the buffer doesn't overload memory for the Temporal workflow handling the batch
 BUFFER_MAX_SIZE = 20
 BUFFER_FLUSH_TIMEOUT_SECONDS = 5
+SAFETY_FILTER_RETRY_DELAY_SECONDS = 5
 
 # Guards the ingestion quota gate so runs that recorded history before it was added replay
 # deterministically. Switch to workflow.deprecate_patch() once those have drained, then remove.
@@ -78,6 +81,7 @@ class CheckSignalsQuotaInput:
     team_id: int
     # Defaults so activity inputs recorded before the field existed still decode on replay.
     signal_count: int = 0
+    signals: list[EmitSignalInputs] = field(default_factory=list)
 
 
 @activity.defn
@@ -85,8 +89,8 @@ class CheckSignalsQuotaInput:
 @close_db_connections
 async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) -> bool:
     """Whether the batch must be dropped: the team is over its Signals credits quota, or over its
-    daily report limit. Owns the drop logging and metric so the reason label names the exact limit
-    that fired; the workflow only acts on the boolean.
+    daily report limit. Owns the drop logging, metric and `signal_dropped` events so the reason
+    names the exact limit that fired; the workflow only acts on the boolean.
     """
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     quota_limited = await sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(team.api_token)
@@ -102,6 +106,7 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
             signal_count=input.signal_count,
         )
         metrics.increment_dropped(stage="ingestion", reason="quota_limited", count=input.signal_count)
+        _capture_ingestion_drops(team, input.signals, "quota_limited", "Signals credits quota exceeded")
         return True
     if daily_gate.limited:
         logger.info(
@@ -110,8 +115,19 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
             signal_count=input.signal_count,
         )
         metrics.increment_dropped(stage="ingestion", reason="daily_report_limit", count=input.signal_count)
+        _capture_ingestion_drops(team, input.signals, "daily_report_limit", "Daily report limit reached")
         return True
     return False
+
+
+def _capture_ingestion_drops(team: Team, signals: list[EmitSignalInputs], error_type: str, error: str) -> None:
+    try:
+        for signal in signals:
+            capture_signal_dropped_event(team, signal_dropped_input(signal, "ingestion", error_type, error))
+    except Exception as e:
+        # Swallow the exception: a failed analytics event must not change the drop decision
+        posthoganalytics.capture_exception(e)
+        logger.exception("Failed to capture signal_dropped events", team_id=team.id, signal_count=len(signals))
 
 
 @dataclass
@@ -240,7 +256,7 @@ class BufferSignalsWorkflow:
             if workflow.patched(_PATCH_QUOTA_INGESTION_GATE):
                 over_limit = await workflow.execute_activity(
                     check_signals_quota_limited_activity,
-                    CheckSignalsQuotaInput(team_id=input.team_id, signal_count=len(batch)),
+                    CheckSignalsQuotaInput(team_id=input.team_id, signal_count=len(batch), signals=batch),
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
@@ -257,25 +273,36 @@ class BufferSignalsWorkflow:
                     continue
 
             # Filter out malicious signals
-            safety_results = await asyncio.gather(
-                *[
-                    workflow.execute_activity(
-                        safety_filter_activity,
-                        SafetyFilterInput(
-                            team_id=s.team_id,
-                            description=s.description,
-                            source_product=s.source_product,
-                            source_type=s.source_type,
-                            source_id=s.source_id,
-                            weight=s.weight,
-                            extra=s.extra,
-                        ),
-                        start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    )
-                    for s in batch
-                ]
-            )
+            try:
+                safety_results = await asyncio.gather(
+                    *[
+                        workflow.execute_activity(
+                            safety_filter_activity,
+                            SafetyFilterInput(
+                                signal_id=s.signal_id,
+                                team_id=s.team_id,
+                                description=s.description,
+                                source_product=s.source_product,
+                                source_type=s.source_type,
+                                source_id=s.source_id,
+                                weight=s.weight,
+                                extra=s.extra,
+                            ),
+                            start_to_close_timeout=timedelta(minutes=5),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                        for s in batch
+                    ]
+                )
+            except ActivityError:
+                self._signal_buffer[:0] = batch
+                logger.warning(
+                    "signals_buffer.safety_filter_failed_requeued",
+                    team_id=input.team_id,
+                    signal_count=len(batch),
+                )
+                await workflow.sleep(timedelta(seconds=SAFETY_FILTER_RETRY_DELAY_SECONDS))
+                continue
             safe_signals: list[EmitSignalInputs] = []
             for signal, result in zip(batch, safety_results):
                 if result.safe:

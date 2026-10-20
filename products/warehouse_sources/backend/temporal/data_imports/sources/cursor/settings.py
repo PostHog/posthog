@@ -1,10 +1,36 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+MAX_WINDOW_DAYS = 30
+# The Analytics API caps a range at 30 inclusive calendar days. Windows are millisecond ranges that
+# are not midnight-aligned, so a 30-day window straddles 31 calendar dates once both ends are
+# truncated to a date. 29 is the largest window that always fits.
+ANALYTICS_MAX_WINDOW_DAYS = 29
 
-@dataclass
+# Conversation Insights slice name -> the key that holds the slice value in each time-series point.
+CONVERSATION_INSIGHT_SLICES: dict[str, str] = {
+    "intents": "intent",
+    "complexity": "complexity",
+    "categories": "category",
+    "guidanceLevels": "guidanceLevel",
+    "workTypes": "workType",
+}
+
+
+def _datetime_field(name: str) -> IncrementalField:
+    return {
+        "label": name,
+        "type": IncrementalFieldType.DateTime,
+        "field": name,
+        "field_type": IncrementalFieldType.DateTime,
+    }
+
+
+@frozen
 class CursorEndpointConfig:
     name: str
     path: str
@@ -12,9 +38,19 @@ class CursorEndpointConfig:
     data_key: str = "data"  # Response key holding the list of rows
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Endpoint takes startDate/endDate epoch-ms body params with a 30-day max range,
-    # so syncs chunk the requested range into windows.
+    # Endpoint takes startDate/endDate params with a maximum range, so syncs chunk the requested
+    # range into windows.
     windowed: bool = False
+    window_days: int = MAX_WINDOW_DAYS
+    # Analytics API endpoints take their params in the query string and their dates as YYYY-MM-DD;
+    # the Admin API takes a JSON body with epoch-ms dates.
+    query_params: bool = False
+    date_param_format: Literal["epoch_ms", "iso_date"] = "epoch_ms"
+    date_param_names: tuple[str, str] = ("startDate", "endDate")
+    # Fixed query params the endpoint requires on every request.
+    extra_params: dict[str, str] = field(default_factory=dict)
+    # Response `data` is an object keyed by user email instead of a list of rows.
+    by_user: bool = False
     paginated: bool = True
     page_size: int = 100
     partition_key: Optional[str] = None  # Stable datetime field to partition by
@@ -40,14 +76,7 @@ CURSOR_ENDPOINTS: dict[str, CursorEndpointConfig] = {
         primary_keys=["date", "userId"],
         windowed=True,
         partition_key="date",
-        incremental_fields=[
-            {
-                "label": "date",
-                "type": IncrementalFieldType.DateTime,
-                "field": "date",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-        ],
+        incremental_fields=[_datetime_field("date")],
         description="Per-user daily usage metrics (lines accepted, tabs, agent requests). Only syncs the last 365 days on initial sync",
     ),
     "usage_events": CursorEndpointConfig(
@@ -59,14 +88,7 @@ CURSOR_ENDPOINTS: dict[str, CursorEndpointConfig] = {
         primary_keys=["id"],
         windowed=True,
         partition_key="timestamp",
-        incremental_fields=[
-            {
-                "label": "timestamp",
-                "type": IncrementalFieldType.DateTime,
-                "field": "timestamp",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-        ],
+        incremental_fields=[_datetime_field("timestamp")],
         description="Per-request usage events with model, token usage, and cost. Only syncs the last 365 days on initial sync",
     ),
     "spend": CursorEndpointConfig(
@@ -75,6 +97,265 @@ CURSOR_ENDPOINTS: dict[str, CursorEndpointConfig] = {
         data_key="teamMemberSpend",
         primary_keys=["userId"],
         description="Per-member spend for the current billing cycle. Full refresh only",
+    ),
+    "agent_edits": CursorEndpointConfig(
+        name="agent_edits",
+        path="/analytics/team/agent-edits",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        # One aggregate row per day for the whole team.
+        primary_keys=["event_date"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        paginated=False,
+        partition_key="event_date",
+        incremental_fields=[_datetime_field("event_date")],
+        should_sync_default=False,
+        description="Daily team totals for agent-suggested edits: diffs suggested, accepted, and rejected, with line counts. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "tabs": CursorEndpointConfig(
+        name="tabs",
+        path="/analytics/team/tabs",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        primary_keys=["event_date"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        paginated=False,
+        partition_key="event_date",
+        incremental_fields=[_datetime_field("event_date")],
+        should_sync_default=False,
+        description="Daily team totals for Tab autocomplete: suggestions, accepts, rejects, and line counts. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "dau": CursorEndpointConfig(
+        name="dau",
+        path="/analytics/team/dau",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        primary_keys=["date"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        paginated=False,
+        partition_key="date",
+        incremental_fields=[_datetime_field("date")],
+        should_sync_default=False,
+        description="Daily count of team members who used an AI feature, with the CLI, cloud agent, and Bugbot counts alongside. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "models": CursorEndpointConfig(
+        name="models",
+        path="/analytics/team/models",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        # One row per day per model, expanded from the per-model map the API returns.
+        primary_keys=["date", "model"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        paginated=False,
+        partition_key="date",
+        incremental_fields=[_datetime_field("date")],
+        should_sync_default=False,
+        description="Daily team model usage, with a message count and a user count for each model. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "top_file_extensions": CursorEndpointConfig(
+        name="top_file_extensions",
+        path="/analytics/team/top-file-extensions",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        # One row per day per file extension, for the five busiest extensions of that day.
+        primary_keys=["event_date", "file_extension"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        paginated=False,
+        partition_key="event_date",
+        incremental_fields=[_datetime_field("event_date")],
+        should_sync_default=False,
+        description="Daily team file extension breakdown of AI-assisted edits, top five extensions per day. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "by_user_agent_edits": CursorEndpointConfig(
+        name="by_user_agent_edits",
+        path="/analytics/by-user/agent-edits",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        by_user=True,
+        primary_keys=["event_date", "userEmail"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        page_size=500,
+        partition_key="event_date",
+        incremental_fields=[_datetime_field("event_date")],
+        should_sync_default=False,
+        description="Per-user daily agent edit metrics, keyed by email so they join to members. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "by_user_tabs": CursorEndpointConfig(
+        name="by_user_tabs",
+        path="/analytics/by-user/tabs",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        by_user=True,
+        primary_keys=["event_date", "userEmail"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        page_size=500,
+        partition_key="event_date",
+        incremental_fields=[_datetime_field("event_date")],
+        should_sync_default=False,
+        description="Per-user daily Tab autocomplete metrics, keyed by email so they join to members. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "by_user_models": CursorEndpointConfig(
+        name="by_user_models",
+        path="/analytics/by-user/models",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        by_user=True,
+        # One row per user per day per model, expanded from the per-model map the API returns.
+        primary_keys=["date", "userEmail", "model"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        page_size=500,
+        partition_key="date",
+        incremental_fields=[_datetime_field("date")],
+        should_sync_default=False,
+        description="Per-user daily model usage, with a message count for each model. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "by_user_top_file_extensions": CursorEndpointConfig(
+        name="by_user_top_file_extensions",
+        path="/analytics/by-user/top-file-extensions",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        by_user=True,
+        # One row per user per day per file extension.
+        primary_keys=["event_date", "userEmail", "file_extension"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        page_size=500,
+        partition_key="event_date",
+        incremental_fields=[_datetime_field("event_date")],
+        should_sync_default=False,
+        description="Per-user daily file extension breakdown of AI-assisted edits. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "ai_code_commits": CursorEndpointConfig(
+        name="ai_code_commits",
+        path="/analytics/ai-code/commits",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="items",
+        # A commit hash is unique per commit; the author is in the key too because the docs
+        # scope uniqueness to the aggregate, not to the hash.
+        primary_keys=["commitHash", "userId"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        page_size=1000,
+        partition_key="commitTs",
+        incremental_fields=[_datetime_field("commitTs")],
+        should_sync_default=False,
+        description="Per-commit attribution of lines added and deleted to Tab, Composer, and non-AI authoring. Needs a Cursor Enterprise plan with AI code tracking enabled. Only syncs the last 365 days on initial sync",
+    ),
+    "ai_code_changes": CursorEndpointConfig(
+        name="ai_code_changes",
+        path="/analytics/ai-code/changes",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="items",
+        # `changeId` is documented as deterministic per change; the author is in the key for the
+        # same reason as ai_code_commits — the docs scope uniqueness to the aggregate.
+        primary_keys=["changeId", "userId"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        page_size=1000,
+        partition_key="createdAt",
+        incremental_fields=[_datetime_field("createdAt")],
+        should_sync_default=False,
+        description="Individual accepted AI changes with the lines added and deleted, the model, and the files each change touched. Needs a Cursor Enterprise plan with AI code tracking enabled. Only syncs the last 365 days on initial sync",
+    ),
+    "audit_logs": CursorEndpointConfig(
+        name="audit_logs",
+        path="/teams/audit-logs",
+        method="GET",
+        query_params=True,
+        date_param_names=("startTime", "endTime"),
+        data_key="events",
+        primary_keys=["event_id"],
+        windowed=True,
+        page_size=500,
+        partition_key="timestamp",
+        incremental_fields=[_datetime_field("timestamp")],
+        should_sync_default=False,
+        description="Audit log events for your team, such as logins, member changes, and settings changes. Only syncs the last 365 days on initial sync",
+    ),
+    "billing_groups": CursorEndpointConfig(
+        name="billing_groups",
+        path="/teams/groups",
+        method="GET",
+        data_key="groups",
+        primary_keys=["id"],
+        paginated=False,
+        should_sync_default=False,
+        description="Billing groups with their spend for the current billing cycle, including the reserved Unassigned group. Needs a Cursor Enterprise plan. Full refresh only",
+    ),
+    "billing_group_members": CursorEndpointConfig(
+        name="billing_group_members",
+        path="/teams/groups",
+        method="GET",
+        data_key="groups",
+        # A member can leave a group and join it again, so the join time is in the key.
+        primary_keys=["groupId", "userId", "joinedAt"],
+        paginated=False,
+        should_sync_default=False,
+        description="Current and former members of each billing group, with their spend for the current billing cycle. Needs a Cursor Enterprise plan. Full refresh only",
+    ),
+    "bugbot_reviews": CursorEndpointConfig(
+        name="bugbot_reviews",
+        path="/analytics/team/bugbot-reviews",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        primary_keys=["request_id"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        page_size=250,
+        partition_key="timestamp",
+        incremental_fields=[_datetime_field("timestamp")],
+        should_sync_default=False,
+        description="One row per completed Bugbot review, with the reviewed commit, the findings, and the billed cost. Needs a Cursor Enterprise plan and an API key with read access. Only syncs the last 365 days on initial sync",
+    ),
+    "conversation_insights": CursorEndpointConfig(
+        name="conversation_insights",
+        path="/analytics/team/conversation-insights",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        extra_params={"include": ",".join(CONVERSATION_INSIGHT_SLICES)},
+        # One row per day per slice value, expanded from each slice's time series.
+        primary_keys=["date", "slice", "value"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        paginated=False,
+        partition_key="date",
+        incremental_fields=[_datetime_field("date")],
+        should_sync_default=False,
+        description="Daily team conversation counts by intent, complexity, category, guidance level, and work type. Needs a Cursor Enterprise plan with Conversation Insights turned on. Only syncs the last 365 days on initial sync",
     ),
 }
 

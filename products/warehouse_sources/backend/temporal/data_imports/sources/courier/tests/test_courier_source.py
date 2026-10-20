@@ -30,8 +30,9 @@ class TestGetSchemas:
     def test_only_server_side_filtered_endpoints_are_incremental(self) -> None:
         schemas = {s.name: s for s in CourierSource().get_schemas(_config(), team_id=1)}
         assert set(schemas) == set(ENDPOINTS)
-        # Only Messages (enqueued_after) has a genuine server-side timestamp filter.
-        assert {name for name, s in schemas.items() if s.supports_incremental} == {"Messages"}
+        # Messages filters on `enqueued_after`; MessageHistory has no filter of its own and
+        # inherits that window through its parent listing.
+        assert {name for name, s in schemas.items() if s.supports_incremental} == {"Messages", "MessageHistory"}
         assert [f["field"] for f in schemas["Messages"].incremental_fields] == ["enqueued"]
 
     def test_lists_tables_without_credentials(self) -> None:

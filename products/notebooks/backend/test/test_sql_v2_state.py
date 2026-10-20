@@ -15,6 +15,7 @@ from products.notebooks.backend.sql_v2_references import resolve_sql_v2_referenc
 from products.notebooks.backend.sql_v2_state import (
     MAX_ADDRESSABLE_PROSE_BLOCKS,
     MAX_NOTEBOOK_CELLS,
+    CellVisualization,
     NotebookCellLimitExceeded,
     build_dependency_edges,
     build_notebook_cell_state,
@@ -40,6 +41,43 @@ def markdown_content(markdown: str) -> dict[str, Any]:
 
 
 class TestCellExtractionAndEdges(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "chart tab with axes",
+                'outputTab="visualization" vizQuery={{"kind":"DataVisualizationNode","display":"ActionsBar",'
+                '"chartSettings":{"xAxis":{"column":"month"},"yAxis":[{"column":"orgs"}],'
+                '"seriesBreakdownColumn":"region"}}}',
+                CellVisualization(display="ActionsBar", x_axis="month", y_axis=("orgs",), series_breakdown="region"),
+            ),
+            (
+                "chart tab without a stored chart",
+                'outputTab="visualization"',
+                CellVisualization(display="ActionsLineGraph", x_axis=None, y_axis=None, series_breakdown=None),
+            ),
+            (
+                "every series removed",
+                'outputTab="visualization" vizQuery={{"kind":"DataVisualizationNode","chartSettings":{"yAxis":[]}}}',
+                CellVisualization(display="ActionsLineGraph", x_axis=None, y_axis=(), series_breakdown=None),
+            ),
+            (
+                "results tab keeps a stored chart hidden",
+                'outputTab="results" vizQuery={{"kind":"DataVisualizationNode","display":"ActionsBar"}}',
+                None,
+            ),
+            ("no output tab", 'code="select 1"', None),
+            (
+                "chart held in the legacy query prop",
+                'query={{"kind":"DataVisualizationNode","display":"ActionsPie",'
+                '"source":{"kind":"HogQLQuery","query":"select 1"}}}',
+                CellVisualization(display="ActionsPie", x_axis=None, y_axis=None, series_breakdown=None),
+            ),
+        ]
+    )
+    def test_sql_cell_visualization(self, _name: str, props: str, expected: CellVisualization | None) -> None:
+        cells = extract_cells(markdown_content(f'<SQLV2 nodeId="s" returnVariable="df" {props} />'))
+        assert cells[0].visualization == expected
+
     @parameterized.expand(
         [
             (case["name"], case["markdown"], case["owners"])
@@ -174,17 +212,55 @@ def cells_markdown(count: int) -> dict[str, Any]:
 
 
 class TestMarkdownBlockSpans(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("paragraphs", "First paragraph.\n\nSecond paragraph."),
+            ("headings_and_table", "## Summary\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nClosing note."),
+            ("fenced_example", "```python\nx = 1\n\n\n<!--ph:phb-example-->\n```\n\nExplanation."),
+        ]
+    )
+    def test_anchored_cell_includes_all_its_markdown(self, _name: str, source: str) -> None:
+        markdown = f"# Title\n\n\n<!--ph:phb-cell-->\n{source}\n\n\nNext cell."
+        blocks = list(iter_markdown_blocks(markdown, group_anchored_prose=True))
+        assert [block.source for block in blocks] == ["# Title", source, "Next cell."]
+        assert blocks[1].node_id == "phb-cell"
+        assert markdown[blocks[1].start : blocks[1].end] == source
+
+    @parameterized.expand(
+        [
+            ("anchor", "<!--ph:phb-next-->\nNext cell."),
+            ("component", '<SQLV2 nodeId="next" code="select 1" />'),
+            ("comment", '<Comment ref="note" replies={[]} />'),
+        ]
+    )
+    def test_anchored_cell_stops_before_other_addressable_content(self, _name: str, following: str) -> None:
+        blocks = list(
+            iter_markdown_blocks(f"<!--ph:phb-cell-->\nFirst.\n\nSecond.\n\n{following}", group_anchored_prose=True)
+        )
+        assert len(blocks) == 2
+        assert blocks[0].source == "First.\n\nSecond."
+
     MARKDOWN = (
         "# Title\n\n"
         "Some prose.\nA second line.\n\n"
+        "<!--ph:phb-anchored-->\nAn anchored paragraph.\n\n"
         '<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />\n\n'
         "```python\nx = 1\n\ny = 2\n```\n\n"
         "Closing paragraph."
     )
 
-    def test_every_block_span_slices_back_to_its_source(self) -> None:
-        blocks = list(iter_markdown_blocks(self.MARKDOWN))
-        assert [self.MARKDOWN[block.start : block.end] for block in blocks] == [block.source for block in blocks]
+    @parameterized.expand(
+        [
+            ("no_terminator", ""),
+            ("newline", "\n"),
+            ("crlf", "\r\n"),
+        ]
+    )
+    def test_every_block_span_slices_back_to_its_source(self, _name: str, ending: str) -> None:
+        markdown = self.MARKDOWN + ending
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [markdown[block.start : block.end] for block in blocks] == [block.source for block in blocks]
+        assert blocks[-1].source == "Closing paragraph."
 
     def test_a_fenced_block_stays_whole_across_its_blank_line(self) -> None:
         sources = [block.source for block in iter_markdown_blocks(self.MARKDOWN)]
@@ -222,6 +298,39 @@ class TestMarkdownBlockSpans(SimpleTestCase):
         blocks = list(iter_markdown_blocks("Same text.\n\nSame text."))
         assert len({block.node_id for block in blocks}) == 2
 
+    def test_an_anchored_block_keeps_its_id_when_its_text_changes(self) -> None:
+        edited = self.MARKDOWN.replace("An anchored paragraph.", "A rewritten paragraph.")
+        before = {block.node_id for block in iter_markdown_blocks(self.MARKDOWN)}
+        after = {block.node_id for block in iter_markdown_blocks(edited)}
+        assert "phb-anchored" in before & after
+
+    def test_a_tag_prop_id_wins_over_an_anchor_above_it(self) -> None:
+        markdown = '<!--ph:phb-outer-->\n<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />'
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [block.node_id for block in blocks] == ["s1"]
+
+    def test_a_repeated_anchor_names_only_the_first_block(self) -> None:
+        markdown = "<!--ph:phb-abc-->\nFirst.\n\n<!--ph:phb-abc-->\nSecond."
+        node_ids = [block.node_id for block in iter_markdown_blocks(markdown)]
+        assert node_ids[0] == "phb-abc"
+        assert len(set(node_ids)) == 2
+
+    def test_a_left_behind_anchor_names_no_block(self) -> None:
+        blocks = list(iter_markdown_blocks("<!--ph:phb-abc-->\n\n\nThe next paragraph.\n"))
+        assert [block.source for block in blocks] == ["The next paragraph."]
+        assert blocks[0].node_id != "phb-abc"
+
+    def test_a_comment_that_is_not_a_stored_id_is_not_an_anchor(self) -> None:
+        blocks = list(iter_markdown_blocks("<!--ph:note-->\n\nA paragraph."))
+        assert [block.node_id for block in blocks] != ["note"]
+        assert blocks[0].source == "<!--ph:note-->"
+
+    def test_an_anchor_inside_a_fence_is_not_read_as_one(self) -> None:
+        markdown = "```\n<!--ph:phb-example-->\n```\n\nParagraph."
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [block.node_id for block in blocks] != ["phb-example"]
+        assert blocks[0].source == "```\n<!--ph:phb-example-->\n```"
+
 
 class TestCellCountLimit(SimpleTestCase):
     @parameterized.expand(
@@ -229,16 +338,30 @@ class TestCellCountLimit(SimpleTestCase):
             ("under", MAX_NOTEBOOK_CELLS - 1, True),
             ("at_the_limit", MAX_NOTEBOOK_CELLS, True),
             ("over", MAX_NOTEBOOK_CELLS + 1, False),
+            ("prepared_insights_at_limit", MAX_NOTEBOOK_CELLS, True, "Query"),
+            ("prepared_insights_over_limit", MAX_NOTEBOOK_CELLS + 1, False, "Insight"),
         ]
     )
-    def test_growth_is_refused_past_the_ceiling(self, _name: str, next_count: int, allowed: bool) -> None:
+    def test_growth_is_refused_past_the_ceiling(
+        self, _name: str, next_count: int, allowed: bool, insight_tag: str | None = None
+    ) -> None:
         # Without a ceiling an agent adds cells in a loop, and every SQL or Python cell it adds
         # is a query or a sandbox execution. Nothing else bounds that.
+        content = (
+            cells_markdown(next_count)
+            if insight_tag is None
+            else markdown_content(
+                "\n\n".join(
+                    f'<{insight_tag} nodeId="i{index}" dataframeQuery="select 1" returnVariable="df_{index}" />'
+                    for index in range(next_count)
+                )
+            )
+        )
         if allowed:
-            validate_cell_count(None, cells_markdown(next_count))
+            validate_cell_count(None, content)
             return
         with self.assertRaises(NotebookCellLimitExceeded):
-            validate_cell_count(None, cells_markdown(next_count))
+            validate_cell_count(None, content)
 
     @parameterized.expand([("unchanged", 0), ("shrinking", -1)])
     def test_a_notebook_already_over_the_ceiling_stays_editable(self, _name: str, delta: int) -> None:
@@ -401,8 +524,10 @@ class TestNotebookCellState(APIBaseTest):
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_state_endpoint_returns_cells_and_kernel(self, _mock_enabled) -> None:
         notebook = self._notebook(
-            '<SQLV2 nodeId="s" code="select 1" returnVariable="df" />\n\n'
-            '<PythonV2 nodeId="p" code="x = df.head()" returnVariable="x" />'
+            '<SQLV2 nodeId="s" code="select 1" returnVariable="df" outputTab="visualization" '
+            'vizQuery={{"kind":"DataVisualizationNode","display":"ActionsBar","chartSettings":{"yAxis":[{"column":"n"}]}}} />\n\n'
+            '<PythonV2 nodeId="p" code="x = df.head()" returnVariable="x" />\n\n\n'
+            "<!--ph:phb-note-->\nFirst paragraph.\n\nSecond paragraph."
         )
         notebook.variables = [{"name": "limit", "type": "number", "value": 10}]
         notebook.save()
@@ -421,5 +546,13 @@ class TestNotebookCellState(APIBaseTest):
         assert by_node["s"]["dependents"] == ["p"]
         assert by_node["p"]["status"] == "never_run"
         assert by_node["p"]["depends_on"] == ["s"]
+        assert by_node["phb-note"]["code"] == "First paragraph.\n\nSecond paragraph."
+        assert by_node["s"]["visualization"] == {
+            "display": "ActionsBar",
+            "x_axis": None,
+            "y_axis": ["n"],
+            "series_breakdown": None,
+        }
+        assert by_node["p"]["visualization"] is None
         assert by_node["s"]["last_run"]["run_id"]
         assert data["markdown"][by_node["s"]["start"] : by_node["s"]["end"]].startswith('<SQLV2 nodeId="s"')

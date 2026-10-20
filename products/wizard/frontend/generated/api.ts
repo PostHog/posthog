@@ -14,16 +14,21 @@ import type {
     PaginatedWizardRunListApi,
     PaginatedWizardSessionDTOListApi,
     PatchedWizardRunStatusUpdateRequestApi,
+    RecordWizardScanRequestApi,
+    UpdateWizardRunTaskListApi,
     UpsertWizardSessionRequestApi,
     WizardRegistryListParams,
     WizardRunApi,
     WizardRunCreateRequestApi,
+    WizardRunTaskListApi,
     WizardRunsArtifactsListParams,
     WizardRunsListParams,
+    WizardScanResultApi,
     WizardSessionDTOApi,
     WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
     WizardSessionsStreamRetrieveParams,
+    WizardToolCatalogApi,
 } from './api.schemas'
 
 export const getWizardRegistryListUrl = (projectId: string, params?: WizardRegistryListParams) => {
@@ -199,6 +204,87 @@ export const wizardRunsArtifactsContentRetrieve = async (
     })
 }
 
+export const getWizardRunsStreamRetrieveUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/wizard/runs/${runId}/stream/`
+}
+
+/**
+ * Stream the current run state and subsequent updates. Use EventSource to consume this endpoint.
+ */
+export const wizardRunsStreamRetrieve = async (
+    projectId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<string | void> => {
+    return apiMutator<string | void>(getWizardRunsStreamRetrieveUrl(projectId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardRunsTasksRetrieveUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/wizard/runs/${runId}/tasks/`
+}
+
+/**
+ * API endpoints for managing Wizard run tasks. Access is scoped to the Wizard only.
+ *
+ * The Wizard should be the only client that can update the tasks of a run.
+ */
+export const wizardRunsTasksRetrieve = async (
+    projectId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<WizardRunTaskListApi> => {
+    return apiMutator<WizardRunTaskListApi>(getWizardRunsTasksRetrieveUrl(projectId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardRunsTasksUpdateUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/wizard/runs/${runId}/tasks/`
+}
+
+/**
+ * API endpoints for managing Wizard run tasks. Access is scoped to the Wizard only.
+ *
+ * The Wizard should be the only client that can update the tasks of a run.
+ */
+export const wizardRunsTasksUpdate = async (
+    projectId: string,
+    runId: string,
+    updateWizardRunTaskListApi: UpdateWizardRunTaskListApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWizardRunsTasksUpdateUrl(projectId, runId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(updateWizardRunTaskListApi),
+    })
+}
+
+export const getWizardScansCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/wizard/scans/`
+}
+
+/**
+ * @summary Record the tools a wizard scan found in a codebase
+ */
+export const wizardScansCreate = async (
+    projectId: string,
+    recordWizardScanRequestApi: RecordWizardScanRequestApi,
+    options?: RequestInit
+): Promise<WizardScanResultApi> => {
+    return apiMutator<WizardScanResultApi>(getWizardScansCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recordWizardScanRequestApi),
+    })
+}
+
 export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessionsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -324,6 +410,21 @@ export const wizardSessionsStreamRetrieve = async (
     options?: RequestInit
 ): Promise<string> => {
     return apiMutator<string>(getWizardSessionsStreamRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardToolCatalogListUrl = () => {
+    return `/api/wizard/tool_catalog/`
+}
+
+/**
+ * Every tool the wizard can detect in a codebase, with the signals that identify it.
+ * @summary Get the wizard tool catalog
+ */
+export const wizardToolCatalogList = async (options?: RequestInit): Promise<WizardToolCatalogApi> => {
+    return apiMutator<WizardToolCatalogApi>(getWizardToolCatalogListUrl(), {
         ...options,
         method: 'GET',
     })

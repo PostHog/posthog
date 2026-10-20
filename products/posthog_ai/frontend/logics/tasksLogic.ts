@@ -18,6 +18,7 @@ import { TasksListOrdering } from 'products/tasks/frontend/generated/api.schemas
 import type { UserType } from '../../../../frontend/src/types'
 import { loadErrorMessage } from '../lib/load-error'
 import { OriginProduct, Task, TaskAssigneeFilter, TaskListParams, TaskUpsertProps } from '../types/taskTypes'
+import { taskEventsLogic } from './taskEventsLogic'
 import { taskHistoryLogic } from './taskHistoryLogic'
 
 function hasTasksFlag(featureFlags: FeatureFlagsSet): boolean {
@@ -54,6 +55,9 @@ export interface tasksLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    taskDeleted: () => {
+        value: true
+    } // taskEventsLogic
     loadUserSuccess: (
         user: UserType | null,
         payload?:
@@ -157,6 +161,30 @@ export interface tasksLogicActions {
     openTask: (taskId: Task['id']) => {
         taskId: string
     }
+    renameTask: ({ taskId, title }: { taskId: string; title: string }) => {
+        taskId: string
+        title: string
+    }
+    renameTaskFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    renameTaskSuccess: (
+        tasks: Task[],
+        payload?: {
+            taskId: string
+            title: string
+        }
+    ) => {
+        tasks: Task[]
+        payload?: {
+            taskId: string
+            title: string
+        }
+    }
     setAssigneeFilter: (assigneeFilter: TaskAssigneeFilter) => {
         assigneeFilter: TaskAssigneeFilter
     }
@@ -192,7 +220,14 @@ export const tasksLogic = kea<tasksLogicType>([
 
     connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
-        actions: [featureFlagLogic, ['setFeatureFlags'], userLogic, ['loadUserSuccess']],
+        actions: [
+            featureFlagLogic,
+            ['setFeatureFlags'],
+            taskEventsLogic,
+            ['taskDeleted'],
+            userLogic,
+            ['loadUserSuccess'],
+        ],
     })),
 
     actions({
@@ -243,7 +278,7 @@ export const tasksLogic = kea<tasksLogicType>([
                     }
                     // `next` is an opaque absolute cursor URL from the previous response, not a static
                     // endpoint — the generated `tasksList` takes structured params, not a raw URL.
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get<PaginatedResponse<Task>>(next)
                     breakpoint()
                     // `breakpoint` only cancels a second `loadMoreTasks` call, not a `loadTasks` triggered
@@ -271,6 +306,10 @@ export const tasksLogic = kea<tasksLogicType>([
                 deleteTask: async ({ taskId }: { taskId: string }) => {
                     await api.tasks.delete(taskId)
                     return values.tasks.filter((t) => t.id !== taskId)
+                },
+                renameTask: async ({ taskId, title }: { taskId: string; title: string }) => {
+                    const renamed = await api.tasks.update(taskId, { title })
+                    return values.tasks.map((t) => (t.id === taskId ? renamed : t))
                 },
             },
         ],
@@ -456,6 +495,10 @@ export const tasksLogic = kea<tasksLogicType>([
                 if (payload) {
                     taskHistoryLogic.findMounted()?.actions.taskArchived(payload.taskId)
                 }
+                actions.taskDeleted()
+            },
+            renameTaskFailure: ({ error, errorObject }) => {
+                lemonToast.error(`Couldn't rename the task: ${loadErrorMessage(error, errorObject)}`)
             },
             setFeatureFlags: loadInitialTasks,
             loadUserSuccess: () => {

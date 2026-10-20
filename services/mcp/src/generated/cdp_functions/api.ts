@@ -111,9 +111,10 @@ export const HogFunctionsCreateBody = () => zod.object({
                         'task_mcp_installations',
                         'signals_scout',
                         'task_skills',
+                        'replay_vision_scan',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills\n\* `replay_vision_scan` - replay_vision_scan'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -136,6 +137,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()).optional(),
+                bytecode_contract: zod.string().optional(),
                 order: zod.number().optional(),
                 transpiled: zod.unknown().optional(),
             })
@@ -155,6 +157,7 @@ export const HogFunctionsCreateBody = () => zod.object({
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -176,7 +179,6 @@ export const HogFunctionsCreateBody = () => zod.object({
     mappings: zod
         .array(
             zod.object({
-                name: zod.string().optional(),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -204,9 +206,10 @@ export const HogFunctionsCreateBody = () => zod.object({
                                     'task_mcp_installations',
                                     'signals_scout',
                                     'task_skills',
+                                    'replay_vision_scan',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills\n\* `replay_vision_scan` - replay_vision_scan'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -237,11 +240,13 @@ export const HogFunctionsCreateBody = () => zod.object({
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()).optional(),
+                            bytecode_contract: zod.string().optional(),
                             order: zod.number().optional(),
                             transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
+                name: zod.string().optional(),
                 filters: zod
                     .object({
                         source: zod
@@ -261,6 +266,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -375,9 +381,10 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                         'task_mcp_installations',
                         'signals_scout',
                         'task_skills',
+                        'replay_vision_scan',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills\n\* `replay_vision_scan` - replay_vision_scan'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -400,6 +407,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()).optional(),
+                bytecode_contract: zod.string().optional(),
                 order: zod.number().optional(),
                 transpiled: zod.unknown().optional(),
             })
@@ -419,6 +427,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -440,7 +449,6 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
     mappings: zod
         .array(
             zod.object({
-                name: zod.string().optional(),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -468,9 +476,10 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                                     'task_mcp_installations',
                                     'signals_scout',
                                     'task_skills',
+                                    'replay_vision_scan',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills\n\* `replay_vision_scan` - replay_vision_scan'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -501,11 +510,13 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()).optional(),
+                            bytecode_contract: zod.string().optional(),
                             order: zod.number().optional(),
                             transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
+                name: zod.string().optional(),
                 filters: zod
                     .object({
                         source: zod
@@ -525,6 +536,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -730,9 +742,10 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                                 'task_mcp_installations',
                                 'signals_scout',
                                 'task_skills',
+                                'replay_vision_scan',
                             ])
                             .describe(
-                                '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills'
+                                '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills\n\* `replay_vision_scan` - replay_vision_scan'
                             ),
                         key: zod.string(),
                         label: zod.string().optional(),
@@ -769,6 +782,7 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                             .optional()
                             .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                         bytecode: zod.array(zod.unknown()).optional(),
+                        bytecode_contract: zod.string().optional(),
                         order: zod.number().optional(),
                         transpiled: zod.unknown().optional(),
                     })
@@ -797,6 +811,7 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                     transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
                     bytecode_error: zod.string().optional(),
+                    bytecode_contract: zod.string().optional(),
                 })
                 .optional()
                 .describe('Event filters that control which events trigger this function.'),
@@ -822,7 +837,6 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
             mappings: zod
                 .array(
                     zod.object({
-                        name: zod.string().optional(),
                         inputs_schema: zod
                             .array(
                                 zod.object({
@@ -850,9 +864,10 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                                             'task_mcp_installations',
                                             'signals_scout',
                                             'task_skills',
+                                            'replay_vision_scan',
                                         ])
                                         .describe(
-                                            '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills'
+                                            '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout\n\* `task_skills` - task_skills\n\* `replay_vision_scan` - replay_vision_scan'
                                         ),
                                     key: zod.string(),
                                     label: zod.string().optional(),
@@ -894,11 +909,13 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                                         .optional()
                                         .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                                     bytecode: zod.array(zod.unknown()).optional(),
+                                    bytecode_contract: zod.string().optional(),
                                     order: zod.number().optional(),
                                     transpiled: zod.unknown().optional(),
                                 })
                             )
                             .optional(),
+                        name: zod.string().optional(),
                         filters: zod
                             .object({
                                 source: zod
@@ -923,6 +940,7 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             })
                             .optional(),
                     })

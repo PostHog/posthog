@@ -9,6 +9,7 @@ import { router } from 'kea-router'
 
 import { userLogic } from 'scenes/userLogic'
 
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { DashboardType, SubscriptionType } from '~/types'
@@ -22,7 +23,7 @@ const DASHBOARD = {
         { id: 1, insight: { id: 11, short_id: 'ins11', name: 'Pageviews' }, layouts: { sm: { x: 0, y: 0 } } },
         { id: 2, insight: { id: 12, short_id: 'ins12', name: 'Sessions' }, layouts: { sm: { x: 0, y: 1 } } },
     ],
-} as unknown as DashboardType<any>
+} as unknown as DashboardType
 
 const SLACK_INTEGRATION = {
     id: 7,
@@ -77,11 +78,42 @@ describe('EditSubscription unsaved changes', () => {
 
     afterEach(() => cleanup())
 
+    it('shows a missing-subscription message after its request fails', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': () => [404, { detail: 'Not found' }],
+                '/api/environments/:team/subscriptions': { count: 0, results: [] },
+                '/api/projects/:team/subscriptions/1/deliveries/': { next: null, previous: null, results: [] },
+                '/api/projects/:team/integrations': { count: 0, results: [] },
+                '/api/projects/:team/integrations/:intId/channels': { channels: [] },
+                '/api/environments/:team/subscriptions/summary_quota': {
+                    active_count: 0,
+                    limit: null,
+                    at_limit: false,
+                },
+                '/api/organizations/@current/': MOCK_DEFAULT_ORGANIZATION,
+                '/api/organizations/@current/members/': { count: 0, results: [] },
+            },
+        })
+        initKeaTests()
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+
+        render(
+            <Provider>
+                <EditSubscription id={1} dashboard={DASHBOARD} onCancel={jest.fn()} onDelete={jest.fn()} />
+            </Provider>
+        )
+
+        expect(await screen.findByText('Not found')).toBeInTheDocument()
+    })
+
     it.each([
         [
             'an email destination',
             { target_type: 'email', target_value: 'subscriber@example.com', integration_id: null },
         ],
+        ['an empty email destination', { target_type: 'email', target_value: '', integration_id: null }],
         ['a Slack destination', { target_type: 'slack', target_value: 'C1|#general', integration_id: 7 }],
         [
             'a Slack destination with no stored connection',
@@ -91,8 +123,21 @@ describe('EditSubscription unsaved changes', () => {
         'stays clean on open and after saving %s',
         async (_label, overrides) => {
             const subscription = subscriptionFixture(overrides as Partial<SubscriptionType>)
+            const listMembers = jest.fn(() => ({
+                count: 1,
+                results: [
+                    {
+                        id: 'mem-1',
+                        level: 8,
+                        joined_at: '2022-01-01T00:09:00',
+                        updated_at: '2022-01-01T00:09:00',
+                        user: { ...MOCK_DEFAULT_USER, email: 'subscriber@example.com' },
+                    },
+                ],
+            }))
             useMocks({
                 get: {
+                    '/_preflight/': { ...preflightJson, email_service_available: true },
                     '/api/environments/:team/subscriptions/1': subscription,
                     '/api/environments/:team/subscriptions': { count: 0, results: [] },
                     '/api/projects/:team/subscriptions/1/deliveries/': { next: null, previous: null, results: [] },
@@ -104,18 +149,7 @@ describe('EditSubscription unsaved changes', () => {
                         at_limit: false,
                     },
                     '/api/organizations/@current/': MOCK_DEFAULT_ORGANIZATION,
-                    '/api/organizations/@current/members/': {
-                        count: 1,
-                        results: [
-                            {
-                                id: 'mem-1',
-                                level: 8,
-                                joined_at: '2022-01-01T00:09:00',
-                                updated_at: '2022-01-01T00:09:00',
-                                user: { ...MOCK_DEFAULT_USER, email: 'subscriber@example.com' },
-                            },
-                        ],
-                    },
+                    '/api/organizations/@current/members/': listMembers,
                 },
                 patch: { '/api/environments/:team/subscriptions/1': subscription },
             })
@@ -132,9 +166,23 @@ describe('EditSubscription unsaved changes', () => {
 
             const name = await screen.findByPlaceholderText('e.g. Weekly team report', {}, { timeout: 10000 })
             expect(isClean()).toBe(true)
+            expect(listMembers).not.toHaveBeenCalled()
+            if (subscription.target_type === 'email') {
+                const placeholder = subscription.target_value ? 'Add value' : 'Enter an email address'
+                await userEvent.click(screen.getByPlaceholderText(placeholder))
+                if (!subscription.target_value) {
+                    await userEvent.click(await screen.findByText('<subscriber@example.com>'))
+                }
+                await waitFor(() => expect(listMembers).toHaveBeenCalledTimes(1))
+            }
 
             await userEvent.type(name, ' renamed')
             await waitFor(() => expect(isClean()).toBe(false))
+
+            if (subscription.target_type === 'email' && !subscription.target_value) {
+                await userEvent.click(screen.getByPlaceholderText('Add value'))
+                expect(listMembers).toHaveBeenCalledTimes(1)
+            }
 
             await userEvent.click(saveButton())
             await waitFor(() => expect(isClean()).toBe(true), { timeout: 10000 })

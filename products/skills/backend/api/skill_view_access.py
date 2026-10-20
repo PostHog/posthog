@@ -6,11 +6,13 @@ helpers whose context has to match across endpoints.
 """
 
 from difflib import get_close_matches
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
 from django.db.models import QuerySet
 
 from rest_framework import serializers, status
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -23,12 +25,14 @@ from posthog.auth import (
 from posthog.models import Organization, Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.facade.api import get_scout_trial_skill_override
 
 from ..models.skills import LLMSkill
 from .skill_serializers import LLMSkillSerializer, LLMSkillVersionSummarySerializer
 from .skill_services import get_active_skill_queryset, get_skill_by_name_from_db
 
 if TYPE_CHECKING:
+    from products.signals.backend.facade.api import ScoutTrialSkill
 
     class _SkillViewBase:
         """What LLMSkillViewSet supplies to the endpoint mixins.
@@ -36,6 +40,8 @@ if TYPE_CHECKING:
         Read-only declarations, so the concrete viewset's own properties stay compatible with them.
         """
 
+        @property
+        def request(self) -> Request: ...
         @property
         def team(self) -> Team: ...
         @property
@@ -82,7 +88,37 @@ class SkillAccessMixin(_SkillViewBase):
         skill = get_skill_by_name_from_db(self.team, skill_name, version, version_id)
         if skill is not None:
             self.check_object_permissions(request, skill)
+            skill = self._apply_trial_skill(request, skill)
         return skill
+
+    @cached_property
+    def _trial_skill(self) -> "ScoutTrialSkill | None":
+        authenticator = self.request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return None
+        token = authenticator.access_token
+        if "scout_experiment_internal:read" not in (token.scope or "").split():
+            return None
+        if token.sandbox_task_id is None:
+            raise PermissionDenied()
+        trial_skill = get_scout_trial_skill_override(
+            team_id=self.team.id, task_id=token.sandbox_task_id, token_id=token.pk
+        )
+        if trial_skill is None:
+            raise PermissionDenied()
+        return trial_skill
+
+    def _apply_trial_skill(self, request: Request, skill: LLMSkill) -> LLMSkill:
+        trial_skill = self._trial_skill
+        if trial_skill is None or trial_skill.name != skill.name:
+            return skill
+        pinned = get_skill_by_name_from_db(self.team, skill.name, trial_skill.version)
+        if pinned is None:
+            raise NotFound()
+        self.check_object_permissions(request, pinned)
+        pinned.body = trial_skill.body
+        pinned.stamp_digest()
+        return pinned
 
     def _guard_object_access(self, request: Request, skill_name: str) -> Response | None:
         if self._load_skill_with_object_access(request, skill_name) is None:

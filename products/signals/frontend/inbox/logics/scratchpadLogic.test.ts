@@ -10,10 +10,13 @@ import { initKeaTests } from '~/test/init'
 
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { PANEL_LOAD_TIMEOUT_MS } from '../utils/panelLoadTimeout'
+import { forgetUnreachableReports } from '../utils/unreachableReports'
 import {
     SCRATCHPAD_FETCH_LIMIT,
     SCRATCHPAD_PREVIEW_CHARS,
     describeLoadedSpan,
+    entriesForSkill,
     scratchpadLogic,
 } from './scratchpadLogic'
 
@@ -33,6 +36,9 @@ const TRUNCATED = entry('pattern:long', 'x'.repeat(SCRATCHPAD_PREVIEW_CHARS))
 const ALSO_TRUNCATED = entry('pattern:also-long', 'y'.repeat(SCRATCHPAD_PREVIEW_CHARS))
 const WHOLE = entry('pattern:short', 'a short note')
 const fullBodyFor = (key: string): string => `${key} full body, tail included`
+const SCOUT = 'signals-scout-daily-digest'
+// Only the per-scout read returns this entry, as on a busy project where it sits outside the window.
+const SCOUT_ONLY = entry('pattern:scout-only', 'z'.repeat(SCRATCHPAD_PREVIEW_CHARS))
 
 describe('scratchpadLogic', () => {
     let logic: ReturnType<typeof scratchpadLogic.build>
@@ -50,6 +56,9 @@ describe('scratchpadLogic', () => {
                     if (key) {
                         return [200, [entry(key, fullBodyFor(key))]]
                     }
+                    if (params.get('skill_name')) {
+                        return [200, [SCOUT_ONLY]]
+                    }
                     return [200, [TRUNCATED, ALSO_TRUNCATED, WHOLE]]
                 },
             },
@@ -63,6 +72,8 @@ describe('scratchpadLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.useRealTimers()
+        forgetUnreachableReports()
     })
 
     it('asks for previews rather than full bodies on the list read', async () => {
@@ -72,6 +83,20 @@ describe('scratchpadLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(searchRequests[0].get('content_max_chars')).toEqual(String(SCRATCHPAD_PREVIEW_CHARS))
+    })
+
+    it('reads one scout from the server and expands an entry the shared window does not hold', async () => {
+        logic.actions.loadScoutEntries(SCOUT)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(searchRequests[0].get('skill_name')).toEqual(SCOUT)
+        expect(entriesForSkill(logic.values.scoutEntries, SCOUT)).toEqual([SCOUT_ONLY])
+        expect(entriesForSkill(logic.values.scoutEntries, 'signals-scout-other')).toBeNull()
+
+        logic.actions.toggleEntry(SCOUT_ONLY.key)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.fullContentByKey[SCOUT_ONLY.key]).toEqual(fullBodyFor(SCOUT_ONLY.key))
     })
 
     it('fetches the full body by exact key when a truncated entry is expanded', async () => {
@@ -125,8 +150,8 @@ describe('scratchpadLogic', () => {
         expect(logic.values.expandedKeys).toEqual([TRUNCATED.key])
     })
 
-    // The roster's "learned" count and the scout page's memory panel read `entries`; a fleet search
-    // must land somewhere else or it silently shrinks a scout's memory until the next reload.
+    // The roster's "learned" count reads `entries`; a fleet search must land somewhere else or it
+    // silently shrinks that count until the next reload.
     it('keeps the unfiltered window intact while a search runs', async () => {
         useMocks({
             get: {
@@ -175,9 +200,8 @@ describe('scratchpadLogic', () => {
         expect(logic.values.recentlyLearnedCountCapped).toBe(false)
     })
 
-    // Ledger filters narrow what is listed and nothing else. The roster's "learned" count and the
-    // scout page's memory panel read `entries`, so a filter that reached them would silently shrink
-    // numbers the reader never asked about.
+    // Ledger filters narrow what is listed and nothing else. The roster's "learned" count reads
+    // `entries`, so a filter that reached it would silently shrink a number the reader never asked about.
     it('combines the client-side filters and leaves the loaded window intact', async () => {
         const rows = [
             { ...entry('pattern:apm:p95', 'note'), created_by_skill: 'signals-scout-apm' },
@@ -483,15 +507,20 @@ describe('scratchpadLogic', () => {
     // A stored null asserts the report is gone and stops the key being asked for again, so a
     // transient failure that stores one pins the row to its shortened UUID for the whole session.
     // Only a 404 is terminal; anything else has to stay unresolved for a later pass to retry.
+    // The 404 also has to outlive the mount, or every page load asks for the same dead id.
     it.each([
         [404, true],
         [500, false],
     ])('remembers a missing report title after status %s: %s', async (status, remembered) => {
         const reportId = '01a0918c-5f5f-74c4-b539-c634a8cb990a'
+        let reportRequests = 0
         useMocks({
             get: {
                 [SCRATCHPAD_URL]: () => [200, [entry(`judged:${reportId}`, 'note')]],
-                '/api/projects/:team_id/signals/reports/:id/': () => [status, {}],
+                '/api/projects/:team_id/signals/reports/:id/': () => {
+                    reportRequests += 1
+                    return [status, {}]
+                },
             },
         })
 
@@ -500,6 +529,13 @@ describe('scratchpadLogic', () => {
 
         expect(Object.hasOwn(logic.values.reportTitles, reportId)).toBe(remembered)
         expect(logic.values.unresolvedReportIds).toEqual(remembered ? [] : [reportId])
+
+        logic.unmount()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(reportRequests).toBe(remembered ? 1 : 2)
+        expect(Object.hasOwn(logic.values.reportTitles, reportId)).toBe(remembered)
     })
 
     // The harness writes every scout row under the canonical project, so a report a scratchpad key
@@ -543,6 +579,45 @@ describe('scratchpadLogic', () => {
                       },
                   ]
         expect(describeLoadedSpan(entries)).toEqual(expected)
+    })
+
+    it('fails the window read when it never settles', async () => {
+        useMocks({ get: { [SCRATCHPAD_URL]: () => new Promise(() => {}) } })
+        jest.useFakeTimers()
+
+        logic.actions.loadEntries()
+        expect(logic.values.entriesLoading).toBe(true)
+
+        jest.advanceTimersByTime(PANEL_LOAD_TIMEOUT_MS)
+        await expectLogic(logic).toDispatchActions(['loadEntriesFailure'])
+
+        expect(logic.values.entriesLoading).toBe(false)
+        expect(logic.values.loadFailed).toBe(true)
+    })
+
+    // The span controls stay live through the first read, so a reader can change the span while
+    // that read hangs. Nothing clears the flag on its own, so a superseded read that fails late
+    // would leave the banner warning about rows that do answer the controls above.
+    it('keeps a read that times out late from failing the window that superseded it', async () => {
+        let reads = 0
+        useMocks({
+            get: {
+                [SCRATCHPAD_URL]: () => {
+                    reads += 1
+                    return reads === 1 ? new Promise(() => {}) : [200, [WHOLE]]
+                },
+            },
+        })
+        jest.useFakeTimers()
+
+        logic.actions.loadEntries()
+        await jest.advanceTimersByTimeAsync(PANEL_LOAD_TIMEOUT_MS / 2)
+        logic.actions.setTimeFilter('1h')
+        await jest.advanceTimersByTimeAsync(PANEL_LOAD_TIMEOUT_MS / 2)
+
+        expect(reads).toEqual(2)
+        expect(logic.values.entries).toEqual([WHOLE])
+        expect(logic.values.loadFailed).toBe(false)
     })
 
     it('keeps the card usable when the body lookup fails', async () => {

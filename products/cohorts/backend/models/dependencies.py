@@ -481,17 +481,40 @@ def _on_cohort_changed_full_warm(cohort: Cohort, always_invalidate: bool = False
     warm_team_cohort_dependency_cache(cohort.team_id)
 
 
-def _has_backfillable_filters(cohort: Cohort, kind: CohortBackfillKind) -> bool:
+def _backfill_ineligibility_reason(cohort: Cohort, kind: CohortBackfillKind) -> str | None:
     from products.cohorts.backend.backfill.runs import (  # noqa: PLC0415 — avoids a model-load cycle
-        has_behavioral_filters,
+        behavioral_backfill_ineligibility_reason,
         person_backfill_ineligibility_reason,
     )
 
+    # Each creator's own predicate, so this cannot judge backfillable a cohort the creator will
+    # permanently refuse.
     if kind == CohortBackfillKind.PERSON_PROPERTY:
-        # The creator's own predicate, so this cannot judge backfillable a cohort the creator will
-        # permanently refuse (for example one that also carries a person_metadata leaf).
-        return person_backfill_ineligibility_reason(cohort) is None
-    return has_behavioral_filters(cohort)
+        return person_backfill_ineligibility_reason(cohort)
+    return behavioral_backfill_ineligibility_reason(cohort)
+
+
+def _report_backfill_ineligible(cohort: Cohort, kind: CohortBackfillKind, reason: str) -> None:
+    """Name a refusal that creates no run, and so has nothing downstream to report it.
+
+    The seeder reports a cohort it cannot seed through the run's failure; a cohort refused here
+    never gets a run, so without this the cohort stays un-backfillable with no counter, log, or
+    gauge naming the cause.
+    """
+    from products.cohorts.backend.backfill.runs import (  # noqa: PLC0415 — avoids a model-load cycle
+        INAPPLICABLE_BACKFILL_REASONS,
+    )
+
+    if reason in INAPPLICABLE_BACKFILL_REASONS:
+        return
+    COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="refused_ineligible").inc()
+    logger.info(
+        "cohort_backfill_refused_ineligible",
+        cohort_id=cohort.pk,
+        team_id=cohort.team_id,
+        backfill_kind=kind,
+        reason=reason,
+    )
 
 
 def _trigger_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBackfillKind) -> None:
@@ -660,7 +683,11 @@ def cohort_behavioral_shape_changed_backfill(sender, instance, **kwargs):
             ).inc()
             return
         trigger_kind = _backfill_trigger_kind(instance, kwargs, shape_changed=instance._leaf_shape_changed)
-        if trigger_kind is None or not _has_backfillable_filters(instance, CohortBackfillKind.BEHAVIORAL):
+        if trigger_kind is None:
+            return
+        ineligibility = _backfill_ineligibility_reason(instance, CohortBackfillKind.BEHAVIORAL)
+        if ineligibility is not None:
+            _report_backfill_ineligible(instance, CohortBackfillKind.BEHAVIORAL, ineligibility)
             return
 
         transaction.on_commit(lambda: _trigger_cohort_backfill(instance, trigger_kind, CohortBackfillKind.BEHAVIORAL))
@@ -690,7 +717,11 @@ def cohort_person_shape_changed_backfill(sender, instance, **kwargs):
             ).inc()
             return
         trigger_kind = _backfill_trigger_kind(instance, kwargs, shape_changed=instance._person_shape_changed)
-        if trigger_kind is None or not _has_backfillable_filters(instance, CohortBackfillKind.PERSON_PROPERTY):
+        if trigger_kind is None:
+            return
+        ineligibility = _backfill_ineligibility_reason(instance, CohortBackfillKind.PERSON_PROPERTY)
+        if ineligibility is not None:
+            _report_backfill_ineligible(instance, CohortBackfillKind.PERSON_PROPERTY, ineligibility)
             return
 
         transaction.on_commit(

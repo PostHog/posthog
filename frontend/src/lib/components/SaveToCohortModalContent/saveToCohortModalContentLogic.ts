@@ -1,14 +1,13 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 
 import { PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { delay } from 'lib/utils/async'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import { projectLogic } from 'scenes/projectLogic'
-import { urls } from 'scenes/urls'
 
 import { ActorsQuery } from '~/queries/schema/schema-general'
 import { CohortType } from '~/types'
@@ -167,6 +166,7 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
             const toastId = `save-cohort-${cohort.id}-${Date.now()}`
             try {
                 lemonToast.info('Saving cohort...', { toastId, autoClose: false })
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsPartialUpdate() from 'products/cohorts/frontend/generated/api' instead.
                 await api.update(`api/projects/${values.currentProjectId}/cohorts/${cohort.id}`, {
                     query: query,
                 })
@@ -176,13 +176,7 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
 
                 await delay(500) // just in case the toast is too fast
                 lemonToast.dismiss(toastId)
-                lemonToast.success('Cohort saved', {
-                    toastId: `${toastId}-success`,
-                    button: {
-                        label: 'View cohort',
-                        action: () => router.actions.push(urls.cohort(cohort.id)),
-                    },
-                })
+                cohortSavedToast(cohort, 'query_results', `${toastId}-success`)
             } catch (error) {
                 console.error('Save to cohort failed:', error)
                 lemonToast.dismiss(toastId)

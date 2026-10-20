@@ -78,7 +78,7 @@ export function InboxReportRowView({
           onOpen();
         }
       }}
-      className={`flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border bg-(--color-panel-solid) px-3 py-2 text-left transition-[background-color,border-color,box-shadow,opacity] duration-150 hover:bg-(--gray-3) hover:shadow-sm focus-visible:bg-(--gray-3) focus-visible:outline-none focus-visible:ring-(--gray-8) focus-visible:ring-1 ${borderClass} ${isTerminal ? "opacity-55 hover:opacity-100 focus-visible:opacity-100" : ""}`}
+      className={`flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border bg-(--inbox-row-surface) px-3 py-2 text-left transition-[background-color,border-color,box-shadow,opacity] duration-150 [--inbox-row-surface:var(--color-panel-solid)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-(--gray-8) focus-visible:ring-1 hover:[--inbox-row-surface:var(--gray-3)] focus-visible:[--inbox-row-surface:var(--gray-3)] ${borderClass} ${isTerminal ? "opacity-55 hover:opacity-100 focus-visible:opacity-100" : ""}`}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-medium text-[14px] text-gray-12">

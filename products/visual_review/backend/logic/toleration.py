@@ -2,19 +2,51 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
+
+from ..classifier import ToleratedKey
 from ..db import WRITER_DB
+from ..facade.contracts import TOLERATION_PILEUP_WINDOW_DAYS, VARIANT_PILEUP_MIN
 from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ActorType, ReviewState, SnapshotResult, ToleratedReason
 from ..models import Run, RunSnapshot, ToleratedHash
 from . import errors, run_queries
 from .run_queries import SnapshotKey
+
+
+def build_tolerated_lookup(
+    repo_id: UUID, identifiers: set[str], baseline_hashes: set[str], *, now: datetime
+) -> dict[ToleratedKey, ToleratedHash]:
+    """Active tolerations for a run, keyed by the snapshot they absorb.
+
+    A toleration accepts a pair of renders, so it matches in both directions. Some stories
+    render in two stable states, and a retry or an approval can commit either one as the
+    baseline. Without the reverse key, that flip drops the toleration, and every run that
+    renders the old baseline fails again.
+    """
+    if not identifiers or not baseline_hashes:
+        return {}
+    lookup: dict[ToleratedKey, ToleratedHash] = {}
+    reversed_lookup: dict[ToleratedKey, ToleratedHash] = {}
+    for t in ToleratedHash.objects.filter(
+        Q(baseline_hash__in=baseline_hashes) | Q(alternate_hash__in=baseline_hashes),
+        repo_id=repo_id,
+        identifier__in=identifiers,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)):
+        lookup[ToleratedKey(identifier=t.identifier, baseline_hash=t.baseline_hash, current_hash=t.alternate_hash)] = t
+        reversed_lookup[
+            ToleratedKey(identifier=t.identifier, baseline_hash=t.alternate_hash, current_hash=t.baseline_hash)
+        ] = t
+    # A row recorded against the baseline in use wins over the reverse of another row.
+    return {**reversed_lookup, **lookup}
 
 
 @transaction.atomic(using=WRITER_DB)
@@ -135,6 +167,87 @@ def count_active_variants_against_current_baseline(
         if count:
             counts[key] = count
     return counts
+
+
+@frozen
+class TolerationCounts:
+    """Tolerations recorded for one snapshot identity in a window, split by who decided them."""
+
+    intentional: int = 0  # a person or agent accepted the rendering
+    automatic: int = 0  # the rendering came in under both diff thresholds
+
+
+def count_recent_tolerations(
+    repo_id: UUID, *, since: datetime, newest_run_by_type: Mapping[str, Run] | None = None
+) -> dict[SnapshotKey, TolerationCounts]:
+    """How many tolerations each snapshot identity collected since `since`, across every baseline.
+
+    The count survives a baseline change, unlike `count_active_variants_against_current_baseline`.
+    A flaky story's baseline often moves between tolerations, so a per-baseline count keeps
+    dropping to zero while the tolerations go on.
+
+    Only identities on the newest default-branch runs are counted, so a deleted story drops out.
+    A toleration row has no run type of its own, so it takes the run type of the run it was
+    decided in. A row whose run the retention sweep already deleted counts for every run type
+    that has the identifier. Only identities with at least one toleration are returned.
+    """
+    baseline_hash_by_key = _current_baseline_hashes(repo_id, newest_run_by_type)
+    if not baseline_hash_by_key:
+        return {}
+
+    keys_by_identifier: dict[str, list[SnapshotKey]] = {}
+    for key in baseline_hash_by_key:
+        keys_by_identifier.setdefault(key.identifier, []).append(key)
+
+    intentional: Counter[SnapshotKey] = Counter()
+    automatic: Counter[SnapshotKey] = Counter()
+    # No identifier filter in SQL: the repo and window already bound the scan, and a list of
+    # every identifier in the universe would only bloat the query.
+    for identifier, run_type, reason, count in (
+        ToleratedHash.objects.filter(repo_id=repo_id, created_at__gte=since)
+        .values_list("identifier", "source_run__run_type", "reason")
+        .annotate(c=Count("id"))
+        .values_list("identifier", "source_run__run_type", "reason", "c")
+    ):
+        bucket = intentional if reason in INTENTIONAL_TOLERATE_REASONS else automatic
+        for key in keys_by_identifier.get(identifier, []):
+            if run_type in (None, key.run_type):
+                bucket[key] += count
+    return {
+        key: TolerationCounts(intentional=intentional[key], automatic=automatic[key])
+        for key in intentional.keys() | automatic.keys()
+    }
+
+
+def list_toleration_pileups(
+    repo_id: UUID,
+    *,
+    now: datetime,
+    window_days: int = TOLERATION_PILEUP_WINDOW_DAYS,
+    min_intentional: int = VARIANT_PILEUP_MIN,
+    min_automatic: int | None = None,
+    newest_run_by_type: Mapping[str, Run] | None = None,
+) -> list[tuple[SnapshotKey, TolerationCounts]]:
+    """Snapshot identities that keep getting tolerated, whether quarantined or not, biggest manual
+    pile first, then by identity so a tie reads the same way every time.
+
+    An identity qualifies with `min_intentional` or more tolerations by a person or agent in the
+    window, or, when `min_automatic` is set, with that many automatic ones. The defaults are the
+    debt digest's rule, and the digest and the pile-ups endpoint share this function so the
+    reminder and what an agent reads cannot drift apart.
+    """
+    counts_by_key = count_recent_tolerations(
+        repo_id, since=now - timedelta(days=window_days), newest_run_by_type=newest_run_by_type
+    )
+    return sorted(
+        (
+            (key, counts)
+            for key, counts in counts_by_key.items()
+            if counts.intentional >= min_intentional
+            or (min_automatic is not None and counts.automatic >= min_automatic)
+        ),
+        key=lambda item: (-item[1].intentional, -item[1].automatic, item[0].run_type, item[0].identifier),
+    )
 
 
 def _current_baseline_hashes(

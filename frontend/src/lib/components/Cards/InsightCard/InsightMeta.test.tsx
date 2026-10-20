@@ -72,6 +72,17 @@ describe('InsightMeta', () => {
         })
     })
 
+    it.each([
+        { actionable: true, shown: 'insight-card-query-scan', hidden: 'insight-card-query-scan-note' },
+        { actionable: false, shown: 'insight-card-query-scan-note', hidden: 'insight-card-query-scan' },
+    ])('marks a slow tile by whether a finding is actionable: $actionable', ({ actionable, shown, hidden }) => {
+        const { container } = render(
+            <InsightMetaContent title="Test" queryScanTooltip={<span>advice</span>} queryScanActionable={actionable} />
+        )
+        expect(container.querySelector(`[data-attr="${shown}"]`)).toBeInTheDocument()
+        expect(container.querySelector(`[data-attr="${hidden}"]`)).toBeNull()
+    })
+
     it('hides description in non-compact mode when showDescription is false', () => {
         const { container } = render(
             <InsightMetaContent title="Test" description={description} compact={false} showDescription={false} />

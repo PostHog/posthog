@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import sys
 import json
@@ -44,12 +45,19 @@ def test_full_jest_fixture_renders_single_browser_report(tmp_path: Path) -> None
     fixture = SCRIPT_PATH.parent / "fixtures/jest-timings-real-run"
     output = tmp_path / "jest-test-speed-report.html"
 
-    subprocess.run(
+    # The fixture holds the artifacts of a single attempt. Above attempt 1 the reporter keeps
+    # only `-attempt<N>` artifacts, finds none, and writes no timings file, so the run attempt
+    # of the job that runs this test must not reach it. Fork pull requests always run as
+    # attempt 2, because their attempt 1 concludes action_required while it waits for approval.
+    result = subprocess.run(
         [REPO_ROOT / "bin/report-jest-timings", "--artifacts", fixture, "--html", output],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
+        env={**os.environ, "GITHUB_RUN_ATTEMPT": "1"},
     )
+
+    assert result.returncode == 0, result.stderr
 
     html = output.read_text()
     match = re.search(r"const tests=(.*), summary=", html)
@@ -127,7 +135,7 @@ def test_find_repo_root_walks_to_repository_markers(tmp_path: Path) -> None:
     [
         "",
         # a decorator's site-packages path (see normalize_pytest_file)
-        "../../../../../opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/unittest/mock.py",
+        "../../../../../opt/hostedtoolcache/Python/3.14.7/x64/lib/python3.14/unittest/mock.py",
     ],
 )
 def test_test_identity_infers_existing_pytest_file_when_junit_is_unusable(
@@ -903,6 +911,28 @@ def test_workflow_resource_attributes_includes_query_and_drilldown_fields(
     assert attrs["ci.pr_number"] == 57216
     assert attrs["ci.repository"] == "PostHog/posthog"
     assert attrs["ci.run_url"] == "https://github.com/PostHog/posthog/actions/runs/25218527467"
+    assert attrs["ci.engine"] == "github_actions"
+    assert attrs["ci.native_workflow_run_id"] == "25218527467"
+
+
+@pytest.mark.parametrize(
+    "job_url, workflow_id",
+    [
+        ("https://depot.dev/orgs/example/workflows/000000001a/jobs/000000001b", "000000001a"),
+        ("https://example.com/not-a-workflow", ""),
+    ],
+)
+def test_depot_resource_context_never_links_a_compatible_id_to_github(
+    monkeypatch: pytest.MonkeyPatch, job_url: str, workflow_id: str
+) -> None:
+    monkeypatch.setenv("DEPOT_JOB_URL", job_url)
+    monkeypatch.setenv("GITHUB_RUN_ID", "42")
+    attrs = report_test_timings.workflow_resource_attributes()
+    assert attrs["ci.engine"] == "depot_ci"
+    assert attrs.get("ci.native_workflow_run_id", "") == workflow_id
+    assert attrs.get("ci.run_url", "") == (
+        f"https://depot.dev/orgs/example/workflows/{workflow_id}" if workflow_id else ""
+    )
 
 
 def test_workflow_resource_attributes_branch_on_push(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -923,6 +953,7 @@ def test_deterministic_trace_id_is_stable_across_processes() -> None:
     a = report_test_timings.deterministic_trace_id("25218527467", "1", "backend:core:1")
     b = report_test_timings.deterministic_trace_id("25218527467", "1", "backend:core:1")
     assert a == b
+    assert report_test_timings.deterministic_trace_id("25218527467", "1", "backend:core:1", ci_engine="depot_ci") != a
     # Different attempt -> different trace id (so reruns of the same workflow run id are isolated).
     assert report_test_timings.deterministic_trace_id("25218527467", "2", "backend:core:1") != a
     # Different job -> different trace id (so each job in a run is its own trace).

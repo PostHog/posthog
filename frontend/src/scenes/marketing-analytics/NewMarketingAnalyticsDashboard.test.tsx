@@ -9,20 +9,26 @@ jest.mock('scenes/marketing-analytics/Setup/sectionRouting', () => ({ suggestion
 
 jest.mock('scenes/marketing-analytics/Setup/SuggestionRow', () => ({ SuggestionRow: () => null }))
 
-jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: () => ({}) }))
+jest.mock('kea', () => ({
+    ...jest.requireActual('kea'),
+    useValues: jest.fn(),
+    useActions: () => new Proxy({}, { get: () => jest.fn() }),
+}))
 jest.mock('@posthog/lemon-ui', () => ({
-    LemonBanner: () => null,
+    LemonBanner: ({ children }: { children: React.ReactNode }) => <div role="alert">{children}</div>,
     LemonCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     LemonSelect: ({
         value,
         onChange,
         options,
+        'aria-label': label,
     }: {
         value: string
         onChange: (value: string) => void
         options: { value: string; label: string }[]
+        'aria-label': string
     }) => (
-        <select aria-label="Traffic breakdown" value={value} onChange={(event) => onChange(event.target.value)}>
+        <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
             {options.map((option) => (
                 <option key={option.value} value={option.value}>
                     {option.label}
@@ -60,7 +66,7 @@ jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({
     VariationCell: () => () => null,
     webAnalyticsDataTableQueryContext: {},
 }))
-jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({ dataNodeLogic: () => ({}) }))
+jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({ dataNodeLogic: (props: { key: string }) => ({ props }) }))
 jest.mock('~/queries/nodes/OverviewGrid/OverviewMetricCardGrid', () => ({ OverviewMetricCardGrid: () => null }))
 jest.mock('~/queries/nodes/WebOverview/WebOverview', () => ({ labelFromKey: () => '' }))
 jest.mock('~/queries/Query/Query', () => ({
@@ -84,83 +90,140 @@ jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/Ret
     RetentionTab: () => <div>Retention explorer</div>,
 }))
 
+jest.mock('scenes/marketing-analytics/Onboarding/Onboarding', () => ({
+    Onboarding: () => <div>Marketing onboarding</div>,
+}))
+
+jest.mock('products/marketing_analytics/frontend/dashboard/DetectedSources', () => ({ DetectedSources: () => null }))
+
 describe('NewMarketingAnalyticsDashboard', () => {
     afterEach(cleanup)
 
     it.each([
-        [false, false],
-        [true, false],
-        [false, true],
-        [true, true],
-    ])('keeps conversion (%s) and retention (%s) independently gated alongside traffic', (conversion, retention) => {
-        jest.mocked(useValues).mockReturnValue({
-            featureFlags: {
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]: conversion,
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]: retention,
-            },
+        ['marketing-acquisition-overview', 'failed-traffic-query', 'current-traffic-query', 'failed-traffic-query'],
+        ['marketing-acquisition-overview', undefined, 'current-traffic-query', 'current-traffic-query'],
+        ['marketing-acquisition-customers', 'failed-customer-query', 'current-customer-query', 'failed-customer-query'],
+        ['marketing-acquisition-customers', undefined, 'current-customer-query', 'current-customer-query'],
+        ['marketing-acquisition-overview', undefined, null, null],
+    ])('identifies the failed %s request with error ID %s and request ID %s', (key, errorId, requestId, expected) => {
+        jest.mocked(useValues).mockImplementation((logic) => ({
             dateFilter: { dateFrom: '-30d', dateTo: null },
             compareFilter: { compare: false },
             shouldFilterTestAccounts: false,
             responseLoading: false,
             setupPlan: {},
             visibleSuggestions: [],
+            featureFlags: {},
+            nativeSources: [{ id: 'connected-source', source_type: 'GoogleAds' }],
+            validExternalTables: [],
+            showOnboarding: false,
+            allAvailableSourcesWithStatus: [],
+            hasSyncedMarketingSources: true,
+            sourceValidationError: null,
             trafficOrderBy: {},
-        })
+            trafficChartMetric: 'visitors',
+            trafficChartSeries: { kind: 'EventsNode', event: null, math: 'dau', custom_name: 'Visitors' },
+            customerConversionGoal: { kind: 'EventsNode', event: 'purchase' },
+            customerGoals: [],
+            ...(typeof logic !== 'function' && (logic as { props?: { key?: string } }).props?.key === key
+                ? {
+                      responseError: 'Query failed',
+                      responseErrorObject: { queryId: errorId },
+                      queryId: requestId,
+                      response: { query_status: { id: 'previous-successful-query' } },
+                  }
+                : {}),
+        }))
 
         render(<NewMarketingAnalyticsDashboard />)
 
-        expect(screen.getByLabelText('Acquisition')).not.toBeNull()
-        expect(screen.queryByText('Compare periods')).not.toBeNull()
-        expect(screen.queryByText('Reload summary')).not.toBeNull()
-        expect(screen.getByText('Engagement')).not.toBeNull()
-        expect(screen.queryByText('Attribution explorer')).toBeNull()
-        expect(screen.queryByText('Retention explorer')).toBeNull()
-        const trendBeforeBreakdown = screen.getByTestId('trend-query').textContent
-        fireEvent.change(screen.getByLabelText('Traffic breakdown'), { target: { value: 'InitialUTMCampaign' } })
-        expect(JSON.parse(screen.getByTestId('traffic-query').textContent || '{}').source).toMatchObject({
-            kind: 'WebStatsTableQuery',
-            breakdownBy: 'InitialUTMCampaign',
-            includeBounceRate: false,
-            dateRange: { date_from: '-30d', date_to: null },
-            compareFilter: { compare: false },
-        })
-        expect(screen.getByTestId('trend-query').textContent).toBe(trendBeforeBreakdown)
-        fireEvent.click(screen.getByText('Engagement'))
-        expect(JSON.parse(screen.getByTestId('traffic-query').textContent || '{}')).toMatchObject({
-            hiddenColumns: ['context.columns.views'],
-            source: {
+        const error = screen.getByRole('alert')
+        expect(error.textContent?.match(/Query ID: (.+)/)?.[1] ?? null).toBe(expected)
+        expect(error.textContent).not.toContain('previous-successful-query')
+    })
+
+    it.each(['ads', 'gsc', 'gsc-without-flag', 'none', 'onboarding-disabled'] as const)(
+        'handles source onboarding for %s',
+        (sourceState) => {
+            const searchConsoleOnly = sourceState.startsWith('gsc')
+            jest.mocked(useValues).mockReturnValue({
+                dateFilter: { dateFrom: '-30d', dateTo: null },
+                compareFilter: { compare: false },
+                shouldFilterTestAccounts: false,
+                responseLoading: false,
+                setupPlan: {},
+                visibleSuggestions: [],
+                featureFlags: {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: sourceState === 'gsc',
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]: sourceState !== 'onboarding-disabled',
+                },
+                nativeSources: sourceState === 'ads' ? [{ id: 'connected-source', source_type: 'GoogleAds' }] : [],
+                dataWarehouseSources: { results: searchConsoleOnly ? [{ source_type: 'GoogleSearchConsole' }] : [] },
+                validExternalTables: [],
+                showOnboarding: sourceState !== 'ads',
+                allAvailableSourcesWithStatus: [],
+                hasSyncedMarketingSources: true,
+                sourceValidationError: null,
+                trafficOrderBy: {},
+                trafficChartMetric: 'visitors',
+                trafficChartSeries: { kind: 'EventsNode', event: null, math: 'dau', custom_name: 'Visitors' },
+            })
+
+            render(<NewMarketingAnalyticsDashboard />)
+
+            if (sourceState === 'gsc-without-flag' || sourceState === 'none') {
+                expect(screen.getByText('Marketing onboarding')).not.toBeNull()
+                return
+            }
+            expect(screen.queryByText('Marketing onboarding')).toBeNull()
+            expect(screen.getByLabelText('Acquisition')).not.toBeNull()
+            expect(screen.queryByText('Compare periods')).not.toBeNull()
+            expect(screen.queryByText('Reload summary')).not.toBeNull()
+            expect(screen.getByText('Engagement')).not.toBeNull()
+            expect(screen.queryByText('Attribution explorer')).toBeNull()
+            expect(screen.queryByText('Retention explorer')).toBeNull()
+            expect(screen.getByText('Visitors over time')).not.toBeNull()
+            expect(screen.getByLabelText('Chart metric')).not.toBeNull()
+            const trendBeforeBreakdown = screen.getByTestId('trend-query').textContent
+            expect(JSON.parse(trendBeforeBreakdown || '{}').source.series).toEqual([
+                { kind: 'EventsNode', event: null, math: 'dau', custom_name: 'Visitors' },
+            ])
+            fireEvent.change(screen.getByLabelText('Traffic breakdown'), { target: { value: 'InitialUTMCampaign' } })
+            expect(JSON.parse(screen.getByTestId('traffic-query').textContent || '{}').source).toMatchObject({
+                kind: 'WebStatsTableQuery',
                 breakdownBy: 'InitialUTMCampaign',
-                includeBounceRate: true,
+                includeBounceRate: false,
                 dateRange: { date_from: '-30d', date_to: null },
                 compareFilter: { compare: false },
-            },
-        })
-        expect(screen.queryByLabelText('Acquisition')).toBeNull()
-        expect(screen.getByLabelText('Engagement')).not.toBeNull()
-        expect(screen.queryByText('Conversion') !== null).toBe(conversion)
-        expect(screen.queryByText('Retention') !== null).toBe(retention)
-        expect(screen.queryByText('Revenue') !== null).toBe(conversion)
-        if (conversion) {
+            })
+            expect(screen.getByTestId('trend-query').textContent).toBe(trendBeforeBreakdown)
+            fireEvent.click(screen.getByText('Engagement'))
+            expect(JSON.parse(screen.getByTestId('traffic-query').textContent || '{}')).toMatchObject({
+                hiddenColumns: ['context.columns.views'],
+                source: {
+                    breakdownBy: 'InitialUTMCampaign',
+                    includeBounceRate: true,
+                    dateRange: { date_from: '-30d', date_to: null },
+                    compareFilter: { compare: false },
+                },
+            })
+            expect(screen.queryByLabelText('Acquisition')).toBeNull()
+            expect(screen.getByLabelText('Engagement')).not.toBeNull()
             fireEvent.click(screen.getByText('Conversion'))
-        }
-        expect(screen.queryByText('Attribution explorer') !== null).toBe(conversion)
-        expect(screen.queryByLabelText('Engagement') !== null).toBe(!conversion)
-        if (conversion) {
+            expect(screen.getByText('Attribution explorer')).not.toBeNull()
+            expect(screen.queryByLabelText('Engagement')).toBeNull()
             fireEvent.click(screen.getByText('Revenue'))
-        }
-        expect(screen.queryByText('Attribution explorer')).toBeNull()
-        expect(screen.queryByLabelText('Revenue') !== null).toBe(conversion)
-        if (retention) {
+            expect(screen.queryByText('Attribution explorer')).toBeNull()
+            expect(screen.getByLabelText('Revenue')).not.toBeNull()
             fireEvent.click(screen.getByText('Retention'))
+            expect(screen.getByText('Retention explorer')).not.toBeNull()
+            expect(screen.queryByText('Compare periods')).toBeNull()
+            expect(screen.queryByText('Reload summary')).toBeNull()
+            fireEvent.click(screen.getByText('Acquisition'))
+            expect(screen.getByLabelText('Acquisition')).not.toBeNull()
+            expect(screen.queryByText('Compare periods')).not.toBeNull()
+            expect(screen.queryByText('Reload summary')).not.toBeNull()
+            expect(screen.queryByText('Retention explorer')).toBeNull()
         }
-        expect(screen.queryByText('Retention explorer') !== null).toBe(retention)
-        expect(screen.queryByText('Compare periods') !== null).toBe(!conversion && !retention)
-        expect(screen.queryByText('Reload summary') !== null).toBe(!conversion && !retention)
-        expect(screen.queryByText('Attribution explorer')).toBeNull()
-        fireEvent.click(screen.getByText('Acquisition'))
-        expect(screen.getByLabelText('Acquisition')).not.toBeNull()
-        expect(screen.queryByText('Compare periods')).not.toBeNull()
-        expect(screen.queryByText('Reload summary')).not.toBeNull()
-        expect(screen.queryByText('Retention explorer')).toBeNull()
-    })
+    )
 })

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoinMarketCapSource(ResumableSource[CoinMarketCapSourceConfig, CoinMarketCapResumeConfig]):
+    codebase_detection = detect(
+        env=("^(COIN_MARKET_CAP|COINMARKETCAP)_", "^CMC_PRO_API_KEY$"),
+        npm=("@coinmarketcap/sdk",),
+        pypi=("coinmarketcap-sdk",),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://coinmarketcap.com/api/documentation/v1/"
@@ -49,7 +56,7 @@ class CoinMarketCapSource(ResumableSource[CoinMarketCapSourceConfig, CoinMarketC
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your CoinMarketCap Pro API key to sync cryptocurrency and market data into the PostHog Data warehouse.
 
-Create a key from your [CoinMarketCap developer dashboard](https://pro.coinmarketcap.com/account). The key grants read access to every endpoint listed below; some (e.g. exchanges) require a higher plan tier.""",
+Create a key from your [CoinMarketCap developer dashboard](https://pro.coinmarketcap.com/account). The key grants read access to every endpoint listed below; some (e.g. exchanges and historical data) require a higher plan tier.""",
             iconPath="/static/services/coinmarketcap.png",
             docsUrl="https://posthog.com/docs/cdp/sources/coinmarketcap",
             # Kept hidden from the new-source wizard for now; flip this off to release.
@@ -81,6 +88,10 @@ Create a key from your [CoinMarketCap developer dashboard](https://pro.coinmarke
             # `raise_for_status()`. Retrying can never satisfy a credential problem.
             "401 Client Error": "Your CoinMarketCap API key is invalid or has been revoked. Create a new key in your CoinMarketCap developer dashboard, then reconnect.",
             "Unauthorized for url": "Your CoinMarketCap API key is invalid or has been revoked. Create a new key in your CoinMarketCap developer dashboard, then reconnect.",
+            # CoinMarketCap answers 403 when the key is disabled or the plan doesn't cover the
+            # endpoint (the historical and exchange tables need a higher tier). Neither clears
+            # itself on a retry.
+            "403 Client Error": "Your CoinMarketCap plan does not cover this table, or the API key has been disabled. Deselect the table or upgrade your plan, then retry the sync.",
         }
 
     def get_schemas(
@@ -129,5 +140,9 @@ Create a key from your [CoinMarketCap developer dashboard](https://pro.coinmarke
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

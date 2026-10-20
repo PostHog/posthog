@@ -1,29 +1,35 @@
-import json
+from collections.abc import Iterator
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
-from requests import Response
-from requests.adapters import HTTPAdapter
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paddle import PaddleSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PADDLE_BASE_URL,
     PaddlePermissionError,
     PaddleResumeConfig,
+    PaddleUnreachableError,
     _format_paddle_datetime_query_value,
-    _get_paddle_session,
-    paddle_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the paddle module.
-PADDLE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.source import (
+    INVALID_API_KEY_ERROR,
+    KEY_CHECK_FAILED_ERROR,
+    MISSING_PERMISSIONS_ERROR,
+    PaddleSource,
 )
+
+SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.source"
 
 
 def _response(
@@ -32,7 +38,7 @@ def _response(
     next_url: str | None = None,
     has_more: bool | None = None,
     drop_data: bool = False,
-) -> Response:
+) -> ScriptedResponse:
     # Real Paddle bodies always carry has_more; default it from next_url so fixture
     # pages terminate the way real responses do (via has_more, not a null next).
     if has_more is None:
@@ -40,267 +46,253 @@ def _response(
     body: dict[str, Any] = {"meta": {"pagination": {"per_page": 200, "next": next_url, "has_more": has_more}}}
     if not drop_data:
         body["data"] = items or []
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(json=body)
 
 
-def _make_manager(resume_state: PaddleResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+EXPLORE_CATALOG = [
+    {
+        "entity": "transactions.completed",
+        "time_dimension": {"intervals": ["day", "week", "month"], "max_lookback_days": 1096},
+        "dimensions": [],
+        "measures": [
+            {"name": "gross_revenue", "type": "currency", "aggs": ["sum"]},
+            {"name": "id", "type": "string", "aggs": ["count"]},
+        ],
+    },
+    {
+        "entity": "subscriptions",
+        "time_dimension": {"intervals": ["month"], "max_lookback_days": 70},
+        "dimensions": [],
+        "measures": [{"name": "mrr", "type": "currency", "aggs": None}],
+    },
+]
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
-    """Wire a mock session, capturing each request's params AND url AT SEND TIME.
+def _explore_network(request: RecordedRequest) -> ScriptedResponse:
+    if request.path.endswith("/metrics/explore/entities"):
+        return ScriptedResponse(json={"data": EXPLORE_CATALOG})
+    body = request.json()
+    measures = [
+        {"name": f"{m['agg']}_{m['field']}" if "agg" in m else m["field"], "type": "currency", **m}
+        for m in body["measures"]
+    ]
+    return ScriptedResponse(
+        json={
+            "data": {
+                "entity": body["entity"],
+                "interval": body["interval"],
+                "currency_code": "USD",
+                "updated_at": "2026-08-20T06:00:00Z",
+                "fields": {"dimensions": [], "measures": measures},
+                "series": [
+                    {
+                        "dimensions": {},
+                        "timeseries": [{"timestamp": body["from"], "measures": {m["name"]: "100" for m in measures}}],
+                    }
+                ],
+            },
+            "meta": {"pagination": {"per_page": 5, "next": None, "has_more": False, "estimated_total": 1}},
+        }
+    )
 
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    url_snapshots: list[str] = []
 
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        url_snapshots.append(request.url)
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, url_snapshots
+def _explore_queries(result: Any) -> list[tuple[str, str, str, str]]:
+    bodies = [request.json() for request in result.requests if request.method == "POST"]
+    return [(body["entity"], body["interval"], body["from"], body["to"]) for body in bodies]
 
 
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return paddle_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(PaddleSource(), PaddleSourceConfig(paddle_api_key="key"))
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_body_next_url_and_terminates(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_follows_body_next_url_and_terminates(self) -> None:
         next_url = f"{PADDLE_BASE_URL}/customers?after=c_1"
-        params, urls = _wire(
-            session,
+        result = _driver().run(
+            "customers",
             [
                 _response([{"id": "c_1"}], next_url=next_url),
                 _response([{"id": "c_2"}], next_url=None),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("customers", manager))
-
-        assert [r["id"] for r in rows] == ["c_1", "c_2"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["c_1", "c_2"]
         # First request hits the base path with list params; second follows the self-contained next URL.
-        assert params[0]["per_page"] == 200
-        assert params[0]["order_by"] == "id[ASC]"
-        assert urls[0] == f"{PADDLE_BASE_URL}/customers"
-        assert urls[1] == next_url
+        assert result.requests[0].param("per_page") == "200"
+        assert result.requests[0].param("order_by") == "id[ASC]"
+        assert result.requests[0].url.startswith(f"{PADDLE_BASE_URL}/customers?")
+        assert result.urls[1] == next_url
         # The next URL already carries every query param, so the follow-up request drops the originals.
-        assert params[1] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_makes_one_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a"}, {"id": "b"}], next_url=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("customers", manager))
-
-        assert [r["id"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_terminates_when_last_page_repeats_next_url(self, MockSession) -> None:
-        # Real Paddle populates `next` on every page, including the last, where it
-        # points back at the page just fetched; has_more is the only stop signal.
-        # Following `next` alone refetches the final page forever.
-        session = MockSession.return_value
-        last_url = f"{PADDLE_BASE_URL}/customers?after=c_1"
-        _wire(
-            session,
-            [
-                _response([{"id": "c_1"}], next_url=last_url, has_more=True),
-                _response([{"id": "c_2"}], next_url=last_url, has_more=False),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("customers", manager))
-
-        assert [r["id"] for r in rows] == ["c_1", "c_2"]
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, drop_data=True)])
-
-        # Paddle treats a body without "data" leniently (0 rows), not as a hard error.
-        manager = _make_manager()
-        rows = _rows(_source("customers", manager))
-        assert rows == []
+        assert result.requests[1].query == {"after": ("c_1",)}
 
 
 class TestIncremental:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_field_adds_server_side_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"id": "t_1"}], next_url=None)])
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                "transactions",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2024-01-02T03:04:05Z",
-            )
+    def test_incremental_field_adds_server_side_filter(self) -> None:
+        result = _driver().run(
+            "transactions",
+            [_response([{"id": "t_1"}])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-01-02T03:04:05Z",
         )
 
-        assert params[0]["order_by"] == "billed_at[ASC]"
-        assert params[0]["billed_at[GT]"] == "2024-01-02T03:04:05Z"
+        assert result.raised is None
+        assert result.requests[0].param("order_by") == "billed_at[ASC]"
+        assert result.requests[0].param("billed_at[GT]") == "2024-01-02T03:04:05Z"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_filter_without_incremental_flag(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"id": "t_1"}], next_url=None)])
 
-        manager = _make_manager()
-        _rows(
-            _source("transactions", manager, should_use_incremental_field=False, db_incremental_field_last_value=None)
+class TestExploreMetrics:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel("2026-08-20T12:00:00Z", tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        "inputs, expected_queries",
+        [
+            (
+                # The shortest lookback (70 days) bounds every entity, rounded up to the next month start.
+                {},
+                [
+                    ("subscriptions", "month", "2026-07-01", "2026-08-01"),
+                    ("transactions.completed", "day", "2026-07-01", "2026-08-01"),
+                    ("subscriptions", "month", "2026-08-01", "2026-08-21"),
+                    ("transactions.completed", "day", "2026-08-01", "2026-08-21"),
+                ],
+            ),
+            (
+                {"should_use_incremental_field": True, "db_incremental_field_last_value": "2026-08-02T00:00:00Z"},
+                [
+                    ("subscriptions", "month", "2026-08-01", "2026-08-21"),
+                    ("transactions.completed", "day", "2026-08-01", "2026-08-21"),
+                ],
+            ),
+        ],
+    )
+    def test_queries_each_entity_per_calendar_month(
+        self, inputs: dict[str, Any], expected_queries: list[tuple[str, str, str, str]]
+    ) -> None:
+        result = _driver().run("explore_metrics", _explore_network, **inputs)
+
+        assert result.raised is None
+        assert _explore_queries(result) == expected_queries
+        posts = [request.json() for request in result.requests if request.method == "POST"]
+        assert posts[0]["measures"] == [{"field": "mrr"}]
+        assert posts[1]["measures"] == [{"field": "gross_revenue", "agg": "sum"}, {"field": "id", "agg": "count"}]
+        assert {
+            "entity": "transactions.completed",
+            "interval": "day",
+            "timestamp": f"{expected_queries[1][2]}T00:00:00Z",
+            "measure": "sum_gross_revenue",
+            "field": "gross_revenue",
+            "agg": "sum",
+            "value_type": "currency",
+            "value": "100",
+            "currency_code": "USD",
+            "updated_at": "2026-08-20T06:00:00Z",
+        } in result.rows
+        assert len(result.rows) == 3 * len(expected_queries) // 2
+        assert result.saved_states[-1] == PaddleResumeConfig()
+
+    def test_resume_continues_at_saved_window_and_entity(self) -> None:
+        result = _driver().run(
+            "explore_metrics",
+            _explore_network,
+            resume_state=PaddleResumeConfig(explore_window_start="2026-08-01", explore_entity="transactions.completed"),
         )
 
-        # order_by still points at the incremental field, but no watermark filter is applied.
-        assert params[0]["order_by"] == "billed_at[ASC]"
-        assert "billed_at[GT]" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_filter_without_last_value(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"id": "t_1"}], next_url=None)])
-
-        manager = _make_manager()
-        _rows(_source("transactions", manager, should_use_incremental_field=True, db_incremental_field_last_value=None))
-
-        assert "billed_at[GT]" not in params[0]
+        assert result.raised is None
+        assert _explore_queries(result) == [("transactions.completed", "day", "2026-08-01", "2026-08-21")]
 
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_next_url_then_empties_on_completion(self, MockSession) -> None:
-        session = MockSession.return_value
-        next_url = f"{PADDLE_BASE_URL}/customers?after=c_1"
-        _wire(session, [_response([{"id": "c_1"}], next_url=next_url), _response([{"id": "c_2"}], next_url=None)])
-
-        manager = _make_manager()
-        _rows(_source("customers", manager))
-
-        # Saved after each page: the next-page URL while pages remain, then an empty marker at the end.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [PaddleResumeConfig(next_url=next_url), PaddleResumeConfig(next_url="")]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession) -> None:
-        session = MockSession.return_value
-        saved_url = f"{PADDLE_BASE_URL}/customers?after=saved"
-        params, urls = _wire(session, [_response([{"id": "c_9"}], next_url=None)])
-
-        manager = _make_manager(PaddleResumeConfig(next_url=saved_url))
-        rows = _rows(_source("customers", manager))
-
-        assert [r["id"] for r in rows] == ["c_9"]
-        # A resumed run starts at the saved next-page URL with no re-appended list params.
-        assert urls[0] == saved_url
-        assert params[0] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_saved_on_last_page_terminates_on_resume(self, MockSession) -> None:
+    def test_checkpoint_saved_on_last_page_terminates_on_resume(self) -> None:
         # A checkpoint saved while looping on the final page points at that page.
         # The resumed fetch sees has_more=false, completes, and writes the empty
         # terminal marker instead of re-saving the same URL.
-        session = MockSession.return_value
         saved_url = f"{PADDLE_BASE_URL}/customers?after=c_9"
-        _wire(session, [_response([], next_url=saved_url, has_more=False)])
+        result = _driver().run(
+            "customers",
+            [_response([], next_url=saved_url, has_more=False)],
+            resume_state=PaddleResumeConfig(next_url=saved_url),
+        )
 
-        manager = _make_manager(PaddleResumeConfig(next_url=saved_url))
-        rows = _rows(_source("customers", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [PaddleResumeConfig(next_url="")]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_saved_url_starts_fresh(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, urls = _wire(session, [_response([{"id": "c_1"}], next_url=None)])
-
-        manager = _make_manager(PaddleResumeConfig(next_url=""))
-        _rows(_source("customers", manager))
-
-        # An empty saved marker means the previous sync finished — start from the base path again.
-        assert urls[0] == f"{PADDLE_BASE_URL}/customers"
-        assert params[0]["per_page"] == 200
+        assert result.raised is None
+        assert result.rows == []
+        assert result.urls == [saved_url]
+        assert result.saved_states == [PaddleResumeConfig(next_url="")]
 
 
 class TestValidateCredentials:
-    @mock.patch(PADDLE_SESSION_PATCH)
-    def test_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("key") is True
+    def test_permission_error_on_403(self) -> None:
+        with scripted_network([ScriptedResponse(status=403)]) as network:
+            with pytest.raises(PaddlePermissionError, match="Missing permissions for"):
+                validate_credentials("key")
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
-    @mock.patch(PADDLE_SESSION_PATCH)
-    def test_single_table_probes_one_endpoint(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("key", "customers") is True
-        assert mock_session.return_value.get.call_count == 1
+    @pytest.mark.parametrize(
+        "table_name, expected_paths",
+        [
+            # A key without `metrics.read` must still connect, so the create-time check skips Explore.
+            (
+                None,
+                ["/customers", "/discounts", "/prices", "/products", "/subscriptions", "/transactions", "/adjustments"],
+            ),
+            ("explore_metrics", ["/metrics/explore/entities"]),
+        ],
+    )
+    def test_probed_paths(self, table_name: str | None, expected_paths: list[str]) -> None:
+        with scripted_network(always(ScriptedResponse(status=200))) as network:
+            assert validate_credentials("key", table_name) is True
+        assert [request.path for request in network.requests_log] == expected_paths
 
-    @mock.patch(PADDLE_SESSION_PATCH)
-    def test_permission_error_on_403(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=403)
-        with pytest.raises(PaddlePermissionError, match="Missing permissions for"):
-            validate_credentials("key")
-
-    @mock.patch(PADDLE_SESSION_PATCH)
-    def test_unauthorized_returns_false(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("key") is False
-
-    @mock.patch(PADDLE_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
+    def test_transport_failure_is_not_a_rejected_key(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            with pytest.raises(PaddleUnreachableError):
+                validate_credentials("key")
 
 
-class TestPaddleSession:
-    def test_session_retries_rate_limits(self):
-        session = _get_paddle_session("pdl_test_key")
-        retry = cast(HTTPAdapter, session.get_adapter(PADDLE_BASE_URL)).max_retries
+class TestSourceValidateCredentials:
+    def _validate(self) -> tuple[bool, str | None]:
+        return PaddleSource().validate_credentials(PaddleSourceConfig(paddle_api_key="key"), team_id=1)
 
-        # A transient 429 must back off and retry rather than failing the whole sync.
-        assert retry.total is not None and retry.total > 0
-        assert retry.is_retry("GET", 429) is True
-        assert retry.respect_retry_after_header is True
-        # Persistent failures still surface via response.raise_for_status(), not MaxRetryError.
-        assert retry.raise_on_status is False
+    def test_ok(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=200))):
+            assert self._validate() == (True, None)
 
-    def test_auth_failures_are_not_retried(self):
-        session = _get_paddle_session("pdl_test_key")
-        retry = cast(HTTPAdapter, session.get_adapter(PADDLE_BASE_URL)).max_retries
+    @pytest.mark.parametrize(
+        "status_code,expected",
+        [(401, INVALID_API_KEY_ERROR), (403, MISSING_PERMISSIONS_ERROR)],
+    )
+    def test_refusal_message(self, status_code: int, expected: str) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]):
+            valid, message = self._validate()
 
-        # 401/403/400 are credential/config problems handled by get_non_retryable_errors;
-        # retrying them would only delay surfacing the error to the user.
-        assert retry.is_retry("GET", 401) is False
-        assert retry.is_retry("GET", 403) is False
-        assert retry.is_retry("GET", 400) is False
+        assert valid is False
+        assert message == expected
+        # The wizard shows this string and nothing else, so it has to name a next step and must
+        # not carry the probed endpoint name the permission error reports.
+        assert "reconnect" in message
+        assert "Missing permissions" not in message
+
+    def test_unreachable_paddle_does_not_blame_the_key(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            valid, message = self._validate()
+
+        # Paddle never judged the key, so telling the customer to replace it would send them
+        # rotating a key that works.
+        assert valid is False
+        assert message == KEY_CHECK_FAILED_ERROR
+
+    @mock.patch(f"{SOURCE_MODULE}.validate_paddle_credentials", side_effect=RuntimeError("probe blew up"))
+    @mock.patch(f"{SOURCE_MODULE}.capture_exception")
+    def test_unexpected_failure_is_captured_not_shown(self, mock_capture, _mock_validate) -> None:
+        valid, message = self._validate()
+
+        assert valid is False
+        assert message == KEY_CHECK_FAILED_ERROR
+        assert "probe blew up" not in message
+        assert mock_capture.call_count == 1
 
 
 class TestFormatDatetimeQueryValue:

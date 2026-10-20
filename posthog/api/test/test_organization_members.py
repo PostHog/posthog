@@ -581,6 +581,35 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            ("default", None, True),
+            ("joined_at_desc", "-joined_at", True),
+            ("joined_at_asc", "joined_at", False),
+        ]
+    )
+    def test_list_organization_members_pages_tied_joined_at(self, _name, order, newest_first):
+        for index in range(11):
+            User.objects.create_and_join(self.organization, f"tied{index}@posthog.com", None)
+        memberships = OrganizationMembership.objects.filter(organization=self.organization)
+        memberships.update(joined_at=timezone.now())
+        expected_ids = sorted(
+            (str(membership_id) for membership_id in memberships.values_list("id", flat=True)), reverse=newest_first
+        )
+
+        url = "/api/organizations/@current/members/?limit=2"
+        if order is not None:
+            url += f"&order={order}"
+
+        paged_ids: list[str] = []
+        for offset in range(0, len(expected_ids), 2):
+            response = self.client.get(f"{url}&offset={offset}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            paged_ids += [member["id"] for member in response.json()["results"]]
+
+        # Order-sensitive, so it catches a repeated member and a missing one together
+        self.assertEqual(paged_ids, expected_ids)
+
+    @parameterized.expand(
+        [
             ("first name match", "Marketing", "marketing@example.com"),
             ("typo / transposition still matches", "marekting", "marketing@example.com"),
             ("prefix-as-you-type on first name", "Marke", "marketing@example.com"),

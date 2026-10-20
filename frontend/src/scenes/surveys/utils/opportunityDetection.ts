@@ -6,7 +6,7 @@ import {
     GroupNode,
     InsightVizNode,
 } from '~/queries/schema/schema-general'
-import { DashboardTile, QueryBasedInsightModel, SurveyEventsWithProperties } from '~/types'
+import { DashboardTile, InsightModel, SurveyEventsWithProperties } from '~/types'
 
 export interface FunnelContext {
     insightName: string
@@ -36,9 +36,9 @@ export interface SurveyableFunnelInsight {
  * - Doesn't already have a linked survey
  */
 export function getBestSurveyOpportunityFunnel(
-    tiles: DashboardTile<QueryBasedInsightModel>[],
+    tiles: DashboardTile[],
     linkedInsightIds: Set<number> = new Set()
-): DashboardTile<QueryBasedInsightModel> | null {
+): DashboardTile | null {
     const candidates = tiles
         .filter(
             (tile) =>
@@ -59,7 +59,7 @@ export function getBestSurveyOpportunityFunnel(
  * Returns true only if we have a valid funnel query with results.
  */
 export function isSurveyableFunnelInsight(
-    insight: Partial<QueryBasedInsightModel> | undefined
+    insight: Partial<InsightModel> | undefined
 ): insight is SurveyableFunnelInsight {
     const query = insight?.query as InsightVizNode<FunnelsQuery> | undefined
     const result = insight?.result
@@ -79,7 +79,7 @@ export function isSurveyableFunnelInsight(
  * @param insight funnel insight to extract context from
  * @returns funnel "context" object, or null if invalid
  */
-export function extractFunnelContext(insight: Partial<QueryBasedInsightModel> | undefined): FunnelContext | null {
+export function extractFunnelContext(insight: Partial<InsightModel> | undefined): FunnelContext | null {
     if (!isSurveyableFunnelInsight(insight)) {
         return null
     }

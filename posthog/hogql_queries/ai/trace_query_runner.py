@@ -24,7 +24,12 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_generation_sentiment_evaluations_for_traces,
 )
-from posthog.hogql_queries.ai.utils import filled_property_filters, merge_heavy_properties, parse_ai_property_value
+from posthog.hogql_queries.ai.utils import (
+    filled_property_filters,
+    merge_heavy_properties,
+    parse_ai_property_value,
+    timestamp_bound_as_hogql,
+)
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -61,6 +66,8 @@ class TraceQueryDateRange(QueryDateRange):
     # Forward buffer: an upper bound on a single trace's duration. A trace that maps to a chat can
     # stay open across days, so a sub-day bound silently truncates it.
     FORWARD_CAPTURE_RANGE_MINUTES = 7 * 24 * 60
+    # Callers name calendar days: the trace detail tool takes a date-only `date_to`.
+    CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = True
 
     def date_from_for_filtering(self) -> datetime:
         return super().date_from()
@@ -75,44 +82,38 @@ class TraceQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.FORWARD_CAPTURE_RANGE_MINUTES)
 
     def date_to_for_filtering_as_hogql(self) -> ast.Expr:
-        # `format_date` rounds down to a whole second, which would drop the events inside the final
-        # second of the bound. Event timestamps carry microseconds, so the bound carries them too.
-        return ast.Call(
-            name="assumeNotNull",
-            args=[
-                ast.Call(
-                    name="toDateTime64",
-                    args=[
-                        ast.Constant(value=self.date_to_for_filtering().strftime("%Y-%m-%d %H:%M:%S.%f")),
-                        ast.Constant(value=6),
-                    ],
-                )
-            ],
-        )
+        return timestamp_bound_as_hogql(self.date_to_for_filtering())
 
 
 class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     query: TraceQuery
     cached_response: CachedTraceQueryResponse
 
-    def __init__(self, *args: Any, bound_events_to_date_range: bool = False, **kwargs: Any):
+    def __init__(
+        self, *args: Any, bound_events_to_date_range: bool = False, posthog_tables_only: bool = False, **kwargs: Any
+    ):
         super().__init__(*args, **kwargs)
         # The trace view wants the whole trace whatever the date picker says, so the default reads
         # `ai_events` unbounded. A caller that grades a trace "as of" an instant opts in here, which
         # holds the event rows to `dateRange.date_to` before the SQL aggregates the totals.
         self._bound_events_to_date_range = bound_events_to_date_range
+        # See query_ai_events. The trace view keeps the full catalog because its property filters
+        # and modifiers can reference warehouse tables and group types.
+        self._posthog_tables_only = posthog_tables_only
 
     def _calculate(self):
         query_result = query_ai_events(
             query=self._build_query(),
             placeholders={"filter_conditions": self._get_where_clause(include_timestamp_bounds=False)},
             team=self.team,
+            user=self.user,
             query_type=NodeKind.TRACE_QUERY,
             fall_back_to_events=True,
             fallback_placeholders={"filter_conditions": self._get_where_clause()},
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            posthog_tables_only=self._posthog_tables_only,
         )
 
         columns: list[str] = query_result.columns or []
@@ -120,6 +121,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         if self.query.includeSentiment and query_result.results:
             sentiment_lookup = load_generation_sentiment_evaluations_for_traces(
                 team=self.team,
+                user=self.user,
                 trace_ids=[self.query.traceId],
                 timings=self.timings,
                 modifiers=self.modifiers,

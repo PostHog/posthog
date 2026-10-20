@@ -276,11 +276,13 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
             [] as SchemaPropertyGroup[],
             {
                 loadPropertyGroups: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get(`api/projects/${values.currentProjectId}/schema_property_groups/`)
                     return response.results || response || []
                 },
                 createPropertyGroup: async (data: Partial<SchemaPropertyGroup>) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create(
                             `api/projects/${values.currentProjectId}/schema_property_groups/`,
                             data
@@ -295,6 +297,7 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                 },
                 updatePropertyGroup: async ({ id, data }: { id: string; data: Partial<SchemaPropertyGroup> }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.update(
                             `api/projects/${values.currentProjectId}/schema_property_groups/${id}/`,
                             data
@@ -442,6 +445,7 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
     listeners(({ actions, values }) => ({
         deletePropertyGroup: async ({ id }) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.delete(`api/projects/${values.currentProjectId}/schema_property_groups/${id}/`)
                 actions.loadPropertyGroups()
                 lemonToast.success('Property group deleted')

@@ -10,16 +10,27 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.settings import (
     PERSONA_ENDPOINTS,
+    PersonaChildList,
     PersonaEndpointConfig,
     PersonaFanout,
 )
 
 PERSONA_BASE_URL = "https://api.withpersona.com/api/v1"
+
+PERSONA_API_VERSION_2026_09_29 = "2026-09-29"
+
+# `Persona-Version` header per supported label. The legacy label sends none, so its requests keep
+# resolving to the API key's dashboard-configured version exactly as before versioning existed.
+PERSONA_VERSION_HEADERS: dict[str, str | None] = {
+    UNVERSIONED_API_VERSION: None,
+    PERSONA_API_VERSION_2026_09_29: PERSONA_API_VERSION_2026_09_29,
+}
 
 # Persona's default rate limit is 300 req/min; it returns 429 with a reset header on excess.
 PAGE_SIZE = 100  # Persona caps page[size] at 100 (default 10).
@@ -49,15 +60,17 @@ class PersonaResumeConfig:
     after: str | None = None
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    # No `Persona-Version` header is sent: omitting it applies the account's dashboard-configured
-    # default API version, which is always valid. Pinning a version we can't test risks a 400 if the
-    # value predates a field or is rejected. The attributes we read (`created-at`, `id`) are stable
-    # across versions.
-    return {
+def _get_headers(api_key: str, api_version: str) -> dict[str, str]:
+    if api_version not in PERSONA_VERSION_HEADERS:
+        raise ValueError(f"Unsupported Persona API version: {api_version}")
+    headers = {
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
     }
+    persona_version = PERSONA_VERSION_HEADERS[api_version]
+    if persona_version is not None:
+        headers["Persona-Version"] = persona_version
+    return headers
 
 
 def _build_url(base_url: str, params: dict[str, Any]) -> str:
@@ -116,7 +129,7 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def validate_credentials(api_key: str) -> int:
+def validate_credentials(api_key: str, api_version: str) -> int:
     """Probe the cheapest core list endpoint and return the HTTP status (0 on network error).
 
     Callers map the status: 200 = valid, 401 = bad key, 403 = valid key missing a scope.
@@ -128,7 +141,7 @@ def validate_credentials(api_key: str) -> int:
         # capture, following the same pattern as gusto and workday. Redirects are refused so the key
         # is only ever sent to the API host.
         response = make_tracked_session(capture=False, allow_redirects=False).get(
-            url, headers=_get_headers(api_key), timeout=10
+            url, headers=_get_headers(api_key, api_version), timeout=10
         )
         return response.status_code
     except Exception:
@@ -204,6 +217,42 @@ def _rows_for_parent(
     return rows
 
 
+def _child_list_rows(
+    session: requests.Session,
+    child_list: PersonaChildList,
+    parent: dict[str, Any],
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    """Page through one parent's child list and return its rows, tagged with the parent id."""
+    parent_id = parent["id"]
+    rows: list[dict[str, Any]] = []
+    after: str | None = None
+    while True:
+        params: dict[str, Any] = {f"filter[{child_list.parent_filter}]": parent_id, "page[size]": PAGE_SIZE}
+        if after is not None:
+            params["page[after]"] = after
+        url = _build_url(f"{PERSONA_BASE_URL}{child_list.path}", params)
+        try:
+            data = _fetch_page(session, url, headers, logger)
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                # The parent can be deleted between the list page and this call.
+                logger.warning(f"Persona: {child_list.path} for {parent_id} returned 404, skipping")
+                return rows
+            raise
+
+        items = data.get("data") or []
+        for item in items:
+            row = _flatten_item(item)
+            row[child_list.parent_key] = parent_id
+            rows.append(row)
+
+        if not items or not data.get("links", {}).get("next"):
+            return rows
+        after = items[-1]["id"]
+
+
 def _build_params(config: PersonaEndpointConfig, watermark: Optional[datetime], after: str | None) -> dict[str, Any]:
     params: dict[str, Any] = {"page[size]": PAGE_SIZE}
     if watermark is not None:
@@ -217,13 +266,14 @@ def _build_params(config: PersonaEndpointConfig, watermark: Optional[datetime], 
 def get_rows(
     api_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PersonaResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[Any]:
     config = PERSONA_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
+    headers = _get_headers(api_key, api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page so urllib3 keeps the connection alive. Inquiry and
     # verification bodies carry KYC PII the name-based scrubber can't reliably strip, so keep them
@@ -266,11 +316,12 @@ def get_rows(
                     stop = True
                     break
 
-            rows = (
-                _rows_for_parent(session, config.path, config.fanout, item, headers, logger)
-                if config.fanout is not None
-                else [_flatten_item(item)]
-            )
+            if config.fanout is not None:
+                rows = _rows_for_parent(session, config.path, config.fanout, item, headers, logger)
+            elif config.child_list is not None:
+                rows = _child_list_rows(session, config.child_list, item, headers, logger)
+            else:
+                rows = [_flatten_item(item)]
             for row in rows:
                 batcher.batch(row)
 
@@ -292,10 +343,16 @@ def get_rows(
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
 
+    # Walked to completion, so drop the checkpoint. Persona lists newest-first, so a cursor left
+    # over from a finished walk points at the oldest object it saw: the next run would resume below
+    # its whole created-at window instead of starting at page one.
+    resumable_source_manager.clear_state()
+
 
 def persona_source(
     api_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PersonaResumeConfig],
     should_use_incremental_field: bool = False,
@@ -308,6 +365,7 @@ def persona_source(
         items=lambda: get_rows(
             api_key=api_key,
             endpoint=endpoint,
+            api_version=api_version,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,

@@ -120,6 +120,7 @@ import {
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
     WebAnalyticsTile,
     WebVitalsPercentile,
+    cleanedPathOperators,
     eventPropertiesToPathClean,
     getWebAnalyticsBreakdownFilter,
     isContentAutopilotEnabled,
@@ -196,6 +197,7 @@ export interface webAnalyticsLogicValues {
     currentFiltersConfig: WebAnalyticsFiltersConfig
     dateFilter: DateFilterState
     deviceTab: string
+    exportAllDisabledReason: string | null
     filters: {
         compareFilter: CompareFilter
         conversionGoal: WebAnalyticsConversionGoal | null
@@ -226,8 +228,8 @@ export interface webAnalyticsLogicValues {
     isFocusModeActive: boolean
     isGreaterThanMd: boolean
     isPathCleaningEnabled: boolean
+    marketingCrossSellDismissed: boolean
     pathTab: string
-    preAggregatedEnabled: boolean | undefined
     preZoomDateFilter: {
         dateFrom: string | null
         dateTo: string | null
@@ -235,6 +237,7 @@ export interface webAnalyticsLogicValues {
     } | null
     productTab: ProductTab
     replayFilters: RecordingUniversalFilters
+    restrictedUiEnabled: boolean
     shouldAutoOpenFocusModeOnboarding: boolean
     shouldFilterTestAccounts: boolean
     shouldShowGeoIPQueries: any
@@ -281,8 +284,10 @@ export interface webAnalyticsLogicActions {
     cancelAllLoading: () => {} // dataNodeCollectionLogic
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: (() => void) | undefined
+        successCallback?: (() => void) | undefined,
+        failureCallback?: (() => void) | undefined
     ) => {
+        failureCallback: (() => void) | undefined
         successCallback: (() => void) | undefined
         user: Partial<UserType>
     } // userLogic
@@ -355,6 +360,9 @@ export interface webAnalyticsLogicActions {
     dismissFocusModeOnboarding: () => {
         value: true
     }
+    dismissMarketingCrossSell: () => {
+        value: true
+    }
     enterFocusMode: () => {
         value: true
     }
@@ -397,6 +405,17 @@ export interface webAnalyticsLogicActions {
     }
     removeIncompatibleFilters: () => {
         value: true
+    }
+    reportWebAnalyticsDateRangeChanged: (props: {
+        date_from: string | null
+        date_to: string | null
+        interval: string
+    }) => {
+        props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }
     }
     resetTileVisibility: () => boolean
     resetZoom: () => {
@@ -535,13 +554,10 @@ export interface webAnalyticsLogicMeta {
     key: 'page-visibility' | 'web-analytics'
     __keaTypeGenInternalSelectorTypes: {
         compareFilter: (rawCompareFilter: CompareFilter, dateFilter: DateFilterState) => CompareFilter
-        preAggregatedEnabled: (
-            featureFlags: FeatureFlagsSet,
-            currentTeam: TeamPublicType | TeamType | null
-        ) => boolean | undefined
+        restrictedUiEnabled: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => boolean
         incompatibleFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-            preAggregatedEnabled: boolean | undefined
+            restrictedUiEnabled: boolean
         ) => WebAnalyticsPropertyFilters
         hasIncompatibleFilters: (incompatibleFilters: WebAnalyticsPropertyFilters) => boolean
         graphsTab: (_graphsTab: string | null) => string
@@ -567,16 +583,16 @@ export interface webAnalyticsLogicMeta {
             shouldFilterTestAccounts: boolean
         ) => WebAnalyticsFiltersConfig
         warmablePresetShortId: (
-            appliedPresetShortId: string | null, // webAnalyticsFilterLogic
-            appliedPresetFilters: WebAnalyticsFiltersConfig | null, // webAnalyticsFilterLogic
+            appliedPresetShortId: string | null,
+            appliedPresetFilters: WebAnalyticsFiltersConfig | null,
             currentFiltersConfig: WebAnalyticsFiltersConfig
         ) => string | null
         hasNonDefaultFilters: (
-            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters, // webAnalyticsFilterLogic
-            domainFilter: string | null, // webAnalyticsFilterLogic
-            deviceTypeFilter: DeviceType | null, // webAnalyticsFilterLogic
-            countryFilter: string | null, // webAnalyticsFilterLogic
-            referrerFilter: string | null, // webAnalyticsFilterLogic
+            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
+            domainFilter: string | null,
+            deviceTypeFilter: DeviceType | null,
+            countryFilter: string | null,
+            referrerFilter: string | null,
             conversionGoal: WebAnalyticsConversionGoal | null
         ) => boolean
         webAnalyticsFilters: (
@@ -652,6 +668,7 @@ export interface webAnalyticsLogicMeta {
             shouldFilterTestAccounts: boolean
         ) => InsightVizNode<TrendsQuery>
         showFocusMode: (featureFlags: FeatureFlagsSet, productTab: ProductTab) => boolean
+        exportAllDisabledReason: (productTab: ProductTab) => string | null
         hasSavedFocusMode: (focusModeConcerns: WebAnalyticsConcern[]) => boolean
         hasSeenFocusModeOnboarding: (user: UserType | null, currentTeam: TeamPublicType | TeamType | null) => boolean
         shouldAutoOpenFocusModeOnboarding: (
@@ -697,7 +714,7 @@ export interface webAnalyticsLogicMeta {
             featureFlags: FeatureFlagsSet,
             isGreaterThanMd: boolean,
             tileVisualizations: Record<TileId, TileVisualizationOption>,
-            preAggregatedEnabled: boolean | undefined,
+            restrictedUiEnabled: boolean,
             hiddenTiles: TileId[],
             warmablePresetShortId: string | null
         ) => WebAnalyticsTile[]
@@ -783,6 +800,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         ],
     })),
     actions({
+        reportWebAnalyticsDateRangeChanged: (props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }) => ({ props }),
         removeIncompatibleFilters: true,
         setGraphsTab: (tab: string) => ({ tab }),
         setSourceTab: (tab: string) => ({ tab }),
@@ -817,6 +839,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
+        dismissMarketingCrossSell: true,
         setHiddenTiles: (hiddenTiles: TileId[]) => ({ hiddenTiles }),
         resetTileVisibility: () => true,
         openFocusModeModal: (onboarding: boolean = false) => ({ onboarding }),
@@ -1109,6 +1132,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     }),
                 },
             ],
+            marketingCrossSellDismissed: [
+                false,
+                buildTeamScopedPersistenceConfig(),
+                { dismissMarketingCrossSell: () => true },
+            ],
             hiddenTiles: [
                 [] as TileId[],
                 persistConfig,
@@ -1185,22 +1213,31 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 // again as soon as the range becomes a bounded one.
                 dateFilter.dateFrom === 'all' ? { compare: false } : rawCompareFilter,
         ],
-        preAggregatedEnabled: [
+        restrictedUiEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
+                // Two independent levers restrict the UI to the precompute-servable
+                // vocabulary (tile allowlist, filter pruning, property allowlist):
+                // the standalone restricted-UI flag, which implies nothing about the
+                // query engine and exists so heavy teams stay restricted while the
+                // legacy pre-aggregated tables retire, and the legacy pair (settings
+                // flag + team modifier) that also switches the engine.
                 return (
-                    featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI] ||
+                    !!(
+                        featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                        currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    )
                 )
             },
         ],
         incompatibleFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.preAggregatedEnabled],
+            (s) => [s.rawWebAnalyticsFilters, s.restrictedUiEnabled],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-                preAggregatedEnabled: boolean
+                restrictedUiEnabled: boolean
             ): WebAnalyticsPropertyFilters => {
-                if (!preAggregatedEnabled) {
+                if (!restrictedUiEnabled) {
                     return []
                 }
 
@@ -1408,13 +1445,14 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     ]
                 }
 
-                // Translate exact path filters to cleaned path filters
+                // Translate exact and is_not path filters to cleaned path filters
                 if (isPathCleaningEnabled) {
                     filters = filters.map((filter) => {
                         if (filter.type === PropertyFilterType.Cohort) {
                             return filter
                         }
-                        if (filter.operator !== PropertyOperator.Exact) {
+                        const cleanedPathOperator = filter.operator && cleanedPathOperators[filter.operator]
+                        if (!cleanedPathOperator) {
                             return filter
                         }
                         let propertiesToPathClean: Set<string>
@@ -1434,7 +1472,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                         if (propertiesToPathClean.has(filter.key)) {
                             return {
                                 ...filter,
-                                operator: PropertyOperator.IsCleanedPathExact,
+                                operator: cleanedPathOperator,
                             }
                         }
                         return filter
@@ -1660,6 +1698,13 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet, productTab: ProductTab): boolean =>
                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] === 'test' && productTab === ProductTab.ANALYTICS,
         ],
+        exportAllDisabledReason: [
+            (s) => [s.productTab],
+            (productTab: ProductTab): string | null =>
+                productTab === ProductTab.ANALYTICS || productTab === ProductTab.WEB_VITALS
+                    ? null
+                    : 'Switch to the Web analytics or Web vitals tab to export as CSV',
+        ],
         hasSavedFocusMode: [
             (s) => [s.focusModeConcerns],
             (focusModeConcerns: WebAnalyticsConcern[]): boolean => focusModeConcerns.length > 0,
@@ -1693,7 +1738,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 s.featureFlags,
                 s.isGreaterThanMd,
                 s.tileVisualizations,
-                s.preAggregatedEnabled,
+                s.restrictedUiEnabled,
                 s.hiddenTiles,
                 s.warmablePresetShortId,
             ],
@@ -1720,7 +1765,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isGreaterThanMd: boolean,
                 tileVisualizations: Record<TileId, TileVisualizationOption>,
-                preAggregatedEnabled: boolean | undefined,
+                restrictedUiEnabled: boolean | undefined,
                 hiddenTiles: TileId[],
                 warmablePresetShortId: string | null
             ): WebAnalyticsTile[] => {
@@ -1946,7 +1991,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                         orderBy: 'users',
                         dateRange: dateRange,
                         filterTestAccounts: filterTestAccounts,
-                        filterGroup: replayFilters.filter_group,
+                        // Not replayFilters.filter_group: it carries the conversion goal, which this tile does not apply.
+                        filterGroup: {
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: webAnalyticsFilters }],
+                        },
                         columns: ['error', 'users', 'occurrences', 'last_seen'],
                         limit: 4,
                     })
@@ -2046,12 +2095,10 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
                 // Only read the removal experiment flag where the replay tile would actually render: the
-                // analytics tab with no conversion goal. allTiles is also built for the bot-analytics tab
-                // (then discarded), and the tile is hidden whenever a conversion goal is set, so reading the
-                // flag outside this path would enroll users neither variant affects and dilute the metrics.
+                // analytics tab. allTiles is also built for the bot-analytics tab (then discarded), so reading
+                // the flag outside this path would enroll users neither variant affects and dilute the metrics.
                 const removeReplayTile =
                     productTab === ProductTab.ANALYTICS &&
-                    !conversionGoal &&
                     featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE] === 'test'
 
                 const includeHostMenuItem: LemonMenuItem | null =
@@ -2617,41 +2664,13 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                             ),
                         ],
                     },
-                    !conversionGoal && errorTrackingQ
-                        ? {
-                              kind: 'error_tracking',
-                              tileId: TileId.ERROR_TRACKING,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2 2xl:col-span-1',
-                              },
-                              query: errorTrackingQ,
-                              docs: {
-                                  url: 'https://posthog.com/docs/error-tracking',
-                                  title: 'Error Tracking',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  Error tracking allows you to track, investigate, and resolve
-                                                  exceptions your customers face.
-                                              </p>
-                                              <p>
-                                                  Errors are captured as <code>$exception</code> events which means that
-                                                  you can create insights, filter recordings and trigger surveys based
-                                                  on them exactly the same way you can for any other type of event.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
-                        : null,
-
                     {
                         kind: 'tabs',
                         tileId: TileId.GEOGRAPHY,
                         layout: {
-                            colSpanClassName: 'md:col-span-full',
+                            // Only the v2 grid packs densely, so the one-column slot next to sources and
+                            // devices exists only there.
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-2 2xl:col-span-1' : 'md:col-span-full',
                         },
                         activeTabId:
                             geographyTab || (shouldShowGeoIPQueries ? GeographyTab.MAP : GeographyTab.LANGUAGES),
@@ -2779,58 +2798,28 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                             ] as (TabsTileTab | null)[]
                         ).filter(isNotNil),
                     },
-                    !conversionGoal
+                    errorTrackingQ
                         ? {
-                              kind: 'query',
-                              tileId: TileId.RETENTION,
-                              title: 'Retention',
+                              kind: 'error_tracking',
+                              tileId: TileId.ERROR_TRACKING,
                               layout: {
                                   colSpanClassName: 'md:col-span-full',
                               },
-                              query: {
-                                  kind: NodeKind.InsightVizNode,
-                                  source: {
-                                      kind: NodeKind.RetentionQuery,
-                                      properties: webAnalyticsFilters,
-                                      dateRange,
-                                      filterTestAccounts,
-                                      retentionFilter: {
-                                          retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
-                                          retentionReference: 'total',
-                                          totalIntervals: isGreaterThanMd ? 8 : 5,
-                                          period: RetentionPeriod.Week,
-                                      },
-                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                  },
-                                  vizSpecificOptions: {
-                                      [InsightType.RETENTION]: {
-                                          hideLineGraph: true,
-                                          hideSizeColumn: !isGreaterThanMd,
-                                          useSmallLayout: !isGreaterThanMd,
-                                      },
-                                  },
-                                  embedded: true,
-                              },
-                              insightProps: createInsightProps(TileId.RETENTION),
-                              canOpenInsight: true,
-                              canOpenModal: true,
+                              query: errorTrackingQ,
                               docs: {
-                                  url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
-                                  title: 'Retention',
+                                  url: 'https://posthog.com/docs/error-tracking',
+                                  title: 'Error Tracking',
                                   description: (
                                       <>
                                           <div>
                                               <p>
-                                                  Retention creates a cohort of unique users who performed any event for
-                                                  the first time in the last week. It then tracks the percentage of
-                                                  users who return to perform any event in the following weeks.
+                                                  Error tracking allows you to track, investigate, and resolve
+                                                  exceptions your customers face.
                                               </p>
                                               <p>
-                                                  You want the numbers to be the highest possible, suggesting that
-                                                  people that come to your page continue coming to your page - and
-                                                  performing an actions. Also, the further down the table the higher the
-                                                  numbers should be (or at least as high), which would indicate that
-                                                  you're either increasing or keeping your retention at the same level.
+                                                  Errors are captured as <code>$exception</code> events which means that
+                                                  you can create insights, filter recordings and trigger surveys based
+                                                  on them exactly the same way you can for any other type of event.
                                               </p>
                                           </div>
                                       </>
@@ -2838,6 +2827,63 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                               },
                           }
                         : null,
+                    {
+                        kind: 'query',
+                        tileId: TileId.RETENTION,
+                        title: 'Retention',
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.RetentionQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                filterTestAccounts,
+                                retentionFilter: {
+                                    retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+                                    retentionReference: 'total',
+                                    totalIntervals: isGreaterThanMd ? 8 : 5,
+                                    period: RetentionPeriod.Week,
+                                },
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            },
+                            vizSpecificOptions: {
+                                [InsightType.RETENTION]: {
+                                    hideLineGraph: true,
+                                    hideSizeColumn: !isGreaterThanMd,
+                                    useSmallLayout: !isGreaterThanMd,
+                                },
+                            },
+                            embedded: true,
+                        },
+                        insightProps: createInsightProps(TileId.RETENTION),
+                        canOpenInsight: true,
+                        canOpenModal: true,
+                        docs: {
+                            url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
+                            title: 'Retention',
+                            description: (
+                                <>
+                                    <div>
+                                        <p>
+                                            Retention creates a cohort of unique users who performed any event for the
+                                            first time in the last week. It then tracks the percentage of users who
+                                            return to perform any event in the following weeks.
+                                        </p>
+                                        <p>
+                                            You want the numbers to be the highest possible, suggesting that people that
+                                            come to your page continue coming to your page - and performing an actions.
+                                            Also, the further down the table the higher the numbers should be (or at
+                                            least as high), which would indicate that you're either increasing or
+                                            keeping your retention at the same level.
+                                        </p>
+                                    </div>
+                                </>
+                            ),
+                        },
+                    },
                     {
                         kind: 'tabs',
                         tileId: TileId.ACTIVE_HOURS,
@@ -2981,80 +3027,81 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                             },
                         ],
                     },
-                    // Hiding if conversionGoal is set already because values aren't representative
-                    !conversionGoal
-                        ? {
-                              kind: 'query',
-                              tileId: TileId.GOALS,
-                              title: 'Goals',
-                              layout: {
-                                  colSpanClassName: 'md:col-span-full',
-                              },
-                              query: {
-                                  full: true,
-                                  kind: NodeKind.DataTableNode,
-                                  source: {
-                                      kind: NodeKind.WebGoalsQuery,
-                                      properties: webAnalyticsFilters,
-                                      dateRange,
-                                      compareFilter,
-                                      limit: 10,
-                                      orderBy: tablesOrderBy ?? undefined,
-                                      filterTestAccounts,
-                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                      // Backend gate decides whether this query is actually served
-                                      // from the precomputed table; we just pass the per-team opt-in.
-                                      useWebAnalyticsPrecompute,
+                    {
+                        kind: 'query',
+                        tileId: TileId.GOALS,
+                        title: 'Goals',
+                        layout: {
+                            colSpanClassName:
+                                removeReplayTile || hiddenTiles.includes(TileId.REPLAY)
+                                    ? 'md:col-span-full'
+                                    : 'md:col-span-2 2xl:col-span-2',
+                        },
+                        query: {
+                            full: true,
+                            kind: NodeKind.DataTableNode,
+                            source: {
+                                kind: NodeKind.WebGoalsQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                compareFilter,
+                                limit: 10,
+                                orderBy: tablesOrderBy ?? undefined,
+                                filterTestAccounts,
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // Backend gate decides whether this query is actually served
+                                // from the precomputed table; we just pass the per-team opt-in.
+                                useWebAnalyticsPrecompute,
+                            },
+                            embedded: true,
+                            showActions: true,
+                            columns: ['breakdown_value', 'visitors', 'views', 'cross_sell'],
+                        },
+                        insightProps: createInsightProps(TileId.GOALS),
+                        canOpenInsight: false,
+                        extraMenuItems: useTileHeaderV2
+                            ? [
+                                  {
+                                      label: 'Manage actions',
+                                      icon: <IconOpenInNew />,
+                                      to: urls.actions(),
+                                      onClick: () => {
+                                          void addProductIntentForCrossSell({
+                                              from: ProductKey.WEB_ANALYTICS,
+                                              to: ProductKey.ACTIONS,
+                                              intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                          })
+                                      },
                                   },
-                                  embedded: true,
-                                  showActions: true,
-                                  columns: ['breakdown_value', 'visitors', 'views', 'cross_sell'],
-                              },
-                              insightProps: createInsightProps(TileId.GOALS),
-                              canOpenInsight: false,
-                              extraMenuItems: useTileHeaderV2
-                                  ? [
-                                        {
-                                            label: 'Manage actions',
-                                            icon: <IconOpenInNew />,
-                                            to: urls.actions(),
-                                            onClick: () => {
-                                                void addProductIntentForCrossSell({
-                                                    from: ProductKey.WEB_ANALYTICS,
-                                                    to: ProductKey.ACTIONS,
-                                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
-                                                })
-                                            },
-                                        },
-                                    ]
-                                  : undefined,
-                              docs: {
-                                  url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
-                                  title: 'Goals',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  Goals shows your pinned or most recently created actions and the
-                                                  number of conversions they've had. You can set a custom event or
-                                                  action as a{' '}
-                                                  <Link to="https://posthog.com/docs/web-analytics/conversion-goals">
-                                                      conversion goal
-                                                  </Link>{' '}
-                                                  at the top of the dashboard for more specific metrics.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
-                        : null,
-                    !conversionGoal && !removeReplayTile
+                              ]
+                            : undefined,
+                        docs: {
+                            url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
+                            title: 'Goals',
+                            description: (
+                                <>
+                                    <div>
+                                        <p>
+                                            Goals shows your pinned or most recently created actions and the number of
+                                            conversions they've had. You can set a custom event or action as a{' '}
+                                            <Link to="https://posthog.com/docs/web-analytics/conversion-goals">
+                                                conversion goal
+                                            </Link>{' '}
+                                            at the top of the dashboard for more specific metrics.
+                                        </p>
+                                    </div>
+                                </>
+                            ),
+                        },
+                    },
+                    !removeReplayTile
                         ? {
                               kind: 'replay',
                               tileId: TileId.REPLAY,
                               layout: {
-                                  colSpanClassName: conversionGoal ? 'md:col-span-full' : 'md:col-span-1',
+                                  colSpanClassName: hiddenTiles.includes(TileId.GOALS)
+                                      ? 'md:col-span-full'
+                                      : 'md:col-span-2 2xl:col-span-1',
                               },
                               docs: {
                                   url: 'https://posthog.com/docs/session-replay',
@@ -3064,75 +3111,72 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                               },
                           }
                         : null,
-                    !conversionGoal
-                        ? {
-                              kind: 'query',
-                              title: 'Frustrating Pages',
-                              tileId: TileId.FRUSTRATING_PAGES,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-full',
-                              },
-                              query: {
-                                  full: true,
-                                  kind: NodeKind.DataTableNode,
-                                  source: {
-                                      kind: NodeKind.WebStatsTableQuery,
-                                      breakdownBy: WebStatsBreakdown.FrustrationMetrics,
-                                      dateRange,
-                                      filterTestAccounts,
-                                      properties: webAnalyticsFilters,
-                                      compareFilter,
-                                      limit: 10,
-                                      doPathCleaning: isPathCleaningEnabled,
-                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                      // The backend frustration lazy precompute gate decides whether
-                                      // this query is actually served from the precomputed table; we
-                                      // just pass the per-team opt-in through so it's eligible.
-                                      useWebAnalyticsPrecompute,
-                                  },
-                                  embedded: true,
-                                  showActions: true,
-                                  hiddenColumns: ['views'],
-                              },
-                              insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
-                              canOpenModal: true,
-                              canOpenInsight: true,
-                              docs: {
-                                  title: 'Frustrating Pages',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  See which pages are causing frustration by monitoring rage clicks,
-                                                  dead clicks, and errors.
-                                              </p>
-                                              <p>
-                                                  <ul>
-                                                      <li>
-                                                          A dead click is a click that doesn't result in any action.
-                                                          E.g. an image that looks like a button.
-                                                      </li>
-                                                      <li>
-                                                          Rageclicks are collected when a user clicks on a static
-                                                          element more than three times in a one-second window.
-                                                      </li>
-                                                      <li>
-                                                          Errors are JavaScript exceptions that occur when users
-                                                          interact with your site.
-                                                      </li>
-                                                  </ul>
-                                              </p>
-                                              <p>
-                                                  These are captured automatically and can help identify broken
-                                                  functionality, failed API calls, or other technical issues that
-                                                  frustrate users.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
-                        : null,
+                    {
+                        kind: 'query',
+                        title: 'Frustrating Pages',
+                        tileId: TileId.FRUSTRATING_PAGES,
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        query: {
+                            full: true,
+                            kind: NodeKind.DataTableNode,
+                            source: {
+                                kind: NodeKind.WebStatsTableQuery,
+                                breakdownBy: WebStatsBreakdown.FrustrationMetrics,
+                                dateRange,
+                                filterTestAccounts,
+                                properties: webAnalyticsFilters,
+                                compareFilter,
+                                limit: 10,
+                                doPathCleaning: isPathCleaningEnabled,
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // The backend frustration lazy precompute gate decides whether
+                                // this query is actually served from the precomputed table; we
+                                // just pass the per-team opt-in through so it's eligible.
+                                useWebAnalyticsPrecompute,
+                            },
+                            embedded: true,
+                            showActions: true,
+                            hiddenColumns: ['views'],
+                        },
+                        insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
+                        canOpenModal: true,
+                        canOpenInsight: true,
+                        docs: {
+                            title: 'Frustrating Pages',
+                            description: (
+                                <>
+                                    <div>
+                                        <p>
+                                            See which pages are causing frustration by monitoring rage clicks, dead
+                                            clicks, and errors.
+                                        </p>
+                                        <p>
+                                            <ul>
+                                                <li>
+                                                    A dead click is a click that doesn't result in any action. E.g. an
+                                                    image that looks like a button.
+                                                </li>
+                                                <li>
+                                                    Rageclicks are collected when a user clicks on a static element more
+                                                    than three times in a one-second window.
+                                                </li>
+                                                <li>
+                                                    Errors are JavaScript exceptions that occur when users interact with
+                                                    your site.
+                                                </li>
+                                            </ul>
+                                        </p>
+                                        <p>
+                                            These are captured automatically and can help identify broken functionality,
+                                            failed API calls, or other technical issues that frustrate users.
+                                        </p>
+                                    </div>
+                                </>
+                            ),
+                        },
+                    },
                 ]
 
                 // Bot analytics tiles live in `botAnalyticsLogic` so the bot tab keeps its own
@@ -3153,7 +3197,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     allTiles
                         .filter(isNotNil)
                         .filter((tile) =>
-                            preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
+                            restrictedUiEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
                         )
                         .filter((tile) => !hiddenTiles.includes(tile.tileId)),
                     warmablePresetShortId
@@ -3750,7 +3794,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
 
         return {
             setDates: ({ dateFrom, dateTo }) => {
-                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                actions.reportWebAnalyticsDateRangeChanged({
                     date_from: dateFrom,
                     date_to: dateTo,
                     interval: values.dateFilter.interval,
@@ -3758,12 +3802,15 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
             setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
-                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                actions.reportWebAnalyticsDateRangeChanged({
                     date_from: dateFrom,
                     date_to: dateTo,
                     interval,
                 })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+            },
+            reportWebAnalyticsDateRangeChanged: ({ props }) => {
+                posthog.capture('web analytics date range changed', props)
             },
             zoomIntoPeriod: ({ dateFrom, dateTo }) => {
                 if (values.preZoomDateFilter === null) {
@@ -3853,12 +3900,12 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             },
             startFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingStarted()
+                posthog.capture('web analytics focus mode onboarding started')
                 actions.openFocusModeModal(true)
             },
             dismissFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingSkipped()
+                posthog.capture('web analytics focus mode onboarding skipped')
             },
             enterFocusMode: () => {
                 if (!values.showFocusMode || values.focusModeConcerns.length === 0) {
@@ -3883,7 +3930,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 actions.setFocusModeEnabled(true)
                 actions.closeFocusModeModal()
                 if (wasOnboarding) {
-                    eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingCompleted({
+                    posthog.capture('web analytics focus mode onboarding completed', {
                         concern_count: concernCount,
                     })
                 }
@@ -3908,7 +3955,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     } else if (conversionGoal && 'customEventName' in conversionGoal) {
                         goalType = 'custom_event'
                     }
-                    eventUsageLogic.actions.reportWebAnalyticsConversionGoalSet({ goal_type: goalType })
+                    posthog.capture('web analytics conversion goal set', { goal_type: goalType })
                 },
                 ({ conversionGoal }) => {
                     if (conversionGoal) {
@@ -3947,7 +3994,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         shouldAutoOpenFocusModeOnboarding: (shouldOpen: boolean) => {
             if (shouldOpen && !values.focusModeOnboardingModalOpen) {
                 actions.openFocusModeOnboarding()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingShown()
+                posthog.capture('web analytics focus mode onboarding shown')
             }
         },
     })),

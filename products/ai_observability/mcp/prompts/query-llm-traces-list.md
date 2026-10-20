@@ -1,6 +1,6 @@
 List LLM traces to inspect AI/LLM usage across your application. Returns traces with their events, latency, token usage, costs, errors, and other metadata. Use this tool for AI observability — debugging slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.
 
-Set `detail: "summary"` to preview event content when picking candidate traces, then read the one you pick with `query-llm-trace`. Omitting `detail` preserves the existing full-detail response, subject to size limits.
+Set `detail: "summary"` for event metadata without any prompts or outputs when picking candidate traces, then read the one you pick with `query-llm-trace`. Omitting `detail` returns the retained properties in full, subject to size limits.
 
 Use 'read-data-schema' to discover available event properties for filtering (e.g. `$ai_model`, `$ai_provider`).
 
@@ -96,7 +96,7 @@ Each trace in the results contains:
 - `errorCount` — number of errors in the trace
 - `isSupportTrace` — whether the trace was from a support impersonation session
 - `tools` — list of tool names called during the trace
-- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the event data, returned in full by default and previewed under `detail: "summary"`, subject to response size limits. See "Event types and their properties" below.
+- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the retained event data, returned in full by default and reduced to metadata under `detail: "summary"`, subject to response size limits. See "Event types and their properties" below.
 
 ## Event types and their properties
 
@@ -128,12 +128,18 @@ Generations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf 
 
 **Important:** This list tool only returns **direct children** of the trace (events where `$ai_parent_id` = trace ID) plus all `$ai_metric` and `$ai_feedback` events — NOT deeply nested events. For the full event tree with all nested children, use `query-llm-trace` with the trace's `id`.
 
+## Withheld properties
+
+Only `$ai_*` properties PostHog's taxonomy defines, plus the ones first-party code writes without describing (`$ai_generation_id`, `$ai_cache_read_cost_usd`, `$ai_cache_creation_cost_usd`, `$ai_effort`) and `$session_id`, `$lib`, and `$lib_version`, reach you. Every other event property, and every person property, is withheld whichever `detail` you ask for, and its name is listed in `_redactedKeys` beside the bag. `$ai_base_url` and `$ai_request_url` arrive as the origin and path only, without the query string a provider key often sits in. A value that is not an `http` or `https` URL is withheld instead, because there is no endpoint to keep.
+
+A withheld property is unchanged in PostHog: it still works as a filter here, and you can read its value in the PostHog UI or with `execute-sql`.
+
 ## Detail level
 
 `detail` controls how much of each event you get back.
 
-- `"full"` (default) returns every property in full, subject to response size limits. Existing callers that omit `detail` keep this behavior.
-- `"summary"` opts into trace and event metadata with previews of prompts, outputs, span states, and other content. A summarized trace carries `_detail: { "mode": "summary" }`.
+- `"full"` (default) returns every retained property in full, subject to response size limits.
+- `"summary"` opts into trace and event metadata only. It carries no conversation content: prompts, outputs, span states, `$ai_error`, and `$ai_feedback_text` are left out, and their names are listed in `_summaryOmittedKeys` beside the bag. The trace and span names (`traceName`, `$ai_span_name`) do come back, and an SDK can write anything into those. Use `$ai_is_error` and `$ai_http_status` to find the failed events, then read their messages with `detail: "full"`. A summarized trace carries `_detail: { "mode": "summary" }`.
 
 Request `detail: "summary"` when finding candidate traces from their metadata; read the one you picked with `query-llm-trace` and `detail: "full"` when you need its content.
 

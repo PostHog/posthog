@@ -44,8 +44,9 @@ class OrganizationMembersForAccountViewSet(
             UUID(str(organization_id))
         except (ValueError, TypeError):
             return OrganizationMembership.objects.none()
-        # Pagination needs a stable order. The default `-joined_at` is served by the
-        # (organization, -joined_at) composite index when filtering by organization_id.
+        # Pagination needs a stable order, closed by `id` in `_ordering`. The default
+        # `-joined_at` is served by the (organization, -joined_at) composite index when
+        # filtering by organization_id.
         queryset = (
             organization_members_base_queryset()
             .filter(organization_id=organization_id)
@@ -70,16 +71,22 @@ class OrganizationMembersForAccountViewSet(
         return queryset
 
     def _ordering(self) -> list:
-        """Whitelisted `ordering` param, nulls-last for last_login, `-joined_at` as the tiebreaker."""
+        """Whitelisted `ordering` param, nulls-last for last_login, `-joined_at` then `id` as tiebreakers.
+
+        No column here is unique, so `id` closes every ordering. Without it a paged walk
+        over tied rows can repeat a member on one page and drop another.
+        """
         ordering = self.request.query_params.get("ordering") or DEFAULT_ORDERING
         if ordering not in ALLOWED_ORDERINGS:
             raise serializers.ValidationError({"ordering": f"Must be one of: {', '.join(sorted(ALLOWED_ORDERINGS))}."})
-        if ordering in ("joined_at", "-joined_at"):
-            return [ordering]
+        if ordering == "joined_at":
+            return [ordering, "id"]
+        if ordering == "-joined_at":
+            return [ordering, "-id"]
         descending = ordering.startswith("-")
         field = F(ordering.lstrip("-"))
         primary = field.desc(nulls_last=True) if descending else field.asc(nulls_first=True)
-        return [primary, DEFAULT_ORDERING]
+        return [primary, DEFAULT_ORDERING, "-id"]
 
     def _apply_levels_filter(self, queryset: QuerySet) -> QuerySet:
         levels_param = self.request.query_params.get("levels")

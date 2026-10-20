@@ -6,7 +6,7 @@ from typing import Any, Union, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, F, Max, QuerySet
+from django.db.models import Count, Exists, F, Max, QuerySet
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -30,11 +30,12 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
+from rest_framework.utils.urls import replace_query_param
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ProductKey, QueryStatus
+from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
@@ -43,7 +44,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.query import process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -57,10 +57,11 @@ from posthog.auth import (
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import AccessMethod, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries, tags_context
 from posthog.constants import INSIGHT, AvailableFeature
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -78,7 +79,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     resolve_effective_dashboard_filters,
     resolve_filter_layers_by_priority,
 )
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import ExecutionMode, enforce_api_queries_budget
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import User
@@ -98,9 +99,14 @@ from posthog.models.activity_logging.activity_page import (
     parse_activity_page_params,
 )
 from posthog.models.organization import Organization
+from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.permissions import (
+    TeamMemberStrictManagementPermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+)
 from posthog.query_cache import QueryCache
 from posthog.query_scan.serve import hydrate_scan_summary
 from posthog.rate_limit import (
@@ -114,6 +120,7 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
+from posthog.scopes import scopes_not_covered
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA
 from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -163,6 +170,7 @@ from products.dashboards.backend.facade.enums import PrivilegeLevel, Restriction
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
+    lock_insight_for_evaluation,
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
@@ -170,16 +178,24 @@ from products.product_analytics.backend.facade.api import (
     record_insight_views,
     with_last_viewed_at,
 )
+from products.product_analytics.backend.facade.contracts import TeamEmailAccess
+from products.product_analytics.backend.facade.data_checks import run_insight_data_checks
+from products.product_analytics.backend.facade.enums import (
+    InsightDataCheckAction,
+    InsightDataCheckKey,
+    InsightDataCheckLevel,
+    InsightDataCheckMethod,
+    InsightDataCheckSkipReason,
+    InsightDataChecksStatus,
+)
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
 )
-from products.product_analytics.backend.presentation.insight_suggestions import (
-    get_insight_analysis,
-    get_insight_suggestions,
-)
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
+from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
+from products.subscriptions.backend.facade.api import delete_insight_subscriptions
 
 from common.hogvm.python.utils import HogVMException
 
@@ -351,7 +367,7 @@ def _record_deprecated_dashboards_field_used(context: dict, usage: str) -> None:
     ).inc()
 
 
-@extend_schema_serializer(exclude_fields=["filters", "saved"], deprecate_fields=["dashboards"])
+@extend_schema_serializer(exclude_fields=["saved"], deprecate_fields=["dashboards"])
 class InsightBasicSerializer(
     SearchMatchTypeSerializerMixin,
     TaggedItemSerializerMixin,
@@ -375,7 +391,6 @@ class InsightBasicSerializer(
             "short_id",
             "name",
             "derived_name",
-            "filters",
             "query",
             "dashboards",
             "dashboard_tiles",
@@ -425,14 +440,8 @@ class InsightBasicSerializer(
         else:
             representation.pop("dashboards", None)
 
-        if instance.query is not None:
-            representation["filters"] = {}
-            representation["query"] = instance.query
-        else:
-            representation["filters"] = instance.dashboard_filters()
-
         # upgrade the query to the latest version
-        representation["query"] = upgrade(representation["query"])
+        representation["query"] = upgrade(instance.query)
 
         return representation
 
@@ -471,13 +480,18 @@ class _InsightQuerySchema(RootModel):
     """The query definition for this insight. The `kind` field determines the query type:
     - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
     - `DataVisualizationNode` — SQL insights using HogQL
+    - `BIVisualizationNode` — business intelligence worksheets with a HogQL source
     - `DataTableNode` — raw data tables
     - `HogQuery` — Hog language queries
     """
 
-    root: schema.InsightVizNode | schema.DataTableNode | schema.DataVisualizationNode | schema.HogQuery = PydanticField(
-        discriminator="kind"
-    )
+    root: (
+        schema.InsightVizNode
+        | schema.DataTableNode
+        | schema.DataVisualizationNode
+        | schema.BIVisualizationNode
+        | schema.HogQuery
+    ) = PydanticField(discriminator="kind")
 
 
 @extend_schema_field(_InsightQuerySchema)  # type: ignore[arg-type]
@@ -526,6 +540,12 @@ class InsightFilterOverrideContext(BaseModel):
     overridden_dashboard: schema.DashboardFilter | None = PydanticField(
         default=None, description="Dashboard filters replaced by the tile filters."
     )
+
+
+class _InsightResultWarnings(RootModel):
+    """Warnings attached to the query response that produced an insight's results."""
+
+    root: list[DataWarehouseSyncWarning | AccessControlFilterWarning]
 
 
 @extend_schema_serializer(deprecate_fields=["dashboards"])
@@ -586,6 +606,15 @@ class InsightSerializer(InsightBasicSerializer):
         read_only=True,
         help_text="What ClickHouse read for this insight's last slow run, with the findings of its query scan.",
     )
+    warnings = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Warnings from the run that produced these results. A `warehouse_sync` warning means the query"
+            " read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be"
+            " out of date. Reflects the sync state when the results were computed. Null for shared insights."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
     filter_override_context = serializers.SerializerMethodField(
@@ -601,7 +630,6 @@ class InsightSerializer(InsightBasicSerializer):
             "short_id",
             "name",
             "derived_name",
-            "filters",
             "query",
             "order",
             "deleted",
@@ -633,6 +661,7 @@ class InsightSerializer(InsightBasicSerializer):
             "types",
             "resolved_date_range",
             "query_scan",
+            "warnings",
             "_create_in_folder",
             "alerts",
             "filter_override_context",
@@ -653,8 +682,6 @@ class InsightSerializer(InsightBasicSerializer):
             "timezone",
             "refreshing",
             "is_cached",
-            # A read still serves the stored filters of an insight written before queries.
-            "filters",
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -882,16 +909,24 @@ class InsightSerializer(InsightBasicSerializer):
                     "and this insight is publicly shared."
                 )
 
-        if validated_data.get("deleted", False):
-            hide_tiles_for_insights([instance.id])
-            for alert in instance.alertconfiguration_set.all():
-                alert.delete()
-        else:
-            dashboard_ids = validated_data.pop("dashboards", None)
-            if dashboard_ids is not None:
-                self._update_insight_dashboards(dashboard_ids, instance)
+        with transaction.atomic():
+            if validated_data.get("deleted", False):
+                # Alert creation locks the insight, then checks `deleted`. Taking the same lock before
+                # the sweep keeps a concurrent create from adding an alert the sweep never sees.
+                lock_insight_for_evaluation(team_id=instance.team_id, insight_id=instance.id)
+                delete_insight_subscriptions(project_id=instance.team.project_id, insight_ids=[instance.id])
+                hide_tiles_for_insights([instance.id])
+                for alert in instance.alertconfiguration_set.all():
+                    alert.delete()
+            else:
+                dashboard_ids = validated_data.pop("dashboards", None)
+                if dashboard_ids is not None:
+                    # The membership write runs before the query is saved, so gate on the incoming one.
+                    self._update_insight_dashboards(
+                        dashboard_ids, instance, validated_data.get("query", instance.query)
+                    )
 
-        updated_insight = super().update(instance, validated_data)
+            updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
         # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
         # the alert check cycle re-validates against the current query and auto-disables + notifies on
@@ -962,7 +997,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         return []
 
-    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight) -> None:
+    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight, query: Any) -> None:
         # Counts the field being accepted as write input — before the no-op early return, so
         # integrations that round-trip an unchanged dashboards list still register as writers.
         _record_deprecated_dashboards_field_used(self.context, usage="write")
@@ -971,6 +1006,7 @@ class InsightSerializer(InsightBasicSerializer):
             change = update_insight_dashboard_membership(
                 insight=instance,
                 dashboard_ids=dashboard_ids,
+                query=query,
                 user=self.context["request"].user,
                 user_permissions=self.user_permissions,
                 user_access_control=self.user_access_control,
@@ -1071,7 +1107,7 @@ class InsightSerializer(InsightBasicSerializer):
         if (
             query
             and isinstance(query, dict)
-            and query.get("kind") == "DataVisualizationNode"
+            and query.get("kind") in ("DataVisualizationNode", "BIVisualizationNode")
             and query.get("source", {}).get("variables")
         ):
             query["source"]["variables"] = map_stale_to_latest(
@@ -1119,6 +1155,14 @@ class InsightSerializer(InsightBasicSerializer):
             return None
         return hydrate_scan_summary(self.context["get_team"](), summary, cache_key)
 
+    @extend_schema_field(_InsightResultWarnings)  # type: ignore[arg-type]
+    def get_warnings(self, insight: Insight) -> list[dict] | None:
+        # Sync warnings name warehouse tables and sources, which a shared viewer outside the
+        # project must not see.
+        if self.context.get("is_shared"):
+            return None
+        return self.insight_result(insight).warnings
+
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
         if insight.alertable_query_kind is None:
@@ -1157,11 +1201,13 @@ class InsightSerializer(InsightBasicSerializer):
         resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
         return {key: value or None for key, value in resolved_layers.items()}
 
+    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
     def get_effective_restriction_level(self, insight: Insight) -> RestrictionLevel:
         if self.context.get("is_shared"):
             return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.insight(insight).effective_restriction_level
 
+    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
     def get_effective_privilege_level(self, insight: Insight) -> PrivilegeLevel:
         if self.context.get("is_shared"):
             return PrivilegeLevel.CAN_VIEW
@@ -1244,12 +1290,8 @@ class InsightSerializer(InsightBasicSerializer):
                     dashboard_variables_override or {},
                     instance.team,
                 )
-            representation["filters"] = {}
             representation["query"] = query
         else:
-            representation["filters"] = instance.dashboard_filters(
-                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
-            )
             representation["query"] = instance.get_effective_query(
                 dashboard=dashboard,
                 dashboard_filters_override=dashboard_filters_override,
@@ -1306,6 +1348,7 @@ class InsightSerializer(InsightBasicSerializer):
                     hogql=cached_response.get("hogql"),
                     types=cached_response.get("types"),
                     query_scan=cached_response.get("query_scan"),
+                    warnings=cached_response.get("warnings"),
                 )
             else:
                 EXPORT_QUERY_CACHE_MISS.inc()
@@ -1402,28 +1445,33 @@ class InsightSerializer(InsightBasicSerializer):
                     error_code=getattr(e, "code_name", None),
                     last_refresh=None,
                 )
-            except ConcurrencyLimitExceeded as e:
-                logger.warn(
-                    "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
-                )
-                return self._degraded_insight_result(
-                    insight,
-                    dashboard,
-                    error=e,
-                    error_message="concurrency_limit_exceeded",
-                    error_code="concurrency_limit_exceeded",
-                    last_refresh=now(),
-                )
             except Exception as e:
-                # Capture unexpected crashes so the API list doesn't fail
-                logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
+                is_rate_limited = classify_query_error(e) == QueryErrorCategory.RATE_LIMITED
+                error_message = str(e)
+                if is_rate_limited:
+                    # Older dashboard clients retry on this marker. Other capacity messages can
+                    # contain internal Redis keys, task IDs or raw ClickHouse details.
+                    error_message = (
+                        "concurrency_limit_exceeded"
+                        if isinstance(e, ConcurrencyLimitExceeded)
+                        else ClickHouseAtCapacity.default_detail
+                    )
+                    logger.warn(
+                        "insight_calculation_rate_limited",
+                        exception=e,
+                        insight_id=insight.id,
+                        team_id=insight.team_id,
+                    )
+                else:
+                    # Capture unexpected crashes so the API list doesn't fail
+                    logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
                 return self._degraded_insight_result(
                     insight,
                     dashboard,
                     error=e,
-                    error_message=str(e),
-                    error_code=None,
-                    last_refresh=None,
+                    error_message=error_message,
+                    error_code=QueryErrorCategory.RATE_LIMITED if is_rate_limited else None,
+                    last_refresh=now() if is_rate_limited else None,
                 )
 
     def _degraded_insight_result(
@@ -1488,7 +1536,8 @@ class MCPInsightSerializer(InsightSerializer):
 
     Accepts raw product analytics queries and normalizes them into the correct saved-insight
     wrapper before persisting: HogQLQuery → DataVisualizationNode, insight queries
-    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode.
+    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode, EventsQuery → DataTableNode. MetricsQuery and
+    MetricsHistogramQuery stay bare.
     """
 
     query = QueryFieldSerializer(required=False, allow_null=True)
@@ -1502,31 +1551,60 @@ class MCPInsightSerializer(InsightSerializer):
         # Raw HogQL → DataVisualizationNode
         try:
             return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
+                exclude_none=True, mode="json", by_alias=True
+            )
+        except PydanticValidationError:
+            pass
+
+        try:
+            return schema.DataTableNode(source=schema.EventsQuery.model_validate(value)).model_dump(
                 exclude_none=True, mode="json"
             )
         except PydanticValidationError:
             pass
 
         # Already-wrapped node → use as-is
-        for wrapped_cls in (schema.DataVisualizationNode, schema.InsightVizNode):
+        for wrapped_cls in (
+            schema.DataVisualizationNode,
+            schema.BIVisualizationNode,
+            schema.InsightVizNode,
+            schema.DataTableNode,
+        ):
             try:
                 wrapped_node = wrapped_cls.model_validate(value)
-                normalized_query = wrapped_node.model_dump(exclude_none=True, mode="json")
-                if isinstance(wrapped_node, schema.DataVisualizationNode):
+                if isinstance(wrapped_node, schema.DataTableNode) and not isinstance(
+                    wrapped_node.source, schema.EventsQuery
+                ):
+                    raise serializers.ValidationError("MCP data table insights must have an EventsQuery source.")
+                normalized_query = wrapped_node.model_dump(exclude_none=True, mode="json", by_alias=True)
+                if isinstance(wrapped_node, (schema.DataVisualizationNode, schema.BIVisualizationNode)):
                     box_plot = wrapped_node.chartSettings.boxPlot if wrapped_node.chartSettings else None
                     if box_plot is not None:
                         normalized_box_plot = normalized_query.setdefault("chartSettings", {}).setdefault("boxPlot", {})
                         for field in ("xAxisColumn", "seriesColumn"):
                             if field in box_plot.model_fields_set and getattr(box_plot, field) is None:
                                 normalized_box_plot[field] = None
+                if isinstance(wrapped_node, schema.BIVisualizationNode):
+                    for entry in normalized_query["config"].get("memberAliases", []):
+                        for alias in entry["aliases"]:
+                            alias.setdefault("value", None)
+                    if "colorBy" in wrapped_node.config.model_fields_set and wrapped_node.config.colorBy is None:
+                        normalized_query["config"]["colorBy"] = None
                 return normalized_query
+            except PydanticValidationError:
+                pass
+
+        # A metrics insight saves its query bare, as the metrics editor and the metrics dashboard builders do
+        for metrics_cls in (schema.MetricsQuery, schema.MetricsHistogramQuery):
+            try:
+                return metrics_cls.model_validate(value).model_dump(exclude_none=True, mode="json", by_alias=True)
             except PydanticValidationError:
                 pass
 
         # Raw product analytics query → InsightVizNode
         try:
             return schema.InsightVizNode.model_validate({"kind": "InsightVizNode", "source": value}).model_dump(
-                exclude_none=True, mode="json"
+                exclude_none=True, mode="json", by_alias=True
             )
         except PydanticValidationError as exc:
             details = "; ".join(f"{'.'.join(str(part) for part in e['loc'])}: {e['msg']}" for e in exc.errors())
@@ -1639,6 +1717,132 @@ class InsightBulkSetTestAccountFilterResponseSerializer(serializers.Serializer):
     )
 
 
+class InsightDataChecksRequestSerializer(serializers.Serializer):
+    query = QueryFieldSerializer(
+        help_text=(
+            "The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. "
+            "Pass the query of a saved insight, or one that is not saved yet."
+        )
+    )
+    client_query_id = serializers.CharField(
+        required=False,
+        max_length=128,
+        help_text=(
+            "An id for this run, chosen by the client. To stop the queries of the run, send a DELETE request to "
+            "`query/{client_query_id}/`."
+        ),
+    )
+
+
+class InsightDataCheckSerializer(serializers.Serializer):
+    key = serializers.ChoiceField(choices=InsightDataCheckKey.choices, help_text="Which check this is.")
+    level = serializers.ChoiceField(
+        choices=InsightDataCheckLevel.choices,
+        help_text=(
+            "`passed` when the check found nothing worth acting on, `warning` for a small share of the events, "
+            "`problem` for a fifth of the events or more, and `skipped` when the check could not run."
+        ),
+    )
+    skip_reason = serializers.ChoiceField(
+        choices=InsightDataCheckSkipReason.choices,
+        allow_null=True,
+        help_text="Why the check did not run. Null unless `level` is `skipped`.",
+    )
+    method = serializers.ChoiceField(
+        choices=InsightDataCheckMethod.choices,
+        allow_null=True,
+        help_text=(
+            "`counted` when the check counted every event on the days checked, `sampled` when it read a sample. "
+            "Null when the check did not run."
+        ),
+    )
+    events = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many events on the days checked the check found. Null when the check did not run.",
+    )
+    share = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "`events` as a share of the events checked, from 0 to 1. Null when the check did not run, or when the "
+            "sample is too small to give a share."
+        ),
+    )
+    scaled = serializers.BooleanField(
+        help_text="True when `events` is an estimate scaled up from a sample, rather than a count of every event."
+    )
+    action = serializers.ChoiceField(
+        choices=InsightDataCheckAction.choices,
+        allow_null=True,
+        help_text=(
+            "The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's "
+            "query. `open_filter_settings`: change the project's internal and test users filter. Null when there is "
+            "no single change."
+        ),
+    )
+    top_events = serializers.ListField(
+        child=serializers.CharField(), help_text="The event names the check found most often, most affected first."
+    )
+    top_hosts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="For the local development check, the local hosts found most often, most affected first.",
+    )
+    top_bots = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="For the bot traffic check, the bots and crawlers found most often, most affected first.",
+    )
+
+
+class InsightDataChecksSampleSerializer(serializers.Serializer):
+    rate = serializers.FloatField(
+        help_text="The share of the events on the days checked that the sample read, from 0 to 1."
+    )
+    events = serializers.IntegerField(help_text="How many events the sample read.")
+    distinct_ids = serializers.IntegerField(help_text="How many distinct IDs sent the events the sample read.")
+
+
+class InsightDataChecksCoverageSerializer(serializers.Serializer):
+    date_from = serializers.DateField(help_text="The first day of the insight's date range.")
+    date_to = serializers.DateField(help_text="The last day of the insight's date range.")
+    days_in_range = serializers.IntegerField(help_text="How many days the insight's date range holds.")
+    checked_date_from = serializers.DateField(help_text="The first day the checks read.")
+    checked_date_to = serializers.DateField(help_text="The last day the checks read.")
+    days_checked = serializers.IntegerField(
+        help_text="How many days the checks read. The checks read the newest days of the range, up to 7."
+    )
+    filters_test_accounts = serializers.BooleanField(
+        help_text="True when the insight filters out the project's internal and test users."
+    )
+    events_checked = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "How many events the insight reads on the days checked. Counted exactly, or scaled up from the sample "
+            "when the days hold too many events to count. Null when neither ran."
+        ),
+    )
+    sample = InsightDataChecksSampleSerializer(
+        allow_null=True, help_text="The sample the bot and duplicate checks read. Null when the sample did not run."
+    )
+
+
+class InsightDataChecksSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=InsightDataChecksStatus.choices,
+        help_text=(
+            "The worst result across the checks. `no_events` when no event matches the insight's events, filters "
+            "and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, "
+            "and when a property the checks read is hidden from the caller. `inconclusive` when no check could run."
+        ),
+    )
+    checks = InsightDataCheckSerializer(many=True, help_text="Every check, in a fixed order, whatever its result.")
+    coverage = InsightDataChecksCoverageSerializer(
+        allow_null=True,
+        help_text=(
+            "Which days and how many events the checks read. Null when the checks could not choose the days to "
+            "read, such as for an `unsupported` insight."
+        ),
+    )
+
+
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 @extend_schema_view(
     list=extend_schema(
@@ -1695,8 +1899,29 @@ Background calculation can be tracked using the `query_status` response field.""
             ),
             OpenApiParameter(
                 name="insight",
-                enum=["TRENDS", "FUNNELS", "RETENTION", "PATHS", "JOURNEYS", "STICKINESS", "LIFECYCLE", "JSON", "SQL"],
-                description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.",
+                enum=[
+                    "TRENDS",
+                    "FUNNELS",
+                    "RETENTION",
+                    "PATHS",
+                    "JOURNEYS",
+                    "STICKINESS",
+                    "LIFECYCLE",
+                    "JSON",
+                    "SQL",
+                    "BI",
+                ],
+                description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.",
+            ),
+            OpenApiParameter(
+                name="exclude_bi",
+                type=OpenApiTypes.BOOL,
+                description="Exclude Business intelligence worksheets from the insight list.",
+            ),
+            OpenApiParameter(
+                name="order",
+                type=OpenApiTypes.STR,
+                description="Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.",
             ),
             OpenApiParameter(
                 name="date_from",
@@ -1773,8 +1998,8 @@ class InsightViewSet(
     parser_classes = (QuerySchemaParser,)
 
     def get_throttles(self):
-        """Apply LLM-specific throttles to AI analysis endpoints."""
-        if self.action in ["analyze", "suggestions", "generate_metadata"]:
+        """Apply LLM-specific throttles to the AI metadata endpoint."""
+        if self.action == "generate_metadata":
             return [
                 AIObservabilitySummarizationBurstThrottle(),
                 AIObservabilitySummarizationSustainedThrottle(),
@@ -1910,7 +2135,10 @@ class InsightViewSet(
         if not order:
             if self.request.GET.get("search"):
                 return queryset
-            return queryset.order_by("order")
+            # `order` is a vestigial nullable column with no index, so sorting on it forces a full
+            # scan and sort of the project. `-last_modified_at` is covered by dashboarditem_team_lmod_idx.
+            # `-pk` breaks ties so paginated pages stay stable when timestamps collide.
+            return queryset.order_by("-last_modified_at", "-pk")
 
         if order == "-last_viewed_at":
             return queryset.order_by(F("last_viewed_at").desc(nulls_last=True))
@@ -1965,8 +2193,11 @@ class InsightViewSet(
         try:
             days = int(request.GET.get("days", "7"))
             limit = min(int(request.GET.get("limit", "10")), 100)
+            offset = int(request.GET.get("offset", "0"))
         except (ValueError, TypeError):
-            raise ValidationError("days and limit must be valid integers")
+            raise ValidationError("days, limit and offset must be valid integers")
+        if limit <= 0 or offset < 0:
+            raise ValidationError("limit must be positive and offset must not be negative")
 
         cutoff_date = now() - timedelta(days=days)
 
@@ -1980,13 +2211,16 @@ class InsightViewSet(
                 )
             )
             .filter(view_count__gt=0)
-            .order_by("-view_count", "-last_modified_at")
+            .order_by("-view_count", "-last_modified_at", "-id")
         )
 
         queryset = self._filter_queryset_by_access_level(queryset)
-        queryset = queryset[:limit]
+        # Fetch one extra row to know if a next page exists without a separate count query.
+        queryset = queryset[offset : offset + limit + 1]
         queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
         insights = list(queryset)
+        has_next = len(insights) > limit
+        insights = insights[:limit]
 
         # Batch fetch viewers once to avoid N+1 queries
         viewers_by_insight = recent_viewers_by_insight(
@@ -2003,8 +2237,19 @@ class InsightViewSet(
         # Wrap in the standard paginated envelope so the response shape matches the auto-generated
         # OpenAPI schema (drf-spectacular wraps `many=True` responses as `Paginated*List` when the
         # viewset has a paginator). This keeps the MCP-generated client and any other typed consumer
-        # happy. There's no real pagination — `limit` already caps the result set.
-        return Response({"count": len(data), "next": None, "previous": None, "results": data})
+        # happy. `count` is the size of this page, not the total.
+        page_url = request.build_absolute_uri()
+        next_url = (
+            replace_query_param(replace_query_param(page_url, "offset", offset + limit), "limit", limit)
+            if has_next
+            else None
+        )
+        previous_url = (
+            replace_query_param(replace_query_param(page_url, "offset", max(offset - limit, 0)), "limit", limit)
+            if offset > 0
+            else None
+        )
+        return Response({"count": len(data), "next": next_url, "previous": previous_url, "results": data})
 
     @staticmethod
     @tracer.start_as_current_span("InsightViewSet._apply_search")
@@ -2050,6 +2295,9 @@ class InsightViewSet(
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
+            elif key == "exclude_bi":
+                if str_to_bool(request.GET["exclude_bi"]):
+                    queryset = queryset.exclude(query__kind="BIVisualizationNode")
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
                     from posthog.helpers.dashboard_templates import feature_flag_generated_insight_q
@@ -2075,7 +2323,9 @@ class InsightViewSet(
                     "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
                 }
-                if insight == "JSON":
+                if insight == "BI":
+                    queryset = queryset.filter(query__kind="BIVisualizationNode")
+                elif insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                     queryset = queryset.exclude(
@@ -2110,7 +2360,10 @@ class InsightViewSet(
                 if tags_filter:
                     tags_list = json.loads(tags_filter)
                     if tags_list:
-                        queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+                        # A semi-join returns one row per insight, so the list needs no
+                        # `.distinct()` sort over the wide insight JSON columns.
+                        matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=tags_list)
+                        queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:
@@ -2238,94 +2491,6 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return response
 
-    @action(methods=["GET"], detail=True)
-    def analyze(self, request: Request, **kwargs) -> Response:
-        self._validate_ai_feature_access()
-
-        insight = self.get_object()
-
-        if not insight.query:
-            return Response({"result": ""})
-
-        try:
-            query = schema.InsightVizNode.model_validate(insight.query)
-        except Exception:
-            return Response({"result": ""})
-
-        result = None
-        try:
-            # We try to get cached result.
-            result_ctx = process_query_model(
-                self.team,
-                query,
-                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                user=request.user if request.user.is_authenticated else None,
-                analytics_props=get_request_analytics_properties(request),
-            )
-            if isinstance(result_ctx, BaseModel):
-                result = result_ctx.model_dump()
-            else:
-                result = result_ctx
-
-            if result and result.get("results") is None and result.get("result") is None:
-                result = None
-        except Exception:
-            result = None
-
-        analysis = get_insight_analysis(
-            query,
-            self.team,
-            result,
-            insight_name=insight.name,
-            insight_description=insight.description,
-            insight_id=insight.id,
-        )
-
-        return Response({"result": analysis})
-
-    @action(methods=["GET", "POST"], detail=True)
-    def suggestions(self, request: Request, **kwargs) -> Response:
-        self._validate_ai_feature_access()
-
-        insight = self.get_object()
-
-        if not insight.query:
-            return Response([])
-
-        try:
-            query = schema.InsightVizNode.model_validate(insight.query)
-        except Exception:
-            return Response([])
-
-        result = None
-        try:
-            # We try to get cached result.
-            result_ctx = process_query_model(
-                self.team,
-                query,
-                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                user=request.user if request.user.is_authenticated else None,
-                analytics_props=get_request_analytics_properties(request),
-            )
-            if isinstance(result_ctx, BaseModel):
-                result = result_ctx.model_dump()
-            else:
-                result = result_ctx
-
-            if result and result.get("results") is None and result.get("result") is None:
-                result = None
-        except Exception:
-            result = None
-
-        # Get context from POST body if provided
-        context = None
-        if request.method == "POST":
-            context = request.data.get("context")
-
-        suggestions = get_insight_suggestions(query, self.team, result, context)
-
-        return Response([s.model_dump() for s in suggestions])
-
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
     def generate_metadata(self, request: Request, **kwargs) -> Response:
         """Generate an AI-suggested name and description for an insight based on its query configuration."""
@@ -2406,6 +2571,84 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(status=status.HTTP_201_CREATED)
 
+    @validated_request(
+        request_serializer=InsightDataChecksRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=InsightDataChecksSerializer, description="The result of every check.")
+        },
+        description=(
+            "Check the events behind an insight for the common ways they mislead: internal and test users, local "
+            "development traffic, bots and crawlers, and events sent twice. Works for trends, funnels, stickiness "
+            "and lifecycle insights whose series are events. The checks apply the insight's own filters, and read "
+            "the newest days of its date range, up to 7. The bot and duplicate checks read a sample of those days. "
+            "For a token, the internal users check matches the emails of the organization's members only with the "
+            "`organization_member:read` scope, and its verified domains only with `organization:read`. Nothing is "
+            "stored. This route runs the query it is sent, so it needs query access as well as insight access. To "
+            "check a saved insight by its id, send a GET request to `insights/{id}/data_checks/`."
+        ),
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read", "query:read"])
+    def data_checks(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        # The scope covers a token. A session has no scopes, and a token's scope does not prove its owner has access.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to check a query that is not saved as an insight.")
+        if client_query_id := request.validated_data.get("client_query_id"):
+            tag_queries(client_query_id=client_query_id)
+        return self._data_checks_response(request.validated_data["query"])
+
+    @validated_request(
+        parameters=[INSIGHT_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=InsightDataChecksSerializer, description="The result of every check.")
+        },
+        description=(
+            "Run the data checks on a saved insight, found by its numeric id or its `short_id`. The checks read the "
+            "query the insight stores, and work the same way as the checks on a query that is not saved. The "
+            "`status` is `unsupported` for an insight that still stores legacy `filters` and no query. Nothing is "
+            "stored."
+        ),
+    )
+    @action(methods=["GET"], detail=True, url_path="data_checks", required_scopes=["insight:read"])
+    def saved_insight_data_checks(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        insight = self.get_object()
+        return self._data_checks_response(upgrade(insight.query) if insight.query else {})
+
+    def _data_checks_response(self, query: dict[str, Any]) -> Response:
+        # A personal API key reads within the same hourly budget as the query API, and each check query debits it.
+        if get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY:
+            tag_queries(api_queries_budgeted=True)
+            enforce_api_queries_budget(self.team)
+        try:
+            with query_concurrency_slots(self.team):
+                checks = run_insight_data_checks(
+                    query,
+                    team=self.team,
+                    user=cast(User, self.request.user),
+                    email_access=self._team_email_access(),
+                )
+        except CHQueryErrorQueryWasCancelled:
+            # The client cancelled the run, so nothing reads a body. 499 is Nginx's "Client Closed Request".
+            return Response(status=499)
+        except (ExposedHogQLError, ExposedCHQueryError, ResolutionError) as error:
+            raise ValidationError(str(error), getattr(error, "code_name", None))
+        return Response(InsightDataChecksSerializer(checks).data)
+
+    def _team_email_access(self) -> TeamEmailAccess:
+        # A session has no scopes. A token may only match the emails it could read through the organization's API,
+        # which rejects a token confined to some projects.
+        authenticator = self.request.successful_authenticator
+        scopes = get_authenticator_scopes(authenticator)
+        project_scoped = bool(get_authenticator_scoped_team_ids(authenticator))
+
+        def holds(scope: str) -> bool:
+            if project_scoped:
+                return False
+            return scopes is None or "*" in scopes or not scopes_not_covered(scopes, [scope])
+
+        return TeamEmailAccess(
+            member_emails=holds("organization_member:read"), verified_domains=holds("organization:read")
+        )
+
     # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
     # in the class namespace, so `list[...]` in this signature breaks both at class-definition time and for mypy.
     def _bulk_filter_editable_insights(
@@ -2466,6 +2709,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts.
                 hide_tiles_for_insights(insight_ids)
                 delete_insight_alerts(insight_ids)
+                delete_insight_subscriptions(project_id=self.team.project_id, insight_ids=insight_ids)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:

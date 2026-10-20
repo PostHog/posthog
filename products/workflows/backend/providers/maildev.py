@@ -1,4 +1,6 @@
-MAILDEV_MOCK_DNS_RECORDS = [
+from products.workflows.backend.facade.contracts import EmailDomainDnsRecord
+
+MAILDEV_MOCK_DNS_RECORDS: list[EmailDomainDnsRecord] = [
     # Mock DNS records for email domain setup when using local maildev
     {
         "type": "verification",

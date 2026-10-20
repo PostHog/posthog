@@ -47,14 +47,15 @@ import {
     type SurveyStatsData,
 } from 'products/surveys/mcp/apps'
 import { TraceSpanListView, TraceSpanView, type TraceSpanData, type TraceSpanListData } from 'products/tracing/mcp/apps'
-import { InviteEmailPreviewView, type InviteEmailPreviewData } from 'products/user_interviews/mcp/apps'
 import {
     EmailTemplateView,
     WorkflowListView,
+    WorkflowSetupStatusView,
     WorkflowView,
     type EmailTemplateData,
     type WorkflowData,
     type WorkflowListData,
+    type WorkflowSetupStatusData,
 } from 'products/workflows/mcp/apps'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
@@ -357,7 +358,7 @@ function VisionObservationListContent({
             }
             try {
                 const result = await app.callServerTool({
-                    name: 'vision-observations-retrieve',
+                    name: 'vision-observations-get',
                     arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
@@ -433,7 +434,6 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     'insight-actors': ({ data, openLink }) => (
         <InsightActorsView data={data as InsightActorsData} openLink={openLink} />
     ),
-    'invite-email-preview': ({ data }) => <InviteEmailPreviewView data={data as InviteEmailPreviewData} />,
     'llm-costs': ({ data }) => <LLMCostsView data={data as LLMCostsData} />,
     'query-results': ({ data }) => <Component data={data} />,
     'session-recording': ({ data }) => <SessionRecordingView recording={data as SessionRecordingData} />,
@@ -448,4 +448,7 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     ),
     workflow: ({ data }) => <WorkflowView workflow={data as WorkflowData} />,
     'workflow-list': ({ data, app }) => <WorkflowListContent data={data as WorkflowListData} app={app} />,
+    'workflow-setup-status': ({ data, openLink }) => (
+        <WorkflowSetupStatusView data={data as WorkflowSetupStatusData} openLink={openLink} />
+    ),
 }

@@ -4,10 +4,11 @@ Code about GitHub that more than one product needs and that is neither transport
 Inbound transport is `posthog/ingress/github/`, outbound calls are `posthog/egress/github/`, and neither imports the other.
 Both may import this package.
 
-- `installations.py` reads the installation id off a payload and resolves the teams linked to it.
+- `installations.py` reads the installation id off a payload and resolves the teams linked to it. Consumers call `installation_integrations()` or `installation_team_ids()` for that, which runs one capped query.
 - `attribution.py` resolves a GitHub login to an organization member, under a bounded statement timeout, so a slow lookup degrades to no attribution.
 - `pull_request_events.py` emits the canonical `pr_created`, `pr_closed`, `pr_merged` and `pr_reviewed` analytics events.
 - `metrics.py` holds the Prometheus counters for dropped events and attribution outcomes.
+- `merge_queue.py` reads the Trunk merge queue state off the comment Trunk keeps on each pull request. A bot that pushes to pull request branches checks it first, because a push removes a queued pull request from the queue. `GitHubIntegration.get_pull_request_merge_queue_state` does the read.
 
 ## PR analytics
 

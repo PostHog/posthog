@@ -5,16 +5,14 @@ import hashlib
 import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from decimal import Decimal
 from time import monotonic
 from uuid import UUID
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-
-import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
@@ -56,7 +54,6 @@ JOB_STALE_AFTER = timedelta(minutes=10)
 GENERATION_CANCELLATION_TTL_SECONDS = 60 * 15
 MAX_SCHEMA_CONTEXT_BYTES = 64 * 1_024
 MAX_INPUT_CONTRACT_BYTES = 512 * 1_024
-NOTEBOOK_GENERATED_WIDGETS_FLAG = "notebook-generated-widgets"
 
 _INPUT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -160,6 +157,7 @@ class WidgetVersionSummary:
     is_current: bool
     security_review: WidgetSecurityReviewState | None
     build_hash: str | None = None
+    generation_cost_usd: Decimal | None = None
 
 
 @frozen
@@ -329,6 +327,8 @@ def inspect_widget_inputs(
     inputs: list[str],
     authorize_run: Callable[[NotebookNodeRun], None],
     node_id: str | None = None,
+    *,
+    skip_unready: bool = False,
 ) -> WidgetInputInspection:
     normalized_inputs = normalize_widget_inputs(inputs)
     if node_id is not None:
@@ -347,7 +347,7 @@ def inspect_widget_inputs(
     )
     runs = {run.node_id: run for run in run_queryset.defer("envelope")}
     unresolved = [name for name in normalized_inputs if owners[name] not in runs]
-    if unresolved:
+    if unresolved and not skip_unready:
         raise WidgetConflictError(
             f'Run the cell that creates "{unresolved[0]}" before generating this widget.',
             "input_not_ready",
@@ -449,41 +449,13 @@ def _is_ai_usage_limited(team_api_token: str) -> bool:
     return is_team_over_ai_credit_budget(team_api_token)
 
 
-def is_notebook_widget_enabled(user: User | None) -> bool:
-    if settings.DEBUG or settings.TEST:
-        return True
-    if user is None or not user.distinct_id:
-        return False
-    organization = getattr(user, "organization", None)
-    if organization is None:
-        return bool(
-            posthoganalytics.feature_enabled(
-                NOTEBOOK_GENERATED_WIDGETS_FLAG,
-                user.distinct_id,
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    organization_id = str(organization.id)
-    return bool(
-        posthoganalytics.feature_enabled(
-            NOTEBOOK_GENERATED_WIDGETS_FLAG,
-            user.distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
-
-
 def _display_name(prompt: str) -> str:
     return prompt if len(prompt) <= 80 else f"{prompt[:77].rstrip()}..."
 
 
 def _ensure_widget_instance(*, notebook: Notebook, node_id: str, prompt: str, user_id: int) -> NotebookWidgetInstance:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
+        notebooks as canvas_facade,
     )
     from products.tasks.backend.facade import (  # noqa: PLC0415 — keeps Tasks imports off notebook startup
         api as tasks_facade,
@@ -641,6 +613,33 @@ def _reconcile_stale_generation_job(job: GeneratedWidgetGenerationJob) -> None:
         job.refresh_from_db()
 
 
+def _improvement_input_contract(
+    instance: NotebookWidgetInstance,
+    base_version: GeneratedWidgetVersion,
+    inspection: WidgetInputInspection,
+) -> list[dict[str, object]]:
+    available = {item.name: item.contract for item in inspection.resolved_inputs}
+    bindings = instance.input_bindings if isinstance(instance.input_bindings, dict) else {}
+    required: list[dict[str, object]] = []
+    for item in base_version.input_contract:
+        slot = str(item["slot"])
+        binding = bindings.get(slot)
+        source = (
+            str(binding["source"])
+            if isinstance(binding, dict) and isinstance(binding.get("source"), str)
+            else str(item.get("sourceName") or slot)
+        )
+        if source not in available:
+            raise WidgetConflictError(
+                f'Run the cell that creates "{source}" before improving this widget.',
+                "input_not_ready",
+            )
+        # Existing source still uses these slots, including schemas supplied by input transformations.
+        required.append({**available[source], **item, "sourceName": source})
+    slots = {item["slot"] for item in required}
+    return required + [item for item in inspection.contract if item["slot"] not in slots]
+
+
 def start_widget_generation(
     *,
     notebook: Notebook,
@@ -769,6 +768,9 @@ def start_widget_generation(
         elif operation == GeneratedWidgetVersion.Operation.INITIAL:
             resolved_operation = GeneratedWidgetVersion.Operation.REGENERATE
         input_contract = input_contract_override if input_contract_override is not None else inspection.contract
+        if operation == GeneratedWidgetVersion.Operation.IMPROVE and input_contract_override is None:
+            assert base_version is not None
+            input_contract = _improvement_input_contract(locked_instance, base_version, inspection)
         job = GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id).create(
             idempotency_key=generation_id,
             team_id=notebook.team_id,
@@ -975,8 +977,8 @@ def heartbeat_widget_generation_job(job_id: UUID, team_id: int) -> None:
 
 
 def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas and object storage off worker registration
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas and object storage off worker registration
+        notebooks as canvas_facade,
     )
     from products.notebooks.backend.widget_generation import (  # noqa: PLC0415 — keeps the model client off Django startup
         WidgetSecurityReviewError,
@@ -985,6 +987,9 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
         WidgetSourceGenerationTimedOut,
         generate_widget_source,
         review_widget_source,
+    )
+    from products.notebooks.backend.widget_generation_cost import (  # noqa: PLC0415 - keeps the model client off Django startup
+        get_widget_generation_cost,
     )
 
     with transaction.atomic():
@@ -1079,6 +1084,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
             effective_prompt = _materialize_effective_prompt(job.base_version)
         frames = _bounded_schema_context(job.input_contract)
         frame_names = [str(item.get("slot")) for item in job.input_contract if item.get("slot")]
+        request_ids: list[str | None] = []
         generated = generate_widget_source(
             team_id=job.team_id,
             trace_id=f"notebook-widget-{job.id}",
@@ -1089,6 +1095,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
             is_cancelled=is_cancelled,
             base_source=base_source,
             change_prompt=change_prompt,
+            request_ids=request_ids,
         )
         source = generated.source
         title = generated.title or _display_name(effective_prompt)
@@ -1112,6 +1119,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
             source=source,
             input_names=frame_names,
             is_cancelled=is_cancelled,
+            request_ids=request_ids,
         )
         # Publication preserves the exact reviewed artifact for inspection. Browser consumers gate execution of
         # every non-clean verdict on explicit trust for this version's immutable build hash.
@@ -1146,6 +1154,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 job.base_version.canvas_source_version_id if job.base_version is not None else None
             ),
         )
+        generation_cost_usd = get_widget_generation_cost(request_ids)
         with canvas_facade.notebook_canvas_source_transaction(team_id=job.team_id, prepared=prepared_source):
             locked_job = (
                 GeneratedWidgetGenerationJob.objects.for_team(job.team_id)
@@ -1194,6 +1203,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 prompt_history=prompt_history,
                 model=job.model,
                 generator_version=GENERATOR_VERSION,
+                generation_cost_usd=generation_cost_usd,
                 input_contract=_version_input_contract(job.input_contract),
                 demo_data=(
                     job.base_version.demo_data
@@ -1342,8 +1352,8 @@ def _latest_job(instance: NotebookWidgetInstance) -> GeneratedWidgetGenerationJo
 
 
 def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     assert_widget_node_exists(notebook, node_id)
@@ -1499,8 +1509,8 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
 
 
 def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, limit: int = 25) -> WidgetVersionPage:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     assert_widget_node_exists(notebook, node_id)
@@ -1551,6 +1561,7 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
                 is_current=version.id == current_id,
                 security_review=_security_review_state(version),
                 build_hash=canvas_version.build_hash if canvas_version is not None else None,
+                generation_cost_usd=version.generation_cost_usd,
             )
         )
     next_offset = offset + limit if offset + limit < count else None
@@ -1615,8 +1626,8 @@ def _get_instance_and_version(
 
 
 def read_widget_source(*, notebook: Notebook, node_id: str, version_id: UUID | None = None) -> str:
-    from products.canvas.backend import (  # noqa: PLC0415 - keeps Canvas storage imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 - keeps Canvas storage imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     instance, version = _get_instance_and_version(notebook, node_id, version_id)
@@ -1638,8 +1649,8 @@ def revert_widget_version(
     expected_current_version_id: UUID,
     user_id: int,
 ) -> WidgetStatus:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     instance, target = _get_instance_and_version(notebook, node_id, version_id)

@@ -10,7 +10,11 @@ from products.replay_vision.backend.temporal.network_capture import (
 )
 
 
-def _line(*events: dict[str, Any], window_id: str = "w1") -> str:
+def _line(event: dict[str, Any], window_id: str = "w1") -> str:
+    return json.dumps([window_id, event])
+
+
+def _api_line(*events: dict[str, Any], window_id: str = "w1") -> str:
     return json.dumps({"window_id": window_id, "data": list(events)})
 
 
@@ -62,11 +66,19 @@ class TestParseNetworkPayload:
             ("slow success", {"status": 200, "duration": 4000}, True),
             ("fast success", {"status": 200, "duration": 30}, False),
             ("fast redirect", {"status": 302, "duration": 12}, False),
+            ("observer hides a cross-origin status", {"responseStatus": 0, "duration": 30}, False),
+            ("wrapped fetch that threw", {"method": "GET", "responseStatus": 0, "duration": 30}, True),
         ]
     )
     def test_keeps_only_failed_or_slow_requests(self, _label: str, fields: dict[str, Any], kept: bool) -> None:
         payload = parse_network_payload([_line(_rrweb_event(1000, {"name": "https://app.test/x", **fields}))])
         assert bool(payload.requests) is kept
+
+    def test_a_slow_cross_origin_load_is_kept_without_a_status(self) -> None:
+        payload = parse_network_payload(
+            [_line(_posthog_event(1000, {"2": "https://embed.test/", "18": "iframe", "21": 0, "39": 4975}))]
+        )
+        assert [(request.status, request.duration_ms) for request in payload.requests] == [(None, 4975)]
 
     def test_wrapped_fetch_status_wins_over_the_observer_status(self) -> None:
         # Both fields can arrive on one request, in either key order. Losing this precedence misreports a
@@ -77,12 +89,14 @@ class TestParseNetworkPayload:
                     _rrweb_event(
                         1000,
                         {"name": "https://app.test/a", "responseStatus": 200, "status": 503, "duration": 5},
-                    ),
+                    )
+                ),
+                _line(
                     _rrweb_event(
                         2000,
                         {"name": "https://app.test/b", "status": 503, "responseStatus": 200, "duration": 5},
-                    ),
-                )
+                    )
+                ),
             ]
         )
         assert [request.status for request in payload.requests] == [503, 503]
@@ -168,6 +182,32 @@ class TestParseNetworkPayload:
         )
         assert captured_but_clean.captured
         assert captured_but_clean.requests == []
+        assert not captured_but_clean.unknown_outcomes
+
+        hidden_status = parse_network_payload(
+            [_line(_rrweb_event(1000, {"name": "https://embed.test/", "responseStatus": 0, "duration": 5}))]
+        )
+        assert hidden_status.requests == []
+        assert hidden_status.unknown_outcomes
+
+    def test_an_unrecognized_array_is_ignored_not_misread(self) -> None:
+        # A two-event list matches a [window_id, event] pair by length. Reading it as one would keep the
+        # second event and silently drop the first, inventing a request the line never described.
+        both = json.dumps(
+            [
+                _rrweb_event(1000, {"name": "https://app.test/first", "status": 500}),
+                _rrweb_event(2000, {"name": "https://app.test/second", "status": 503}),
+            ]
+        )
+        payload = parse_network_payload([both])
+        assert payload.requests == []
+        assert payload.captured is False
+
+    def test_reads_the_api_wrapper_shape_too(self) -> None:
+        payload = parse_network_payload(
+            [_api_line(_rrweb_event(1000, {"name": "https://app.test/api/x", "status": 503}))]
+        )
+        assert [request.url for request in payload.requests] == ["https://app.test/api/x"]
 
     def test_survives_corrupt_lines_and_unusable_requests(self) -> None:
         payload = parse_network_payload(

@@ -208,7 +208,11 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
 
-    const columns = availableColumns ?? schema.available_columns ?? []
+    // An empty discovered list means "not discovered", not "this relation has no columns": a
+    // Redshift materialized view under a restricted role is listed from the stored metadata alone.
+    // The API judges an incremental switch against that stored list, so the key picker offers it
+    // too — otherwise the switch is refused with no way to satisfy it.
+    const columns = availableColumns?.length ? availableColumns : (schema.available_columns ?? [])
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
     // A key is only asked for when the source reads keys off the table and the columns are
     // known. A source that declares its key in code resolves it at sync time, and with no

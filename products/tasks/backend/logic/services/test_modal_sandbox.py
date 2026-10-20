@@ -1,8 +1,13 @@
+import re
 import shutil
 from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from django.conf import settings
+
+from modal.exception import TimeoutError as ModalTimeoutError
 
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -13,6 +18,7 @@ from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
     LOCAL_MODAL_AGENT_SHADOW_DIR,
+    LOCAL_MODAL_DOCKERFILES,
     LOCAL_MODAL_HOGLI_SHIM_SCRIPT,
     LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
     LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE,
@@ -92,7 +98,8 @@ class TestModalSandboxWriteFile:
         assert "rm -f /tmp/credentials.tmp-*" in command
         assert " && mv /tmp/credentials.tmp-" in command
 
-    def test_uses_bounded_exec_path_when_timeout_is_set(self, mocker):
+    @pytest.mark.parametrize("task_filesystem", [False, True])
+    def test_uses_bounded_exec_path_when_timeout_is_set(self, mocker, task_filesystem: bool) -> None:
         handle = MagicMock(object_id="sb-test")
         handle.poll.return_value = None
         mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
@@ -100,16 +107,16 @@ class TestModalSandboxWriteFile:
         execute = mocker.patch.object(
             sandbox,
             "execute",
-            side_effect=[
-                ExecutionResult(stdout="", stderr="", exit_code=0),
-                ExecutionResult(stdout="", stderr="", exit_code=0),
-            ],
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=0),
         )
 
-        sandbox.write_file("/tmp/credentials", b"token=value\x00", timeout_seconds=15)
+        if task_filesystem:
+            sandbox.execute_in_task_filesystem("echo ready", timeout_seconds=30)
+        else:
+            sandbox.write_file("/tmp/credentials", b"token=value\x00", timeout_seconds=30)
 
         handle.filesystem.write_bytes.assert_not_called()
-        assert all(call.kwargs["timeout_seconds"] == 15 for call in execute.call_args_list)
+        assert all(call.kwargs["timeout_seconds"] == 30 for call in execute.call_args_list)
 
     def test_chunks_large_exec_fallback_payloads(self, mocker):
         handle = MagicMock(object_id="sb-test")
@@ -173,6 +180,10 @@ class TestModalSandboxWriteFile:
 def patched_modal(mocker):
     fake_sandbox = MagicMock()
     fake_sandbox.object_id = "sb-test"
+    fake_sandbox.poll.return_value = None
+    fake_sandbox.exec.return_value.stdout.read.return_value = ""
+    fake_sandbox.exec.return_value.stderr.read.return_value = ""
+    fake_sandbox.exec.return_value.returncode = 0
 
     mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
     mocker.patch(
@@ -220,6 +231,7 @@ class TestModalSandboxDirectorySnapshotMount:
         snapshot_image = MagicMock()
         mocker.patch("modal.Image.from_id", return_value=snapshot_image)
         fake_sandbox = patched_modal.return_value
+        # The post-mount probe runs a command in the mounted sandbox; let it pass.
         fake_sandbox.exec.return_value.poll.return_value = 0
 
         sandbox = ModalSandbox.create(
@@ -245,7 +257,7 @@ class TestModalSandboxDirectorySnapshotMount:
         mocker.patch("modal.Image.from_id", return_value=snapshot_image)
         wedged = MagicMock()
         wedged.object_id = "sb-wedged"
-        wedged.exec.return_value.poll.return_value = 137
+        wedged.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
         fresh = MagicMock()
         fresh.object_id = "sb-fresh"
         patched_modal.side_effect = [wedged, fresh]
@@ -395,9 +407,19 @@ class TestLocalModalBuildContext:
             assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "go.mod").is_file()
             assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "main.go").is_file()
             assert (root / LOCAL_MODAL_HOGLI_SHIM_SCRIPT).is_file()
+            assert (root / "products/tasks/backend/sandbox/images/task_filesystem.py").is_file()
         finally:
             shutil.rmtree(context_dir, ignore_errors=True)
             _prepare_local_modal_build_context.cache_clear()
+
+    @pytest.mark.parametrize("dockerfile", sorted(LOCAL_MODAL_DOCKERFILES.values()), ids=lambda path: path.name)
+    def test_dockerfile_has_no_empty_unquoted_arg_default(self, dockerfile: Path):
+        lines = (Path(settings.BASE_DIR) / dockerfile).read_text().splitlines()
+        bare = [line for line in lines if re.fullmatch(r"ARG\s+\w+=\s*", line)]
+        assert bare == [], (
+            f"{dockerfile} declares an ARG with an empty unquoted default. Modal's Dockerfile parser rejects it "
+            'in DEBUG builds, although BuildKit accepts it. Write ARG NAME="" instead.'
+        )
 
     def test_notebook_context_carries_the_baked_kernel_package(self):
         # DEBUG builds the notebook image from this trimmed context, not the repo root, so a

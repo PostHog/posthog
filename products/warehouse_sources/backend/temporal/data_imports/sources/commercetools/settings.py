@@ -26,6 +26,9 @@ class CommercetoolsEndpointConfig:
     partition_key: str = "createdAt"
 
 
+# Endpoints that only exist on some projects (variants: Modular catalog model only).
+_OPT_IN_ENDPOINTS = frozenset({"variants"})
+
 COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
     "orders": CommercetoolsEndpointConfig(
         name="orders",
@@ -47,9 +50,26 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         path="/carts",
         scope="view_orders",
     ),
+    "shopping_lists": CommercetoolsEndpointConfig(
+        name="shopping_lists",
+        path="/shopping-lists",
+        scope="view_shopping_lists",
+    ),
     "product_projections": CommercetoolsEndpointConfig(
         name="product_projections",
         path="/product-projections",
+        scope="view_products",
+    ),
+    "product_types": CommercetoolsEndpointConfig(
+        name="product_types",
+        path="/product-types",
+        scope="view_product_types",
+    ),
+    # Only available on projects using the Modular catalog model; Classic projects
+    # keep variants embedded in product_projections, so it stays off by default.
+    "variants": CommercetoolsEndpointConfig(
+        name="variants",
+        path="/variants",
         scope="view_products",
     ),
     "categories": CommercetoolsEndpointConfig(
@@ -67,6 +87,40 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         path="/inventory",
         scope="view_products",
     ),
+    "standalone_prices": CommercetoolsEndpointConfig(
+        name="standalone_prices",
+        path="/standalone-prices",
+        scope="view_standalone_prices",
+    ),
+    "stores": CommercetoolsEndpointConfig(
+        name="stores",
+        path="/stores",
+        scope="view_stores",
+    ),
+    "channels": CommercetoolsEndpointConfig(
+        name="channels",
+        path="/channels",
+        scope="view_channels",
+    ),
+    "customer_groups": CommercetoolsEndpointConfig(
+        name="customer_groups",
+        path="/customer-groups",
+        scope="view_customer_groups",
+    ),
+    "states": CommercetoolsEndpointConfig(
+        name="states",
+        path="/states",
+        scope="view_states",
+    ),
+    # Rows only exist once the Messages Query feature is switched on for the
+    # project; before that commercetools persists no messages and the table syncs empty.
+    # commercetools also deletes messages past the project's retention period, so this
+    # table can only ever cover that window.
+    "messages": CommercetoolsEndpointConfig(
+        name="messages",
+        path="/messages",
+        scope="view_messages",
+    ),
 }
 
 ENDPOINTS = tuple(COMMERCETOOLS_ENDPOINTS.keys())
@@ -74,3 +128,6 @@ ENDPOINTS = tuple(COMMERCETOOLS_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in COMMERCETOOLS_ENDPOINTS.items() if config.incremental_fields
 }
+
+# Tables that only exist on some projects stay off until the user opts in.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: name not in _OPT_IN_ENDPOINTS for name in COMMERCETOOLS_ENDPOINTS}

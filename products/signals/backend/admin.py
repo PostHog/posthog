@@ -1,9 +1,15 @@
+from __future__ import annotations
+
 import re
 
 from django import forms
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
+
+from posthog.slack.formatting import channel_id_from_target
 
 from .models import (
     SignalReport,
@@ -29,6 +35,23 @@ class SignalReportArtefactInline(admin.TabularInline):
         return (obj.content[:200] + "...") if len(obj.content) > 200 else obj.content
 
 
+class SignalReportStatusFilter(admin.SimpleListFilter):
+    title = "status"
+    parameter_name = "status__exact"
+
+    # nosemgrep: tuple-return-prefer-dataclass -- Django requires (value, label) lookup pairs.
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+        return [
+            (value, str(label))
+            for value, label in SignalReport.Status.choices
+            if value != SignalReport.Status.MONITORING
+        ]
+
+    def queryset(self, request: HttpRequest, queryset: QuerySet[SignalReport]) -> QuerySet[SignalReport]:
+        value = self.value()
+        return queryset.filter(status=value) if value else queryset
+
+
 @admin.register(SignalReport)
 class SignalReportAdmin(admin.ModelAdmin):
     list_display = (
@@ -42,7 +65,7 @@ class SignalReportAdmin(admin.ModelAdmin):
         "promoted_at",
     )
     list_display_links = ("id",)
-    list_filter = ("status",)
+    list_filter = (SignalReportStatusFilter,)
     search_fields = ("id", "team__name", "team__organization__name", "title", "summary")
     ordering = ("-created_at",)
     show_full_result_count = False
@@ -97,7 +120,7 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_display_links = ("id",)
-    list_filter = ("enabled", "status", "emit")
+    list_filter = ("enabled", "status", "emit", "managed_by")
     search_fields = ("id", "skill_name", "team__name", "team__organization__name")
     raw_id_fields = ("team", "created_by", "enabled_by")
     # The status cluster is read-only here: admin's lifecycle control stays the `enabled`
@@ -242,7 +265,7 @@ class SignalTeamConfigAdminForm(forms.ModelForm):
         if not value:
             return None
         # Only the channel id is required; an optional "|#name" suffix is allowed for readability.
-        channel_id = value.split("|", 1)[0].strip()
+        channel_id = channel_id_from_target(value)
         if not _SLACK_CHANNEL_ID_RE.match(channel_id):
             raise forms.ValidationError(
                 "Use 'CHANNELID|#name' form, or just the channel id. The id looks like 'C0123ABCD' "

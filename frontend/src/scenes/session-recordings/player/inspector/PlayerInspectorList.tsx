@@ -144,7 +144,13 @@ export function PlayerInspectorList(): JSX.Element {
                     {logsHasMore ? (
                         <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-2 py-1.5 px-2 border-t bg-surface-primary text-xs text-secondary">
                             <span>Not all logs are shown.</span>
-                            <LemonButton size="xsmall" type="secondary" onClick={loadMoreLogs} loading={logsLoading}>
+                            <LemonButton
+                                data-attr="inspector-load-more-logs"
+                                size="xsmall"
+                                type="secondary"
+                                onClick={loadMoreLogs}
+                                loading={logsLoading}
+                            >
                                 Load more
                             </LemonButton>
                         </div>

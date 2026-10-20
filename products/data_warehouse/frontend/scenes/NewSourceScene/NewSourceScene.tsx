@@ -13,9 +13,11 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -49,6 +51,7 @@ import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
+import { SourceCatalogSkeleton } from './SourceCatalogSkeleton'
 import { WIZARD_DESTINATION_STEP, type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
@@ -107,7 +110,12 @@ export function NewSourceScene(): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(sceneRootLogic)
 
     if (availableSourcesLoading) {
-        return <LemonSkeleton />
+        return (
+            <SceneContent>
+                <SceneTitleSection name="New data warehouse source" resourceType={{ type: 'data_pipeline' }} />
+                <SourceCatalogSkeleton />
+            </SceneContent>
+        )
     }
 
     if (availableSources === null) {
@@ -166,6 +174,7 @@ function InternalNewSourceScene({
     sourceWizardLogicProps: SourceWizardLogicProps
 }): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <SceneContent>
@@ -173,15 +182,21 @@ function InternalNewSourceScene({
                 name="New data warehouse source"
                 resourceType={{ type: 'data_pipeline' }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        center
-                        data-attr="source-form-cancel-button"
-                        onClick={closeWizard}
-                        size="small"
-                    >
-                        Cancel
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="outline" data-attr="source-form-cancel-button" onClick={closeWizard}>
+                            Cancel
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            center
+                            data-attr="source-form-cancel-button"
+                            onClick={closeWizard}
+                            size="small"
+                        >
+                            Cancel
+                        </LemonButton>
+                    )
                 }
             />
             <InternalSourcesWizard sourceWizardLogicProps={sourceWizardLogicProps} />
@@ -202,7 +217,7 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
     if (availableSourcesLoading) {
-        return <LemonSkeleton />
+        return <SourceCatalogSkeleton />
     }
 
     if (availableSources === null) {
@@ -238,6 +253,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         source,
         sourceConnectionDetails,
         isWebhookFieldInputsSubmitting,
+        connectError,
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, onClear, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
         useActions(sourceWizardLogic)
@@ -374,6 +390,12 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
                 {selectedConnector && selectedAccessMethod !== 'direct' && (
                     <FreeHistoricalSyncsBanner hideGetStarted={true} />
+                )}
+
+                {connectError && currentStep !== 1 && (
+                    <LemonBanner type="error" className="mb-4">
+                        {connectError}
+                    </LemonBanner>
                 )}
 
                 {currentStep === 1 ? (
@@ -556,7 +578,7 @@ function DatabaseFirewallHint(): JSX.Element | null {
 }
 
 function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {
-    const { selectedConnector, source, sourceConnectionDetails } = useValues(sourceWizardLogic)
+    const { selectedConnector, source, sourceConnectionDetails, prefixRequired } = useValues(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
         2,
         sourceConnectionDetails?.access_method,
@@ -605,6 +627,7 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
                 sourceConfig={selectedConnector}
                 initialAccessMethod={sourceConnectionDetails?.access_method ?? source.access_method}
                 showAccessMethodSelector={false}
+                prefixRequired={prefixRequired}
                 sourceWizardLogicProps={sourceWizardLogicProps}
             />
         </div>

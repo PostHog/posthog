@@ -10,11 +10,13 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GoogleAdsIntegration,
+    GoogleAdsScopeInsufficientError,
     Integration,
     OauthIntegration,
     google_ads_hierarchy_level,
 )
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,6 +49,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.change_events import (
+    CHANGE_EVENT_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GOOGLE_ADS_INITIAL_BACKFILL_DAYS,
@@ -82,10 +87,40 @@ def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
     return f"@dwh/google_ads/{team_id}/{integration_id}/oauth_accounts"
 
 
+# The connected Google login granted PostHog an OAuth token without the adwords scope, so
+# nothing it asks for will be authorized. The wizard and the sync both surface this, and
+# reconnecting is the only fix, so both paths read from one string.
+_SCOPE_INSUFFICIENT_ERROR = (
+    "Your Google Ads connection is missing the access PostHog needs. Reconnect your Google Ads "
+    "account and allow access to your Google Ads data."
+)
+
+
 @SourceRegistry.register
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
+    codebase_detection = detect(
+        env=("^GOOGLE_ADS_", "^GAARF_"),
+        script_hosts=("www.googleadservices.com", "googleads.g.doubleclick.net"),
+        npm=("google-ads-api", "google-ads-node", "google-ads-api-report-fetcher", "@types/google-ads-scripts"),
+        pypi=("google-ads", "google-ads-mcp", "google-ads-api-report-fetcher", "google-ads-stubs"),
+        cargo=("googleads-rs",),
+        cocoapods=("GoogleAdsOnDeviceConversion",),
+        composer=("googleads/google-ads-php",),
+        go=("github.com/shenzhencenter/google-ads-pb",),
+        maven=(
+            "com.google.api-ads:google-ads",
+            "com.google.api-ads:google-ads-bom",
+            "com.google.api-ads:google-ads-shadowjar",
+            "com.google.api-ads:google-ads-stubs-lib",
+            "com.google.api-ads:adwords-axis",
+            "com.google.api-ads:adwords-lib",
+        ),
+        rubygems=("google-ads-googleads", "google-adwords-api"),
+        swiftpm=("github.com/googleads/google-ads-on-device-conversion-ios-sdk",),
+    )
+
     supported_versions = ("v23", "v24", "v25")
     default_version = "v25"
     api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
@@ -118,7 +153,7 @@ class GoogleAdsSource(
         # `PERMISSION_DENIED` / `UNAUTHENTICATED` gRPC statuses. Specific codes therefore come first,
         # so a scope or deleted-account failure doesn't get the generic access message.
         return {
-            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Your Google Ads connection is missing the access PostHog needs. Reconnect your Google Ads account and allow access to your Google Ads data.",
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": _SCOPE_INSUFFICIENT_ERROR,
             "Account has been deleted": "The Google Ads account this source syncs from has been deleted, so there's nothing left to import. Point the source at an active customer ID, or delete the source.",
             "INVALID_CUSTOMER_ID": "The customer ID on this source isn't a valid Google Ads account. Update it to the 10-digit customer ID shown in your Google Ads account, then re-enable the sync.",
             "REQUESTED_METRICS_FOR_MANAGER": "Metrics cannot be requested for a Google Ads manager (MCC) account. Reconfigure this source with a client account customer ID, or enable the MCC option and provide both the manager and client customer IDs.",
@@ -167,7 +202,16 @@ class GoogleAdsSource(
         # budget has hit a longer-lived quota window than a few seconds of backoff can clear,
         # but Temporal's activity retry recovers once it does — self-recovering, not a bug, so
         # keep it out of error tracking as noise.
-        return {"Resource has been exhausted (e.g. check quota)"}
+        #
+        # `GoogleAdsCallDeadlineExceeded` (see google_ads.py) is raised deliberately when a single
+        # call runs past the generous per-call timeout — normal for a full page of a wide resource
+        # or a very large account. It is retryable by design: Temporal's activity retry builds a
+        # fresh channel and resumes from the saved page token. Matched without the timeout value,
+        # which is a tunable constant rather than a stable identifier.
+        return {
+            "Resource has been exhausted (e.g. check quota)",
+            "Google Ads call did not finish within",
+        }
 
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:
@@ -205,7 +249,7 @@ class GoogleAdsSource(
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ads_incremental_fields.get(endpoint, None) is not None,
-                supports_append=ads_incremental_fields.get(endpoint, None) is not None,
+                supports_append=endpoint != "change_event" and ads_incremental_fields.get(endpoint, None) is not None,
                 incremental_fields=[
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
@@ -215,7 +259,9 @@ class GoogleAdsSource(
                 # Only the incremental stats tables (those with a segments.date filter) need the
                 # lookback; the full-refresh dimension tables re-read everything each run anyway.
                 default_incremental_lookback_seconds=(
-                    GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
+                    CHANGE_EVENT_LOOKBACK_SECONDS
+                    if endpoint == "change_event"
+                    else GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
                     if ads_incremental_fields.get(endpoint, None) is not None
                     else None
                 ),
@@ -365,6 +411,9 @@ class GoogleAdsSource(
 
         try:
             accounts = GoogleAdsIntegration(integration).list_google_ads_accessible_accounts()
+        except GoogleAdsScopeInsufficientError as e:
+            # Reconnecting alone repeats the same consent screen, so name the permission to allow.
+            raise IntegrationAccountListingError(_SCOPE_INSUFFICIENT_ERROR) from e
         except ValidationError as e:
             # Raised only for a 401/403 from Google: revoked credentials, or the connected account
             # lost access.
@@ -515,10 +564,7 @@ class GoogleAdsSource(
         except Exception as e:
             error_message = str(e)
             if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_message:
-                return (
-                    False,
-                    "Insufficient permissions. Please reconnect your Google Ads account with the required scopes.",
-                )
+                return False, _SCOPE_INSUFFICIENT_ERROR
             if "NOT_ADS_USER" in error_message:
                 return (
                     False,

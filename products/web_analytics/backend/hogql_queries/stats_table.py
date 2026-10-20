@@ -1,6 +1,7 @@
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
 from posthog.schema import (
@@ -30,7 +31,6 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
     FIRST_PAGEVIEW_BREAKDOWNS,
@@ -42,8 +42,10 @@ from products.web_analytics.backend.hogql_queries.first_pageview_attribution imp
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
     ChannelTypeStrategy,
+    ChannelTypeTwoPhaseStrategy,
     FirstPageviewAttributionStrategy,
     FrustrationMetricsStrategy,
+    NoJoinFirstPageviewAttributionStrategy,
     NoJoinPathBounceAvgTimeStrategy,
     NoJoinPathBounceStrategy,
     NoJoinSimpleBreakdownStrategy,
@@ -72,6 +74,11 @@ from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precomput
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 BREAKDOWN_REFERRER_PREFIX = "referrer:"
+
+# The two-phase channel query joins at session grain on the coordinating node, so that
+# node's memory grows with the sessions in the scanned span (current plus compare
+# period). Above this span the per-shard join spreads the memory better.
+CHANNEL_TYPE_TWO_PHASE_MAX_SPAN_DAYS = 62
 
 
 def _none_if_nan(value):
@@ -178,9 +185,13 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return "stats_table_path_bounce_and_avg_time"
         if isinstance(strategy, PathBounceStrategy):
             return "stats_table_path_bounce"
-        # ChannelTypeStrategy must be checked before SimpleBreakdownStrategy since it's a subclass.
+        # ChannelTypeTwoPhaseStrategy subclasses ChannelTypeStrategy, which subclasses SimpleBreakdownStrategy.
+        if isinstance(strategy, ChannelTypeTwoPhaseStrategy):
+            return "stats_table_channel_type_two_phase"
         if isinstance(strategy, ChannelTypeStrategy):
             return "stats_table_channel_type"
+        if isinstance(strategy, NoJoinFirstPageviewAttributionStrategy):
+            return "stats_table_no_join_first_pageview_attribution"
         if isinstance(strategy, FirstPageviewAttributionStrategy):
             return "stats_table_first_pageview_attribution"
         # NoJoinSimpleBreakdownStrategy is also a SimpleBreakdownStrategy subclass.
@@ -202,15 +213,15 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return remapped
         return self.query.breakdownBy
 
-    def get_cache_key(self) -> str:
+    def get_cache_key_variant(self) -> str:
         # The remap changes results for the same query, so remapped and
         # entry-attributed runs must not share cache entries — and rolling the
         # flag back to 0% must instantly serve the old key again.
-        original = super().get_cache_key()
+        variant = super().get_cache_key_variant()
         effective_breakdown = self._effective_breakdown()
         if effective_breakdown != self.query.breakdownBy:
-            return f"{original}_{effective_breakdown.value}"
-        return original
+            return f"{variant}_{effective_breakdown.value}"
+        return variant
 
     def _get_strategy(self) -> StatsTableQueryStrategy:
         breakdown = self._effective_breakdown()
@@ -238,18 +249,22 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return SimpleBreakdownStrategy(self, breakdown_override=self._bounce_entry_pathname_breakdown())
 
         if breakdown == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+            if self._can_use_channel_type_two_phase():
+                return ChannelTypeTwoPhaseStrategy(self)
             return ChannelTypeStrategy(self)
 
-        if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
-            return FirstPageviewAttributionStrategy(self)
+        # Breakdowns whose displayed columns are all event-derived don't need
+        # the events↔sessions join at all — the join only supplies the session
+        # grouping key and start timestamp, both recoverable from the UUIDv7
+        # session id. Conversion-goal columns are event-derived too.
+        # Session-entry breakdowns (Initial*), session-property filters, and
+        # bounce variants keep the join.
+        no_join = not self.query.includeBounceRate and not self._uses_session_fields()
 
-        # Simple breakdowns whose displayed columns are all event-derived don't
-        # need the events↔sessions join at all — the join only supplies the
-        # session grouping key and start timestamp, both recoverable from the
-        # UUIDv7 session id. Session-entry breakdowns (Initial*),
-        # session-property filters, and bounce/conversion variants keep
-        # the join.
-        if self.query.conversionGoal is None and not self.query.includeBounceRate and not self._uses_session_fields():
+        if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
+            return NoJoinFirstPageviewAttributionStrategy(self) if no_join else FirstPageviewAttributionStrategy(self)
+
+        if no_join:
             return NoJoinSimpleBreakdownStrategy(self)
 
         return SimpleBreakdownStrategy(self)
@@ -259,8 +274,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         Mirrors the family-level branches of `_get_strategy` above, deliberately not its join
         variants: those pick how a family runs the query, not which family owns it. The two
-        taxonomies diverge in one place. INITIAL_PAGE with bounce rate is a simple breakdown with an
-        entry-pathname override on the live path, but the paths family is what precomputes it.
+        taxonomies diverge where the live path treats a pathname breakdown as simple: INITIAL_PAGE
+        (with or without bounce) and bounce-less PAGE run as simple breakdowns live, but the paths
+        family is what precomputes every pathname shape — its buckets store bounce state either
+        way, and the response just omits the column when the query didn't ask for it.
 
         The families are disjoint, so asking only the owner loses no precompute hit: PAGE,
         INITIAL_PAGE and FRUSTRATION_METRICS are all absent from the simple family's
@@ -271,14 +288,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if breakdown == WebStatsBreakdown.FRUSTRATION_METRICS:
             return "frustration"
 
-        if (
-            breakdown == WebStatsBreakdown.PAGE
-            and not self.query.conversionGoal
-            and (self.query.includeAvgTimeOnPage or self.query.includeBounceRate)
-        ):
-            return "paths"
-
-        if breakdown == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
+        if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE) and not self.query.conversionGoal:
             return "paths"
 
         return "simple"
@@ -288,7 +298,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         direction: Literal["ASC", "DESC"] = "DESC"
         if self.query.orderBy:
             field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
+            # The schema does not bound orderBy's length, so an API caller can send
+            # just the field; a missing direction defaults to DESC everywhere.
+            if len(self.query.orderBy) > 1:
+                direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
 
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"
@@ -383,12 +396,25 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
         )
 
-    def _uses_session_fields(self) -> bool:
-        """True when the breakdown value or any filter reads a `session.*`
-        field. Those queries need the events↔sessions join — Initial* entry
-        breakdowns for the value itself, session-property filters for the
-        predicate. Routing them to the no-join strategy would make HogQL
-        silently re-add the lazy join, mislabeling the query tag."""
+    def _can_use_channel_type_two_phase(self) -> bool:
+        # The two-phase shape carries only visitors and views, and it filters the events
+        # scan alone, so a filter or goal that reads a session field needs the join back.
+        if not self._team_in_no_join_rollout():
+            return False
+        if self.query.includeBounceRate or self.query.includeTrafficMetrics or self.query.conversionGoal:
+            return False
+        if self._scanned_span_days() > CHANNEL_TYPE_TWO_PHASE_MAX_SPAN_DAYS:
+            return False
+        return not self._expr_reads_session_fields(self.all_properties())
+
+    def _scanned_span_days(self) -> int:
+        date_from = self.query_date_range.date_from()
+        compare = self.query_compare_to_date_range
+        if compare is not None:
+            date_from = min(date_from, compare.date_from())
+        return (self.query_date_range.date_to() - date_from).days
+
+    def _expr_reads_session_fields(self, expr: ast.Expr) -> bool:
         found = False
 
         class Visitor(TraversingVisitor):
@@ -397,10 +423,19 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 if node.chain and node.chain[0] == "session":
                     found = True
 
-        visitor = Visitor()
-        visitor.visit(self._counts_breakdown_value())
-        visitor.visit(self.all_properties())
+        Visitor().visit(expr)
         return found
+
+    def _uses_session_fields(self) -> bool:
+        """True when the breakdown value or any filter reads a `session.*`
+        field. Those queries need the events↔sessions join — Initial* entry
+        breakdowns for the value itself, session-property filters for the
+        predicate. Routing them to the no-join strategy would make HogQL
+        silently re-add the lazy join, mislabeling the query tag."""
+        exprs = [self._counts_breakdown_value(), self.all_properties()]
+        if self.conversion_goal_expr is not None:
+            exprs.append(self.conversion_goal_expr)
+        return any(self._expr_reads_session_fields(expr) for expr in exprs)
 
     def _period_comparison_tuple(self, column, alias, function_name):
         return ast.Alias(
@@ -692,6 +727,10 @@ WHERE and(
         this just renames fields and applies the `limit + 1` → `hasMore`
         truncation."""
         include_previous = bool(self.query_compare_to_date_range)
+        # The SQL always computes bounce (the stored buckets carry it either way);
+        # the response only carries it when the query asked, so a bounce-less read
+        # (weekly digest, API callers) keeps the same column set as the live path.
+        include_bounce = bool(self.query.includeBounceRate)
         has_more = len(rows) > limit
         page = rows[:limit]
 
@@ -712,22 +751,22 @@ WHERE and(
             # in case a future schema change reintroduces a NaN path.
             bounce_rate = _none_if_nan(bounce_rate)
             prev_bounce_rate = _none_if_nan(prev_bounce_rate)
-            results.append(
-                [
-                    breakdown_value,
-                    (visitors, prev_visitors if include_previous else None),
-                    (views, prev_views if include_previous else None),
-                    (bounce_rate, prev_bounce_rate if include_previous else None),
-                    float(fill_fraction) if fill_fraction is not None else 0.0,
-                    "",  # cross_sell placeholder
-                ]
-            )
+            result_row = [
+                breakdown_value,
+                (visitors, prev_visitors if include_previous else None),
+                (views, prev_views if include_previous else None),
+            ]
+            if include_bounce:
+                result_row.append((bounce_rate, prev_bounce_rate if include_previous else None))
+            result_row.append(float(fill_fraction) if fill_fraction is not None else 0.0)
+            result_row.append("")  # cross_sell placeholder
+            results.append(result_row)
 
         columns = [
             "context.columns.breakdown_value",
             "context.columns.visitors",
             "context.columns.views",
-            "context.columns.bounce_rate",
+            *(["context.columns.bounce_rate"] if include_bounce else []),
             "context.columns.ui_fill_fraction",
             "context.columns.cross_sell",
         ]
@@ -753,8 +792,9 @@ WHERE and(
         field = "visitors"
         if self.query.orderBy:
             order_field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            order_dir = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
-            direction = cast(Literal["ASC", "DESC"], order_dir.value)
+            if len(self.query.orderBy) > 1:
+                order_dir = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
+                direction = cast(Literal["ASC", "DESC"], order_dir.value)
             if order_field == WebAnalyticsOrderByFields.VISITORS:
                 field = "visitors"
             elif order_field == WebAnalyticsOrderByFields.VIEWS:
@@ -807,6 +847,7 @@ WHERE and(
             query=query,
             team=self.team,
             user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             timings=self.timings,
             modifiers=modifiers,
         )

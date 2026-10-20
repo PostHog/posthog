@@ -8,13 +8,21 @@ the query result.
 from __future__ import annotations
 
 import copy
-import json
 from typing import Any, Literal, TypeGuard
 
 import structlog
 from pydantic import BaseModel
 
-from posthog.schema import BaseMathType, FunnelMathType, GroupMathType, RetentionType
+from posthog.schema import (
+    BaseMathType,
+    BreakdownType,
+    EventsNode,
+    FunnelMathType,
+    GroupMathType,
+    LifecycleQuery,
+    NodeKind,
+    RetentionType,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -23,8 +31,10 @@ from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, is_api_key_access_method
+from posthog.event_usage import EventSource
 from posthog.models.user import User
 from posthog.query_scan.event_filter import classify_event_filter
+from posthog.query_scan.explain import EXPLAIN_MAX_SECONDS
 from posthog.query_scan.findings import SQL_QUERY_KIND
 from posthog.query_scan.flag import QueryScanFlag
 from posthog.query_scan.slot import (
@@ -34,13 +44,11 @@ from posthog.query_scan.slot import (
     set_pending,
 )
 from posthog.query_scan.stub import stub_in_subqueries
+from posthog.query_scan.tree import EventsRead, find_events_reads
+from posthog.query_scan.tree_facts import tree_facts
 
 logger = structlog.get_logger(__name__)
 
-# Above this an EXPLAIN is unlikely to plan and the payload is not worth shipping to the worker. The
-# cap covers the SQL and its parameter values together, since one large literal can outweigh the
-# SQL around it.
-MAX_EXECUTION_BYTES = 100 * 1024
 # The runner can fan an insight out into many series; the heaviest handful explains the run.
 MAX_EXECUTIONS = 5
 # Each subquery is explained on its own, so the cap is across the whole run, not per execution.
@@ -59,10 +67,39 @@ _FIRST_TIME_MATHS: frozenset[str] = frozenset(
     }
 )
 
+# Math that counts people or sessions over whatever they did, so on an "All events" series the
+# answer needs every event and picking events would change it.
+_ANY_EVENT_MATHS: frozenset[str] = frozenset(
+    {
+        BaseMathType.DAU,
+        BaseMathType.WEEKLY_ACTIVE,
+        BaseMathType.MONTHLY_ACTIVE,
+        BaseMathType.UNIQUE_SESSION,
+    }
+)
+
+# Every other kind belongs to a PostHog screen that shows no advice and has nothing to edit.
+_KINDS_A_PERSON_BUILDS: frozenset[str] = frozenset(
+    {
+        NodeKind.HOG_QL_QUERY,
+        NodeKind.TRENDS_QUERY,
+        NodeKind.FUNNELS_QUERY,
+        NodeKind.RETENTION_QUERY,
+        NodeKind.LIFECYCLE_QUERY,
+        NodeKind.PATHS_QUERY,
+        NodeKind.STICKINESS_QUERY,
+    }
+)
+# PostHog's own screens run SQL too, so the kind alone does not say a person wrote it.
+_SQL_SCENES_WITH_ADVICE: frozenset[str] = frozenset({"SQLEditor", "Insight"})
+
 SkipReason = Literal[
     "flag_off",
     "below_floor",
     "api_key",
+    "mcp",
+    "kind_not_analyzed",
+    "sql_without_surface",
     "no_principal",
     "no_clickhouse_query",
     "not_cacheable",
@@ -71,16 +108,22 @@ SkipReason = Literal[
     "rate_limited",
     "slot_exists",
     "nothing_to_analyze",
-    "too_large",
+    "print_failed",
     "enqueue_failed",
 ]
 
 
 def _is_mcp_run() -> bool:
-    """An MCP agent authenticates with a personal API key, but it does read the findings in the
-    block above its results, so the skip for API callers with nowhere to read advice leaves it
-    out."""
-    return get_query_tag_value("feature") == Feature.MCP
+    """Whether an MCP agent made the run. A PostHog AI tool the MCP server invokes carries the
+    feature. A call the server proxies to the query endpoint carries the source the request
+    middleware set, whichever key or token the agent authenticates with."""
+    return get_query_tag_value("feature") == Feature.MCP or get_query_tag_value("source") == EventSource.MCP
+
+
+def _sql_run_has_surface(insight_id: int | None, dashboard_id: int | None) -> bool:
+    if insight_id or dashboard_id:
+        return True
+    return get_query_tag_value("scene") in _SQL_SCENES_WITH_ADVICE
 
 
 def is_analyzable_principal(user: object) -> TypeGuard[User]:
@@ -108,14 +151,29 @@ def maybe_trigger_query_scan(
     if flag is None or stats is None:
         return "flag_off"
 
-    duration_ms = round(stats.duration_ms)
+    # A lookup a runner made on the way to its real query, such as the project's first event for
+    # an All time range, is not the query the person wrote, so it neither counts toward the floor
+    # nor gets analyzed in the query's place. The totals cover raw lookups too, which never reach
+    # the executor and so are never recorded as executions.
+    executions = [execution for execution in stats.executions if execution.lookup is None]
+    rows_read = max(0, stats.rows_read - stats.lookup_rows_read)
+    duration_ms = max(0, round(stats.duration_ms - stats.lookup_duration_ms))
     # The floor leaves alone the runs nobody minded. Nobody gets a result from a run ClickHouse
     # stopped, however fast it died, so a stopped run is analyzed at any duration.
     if duration_ms < flag.floor_ms and not killed:
         return "below_floor"
-    if is_api_key_access_method(get_query_tag_value("access_method")) and not _is_mcp_run():
+    if _is_mcp_run():
+        # Nothing hands an agent the advice, so the analysis would only cost.
+        return "mcp"
+    if is_api_key_access_method(get_query_tag_value("access_method")):
         # An API caller has no surface to read the advice on, so the analysis would only cost.
         return "api_key"
+    kind = getattr(query, "kind", None)
+    query_kind = str(kind) if kind is not None else None
+    if query_kind not in _KINDS_A_PERSON_BUILDS:
+        return "kind_not_analyzed"
+    if query_kind == SQL_QUERY_KIND and not _sql_run_has_surface(insight_id, dashboard_id):
+        return "sql_without_surface"
     if getattr(query, "connectionId", None):
         # A direct connection reads the external warehouse instead of ClickHouse, so the job
         # would park a pending slot for an analysis that cannot happen.
@@ -130,19 +188,16 @@ def maybe_trigger_query_scan(
         # Another slow run of the same query claimed the slot between the read above and here.
         return "slot_exists"
 
-    executions = _print_executions(stats)
-    if isinstance(executions, str):
+    printed = _print_executions(executions)
+    if isinstance(printed, str):
         # A selected execution could not be shipped, so analyzing the rest would advise on a run the
         # job never saw whole.
         clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
-        return executions
-    if not executions:
+        return printed
+    if not printed:
         # The run had no executions to print: it bypassed the executor, or fanned out into none.
         clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
         return "nothing_to_analyze"
-
-    kind = getattr(query, "kind", None)
-    query_kind = str(kind) if kind is not None else None
 
     # A module-level import would close the runner, trigger, task, job, runner cycle.
     from posthog.tasks.query_scan import analyze_query_scan  # noqa: PLC0415
@@ -151,8 +206,8 @@ def maybe_trigger_query_scan(
         analyze_query_scan.delay(
             team_id=team_id,
             cache_key=cache_key,
-            executions=executions,
-            rows_read=stats.rows_read,
+            executions=printed,
+            rows_read=rows_read,
             duration_ms=duration_ms,
             trigger=trigger,
             insight_id=insight_id,
@@ -162,7 +217,9 @@ def maybe_trigger_query_scan(
             query_kind=query_kind,
             open_filters_placeholder=_open_filters_placeholder(query),
             all_time=_all_time(query),
+            dashboard_all_time=get_query_tag_value("dashboard_all_time") is True,
             all_history_by_design=_reads_all_history_by_design(query),
+            all_events_by_design=_reads_all_events_by_design(query),
         )
     except Exception:
         # The broker can be down while ClickHouse is fine, and the result is not cached yet, so
@@ -174,13 +231,13 @@ def maybe_trigger_query_scan(
     return None
 
 
-def _print_executions(stats: QueryStats) -> list[dict[str, Any]] | SkipReason:
+def _print_executions(executions: list[RecordedExecution]) -> list[dict[str, Any]] | SkipReason:
     """Print the heaviest executions for the job to EXPLAIN: each with its subqueries stubbed, and
     each subquery on its own. The skip reason when any of the heaviest could not be shipped, so the
     job never analyzes part of a run and advises as if it saw the whole. An empty list means the run
     carried no executions to print.
     """
-    heaviest = sorted(stats.executions, key=lambda execution: execution.rows_read, reverse=True)[:MAX_EXECUTIONS]
+    heaviest = sorted(executions, key=lambda execution: execution.rows_read, reverse=True)[:MAX_EXECUTIONS]
     printed: list[dict[str, Any]] = []
     subquery_budget = MAX_SUBQUERIES
     for execution in heaviest:
@@ -199,11 +256,28 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
         context = copy.copy(execution.context)
         context.values = {}
         stub = stub_in_subqueries(execution.tree)
+        # A setting in the SQL overrides the one the job passes, so the EXPLAIN's time limit goes here.
+        settings = (
+            execution.settings.model_copy(update={"max_execution_time": EXPLAIN_MAX_SECONDS})
+            if execution.settings is not None
+            else None
+        )
+        # Each plan is judged on the reads it holds: a subquery's on its own, the outer query's
+        # without any of them. The tree is the run's, so the subqueries are the nodes inside it.
+        subquery_reads = [find_events_reads(subquery) for subquery in stub.subqueries]
+        in_a_subquery = {id(read.select) for reads in subquery_reads for read in reads}
+        outer_reads = [read for read in find_events_reads(execution.tree) if id(read.select) not in in_a_subquery]
         entry = {
-            "stubbed_sql": print_prepared_ast(stub.stubbed, context, dialect="clickhouse"),
+            "stubbed_sql": print_prepared_ast(stub.stubbed, context, dialect="clickhouse", settings=settings),
             "subqueries": [
-                print_prepared_ast(stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse")
-                for subquery in stub.subqueries[: max(subquery_budget, 0)]
+                {
+                    "sql": print_prepared_ast(
+                        stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse", settings=settings
+                    ),
+                    "event_filter": _event_filter_verdict(execution.tree, reads),
+                    "tree": _tree_facts_payload(execution.tree, reads),
+                }
+                for subquery, reads in zip(stub.subqueries[: max(subquery_budget, 0)], subquery_reads)
             ],
             # The parameter values travel as they are: Celery's JSON serializer round-trips the
             # datetimes, dates, UUIDs and decimals among them.
@@ -211,35 +285,49 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
             "rows_read": execution.rows_read,
             # The plan says whether ClickHouse pruned on `event`; the tree says why it could not.
             # Classify here, where the prepared tree is held; the job folds it into the plan.
-            "event_filter": _event_filter_verdict(execution.tree),
+            "event_filter": _event_filter_verdict(execution.tree, outer_reads),
+            "tree": _tree_facts_payload(execution.tree, outer_reads),
         }
         if any(key.endswith("_sensitive") for key in context.values):
             # The warehouse stub runs before the print, so this catches any other credential or access list.
             return "sensitive_values"
-        if len(json.dumps(entry, default=str).encode("utf-8")) > MAX_EXECUTION_BYTES:
-            return "too_large"
         return entry
     except Exception:
         # A tree that will not print is one the job could not EXPLAIN either. Dropping it drops the
         # run's analysis, never the query result the person already waited for.
         logger.warning("query_scan_print_failed", exc_info=True)
-        return "too_large"
+        return "print_failed"
 
 
-def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | None] | None:
+def _event_filter_verdict(tree: ast.Expr, reads: list[EventsRead]) -> dict[str, str | bool | None] | None:
     """The tree's event-filter classification, JSON-safe, for the job to combine with the plan.
 
     A classifier failure ships None rather than dropping the execution, because the plan-only
     fallback still produces a finding. Reads that disagree ship None for the same reason.
     """
     try:
-        outcome = classify_event_filter(tree)
+        outcome = classify_event_filter(tree, reads)
     except Exception:
         logger.warning("query_scan_classify_failed", exc_info=True)
         return None
     if outcome is None:
         return None
-    return {"classification": outcome.classification, "reason": outcome.reason}
+    return {
+        "classification": outcome.classification,
+        "reason": outcome.reason,
+        "hidden_from_plan": outcome.hidden_from_plan,
+    }
+
+
+def _tree_facts_payload(tree: ast.Expr, reads: list[EventsRead]) -> dict[str, Any] | None:
+    """What the tree says about its events reads, JSON-safe. A failure ships None rather than
+    dropping the execution: the plan alone still yields a finding, with the plain wording."""
+    try:
+        facts = tree_facts(tree, reads)
+    except Exception:
+        logger.warning("query_scan_tree_facts_failed", exc_info=True)
+        return None
+    return facts.to_payload() if facts is not None else None
 
 
 def _source(query: BaseModel) -> BaseModel:
@@ -269,6 +357,35 @@ def _reads_all_history_by_design(query: BaseModel) -> bool:
         return True
     retention_filter = getattr(source, "retentionFilter", None)
     return getattr(retention_filter, "retentionType", None) == RetentionType.RETENTION_FIRST_TIME
+
+
+def _reads_all_events_by_design(query: BaseModel) -> bool:
+    """Whether the insight has to read every event whatever its series: an active-user, unique-session
+    or lifecycle count on All events counts people over whatever they did, and a breakdown by event
+    name is a question about the set of events itself. Picking events would change the answer.
+    """
+    source = _source(query)
+    series = getattr(source, "series", None) or []
+    all_events = [item for item in series if isinstance(item, EventsNode) and item.event is None]
+    if not all_events:
+        return False
+    if any(getattr(item, "math", None) in _ANY_EVENT_MATHS for item in all_events):
+        return True
+    if isinstance(source, LifecycleQuery):
+        return True
+    breakdown_filter = getattr(source, "breakdownFilter", None)
+    if breakdown_filter is None:
+        return False
+    if (
+        getattr(breakdown_filter, "breakdown_type", None) == BreakdownType.EVENT_METADATA
+        and getattr(breakdown_filter, "breakdown", None) == "event"
+    ):
+        return True
+    return any(
+        getattr(breakdown, "type", None) == BreakdownType.EVENT_METADATA
+        and getattr(breakdown, "property", None) == "event"
+        for breakdown in getattr(breakdown_filter, "breakdowns", None) or []
+    )
 
 
 def _open_filters_placeholder(query: BaseModel) -> bool:

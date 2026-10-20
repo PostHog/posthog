@@ -3,7 +3,7 @@ import {
   type GitState,
 } from "@posthog/core/git-interaction/gitInteractionLogic";
 import type { Meta, StoryObj } from "@storybook/react";
-import { GitActionControl } from "./TaskActionsMenu";
+import { GitActionControl, PrBadgeControl } from "./TaskActionsMenu";
 
 // Runs the real computeGitInteractionState over a realistic GitState, so the
 // stories show exactly what the task header offers in each environment,
@@ -84,5 +84,42 @@ export const GhCliUnauthenticated: Story = {
         ghStatus: { installed: true, authenticated: false },
       }}
     />
+  ),
+};
+
+const prBadgeProps = {
+  prUrl: "https://github.com/example/example-repo/pull/1234",
+  prState: "open",
+  merged: false,
+  draft: false,
+  branchName: "feature/add-export",
+  otherPrs: [],
+  isPrPending: false,
+  gitItems: [],
+  onGitSelect: () => {},
+  onPrSelect: () => {},
+  onOtherPrSelect: () => {},
+};
+
+/** Open the chevron to see the PR actions, including the two copy items. */
+export const PrOpen: StoryObj<typeof PrBadgeControl> = {
+  render: () => (
+    <div className="p-4">
+      <PrBadgeControl {...prBadgeProps} />
+    </div>
+  ),
+};
+
+/** A merged PR has no lifecycle actions left, so the copy items are the menu. */
+export const PrMerged: StoryObj<typeof PrBadgeControl> = {
+  render: () => (
+    <div className="p-4">
+      <PrBadgeControl
+        {...prBadgeProps}
+        prState="closed"
+        merged
+        branchName={null}
+      />
+    </div>
   ),
 };

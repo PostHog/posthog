@@ -147,6 +147,15 @@ describe("promptContent", () => {
       },
     },
     {
+      name: "keeps a comment screenshot inside its comment context",
+      text: '<comment_context label="h1" screenshot="/tmp/posthog-code-clipboard/attachment-abc/shot.png">\n<file path="/tmp/posthog-code-clipboard/attachment-abc/shot.png" />\n- **Page** /\n</comment_context> make it red',
+      given: [],
+      expected: {
+        text: '<comment_context label="h1" screenshot="/tmp/posthog-code-clipboard/attachment-abc/shot.png">\n<file path="/tmp/posthog-code-clipboard/attachment-abc/shot.png" />\n- **Page** /\n</comment_context> make it red',
+        attachments: [],
+      },
+    },
+    {
       name: "drops a summary that names only the shown files",
       text: "Attached files: clipboard.png",
       given: [clipboardImage],

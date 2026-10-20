@@ -1,23 +1,31 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { ReactNode, useRef } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { cn } from 'lib/utils/css-classes'
 
 import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
-import { composerOverrideLogic } from '../../../logics/composerOverrideLogic'
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
+import type { ComposerOverride } from '../../../logics/composerOverrideLogic'
+import type { AttachedContextItem } from '../../../types/contextTypes'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { StartupRunChat } from './StartupRunChat'
 import { TaskComposer } from './TaskComposer'
-import { TaskHistoryList, TaskHistoryPreview } from './TaskHistory'
+import { TaskHistoryPanel, TaskHistoryPreview } from './TaskHistory'
 import { TaskRunChat } from './TaskRunChat'
 
 export interface SidePanelRunnerImplProps {
     /** Embedded `taskTrackerSceneLogic` key — keeps this instance independent of the `/tasks` scene singleton. */
     panelId: string
     composer?: ReactNode
+    attachApplyBackInstructions?: boolean
+    /** Context exclusive to this runner, rather than the app-wide attached-context registry. */
+    contextItems?: AttachedContextItem[]
+    composerOverride?: ComposerOverride
+    welcomeHeadlines?: string[]
 }
 
 /**
@@ -27,19 +35,43 @@ export interface SidePanelRunnerImplProps {
  * `TaskTrackerSceneLogicProps`) so `TaskComposer` — which reads the unbound `taskTrackerSceneLogic` — resolves
  * this instance instead of the scene's own singleton.
  */
-export function SidePanelRunnerImpl({ panelId, composer }: SidePanelRunnerImplProps): JSX.Element {
+export function SidePanelRunnerImpl({
+    panelId,
+    composer,
+    attachApplyBackInstructions = true,
+    contextItems,
+    composerOverride,
+    welcomeHeadlines,
+}: SidePanelRunnerImplProps): JSX.Element {
     return (
-        <BindLogic logic={taskTrackerSceneLogic} props={{ panelId }}>
-            <SidePanelRunnerContent composer={composer} />
+        <BindLogic logic={taskTrackerSceneLogic} props={{ panelId, contextItems, composerOverride, welcomeHeadlines }}>
+            <SidePanelRunnerContent
+                composer={composer}
+                attachApplyBackInstructions={attachApplyBackInstructions}
+                contextItems={contextItems}
+            />
         </BindLogic>
     )
 }
 
-function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Element {
-    const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
-    const { composerOverride } = useValues(composerOverrideLogic)
-    const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
+function SidePanelRunnerContent({
+    composer,
+    attachApplyBackInstructions,
+    contextItems,
+}: {
+    composer?: ReactNode
+    attachApplyBackInstructions: boolean
+    contextItems?: AttachedContextItem[]
+}): JSX.Element {
+    const {
+        activeCreation,
+        historyExpanded,
+        effectiveComposerOverride: composerOverride,
+    } = useValues(taskTrackerSceneLogic)
+    const { updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
     const startupFocusedRef = useRef(false)
+    // The quill host draws its own frame and header divider, and its thread carries no outer margin.
+    const lemonChrome = useThreadSkin() === 'lemon'
 
     // This compact surface renders only in Max's side panel, so the run it shows is a foreground
     // stream. Register its `streamKey` (cleared when the panel drops back to the composer/history, and
@@ -47,27 +79,15 @@ function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Ele
     // `TaskRunChat`; registrations are provider-keyed, so co-mounted surfaces don't clobber each other.
     useForegroundStream(activeCreation?.streamKey ?? null)
 
-    // While this side-panel surface is mounted, tell the agent its tool calls are applied back into
-    // whatever the user has open (see `useMcpToolApplyBack` consumers). Attached unconditionally —
-    // unlike the foreground stream above, the instruction must ride the FIRST send, before a run exists.
-    useAttachedContext([AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM])
+    // Edit-capable hosts attach this before the first send, before a run exists. Question-only
+    // hosts provide their own instructions instead of advertising edits to the open page.
+    useAttachedContext(attachApplyBackInstructions ? [AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM] : null)
 
     // `!composer`: a host that supplies its own composer offers no way into the history list, and the
     // panel state is shared across hosts — so an expanded history left behind by another one must not
     // take the place of that composer.
     if (!activeCreation && historyExpanded && !composer) {
-        return (
-            <div className="flex flex-col h-full min-h-0">
-                <div className="flex items-center shrink-0 border-b border-primary px-2 py-1">
-                    <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => toggleHistory()}>
-                        Back
-                    </LemonButton>
-                </div>
-                <div className="flex-1 min-h-0 overflow-y-auto px-4 py-2">
-                    <TaskHistoryList />
-                </div>
-            </div>
-        )
+        return <TaskHistoryPanel />
     }
 
     if (!activeCreation) {
@@ -90,12 +110,12 @@ function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Ele
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <LemonDivider className="my-0" />
+            {lemonChrome && <LemonDivider className="my-0" />}
             {activeCreation.taskId && activeCreation.runId ? (
                 // `TaskRunChat`'s inner container compensates for the `/tasks` scene's own horizontal margin
                 // with `-mx-4`; a `px-4` wrapper here neutralizes that bleed instead of editing the shared
                 // component, so it renders flush with the panel edge like the composer and pending states.
-                <div className="flex-1 min-h-0 px-4">
+                <div className={cn('flex-1 min-h-0', lemonChrome && 'px-4')}>
                     <TaskRunChat
                         taskId={activeCreation.taskId}
                         runId={activeCreation.runId}
@@ -106,11 +126,16 @@ function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Ele
                         initialDraft={activeCreation.draft}
                         onDraftAdopted={() => setStartupDraft('')}
                         autoFocus={startupFocusedRef.current}
+                        contextItems={contextItems}
                     />
                 </div>
             ) : (
                 <div className="flex-1 min-h-0 px-4">
-                    <StartupRunChat streamKey={activeCreation.streamKey} focusedRef={startupFocusedRef} />
+                    <StartupRunChat
+                        streamKey={activeCreation.streamKey}
+                        focusedRef={startupFocusedRef}
+                        contextItems={contextItems}
+                    />
                 </div>
             )}
         </div>

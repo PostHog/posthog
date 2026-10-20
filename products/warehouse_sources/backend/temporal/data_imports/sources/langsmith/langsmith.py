@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -15,6 +15,9 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.cloud_utils import is_cloud
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
+    BoundaryCheckpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -46,8 +49,7 @@ REPEATED_CURSOR_ERROR = "LangSmith returned a repeated pagination cursor"
 RESPONSE_TOO_LARGE_ERROR = "LangSmith API returned an oversized response"
 
 # Raised (and registered non-retryable) when the host returns oversized pagination data: a cursor
-# past MAX_CURSOR_BYTES, or an id set past MAX_SESSION_IDS_BYTES / MAX_DATASET_IDS_BYTES while
-# scoping a query. Every retry walks the same pages and collects the same oversized data.
+# past MAX_CURSOR_BYTES, or an id set past MAX_PARENT_IDS_BYTES while scoping a query. Every retry walks the same pages and collects the same oversized data.
 PAGINATION_TOO_LARGE_ERROR = "LangSmith returned oversized pagination data"
 
 # Raised (and registered non-retryable) when a single runs page stays over MAX_RESPONSE_BYTES even at
@@ -85,16 +87,12 @@ MIN_RUNS_PAGE_SIZE = 1
 # make hitting this in one attempt take days.
 MAX_PAGES_PER_RUN = 50_000
 
-# Cap the total bytes of session ids accumulated while scoping the runs query. `host` is
-# user-controlled and returns arbitrary `id` strings on every project page, so without a cumulative
-# cap a host could return unboundedly many (or oversized) ids across thousands of pages — well
-# before MAX_PAGES_PER_RUN trips — and exhaust a shared import worker's memory. ~58k real UUIDs'
-# worth, far beyond any legitimate workspace's tracing-project count.
-MAX_SESSION_IDS_BYTES = 2 * 1024 * 1024
-
-# Same cumulative-memory guard as MAX_SESSION_IDS_BYTES, applied to the dataset ids collected to
-# scope the examples query. A user-controlled host could otherwise stream unbounded dataset ids.
-MAX_DATASET_IDS_BYTES = 2 * 1024 * 1024
+# Cap the total bytes of parent ids (projects, datasets, annotation queues) accumulated while scoping
+# a query. `host` is user-controlled and returns arbitrary `id` strings on every listing page, so
+# without a cumulative cap a host could return unboundedly many (or oversized) ids across thousands
+# of pages — well before MAX_PAGES_PER_RUN trips — and exhaust a shared import worker's memory. ~58k
+# real UUIDs' worth, far beyond any legitimate workspace's count.
+MAX_PARENT_IDS_BYTES = 2 * 1024 * 1024
 
 # Bound what one log line can carry out of a page. The host chooses how many runs it returns and
 # how long each id is, so an unbounded line lets it turn a warning into an oversized log event.
@@ -180,9 +178,10 @@ class LangSmithResumeConfig:
     # resumed run keeps paging the same window (a recomputed bound would shift what each
     # cursor/offset points at).
     window_start: str | None = None
-    # Dataset being paged when an examples run was interrupted; examples are fetched per dataset,
-    # so the resume needs both which dataset and the offset within it. None for every other endpoint.
-    dataset_id: str | None = None
+    # Parent (dataset, annotation queue, or project) being paged when a parent-scoped run was
+    # interrupted, so the resume needs both which parent and the offset or cursor within it. None for
+    # every other endpoint.
+    parent_id: str | None = None
 
 
 def normalize_base_url(raw: str) -> str:
@@ -489,25 +488,28 @@ def _fetch_runs_page(
         return data, limit
 
 
-def _list_session_ids(
+def _list_parent_ids(
     session: requests.Session,
     headers: dict[str, str],
     base_url: str,
     logger: FilteringBoundLogger,
+    parent_name: str,
+    child_name: str,
+    params: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Collect every tracing-project (session) id in the workspace.
+    """Collect every id of the `parent_name` endpoint in the workspace.
 
-    runs/query rejects a request that doesn't scope to at least one of session/id/parent_run/
-    trace/reference_example; this sync pulls runs across every project, so it scopes by every
-    session id in the workspace instead of narrowing to one.
+    runs/query rejects a request that doesn't scope to at least one session, GET /examples one that
+    doesn't scope to a dataset, and threads and annotation-queue runs are listed per project or per
+    queue. These syncs cover the whole workspace, so they scope by every parent id instead.
     """
-    config = LANGSMITH_ENDPOINTS["projects"]
+    parent = LANGSMITH_ENDPOINTS[parent_name]
     ids: list[str] = []
     ids_bytes = 0
     offset = 0
     pages = 0
     while True:
-        url = f"{base_url}{config.path}?{urlencode({'limit': config.page_size, 'offset': offset})}"
+        url = f"{base_url}{parent.path}?{urlencode({**(params or {}), 'limit': parent.page_size, 'offset': offset})}"
         data = _fetch_page(session, url, headers, logger)
         rows = data if isinstance(data, list) else []
         if not rows:
@@ -518,65 +520,54 @@ def _list_session_ids(
                 continue
             ids.append(row_id)
             ids_bytes += len(row_id.encode())
-            if ids_bytes > MAX_SESSION_IDS_BYTES:
+            if ids_bytes > MAX_PARENT_IDS_BYTES:
                 raise LangSmithPaginationTooLargeError(
-                    f"the set of tracing-project ids went over {MAX_SESSION_IDS_BYTES} bytes "
-                    f"while scoping the runs query"
+                    f"the set of {parent_name} ids went over {MAX_PARENT_IDS_BYTES} bytes "
+                    f"while scoping the {child_name} query"
                 )
-        if len(rows) < config.page_size:
+        if len(rows) < parent.page_size:
             break
-        offset += config.page_size
+        offset += parent.page_size
         # Same hostile-host guard as the other paginators: a host returning a full page forever
         # must not hold the worker until the activity timeout.
         pages += 1
         if pages >= MAX_PAGES_PER_RUN:
             raise LangSmithPageLimitError(
-                f"LangSmith session listing hit the {MAX_PAGES_PER_RUN}-page limit while scoping the runs query"
+                f"LangSmith {parent_name} listing hit the {MAX_PAGES_PER_RUN}-page limit while scoping the {child_name} query"
             )
     return ids
 
 
-def _list_dataset_ids(
-    session: requests.Session,
-    headers: dict[str, str],
-    base_url: str,
-    logger: FilteringBoundLogger,
-) -> list[str]:
-    """Collect every dataset id in the workspace.
+def _check_next_cursor(next_cursor: str, page_cursor: str | None, seen_cursors: set[bytes], endpoint: str) -> None:
+    """Reject a cursor that is absurdly large or that loops, before it's echoed back or remembered.
 
-    GET /examples requires a `dataset` filter (a 400 otherwise); this sync pulls examples across
-    every dataset, so it lists dataset ids and pages each dataset's examples in turn.
+    `seen_cursors` holds digests, not the cursors themselves: `next_cursor` is attacker-controlled and
+    can be nearly as large as a whole response, so retaining the raw values would let a stream of
+    unique cursors grow the set without bound. A fixed-size digest is all cycle detection needs.
     """
-    config = LANGSMITH_ENDPOINTS["datasets"]
-    ids: list[str] = []
-    ids_bytes = 0
-    offset = 0
-    pages = 0
-    while True:
-        url = f"{base_url}{config.path}?{urlencode({'limit': config.page_size, 'offset': offset})}"
-        data = _fetch_page(session, url, headers, logger)
-        rows = data if isinstance(data, list) else []
-        if not rows:
-            break
-        for row in rows:
-            row_id = row.get("id")
-            if not row_id:
-                continue
-            ids.append(row_id)
-            ids_bytes += len(row_id.encode())
-            if ids_bytes > MAX_DATASET_IDS_BYTES:
-                raise LangSmithPaginationTooLargeError(
-                    f"the set of dataset ids went over {MAX_DATASET_IDS_BYTES} bytes while scoping the examples query"
-                )
-        if len(rows) < config.page_size:
-            break
-        offset += config.page_size
-        pages += 1
-        if pages >= MAX_PAGES_PER_RUN:
-            raise LangSmithPageLimitError(
-                f"LangSmith dataset listing hit the {MAX_PAGES_PER_RUN}-page limit while scoping the examples query"
-            )
-    return ids
+    if len(next_cursor.encode()) > MAX_CURSOR_BYTES:
+        raise LangSmithPaginationTooLargeError(f"the {endpoint} cursor went over {MAX_CURSOR_BYTES} bytes")
+
+    # A host that hands back a cursor it already gave us (or the one we just sent) is looping;
+    # retrying would re-hit it, so fail for good instead of spinning until the activity timeout.
+    cursor_digest = hashlib.sha256(next_cursor.encode()).digest()
+    if next_cursor == page_cursor or cursor_digest in seen_cursors:
+        raise LangSmithRepeatedCursorError(REPEATED_CURSOR_ERROR)
+    seen_cursors.add(cursor_digest)
+
+
+def _shape_rows(config: LangSmithEndpointConfig, rows: list[Any], parent_id: str) -> list[Any]:
+    if not config.parent_id_field and not config.dropped_fields:
+        return rows
+    shaped: list[Any] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        shaped_row = {key: value for key, value in row.items() if key not in config.dropped_fields}
+        if config.parent_id_field:
+            shaped_row[config.parent_id_field] = parent_id
+        shaped.append(shaped_row)
+    return shaped
 
 
 def _emit_batches(
@@ -616,6 +607,8 @@ def _stop_at_page_limit(
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
     resumable_source_manager.save_state(resume_state)
+    # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+    resumable_source_manager.safe_point()
     raise LangSmithPageLimitError(message)
 
 
@@ -649,7 +642,7 @@ def _get_runs_rows(
 
     # runs/query requires at least one of session/id/parent_run/trace/reference_example in the
     # body (a 400 otherwise) — there's no such thing as an unscoped query across a workspace.
-    session_ids = _list_session_ids(session, headers, base_url, logger)
+    session_ids = _list_parent_ids(session, headers, base_url, logger, "projects", config.name)
     if not session_ids:
         logger.debug("LangSmith: no tracing projects in workspace, nothing to sync for runs")
         return
@@ -665,9 +658,6 @@ def _get_runs_rows(
     if window_start:
         body["start_time"] = window_start
 
-    # Digests, not the cursors themselves: `next_cursor` is attacker-controlled and can be nearly as
-    # large as a whole response, so retaining the raw values would let a stream of unique cursors
-    # grow this set without bound. A fixed-size digest is all cycle detection needs.
     seen_cursors: set[bytes] = set()
     pages = 0
     # Shrinks (and stays shrunk) when a page trips MAX_RESPONSE_BYTES — see _fetch_runs_page.
@@ -693,16 +683,7 @@ def _get_runs_rows(
         if not next_cursor:
             break
 
-        # Reject an absurdly large cursor before it's echoed back or remembered.
-        if len(next_cursor.encode()) > MAX_CURSOR_BYTES:
-            raise LangSmithPaginationTooLargeError(f"the runs cursor went over {MAX_CURSOR_BYTES} bytes")
-
-        # A host that hands back a cursor it already gave us (or the one we just sent) is looping;
-        # retrying would re-hit it, so fail for good instead of spinning until the activity timeout.
-        cursor_digest = hashlib.sha256(next_cursor.encode()).digest()
-        if next_cursor == page_cursor or cursor_digest in seen_cursors:
-            raise LangSmithRepeatedCursorError(REPEATED_CURSOR_ERROR)
-        seen_cursors.add(cursor_digest)
+        _check_next_cursor(next_cursor, page_cursor, seen_cursors, config.name)
 
         pages += 1
         if pages >= MAX_PAGES_PER_RUN:
@@ -778,38 +759,30 @@ def _get_offset_rows(
             )
 
 
-def _examples_start_position(
+def _parent_start_position(
     resumable_source_manager: ResumableSourceManager[LangSmithResumeConfig],
-    dataset_ids: list[str],
+    parent_ids: list[str],
     logger: FilteringBoundLogger,
-) -> tuple[int, int | None]:
-    """Return the dataset index an interrupted examples run picks back up at, and the offset within
-    that dataset. The offset is None when there is no usable checkpoint and the sweep starts over.
+) -> tuple[int, LangSmithResumeConfig | None]:
+    """Return the parent index an interrupted parent-scoped run picks back up at, and the saved state
+    holding the position within that parent. The state is None when there is no usable checkpoint
+    and the sweep starts over.
     """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    # Only resume into a dataset that still exists; a deleted one restarts the sweep from the top
-    # so no dataset is silently skipped.
-    if resume is None or resume.dataset_id not in dataset_ids:
+    # Only resume into a parent that still exists; a deleted one restarts the sweep from the top
+    # so no parent is silently skipped.
+    if resume is None or resume.parent_id not in parent_ids:
         return 0, None
-    logger.debug(f"LangSmith: resuming examples from dataset={resume.dataset_id} offset={resume.offset}")
-    return dataset_ids.index(resume.dataset_id), resume.offset or 0
+    logger.debug(f"LangSmith: resuming from parent={resume.parent_id} offset={resume.offset} cursor={resume.cursor}")
+    return parent_ids.index(resume.parent_id), resume
 
 
-def _examples_resume_state(
-    dataset_ids: list[str],
-    index: int,
-    next_offset: int,
-    *,
-    is_last_page: bool,
-) -> LangSmithResumeConfig:
-    """Where an examples run resumes from once it hits the per-attempt page cap."""
-    if is_last_page:
-        # This dataset is exhausted; resume picks up at the start of the next one.
-        return LangSmithResumeConfig(dataset_id=dataset_ids[index + 1], offset=0)
-    return LangSmithResumeConfig(dataset_id=dataset_ids[index], offset=next_offset)
+def _parent_url(base_url: str, config: LangSmithEndpointConfig, parent_id: str) -> str:
+    # Parent ids come from the user-controlled host, so encode them before they enter the path.
+    return f"{base_url}{config.path.replace('{parent_id}', quote(parent_id, safe=''))}"
 
 
-def _get_examples_rows(
+def _get_parent_scoped_rows(
     session: requests.Session,
     headers: dict[str, str],
     base_url: str,
@@ -820,67 +793,186 @@ def _get_examples_rows(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> Iterator[Any]:
-    """Page GET /examples for every dataset in the workspace.
+    """Page an offset/limit GET endpoint once for every parent id in the workspace.
 
-    Examples belong to a dataset, and GET /examples rejects a request that doesn't scope to one
-    (a 400 otherwise), so this walks each dataset id and pages that dataset's examples with a
-    `dataset` filter. Examples are full-refresh only (no server-side window), so there's no
-    incremental watermark to pin — the resume tracks which dataset and offset an interrupted run
-    was on."""
-    dataset_ids = _list_dataset_ids(session, headers, base_url, logger)
-    if not dataset_ids:
-        logger.debug("LangSmith: no datasets in workspace, nothing to sync for examples")
+    GET /examples rejects a request that doesn't scope to a dataset (a 400 otherwise), and
+    annotation-queue runs are only listed per queue, so this walks each parent id and pages its rows.
+    These endpoints are full-refresh only (no server-side window), so there's no incremental
+    watermark to pin — the resume tracks which parent and offset an interrupted run was on."""
+    assert config.parent is not None
+    parent_ids = _list_parent_ids(
+        session, headers, base_url, logger, config.parent, config.name, config.parent_list_params
+    )
+    if not parent_ids:
+        logger.debug(f"LangSmith: no {config.parent} in workspace, nothing to sync for {config.name}")
         return
 
-    start_index, resume_offset = _examples_start_position(resumable_source_manager, dataset_ids, logger)
+    start_index, resume = _parent_start_position(resumable_source_manager, parent_ids, logger)
 
     pages = 0
-    for index in range(start_index, len(dataset_ids)):
-        dataset_id = dataset_ids[index]
-        is_last_dataset = index == len(dataset_ids) - 1
-        if index == start_index and resume_offset is not None:
-            offset = resume_offset
+    parent_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
+    for index in range(start_index, len(parent_ids)):
+        parent_id = parent_ids[index]
+        is_last_parent = index == len(parent_ids) - 1
+        if index == start_index and resume is not None:
+            offset = resume.offset or 0
         else:
             offset = 0
-            # Checkpoint the dataset boundary before reading it, so a crash resumes at this dataset
-            # rather than re-reading the previous one.
-            resumable_source_manager.save_state(LangSmithResumeConfig(dataset_id=dataset_id, offset=0))
+            # Checkpoint the parent boundary before reading it, so a crash resumes at this parent
+            # rather than re-reading the previous one. The batcher can hold rows of the previous
+            # parent, and a checkpoint at this parent skips them.
+            yield from parent_checkpoint.save(LangSmithResumeConfig(parent_id=parent_id, offset=0))
 
         while True:
             page_offset = offset
-            url = f"{base_url}{config.path}?{urlencode({'dataset': dataset_id, 'limit': config.page_size, 'offset': page_offset})}"
+            params: dict[str, Any] = {"limit": config.page_size, "offset": page_offset}
+            if config.parent_query_param:
+                params = {config.parent_query_param: parent_id, **params}
+            url = f"{_parent_url(base_url, config, parent_id)}?{urlencode(params)}"
             data = _fetch_page(session, url, headers, logger)
             # Count every request, including a short first page, against the per-run limit. A
-            # dataset whose examples fit on one page must still cost one request — otherwise a
-            # host serving many datasets (bounded only by MAX_DATASET_IDS_BYTES) each with a
-            # single short page pages forever without ever tripping MAX_PAGES_PER_RUN.
+            # parent whose rows fit on one page must still cost one request — otherwise a host
+            # serving many parents (bounded only by MAX_PARENT_IDS_BYTES) each with a single short
+            # page pages forever without ever tripping MAX_PAGES_PER_RUN.
             pages += 1
 
             rows = data if isinstance(data, list) else []
             is_last_page = not rows or len(rows) < config.page_size
 
-            run_is_finished = is_last_page and is_last_dataset
+            run_is_finished = is_last_page and is_last_parent
             yield from _emit_batches(
                 batcher,
-                rows,
+                _shape_rows(config, rows, parent_id),
                 resumable_source_manager,
-                LangSmithResumeConfig(dataset_id=dataset_id, offset=page_offset),
+                LangSmithResumeConfig(parent_id=parent_id, offset=page_offset),
                 is_final_page=run_is_finished,
             )
 
             if pages >= MAX_PAGES_PER_RUN and not run_is_finished:
+                next_state = (
+                    # This parent is exhausted; resume picks up at the start of the next one.
+                    LangSmithResumeConfig(parent_id=parent_ids[index + 1], offset=0)
+                    if is_last_page
+                    else LangSmithResumeConfig(parent_id=parent_id, offset=page_offset + config.page_size)
+                )
                 yield from _stop_at_page_limit(
                     batcher,
                     resumable_source_manager,
-                    _examples_resume_state(
-                        dataset_ids, index, page_offset + config.page_size, is_last_page=is_last_page
-                    ),
-                    f"LangSmith examples import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint",
+                    next_state,
+                    f"LangSmith {config.name} import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint",
                 )
 
             if is_last_page:
                 break
             offset = page_offset + config.page_size
+
+
+def _get_threads_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    base_url: str,
+    config: LangSmithEndpointConfig,
+    batcher: Batcher,
+    resumable_source_manager: ResumableSourceManager[LangSmithResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[Any]:
+    """Page POST /v2/threads/query with the body cursor, once for every tracing project.
+
+    The query takes a single `project_id`, so this walks each project. The API defaults
+    `min_start_time` to one day ago, so the lookback is always sent, and a resume keeps the window
+    the interrupted run started with so its cursor still points into the same result set."""
+    assert config.parent is not None
+    project_ids = _list_parent_ids(
+        session, headers, base_url, logger, config.parent, config.name, config.parent_list_params
+    )
+    if not project_ids:
+        logger.debug(f"LangSmith: no tracing projects in workspace, nothing to sync for {config.name}")
+        return
+
+    start_index, resume = _parent_start_position(resumable_source_manager, project_ids, logger)
+    if resume is not None and resume.window_start:
+        window_start: str | None = resume.window_start
+    elif config.default_lookback_days:
+        window_start = _format_datetime(datetime.now(UTC) - timedelta(days=config.default_lookback_days))
+    else:
+        window_start = None
+
+    url = f"{base_url}{config.path}"
+    pages = 0
+    project_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
+    for index in range(start_index, len(project_ids)):
+        project_id = project_ids[index]
+        is_last_project = index == len(project_ids) - 1
+        if index == start_index and resume is not None:
+            cursor = resume.cursor
+        else:
+            cursor = None
+            yield from project_checkpoint.save(LangSmithResumeConfig(parent_id=project_id, window_start=window_start))
+
+        seen_cursors: set[bytes] = set()
+        while True:
+            page_cursor = cursor
+            body: dict[str, Any] = {"project_id": project_id, "page_size": config.page_size}
+            if window_start:
+                body["min_start_time"] = window_start
+            if page_cursor:
+                body["cursor"] = page_cursor
+            data = _fetch_page(session, url, headers, logger, json_body=body)
+            pages += 1
+
+            page = data if isinstance(data, dict) else {}
+            rows = page.get("items") if isinstance(page.get("items"), list) else []
+            next_cursor = page.get("next_cursor") or None
+            if next_cursor is not None:
+                _check_next_cursor(str(next_cursor), page_cursor, seen_cursors, config.name)
+            # A page can hold fewer threads than `page_size`, even none, before the last one, so only
+            # a missing cursor ends the project.
+            is_last_page = next_cursor is None
+
+            run_is_finished = is_last_page and is_last_project
+            yield from _emit_batches(
+                batcher,
+                _shape_rows(config, rows or [], project_id),
+                resumable_source_manager,
+                LangSmithResumeConfig(parent_id=project_id, cursor=page_cursor, window_start=window_start),
+                is_final_page=run_is_finished,
+            )
+
+            if pages >= MAX_PAGES_PER_RUN and not run_is_finished:
+                next_state = (
+                    LangSmithResumeConfig(parent_id=project_ids[index + 1], window_start=window_start)
+                    if is_last_page
+                    else LangSmithResumeConfig(parent_id=project_id, cursor=str(next_cursor), window_start=window_start)
+                )
+                yield from _stop_at_page_limit(
+                    batcher,
+                    resumable_source_manager,
+                    next_state,
+                    f"LangSmith {config.name} import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint",
+                )
+
+            if is_last_page:
+                break
+            cursor = str(next_cursor)
+
+
+def _get_single_page_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    base_url: str,
+    config: LangSmithEndpointConfig,
+    batcher: Batcher,
+    resumable_source_manager: ResumableSourceManager[LangSmithResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[Any]:
+    """GET a list endpoint that returns every row in one unpaginated JSON array."""
+    data = _fetch_page(session, f"{base_url}{config.path}", headers, logger)
+    rows = data if isinstance(data, list) else []
+    yield from _emit_batches(batcher, rows, resumable_source_manager, LangSmithResumeConfig(), is_final_page=True)
 
 
 def get_rows(
@@ -908,8 +1000,12 @@ def get_rows(
     session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
 
     pager: Callable[..., Iterator[Any]]
-    if config.scoped_by_dataset:
-        pager = _get_examples_rows
+    if config.pagination == "none":
+        pager = _get_single_page_rows
+    elif config.pagination == "cursor" and config.parent:
+        pager = _get_threads_rows
+    elif config.parent:
+        pager = _get_parent_scoped_rows
     elif config.pagination == "cursor":
         # Bound here because only runs has a server-side select to narrow.
         pager = partial(_get_runs_rows, select_fields=_runs_select_fields(config, enabled_columns))

@@ -19,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
@@ -123,6 +124,20 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 5)
         self.assertNotIn("hasMore", response)
 
+    @parameterized.expand([(3, False), (4, True)])
+    def test_alert_explicit_limit_probes_one_extra_row(self, row_count, has_more):
+        query = HogQLQuery(query=f"SELECT arrayJoin(range({row_count + 2})) AS value ORDER BY value LIMIT 3 OFFSET 2")
+        runner = HogQLQueryRunner(query=query, team=self.team, limit_context=LimitContext.SQL_ALERT)
+        normal = HogQLQueryRunner(query=query, team=self.team, limit_context=LimitContext.QUERY_ASYNC)
+        assert runner.get_cache_key() != normal.get_cache_key()
+        response = runner.calculate()
+        assert response.results == [(2,), (3,), (4,)]
+        assert response.hasMore is has_more
+        normal_response = normal.calculate()
+        assert normal_response.results == response.results
+        assert normal_response.hasMore is None
+        assert query.query.endswith("LIMIT 3 OFFSET 2")
+
     def test_hogql_query_filters(self):
         runner = self._create_runner(
             HogQLQuery(
@@ -180,6 +195,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = cast(CachedHogQLQueryResponse, runner.run())
 
             self.assertIsNotNone(response.cache_target_age)
+            self.assertIsNone(response.column_formats)
             self.assertEqual(response.cache_target_age, expected_target_age)
 
     @parameterized.expand(
@@ -268,14 +284,24 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ExposedHogQLError):
             runner.calculate()
 
+    @parameterized.expand(
+        [(False, "project_reader"), (False, "duckgres_service"), (True, "duckgres_service"), (True, "project_reader")]
+    )
+    @patch("posthoganalytics.feature_enabled")
     @patch(
         "posthog.permissions.posthog_feature_flag_enabled",
         side_effect=AssertionError("managed warehouse query execution must not evaluate a product feature flag"),
     )
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
-    def test_managed_warehouse_cache_and_status_do_not_evaluate_a_feature_flag(
-        self, mock_execute_hogql_query: MagicMock, feature_flag_lookup: MagicMock
+    def test_managed_warehouse_cache_and_status_follow_selected_engine(
+        self,
+        trino: bool,
+        credential_kind: str,
+        mock_execute_hogql_query: MagicMock,
+        feature_flag_lookup: MagicMock,
+        engine_flag: MagicMock,
     ) -> None:
+        engine_flag.return_value = trino
         source = ExternalDataSource.objects.create(
             source_id="managed-source",
             connection_id="managed-connection",
@@ -289,8 +315,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             connection_metadata={
                 "engine": "duckdb",
                 "system_managed": True,
-                "credential_kind": "project_reader",
+                "credential_kind": credential_kind,
                 "reader_configured": True,
+                "lifecycle_generation": 1,
             },
             job_inputs={
                 "host": "managed.example.com",
@@ -300,6 +327,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "password": "reader-password",
             },
         )
+        if credential_kind == "duckgres_service":
+            source.job_inputs = {}
+            source.save(update_fields=["job_inputs"])
         query = HogQLQuery(query="select 1::int as value", connectionId=str(source.id), sendRawQuery=True)
         mock_execute_hogql_query.return_value = HogQLQueryResponse(results=[(1,)], columns=["value"], types=[])
 
@@ -332,8 +362,15 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(second_response.results, [(1,)])
 
+        with patch("posthoganalytics.feature_enabled", return_value=not trino):
+            if credential_kind == "duckgres_service":
+                self.assertNotEqual(self._create_runner(query).get_cache_key(), built_in_cache_key)
+            else:
+                self.assertEqual(self._create_runner(query).get_cache_key(), built_in_cache_key)
+
         assert isinstance(source.connection_metadata, dict)
         source.connection_metadata["reader_configured"] = False
+        source.connection_metadata["lifecycle_generation"] = -1
         source.save(update_fields=["connection_metadata"])
         with self.assertRaisesMessage(ExposedHogQLError, "Invalid connectionId"):
             self._create_runner(query).run()

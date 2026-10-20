@@ -55,6 +55,7 @@ class SkillMarketplaceActionsMixin(SkillAccessMixin):
         }
 
     @extend_schema(responses={200: LLMSkillMarketplaceCommandSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="marketplace/install-command")
     @llma_track_latency("llma_skills_marketplace_command")
     @monitor(feature=None, endpoint="llma_skills_marketplace_command", method="GET")

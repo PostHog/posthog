@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id::bigint as \"id!\", uuid as \"uuid!\",\n                   COALESCE(version, 0)::bigint as \"version!\"\n            FROM posthog_person\n            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = true\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "version!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "545a7af7c86596144dc851c0cf8454a62d9150a5e57dd04e547523f15729031f"
+}

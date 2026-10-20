@@ -58,7 +58,11 @@ jest.mock('./SceneContent', () => ({
 }))
 
 jest.mock('./SceneTitleSection', () => ({
-    SceneTitleSection: ({ name }: { name: string }) => <div data-attr="scene-title-section">{name}</div>,
+    SceneTitleSection: ({ name, sceneId }: { name: string; sceneId?: string | null }) => (
+        <div data-attr="scene-title-section" data-scene-id={sceneId}>
+            {name}
+        </div>
+    ),
 }))
 
 const mockedUseValues = useValues as jest.Mock
@@ -388,7 +392,7 @@ describe('FeaturePreviewSceneGate', () => {
             expect(screen.getByTestId('scene-title-section')).toHaveTextContent('Customer analytics')
         })
 
-        test('config sceneId overrides the active scene for the title, so a flag-hidden route is not titled "Not found"', () => {
+        test('config sceneId overrides the active scene for the title and its release stage, so a flag-hidden route is not titled "Not found"', () => {
             setupMocks({ activeSceneId: 'Error404' })
 
             render(
@@ -398,6 +402,7 @@ describe('FeaturePreviewSceneGate', () => {
             )
 
             expect(screen.getByTestId('scene-title-section')).toHaveTextContent('Metrics')
+            expect(screen.getByTestId('scene-title-section')).toHaveAttribute('data-scene-id', 'Metrics')
             expect(screen.queryByText('Not found')).not.toBeInTheDocument()
         })
 
@@ -481,8 +486,28 @@ describe('FeaturePreviewSceneGate', () => {
 
             render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
 
-            expect(screen.getByText(/Thanks — we'll email you when it's ready/)).toBeInTheDocument()
+            expect(screen.getByText(/Thanks, we'll email you when it's ready/)).toBeInTheDocument()
             expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+        })
+
+        test('thanks someone who registered before waitlist surveys existed instead of asking again', () => {
+            setupMocks({ earlyAccessFeatures: [{ ...CONCEPT_FEATURE, enabled: true }], waitlistSurveysEnabled: true })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByText(/Thanks, we'll email you when it's ready/)).toBeInTheDocument()
+            expect(screen.queryByPlaceholderText('email@yourcompany.com')).not.toBeInTheDocument()
+        })
+
+        // Matches the feature previews page: with waitlist surveys off, the one-click flow applies,
+        // so a registered user sees its disabled "Registered" state rather than the survey's thanks line.
+        test('shows a disabled Registered button to a registered user while waitlist surveys are off', () => {
+            setupMocks({ earlyAccessFeatures: [{ ...CONCEPT_FEATURE, enabled: true }], waitlistSurveysEnabled: false })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByText('Registered').closest('button')).toHaveAttribute('aria-disabled', 'true')
+            expect(screen.queryByText(/Thanks, we'll email you when it's ready/)).not.toBeInTheDocument()
         })
 
         test('submits the waitlist survey and registers product intent', async () => {

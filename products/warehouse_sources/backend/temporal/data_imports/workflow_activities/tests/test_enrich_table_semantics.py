@@ -5,6 +5,10 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db.models.query import QuerySet
+from django.db.utils import OperationalError as DjangoOperationalError
+from django.test import override_settings
+
 from temporalio.testing import ActivityEnvironment
 
 from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TruncatedCompletionError
@@ -37,6 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 pytestmark = pytest.mark.django_db
 
 _USAGE = {"model": "claude-haiku-4-5", "prompt_tokens": 120, "completion_tokens": 40, "total_tokens": 160}
+_UTIL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.util"
 
 
 @pytest.fixture(autouse=True)
@@ -475,6 +480,42 @@ class TestCanonicalDescriptionsResolver:
 
 
 class TestEnrichTableSemanticsSync:
+    def test_retries_transient_internal_db_error_on_initial_team_lookup(self):
+        # A DNS blip resolving PostHog's own database must be retried, not raised straight through -
+        # it would otherwise reach error tracking as an unactionable OperationalError on every sync.
+        team = _team()
+        schema, table = _make_schema(
+            team,
+            columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}],
+            description="Stripe charges",
+        )
+        canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
+
+        failures = 0
+        original_get = QuerySet.get
+
+        def flaky_team_get(self, *args, **kwargs):
+            nonlocal failures
+            if self.model is Team and failures == 0:
+                failures += 1
+                raise DjangoOperationalError("[Errno -2] Name or service not known")
+            return original_get(self, *args, **kwargs)
+
+        with (
+            patch.object(QuerySet, "get", flaky_team_get),
+            patch(f"{_UTIL_MODULE}.close_stale_db_connections") as mock_close,
+            patch("time.sleep"),
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_generate_descriptions") as mock_llm,
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        mock_llm.assert_not_called()
+        # The helper evicts the connection once per retry, so exactly one retry happened.
+        assert failures == 1
+        mock_close.assert_called_once()
+        assert result == {"status": "done", "canonical_annotations": 1, "ai_annotations": 0}
+
     def test_skipped_when_ai_data_processing_not_approved(self):
         team = _team()
         team.organization.is_ai_data_processing_approved = False
@@ -748,6 +789,36 @@ class TestEnrichTableSemanticsSync:
         assert result["status"] == "partial"
         assert result["error"] == "llm_failed"
         assert _annotations(team, table) == {}
+
+    def test_unconfigured_gateway_is_not_reported_as_a_failure(self, _mock_capture_enrichment_event):
+        # A deployment with no LLM gateway fails identically for every team and no retry changes that,
+        # so it belongs in the completion event, not in error tracking.
+        team = _team()
+        schema, table = _make_schema(
+            team,
+            columns=[
+                {"name": "amount", "data_type": "Int64", "is_nullable": False},
+                {"name": "status", "data_type": "String", "is_nullable": True},
+            ],
+        )
+        canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
+        with (
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(enrich, "capture_exception") as mock_capture,
+            override_settings(LLM_GATEWAY_URL="", LLM_GATEWAY_API_KEY="", AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        mock_capture.assert_not_called()
+        assert result["status"] == "partial"
+        assert result["error"] == "llm_gateway_not_configured"
+        # The canonical description needs no gateway, so it still lands; the other column stays
+        # unannotated and a later sync asks for it again.
+        assert set(_annotations(team, table)) == {"amount"}
+        events = {call.args[1]: call.args[2] for call in _mock_capture_enrichment_event.call_args_list}
+        assert enrich.EVENT_ERROR not in events
+        assert events[enrich.EVENT_COMPLETED]["reason"] == "llm_gateway_not_configured"
 
     def test_emits_started_completed_and_llm_call_events(self, _mock_capture_enrichment_event):
         team = _team()

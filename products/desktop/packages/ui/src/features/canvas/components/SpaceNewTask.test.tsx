@@ -41,6 +41,9 @@ const NO_WIKI_PAGE = {
 
 // TaskInput is a huge hook-heavy component; stub it down to just the surface
 // this test cares about — a button that fires onContextChipClick when wired.
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/features/task-detail/components/TaskInput", () => ({
   TaskInput: (props: {
     allowNoRepo?: boolean;

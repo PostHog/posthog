@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AshbySource(ResumableSource[AshbySourceConfig, AshbyResumeConfig]):
+    codebase_detection = detect(env=("^ASHBY_",))
+
     api_docs_url = "https://developers.ashbyhq.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -46,7 +49,7 @@ class AshbySource(ResumableSource[AshbySourceConfig, AshbyResumeConfig]):
             name=ExternalDataSourceType.ASHBY,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Ashby",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Ashby API key to pull your Ashby (ATS) data into the PostHog Data warehouse.
 
 You can create an API key under **Admin → API Keys** in Ashby. Grant read permissions for the data you want to sync, for example:

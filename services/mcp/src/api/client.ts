@@ -1,13 +1,17 @@
 import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
+import { MCP_CLIENT_IP_HEADERS, signedClientIpHeaders } from '@/lib/client-ip-signature'
 import { getUserAgent } from '@/lib/constants'
 import {
     ErrorCode,
+    hasTimeoutCause,
+    isTimeoutError,
     parseRetryAfterSeconds,
     PostHogApiError,
     PostHogPermissionError,
     PostHogRateLimitError,
+    PostHogTransportError,
     PostHogValidationError,
 } from '@/lib/errors'
 import { getSearchParamsFromRecord, sanitizeHeaders, sanitizeHeaderValue } from '@/lib/utils.js'
@@ -37,6 +41,41 @@ import type { Schemas } from './generated.js'
 const RATE_LIMIT_MAX_RETRIES = 3
 const RATE_LIMIT_BASE_BACKOFF_MS = 2000
 const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
+
+// Transport retry policy. A connection that fails or drops before a response
+// arrives is transient, and a safe method applied nothing upstream, so the
+// client repeats it instead of handing the agent a failure it can only fix by
+// sending the same call again. The budget stays small: a tool call holds the
+// MCP client's request open while it waits, and a host that is truly down
+// must surface fast.
+const TRANSPORT_MAX_RETRIES = 2
+const TRANSPORT_BASE_BACKOFF_MS = 250
+
+/** Methods that carry no upstream effect, so a repeat after a failed
+ *  connection cannot apply the same work twice. */
+const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD'])
+
+/** An aborted request is the caller's own timeout or cancellation, so a retry
+ *  would only wait for a deadline that has already passed. Everything else
+ *  thrown out of `fetch` or a body read is a transport fault. */
+function isAbortError(error: unknown): boolean {
+    return (error instanceof Error && error.name === 'AbortError') || isTimeoutError(error)
+}
+
+// Per-attempt deadline for a JSON API request. Without it, an upstream request that
+// never answers holds the tool call open until the MCP client gives up, and a batch
+// waits on its slowest call. A timeout returns an error that says whether a retry is
+// safe, so the agent does not have to guess if a write applied.
+const API_REQUEST_TIMEOUT_MS = 2 * 60 * 1000
+
+// Endpoints that run analytics queries can legitimately take minutes, so they keep a
+// wide bound. It still ends a request that never answers.
+const LONG_RUNNING_API_REQUEST_TIMEOUT_MS = 10 * 60 * 1000
+const LONG_RUNNING_API_PATH = /\/(query|run_insights|mcp_tools\/execute_sql)\/$|\/(max_tools|autoresearch)\//
+
+function apiRequestTimeoutMs(url: string): number {
+    return LONG_RUNNING_API_PATH.test(url.split('?')[0]!) ? LONG_RUNNING_API_REQUEST_TIMEOUT_MS : API_REQUEST_TIMEOUT_MS
+}
 
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
@@ -165,6 +204,10 @@ export interface ApiConfig {
     taskId?: string | undefined
     /** One tool call's stated intent, forwarded as `x-posthog-intent`. Set it through `withIntent`. */
     intent?: string | undefined
+    /** Called only for a trusted PostHog API response marked as private. */
+    onPrivateResponse?: (() => void) | undefined
+    clientIp?: string | undefined
+    clientIpSigningKeys?: string[] | undefined
 }
 
 // Matches ACTIVITY_LOG_INTENT_MAX_LENGTH in posthog/models/activity_logging/utils.py.
@@ -204,6 +247,13 @@ export class ApiClient {
         const scoped = Object.create(Object.getPrototypeOf(this) as object) as this
         Object.assign(scoped, this)
         scoped.config = { ...this.config, intent }
+        return scoped
+    }
+
+    withAnalyticsSuppression(onPrivateResponse: () => void): this {
+        const scoped = Object.create(Object.getPrototypeOf(this) as object) as this
+        Object.assign(scoped, this)
+        scoped.config = { ...this.config, onPrivateResponse }
         return scoped
     }
 
@@ -255,17 +305,29 @@ export class ApiClient {
                 'x-posthog-intent': intentHeaderValue(this.config.intent),
             }),
             'X-PostHog-Client': 'mcp',
+            // Signed per call, so a long tool call cannot outlive the signature's time window.
+            ...(this.config.clientIp && this.config.clientIpSigningKeys
+                ? await signedClientIpHeaders(
+                      MCP_CLIENT_IP_HEADERS,
+                      this.config.clientIpSigningKeys,
+                      this.config.clientIp
+                  )
+                : {}),
         }
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'
         }
-        return fetch(url, {
+        const response = await fetch(url, {
             ...options,
             headers: {
                 ...defaultHeaders,
                 ...options?.headers,
             },
         })
+        if (response.headers.get('X-PostHog-Suppress-Analytics') === 'true') {
+            this.config.onPrivateResponse?.()
+        }
+        return response
     }
 
     /**
@@ -280,6 +342,14 @@ export class ApiClient {
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
     }): Promise<T> {
+        const pathname = opts.path.split(/[?#]/, 1)[0]!
+        if (
+            !pathname.startsWith('/') ||
+            pathname.includes('//') ||
+            new URL(pathname, this.baseUrl).pathname !== pathname
+        ) {
+            throw new Error('Invalid API path')
+        }
         const searchParams = new URLSearchParams()
         if (opts.query) {
             for (const [k, v] of Object.entries(opts.query)) {
@@ -316,6 +386,8 @@ export class ApiClient {
                     body: errorText,
                     url,
                     method: opts.method,
+                    retryAfterSeconds:
+                        response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
                 })
             }
             return (await response.text()) as T
@@ -560,83 +632,132 @@ export class ApiClient {
             body: errorText,
             url,
             method,
+            retryAfterSeconds:
+                response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
         })
     }
 
-    private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
+    /** Pass `idempotent` for a non-GET request that has no upstream effect, so
+     *  a transport fault retries it like a safe method. */
+    private async fetchJson<T>(
+        url: string,
+        options?: RequestInit,
+        { idempotent = false }: { idempotent?: boolean } = {}
+    ): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
+        const isSafeMethod = idempotent || SAFE_HTTP_METHODS.has(method.toUpperCase())
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
+        let rateLimitRetries = 0
+        let transportRetries = 0
+        const timeoutMs = apiRequestTimeoutMs(url)
 
-        for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+        for (;;) {
+            let response: Response
+            let bodyText: string
+            const deadline = new AbortController()
+            const timer = setTimeout(
+                () =>
+                    deadline.abort(
+                        new DOMException(`No response within ${Math.round(timeoutMs / 1000)} seconds`, 'TimeoutError')
+                    ),
+                timeoutMs
+            )
+            const signal = options?.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal
             try {
-                const response = await this.fetch(url, options)
-
-                if (response.status === 429) {
-                    const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
-                    const rateLimitFailure = async (): Promise<Result<T>> => ({
+                response = await this.fetch(url, { ...options, signal })
+                // Read the body inside the same guard as the connection: a stream cut
+                // short throws here, and that failure is transport, not a bad response.
+                bodyText = await response.text()
+            } catch (error) {
+                const canRetry =
+                    !signal.aborted &&
+                    !isAbortError(error) &&
+                    !hasTimeoutCause(error) &&
+                    isSafeMethod &&
+                    transportRetries < TRANSPORT_MAX_RETRIES
+                if (!canRetry) {
+                    console.error(`[API] Transport failure on ${method} ${url}: ${String(error)}`)
+                    return {
                         success: false,
-                        error: new PostHogRateLimitError({
-                            body: await response.text(),
+                        error: new PostHogTransportError({
                             url,
                             method,
-                            retryAfterSeconds,
+                            attempts: transportRetries + 1,
+                            retryable: isSafeMethod,
+                            cause: error,
                         }),
-                    })
-
-                    if (attempt === RATE_LIMIT_MAX_RETRIES) {
-                        console.error(`[API] Rate limit (429) retries exhausted on ${method} ${url}`)
-                        return rateLimitFailure()
                     }
+                }
+                // Equal jitter so concurrent failures do not retry in lockstep.
+                const backoffMs = TRANSPORT_BASE_BACKOFF_MS * 2 ** transportRetries
+                const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
+                transportRetries++
+                console.warn(
+                    `[API] Transport failure on ${method} ${url}: ${String(error)}. Retrying in ${Math.round(delayMs)}ms (attempt ${transportRetries}/${TRANSPORT_MAX_RETRIES})`
+                )
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                continue
+            } finally {
+                clearTimeout(timer)
+            }
 
-                    // DRF rejects throttled requests before the view executes,
-                    // so retrying is safe for mutations too.
-                    const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** attempt
-                    const delayMs =
-                        retryAfterSeconds !== null
-                            ? retryAfterSeconds * 1000
-                            : // Equal jitter so concurrent 429s don't retry in lockstep.
-                              backoffMs / 2 + Math.random() * (backoffMs / 2)
+            if (response.status === 429) {
+                const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
+                const rateLimitFailure = (): Result<T> => ({
+                    success: false,
+                    error: new PostHogRateLimitError({
+                        body: bodyText,
+                        url,
+                        method,
+                        retryAfterSeconds,
+                    }),
+                })
 
-                    if (delayMs > waitBudgetMs) {
-                        console.warn(
-                            `[API] Rate limited (429) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
-                        )
-                        return rateLimitFailure()
-                    }
+                if (rateLimitRetries === RATE_LIMIT_MAX_RETRIES) {
+                    console.error(`[API] Rate limit (429) retries exhausted on ${method} ${url}`)
+                    return rateLimitFailure()
+                }
 
-                    waitBudgetMs -= delayMs
+                // DRF rejects throttled requests before the view executes,
+                // so retrying is safe for mutations too.
+                const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** rateLimitRetries
+                const delayMs =
+                    retryAfterSeconds !== null
+                        ? retryAfterSeconds * 1000
+                        : // Equal jitter so concurrent 429s don't retry in lockstep.
+                          backoffMs / 2 + Math.random() * (backoffMs / 2)
+
+                if (delayMs > waitBudgetMs) {
                     console.warn(
-                        `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES})`
+                        `[API] Rate limited (429) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
                     )
-                    await new Promise((resolve) => setTimeout(resolve, delayMs))
-                    continue
+                    return rateLimitFailure()
                 }
 
-                if (!response.ok) {
-                    const errorText = await response.text()
+                waitBudgetMs -= delayMs
+                rateLimitRetries++
+                console.warn(
+                    `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})`
+                )
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                continue
+            }
 
-                    throw this.buildApiError(response, errorText, url, method)
-                }
+            if (!response.ok) {
+                return { success: false, error: this.buildApiError(response, bodyText, url, method) }
+            }
 
-                const rawText = await response.text()
-                if (!rawText) {
-                    return { success: true, data: {} as T }
-                }
+            if (!bodyText) {
+                return { success: true, data: {} as T }
+            }
 
-                try {
-                    const rawData = JSON.parse(rawText)
-                    return { success: true, data: rawData as T }
-                } catch {
-                    return { success: true, data: rawText as T }
-                }
-            } catch (error) {
-                return { success: false, error: error as Error }
+            try {
+                const rawData = JSON.parse(bodyText)
+                return { success: true, data: rawData as T }
+            } catch {
+                return { success: true, data: bodyText as T }
             }
         }
-
-        // Unreachable: the final attempt always returns above, but TypeScript
-        // can't prove the loop is exhaustive.
-        return { success: false, error: new Error('Unexpected rate limit retry state') }
     }
 
     organizations(): Endpoint {
@@ -684,14 +805,19 @@ export class ApiClient {
     oauth(): Endpoint {
         return {
             introspect: async ({ token }: { token: string }): Promise<Result<ApiOAuthIntrospection>> => {
-                return this.fetchJson<ApiOAuthIntrospection>(`${this.baseUrl}/oauth/introspect`, {
-                    method: 'POST',
-                    body: JSON.stringify({ token }),
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`,
+                // RFC 7662 introspection only reads the token state.
+                return this.fetchJson<ApiOAuthIntrospection>(
+                    `${this.baseUrl}/oauth/introspect`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ token }),
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`,
+                        },
                     },
-                })
+                    { idempotent: true }
+                )
             },
         }
     }
@@ -740,7 +866,7 @@ export class ApiClient {
                     const response = await this.fetch(url)
 
                     if (!response.ok) {
-                        throw new Error(`Failed to fetch property definitions: ${response.statusText}`)
+                        throw this.buildApiError(response, await response.text(), url, 'GET')
                     }
 
                     const data = (await response.json()) as { results: ApiPropertyDefinition[] }
@@ -776,7 +902,7 @@ export class ApiClient {
                     const response = await this.fetch(requestUrl)
 
                     if (!response.ok) {
-                        throw new Error(`Failed to fetch event definitions: ${response.statusText}`)
+                        throw this.buildApiError(response, await response.text(), requestUrl, 'GET')
                     }
 
                     const data = (await response.json()) as { results: ApiEventDefinition[] }
@@ -823,44 +949,29 @@ export class ApiClient {
                     hidden?: boolean
                 }
             }): Promise<Result<ApiEventDefinition>> => {
-                try {
-                    // Fetching the event definition by name to get its ID
-                    const searchParams = new URLSearchParams({ name: eventName })
-                    const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
+                // Fetching the event definition by name to get its ID
+                const searchParams = new URLSearchParams({ name: eventName })
+                const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
 
-                    const findResponse = await this.fetch(findUrl)
+                const findResult = await this.fetchJson<ApiEventDefinition>(findUrl)
 
-                    if (findResponse.status === 404) {
+                if (!findResult.success) {
+                    if (findResult.error instanceof PostHogApiError && findResult.error.status === 404) {
                         return {
                             success: false,
                             error: new Error(`Event definition not found: ${eventName}`),
                         }
                     }
-
-                    if (!findResponse.ok) {
-                        throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
-                    }
-
-                    const eventDef = (await findResponse.json()) as ApiEventDefinition
-
-                    // Updating the event definition by ID
-                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${eventDef.id}/`
-
-                    const updateResponse = await this.fetch(updateUrl, {
-                        method: 'PATCH',
-                        body: JSON.stringify(data),
-                    })
-
-                    if (!updateResponse.ok) {
-                        throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
-                    }
-
-                    const responseData = (await updateResponse.json()) as ApiEventDefinition
-
-                    return { success: true, data: responseData }
-                } catch (error) {
-                    return { success: false, error: error as Error }
+                    return findResult
                 }
+
+                // Updating the event definition by ID
+                const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${findResult.data.id}/`
+
+                return this.fetchJson<ApiEventDefinition>(updateUrl, {
+                    method: 'PATCH',
+                    body: JSON.stringify(data),
+                })
             },
 
             updatePropertyDefinition: async ({
@@ -882,52 +993,37 @@ export class ApiClient {
                     hidden?: boolean
                 }
             }): Promise<Result<ApiPropertyDefinition>> => {
-                try {
-                    // Property definitions have no by-name lookup endpoint, so resolve the id via the
-                    // list endpoint: `properties` does an exact-name match, and `type` disambiguates a
-                    // name that exists across taxonomies (e.g. an event property and a person property).
-                    const findParams = getSearchParamsFromRecord({
-                        properties: propertyName,
-                        type: type ?? 'event',
-                        group_type_index: groupTypeIndex,
-                    })
-                    const findUrl = `${this.baseUrl}/api/projects/${projectId}/property_definitions/?${findParams}`
+                // Property definitions have no by-name lookup endpoint, so resolve the id via the
+                // list endpoint: `properties` does an exact-name match, and `type` disambiguates a
+                // name that exists across taxonomies (e.g. an event property and a person property).
+                const findParams = getSearchParamsFromRecord({
+                    properties: propertyName,
+                    type: type ?? 'event',
+                    group_type_index: groupTypeIndex,
+                })
+                const findUrl = `${this.baseUrl}/api/projects/${projectId}/property_definitions/?${findParams}`
 
-                    const findResponse = await this.fetch(findUrl)
+                const findResult = await this.fetchJson<{ results: ApiPropertyDefinition[] }>(findUrl)
 
-                    if (!findResponse.ok) {
-                        throw new Error(`Failed to find property definition: ${findResponse.statusText}`)
-                    }
-
-                    const findData = (await findResponse.json()) as { results: ApiPropertyDefinition[] }
-                    const propertyDef = findData.results.find((def) => def.name === propertyName)
-
-                    if (!propertyDef) {
-                        return {
-                            success: false,
-                            error: new Error(
-                                `Property definition not found: ${propertyName} (type: ${type ?? 'event'})`
-                            ),
-                        }
-                    }
-
-                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/property_definitions/${propertyDef.id}/`
-
-                    const updateResponse = await this.fetch(updateUrl, {
-                        method: 'PATCH',
-                        body: JSON.stringify(data),
-                    })
-
-                    if (!updateResponse.ok) {
-                        throw new Error(`Failed to update property definition: ${updateResponse.statusText}`)
-                    }
-
-                    const responseData = (await updateResponse.json()) as ApiPropertyDefinition
-
-                    return { success: true, data: responseData }
-                } catch (error) {
-                    return { success: false, error: error as Error }
+                if (!findResult.success) {
+                    return findResult
                 }
+
+                const propertyDef = findResult.data.results.find((def) => def.name === propertyName)
+
+                if (!propertyDef) {
+                    return {
+                        success: false,
+                        error: new Error(`Property definition not found: ${propertyName} (type: ${type ?? 'event'})`),
+                    }
+                }
+
+                const updateUrl = `${this.baseUrl}/api/projects/${projectId}/property_definitions/${propertyDef.id}/`
+
+                return this.fetchJson<ApiPropertyDefinition>(updateUrl, {
+                    method: 'PATCH',
+                    body: JSON.stringify(data),
+                })
             },
 
             updatePathCleaningFilters: async ({
@@ -1011,7 +1107,7 @@ export class ApiClient {
                 // The API expects a QueryRequest object with the query wrapped
                 const queryRequest: any = {
                     query: validated,
-                    ...(refresh ? { refresh: 'blocking' } : {}),
+                    ...(refresh ? { refresh: 'force_blocking' } : {}),
                 }
 
                 const result = await this.fetchJson<ExperimentExposureQueryResponse>(
@@ -1108,7 +1204,7 @@ export class ApiClient {
 
                             const queryRequest = {
                                 query: queryBody,
-                                ...(refresh ? { refresh: 'blocking' } : {}),
+                                ...(refresh ? { refresh: 'force_blocking' } : {}),
                             }
 
                             const result = await this.fetchJson<unknown>(
@@ -1138,7 +1234,7 @@ export class ApiClient {
 
                             const queryRequest = {
                                 query: queryBody,
-                                ...(refresh ? { refresh: 'blocking' } : {}),
+                                ...(refresh ? { refresh: 'force_blocking' } : {}),
                             }
 
                             const result = await this.fetchJson<unknown>(
@@ -1178,7 +1274,7 @@ export class ApiClient {
                 variables_override,
                 filters_override,
             }: {
-                insightId: string
+                insightId: string | number
                 variables_override?: string
                 filters_override?: string
             }): Promise<Result<Schemas.Insight>> => {
@@ -1190,39 +1286,46 @@ export class ApiClient {
                     params.set('filters_override', filters_override)
                 }
 
-                // Check if insightId is a short_id (8 character alphanumeric string)
-                // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
-                if (isShortId(insightId)) {
-                    // The list endpoint accepts ?short_id=... and runs the same
-                    // InsightSerializer.to_representation, which applies
-                    // variables_override / filters_override from query_params. So
-                    // short_id resolution + override application happen in one hop.
-                    params.set('short_id', insightId)
-                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${params}`
+                const retrieveById = (): Promise<Result<Schemas.Insight>> => {
+                    const queryString = params.toString() ? `?${params}` : ''
+                    return this.fetchJson<Schemas.Insight>(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
+                    )
+                }
 
-                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(url)
+                // A number is always a numeric id. Eight-digit ids also match the short_id syntax.
+                if (typeof insightId === 'number' || !isShortId(insightId)) {
+                    return retrieveById()
+                }
 
-                    if (!result.success) {
-                        return result
-                    }
+                // The list endpoint accepts ?short_id=... and runs the same
+                // InsightSerializer.to_representation, which applies
+                // variables_override / filters_override from query_params. So
+                // short_id resolution + override application happen in one hop.
+                const listParams = new URLSearchParams(params)
+                listParams.set('short_id', insightId)
+                const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/?${listParams}`
+                )
 
-                    const insights = result.data.results
-                    const insight = insights[0]
+                if (!result.success) {
+                    return result
+                }
 
-                    if (insights.length === 0 || !insight) {
-                        return {
-                            success: false,
-                            error: new Error(`No insight found with short_id: ${insightId}`),
-                        }
-                    }
-
+                const insight = result.data.results[0]
+                if (insight) {
                     return { success: true, data: insight }
                 }
 
-                const queryString = params.toString() ? `?${params}` : ''
-                return this.fetchJson<Schemas.Insight>(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
-                )
+                // Short ids are random alphanumerics, so an all-digit string can be either kind of id.
+                if (/^\d+$/.test(insightId)) {
+                    return retrieveById()
+                }
+
+                return {
+                    success: false,
+                    error: new Error(`No insight found with short_id: ${insightId}`),
+                }
             },
 
             create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
@@ -1248,16 +1351,14 @@ export class ApiClient {
                 insightId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
+                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
+                    const response = await this.fetch(url, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ deleted: true }),
+                    })
 
                     if (!response.ok) {
-                        throw new Error(`Failed to delete insight: ${response.statusText}`)
+                        throw this.buildApiError(response, await response.text(), url, 'PATCH')
                     }
 
                     return {
@@ -1498,11 +1599,13 @@ export class ApiClient {
                 query: Record<string, unknown>
             }): Promise<{
                 results: unknown
+                columns?: unknown[] | null
                 formatted_results?: string
                 warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
             }> => {
                 return this.request<{
                     results: unknown
+                    columns?: unknown[] | null
                     formatted_results?: string
                     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
                 }>({
@@ -1614,7 +1717,7 @@ export class ApiClient {
     async getGroupTypes(projectId: string): Promise<GroupType[]> {
         const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
         if (!result.success) {
-            throw new Error(result.error.message)
+            throw result.error
         }
         return result.data
     }
@@ -1625,7 +1728,7 @@ export class ApiClient {
             `${this.baseUrl}/api/projects/${projectId}/mcp_server_installations/available_tools/`
         )
         if (!result.success) {
-            throw new Error(result.error.message)
+            throw result.error
         }
         return result.data
     }

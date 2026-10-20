@@ -4,8 +4,6 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, ProductManifest } from '~/types'
 
-import type { ModelsSceneTab } from '../../frontend/src/scenes/models/modelsSceneLogic'
-import type { NodeDetailSceneTab } from '../../frontend/src/scenes/models/nodeDetailSceneLogic'
 import type { SchemaConfigurationSection, SchemaSceneTab } from './frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
@@ -14,24 +12,12 @@ export const manifest: ProductManifest = {
     scenes: {
         DataOps: {
             name: 'Data ops',
-            import: () => import('./DataWarehouseScene'),
+            import: () => import('./frontend/scenes/DataOpsScene/DataWarehouseScene'),
             projectBased: true,
             activityScope: 'DataWarehouse',
             description: "Manage your organization's shared data warehouse.",
             iconType: 'data_warehouse',
             docsHref: 'https://posthog.com/docs/data-warehouse',
-        },
-        Models: {
-            name: 'Models',
-            import: () => import('../../frontend/src/scenes/models/ModelsScene'),
-            projectBased: true,
-            description: 'Create and manage views and materialized views for transforming and organizing your data.',
-            iconType: 'sql_editor',
-        },
-        NodeDetail: {
-            name: 'Model detail',
-            import: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
-            projectBased: true,
         },
         SQLEditor: {
             projectBased: true,
@@ -70,12 +56,16 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Data warehouse schema',
         },
+        WarehouseDestinations: {
+            import: () => import('./frontend/scenes/WarehouseDestinationsScene/WarehouseDestinationsScene'),
+            projectBased: true,
+            name: 'Warehouse destinations',
+            description: 'Manage where your warehouse sources write the rows they sync.',
+            iconType: 'data_warehouse',
+        },
     },
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
-        '/models': ['Models', 'models'],
-        '/models/:id': ['NodeDetail', 'nodeDetail'],
-        '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
         '/data-management/sources': ['Sources', 'sources'],
         '/data-management/sources/:sourceId/schemas/:schemaId': [
             'DataWarehouseSourceSchema',
@@ -89,6 +79,7 @@ export const manifest: ProductManifest = {
             'DataWarehouseSourceSchema',
             'dataWarehouseSourceSchema',
         ],
+        '/data-management/warehouse-destinations': ['WarehouseDestinations', 'warehouseDestinations'],
         '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
         '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
         '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
@@ -100,9 +91,14 @@ export const manifest: ProductManifest = {
         // `/data-warehouse/new` is a natural URL for "add a source" but was never a real route.
         // Redirect it to the new-source wizard rather than 404ing.
         '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
+        // Listed before `/data-management/sources/:id`, which would otherwise read `new` as a source id.
+        '/data-management/sources/new': () => urls.dataWarehouseSourceNew(),
         '/data-warehouse/sources': () => urls.sources(),
         '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
+        // Every scene route under a source names a tab, so trimming one off a shared link or the
+        // address bar lands on a path no route matches. Send it to the source's first tab.
+        '/data-management/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     },
     urls: {
         dataOps: (tab?: string): string => {
@@ -113,8 +109,6 @@ export const manifest: ProductManifest = {
             const query = params.toString()
             return query ? `/data-ops?${query}` : '/data-ops'
         },
-        models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
-        nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
         sources: (): string => '/data-management/sources',
         dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
             `/data-management/sources/${id}/${tab ?? 'schemas'}`,
@@ -134,7 +128,8 @@ export const manifest: ProductManifest = {
             kind?: string,
             returnUrl?: string,
             returnLabel?: string,
-            accessMethod?: 'warehouse' | 'direct'
+            accessMethod?: 'warehouse' | 'direct',
+            entryPoint?: string
         ): string => {
             const params = new URLSearchParams()
             if (kind) {
@@ -149,9 +144,15 @@ export const manifest: ProductManifest = {
             if (accessMethod) {
                 params.set('access_method', accessMethod)
             }
+            if (entryPoint) {
+                params.set('entry_point', entryPoint)
+            }
             const queryString = params.toString()
             return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
         },
+        warehouseDestinations: (): string => '/data-management/warehouse-destinations',
+        warehouseDestination: (id: string): string =>
+            `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
         dataWarehouseSourceConnect: (kind?: string): string =>
             `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     },
@@ -159,11 +160,12 @@ export const manifest: ProductManifest = {
         {
             path: 'SQL editor',
             intents: [ProductKey.DATA_WAREHOUSE_SAVED_QUERY, ProductKey.DATA_WAREHOUSE],
-            category: ProductItemCategory.ANALYTICS,
+            category: ProductItemCategory.DATA,
             type: 'sql',
             iconType: 'sql_editor',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             href: urls.sqlEditor(),
+            searchKeywords: ['hogql', 'hogsql', 'query editor'],
             sceneKey: 'SQLEditor',
             sceneKeys: ['SQLEditor'],
         },
@@ -173,38 +175,82 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
             category: ProductItemCategory.UNRELEASED,
             href: urls.dataOps(),
+            searchKeywords: ['managed warehouse', 'data lake', 'lakehouse'],
+            searchTabs: [{ name: 'Monitoring', href: urls.dataOps('monitoring') }],
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
+            alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
             iconType: 'data_warehouse',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             sceneKey: 'DataOps',
+            // Covers the data modeling scene keys too, so these rows stay highlighted on /models.
+            // The generated list otherwise follows product membership and leaves them out.
+            sceneKeys: [
+                'DataOps',
+                'Models',
+                'NodeDetail',
+                'SQLEditor',
+                'Sources',
+                'DataWarehouseSource',
+                'DataWarehouseSourceNew',
+                'DataWarehouseSourceConnect',
+                'DataWarehouseSourceSchema',
+                'WarehouseDestinations',
+            ],
         },
     ],
     treeItemsMetadata: [
         {
             path: `Sources`,
-            category: 'Pipeline',
+            category: 'CDP',
             type: 'hog_function/source',
-            iconType: 'data_pipeline_metadata',
+            iconType: 'data_source',
+            iconColor: ['var(--color-product-sources-light)', 'var(--color-product-sources-dark)'],
             href: urls.sources(),
+            searchKeywords: [
+                'data warehouse',
+                'warehouse',
+                'connectors',
+                'import data',
+                'external data',
+                'inbound webhooks',
+            ],
             sceneKey: 'Sources',
             sceneKeys: ['Sources'],
         },
         {
-            path: 'Models',
-            category: 'Tools',
-            type: 'sql',
-            iconType: 'sql_editor',
-            iconColor: ['var(--color-product-data-warehouse-light)'],
-            href: urls.models(),
-            sceneKey: 'Models',
-            sceneKeys: ['Models'],
+            path: 'Warehouse destinations',
+            category: 'CDP',
+            iconType: 'warehouse_destination',
+            iconColor: [
+                'var(--color-product-warehouse-destinations-light)',
+                'var(--color-product-warehouse-destinations-dark)',
+            ],
+            href: urls.warehouseDestinations(),
+            flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
+            sceneKey: 'WarehouseDestinations',
+            sceneKeys: ['WarehouseDestinations'],
         },
         {
             path: 'Managed viewsets',
             category: 'Unreleased',
             iconType: 'managed_viewsets',
+            iconColor: ['var(--color-product-managed-viewsets-light)', 'var(--color-product-managed-viewsets-dark)'],
             href: urls.dataWarehouseManagedViewsets(),
             flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
+            // Covers the data modeling scene keys too, so these rows stay highlighted on /models.
+            // The generated list otherwise follows product membership and leaves them out.
+            sceneKeys: [
+                'DataOps',
+                'Models',
+                'NodeDetail',
+                'SQLEditor',
+                'Sources',
+                'DataWarehouseSource',
+                'DataWarehouseSourceNew',
+                'DataWarehouseSourceConnect',
+                'DataWarehouseSourceSchema',
+                'WarehouseDestinations',
+            ],
         },
     ],
 }

@@ -86,6 +86,9 @@ describe("ReviewerSearchList", () => {
         optimisticReviewers: [
           expect.objectContaining({
             github_login: "ada",
+            // The row shows this source until the refetch lands, so it must match the
+            // source the server settles a manual add on.
+            source_label: "Added by teammate",
             user: expect.objectContaining({ uuid: "reviewer-1" }),
           }),
         ],

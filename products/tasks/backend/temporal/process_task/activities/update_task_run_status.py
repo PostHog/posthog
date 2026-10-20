@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from django.db import transaction
@@ -10,16 +10,20 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import asyncify
 
+from products.signals.backend.facade.spend import complete_task_spend
+from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
-from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
+from products.tasks.backend.metrics import (
+    observe_prewarmed_unused_if_never_activated,
+    observe_task_run_terminal,
+    observe_wizard_run_unbound,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
-# TaskRun.state marker for runs completed by the inactivity timeout; kept out of
-# error_message so a normal completion never reads as a failure.
-TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 # TaskRun.state marker for runs stopped by the hard wall-clock cap. Written without an
 # error_message: the marker is the machine-readable reason, and a fabricated prose
 # message would just get parroted back to users by every error surface.
@@ -54,6 +58,7 @@ class UpdateTaskRunStatusInput:
     end_of_turn_received: Optional[bool] = None
     last_agent_heartbeat_at: Optional[str] = None
     seconds_since_last_agent_heartbeat: Optional[float] = None
+    sandbox_backend: Optional[str] = None
 
 
 @activity.defn
@@ -82,6 +87,12 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             # Terminal statuses are final. A run cancelled out of band must not be resurrected to
             # completed/failed by its own workflow finishing afterward, which would both lie in the
             # audit trail and undo the cancellation. Re-checked here while holding the row lock.
+            if old_status in _TERMINAL_STATUSES and input.status == TaskRun.Status.IN_PROGRESS:
+                raise ApplicationError(
+                    f"TaskRun {input.run_id} is already {old_status}; refusing to start it",
+                    non_retryable=True,
+                    type="TaskRunAlreadyTerminalError",
+                )
             if old_status in _TERMINAL_STATUSES and input.status != old_status:
                 log_with_activity_context(
                     "Skipping terminal status overwrite",
@@ -98,12 +109,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             if marker in _TERMINAL_STATE_MARKERS:
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
                 task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
-            if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
-                task_run.completed_at = timezone.now()
-            elif (
-                input.status == TaskRun.Status.CANCELLED
-                and task_run.environment == TaskRun.Environment.CLOUD
-                and not task_run.completed_at
+            if not task_run.completed_at and (
+                input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]
+                or (input.status == TaskRun.Status.CANCELLED and task_run.environment == TaskRun.Environment.CLOUD)
             ):
                 task_run.completed_at = timezone.now()
             task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
@@ -117,8 +125,25 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             type="TaskRunDeletedError",
         )
 
+    if input.status == TaskRun.Status.FAILED:
+        input = replace(input, error_type=(task_run.state or {}).get("failure_error_type") or input.error_type)
+
+    # Counted before the fallible side effects below. A retry after one of them raises sees the
+    # row already terminal and skips this block, so a later count would be lost.
+    if input.status in _TERMINAL_STATUSES and old_status != input.status:
+        observe_task_run_terminal(
+            task_run,
+            error_type=input.error_type,
+            termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
+        )
+
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     if input.status in _TERMINAL_STATUSES:
+        try:
+            if task_run.environment == TaskRun.Environment.CLOUD:
+                refresh_task_run_cost(run_id=task_run.id, team_id=task_run.team_id)
+        except Exception:
+            activity.logger.warning(f"Failed to refresh cost for run {task_run.id}", exc_info=True)
         resume_workflow_step_for_run(task_run)
 
     task_run.publish_stream_state_event()
@@ -146,22 +171,20 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             else ("released" if input.status == TaskRun.Status.CANCELLED else "other"),
         )
 
-    if input.status in _TERMINAL_STATUSES:
-        from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> process_task -> activities import cycle
-            handle_loop_run_terminal,
-        )
-
-        try:
-            handle_loop_run_terminal(task_run, error_type=input.error_type)
-        except Exception:
-            activity.logger.warning(f"Failed loop terminal bookkeeping for run {task_run.id}", exc_info=True)
-
     log_with_activity_context(
         "Task run status updated",
         run_id=input.run_id,
         status=input.status,
         termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
     )
+
+
+@activity.defn
+@asyncify
+def complete_signal_spend(run_id: str) -> None:
+    run = TaskRun.objects.only("team_id", "status").get(id=run_id)
+    if run.status in _TERMINAL_STATUSES:
+        complete_task_spend(team_id=run.team_id, run_id=run_id)
 
 
 def _capture_posthog_ai_chat_analytics(
@@ -211,15 +234,10 @@ def _is_first_chat_run_of_task(task_run: TaskRun, state: dict[str, Any]) -> bool
     """Whether this run opened the conversation, the run-level reading of `is_new_conversation`.
 
     A terminal run resumes into a successor rather than reopening, so "no earlier run" is what
-    separates a new conversation from a continued one. Two kinds of earlier history do not count:
-
-    - A prewarm nobody typed into. It idles out on its own and the next message resumes into a
-      successor, so counting it would report the user's first real chat as a continuation.
-    - The LangGraph half of a converted conversation. That conversation already counted once on
-      the legacy runtime, and its sandbox side starts on a fresh task with no earlier run.
+    separates a new conversation from a continued one. One kind of earlier history does not count:
+    a prewarm nobody typed into. It idles out on its own and the next message resumes into a
+    successor, so counting it would report the user's first real chat as a continuation.
     """
-    if state.get("converted_from_langgraph"):
-        return False
     # Match the prewarm on the key's absence rather than with `exclude`. A queryset `exclude` on a
     # JSON key compares NULL for every row that lacks the key, so it would drop exactly the earlier
     # runs that did hold a chat and report every conversation as new.
@@ -256,6 +274,8 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 {
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
+                    # A lost sandbox still completes the run, and this message carries its exit reason, e.g. OOM.
+                    "error_message": truncate_error_message(input.error_message),
                     "has_summary": bool((task_run.state or {}).get("task_summary")),
                     **relay_state,
                 },
@@ -269,6 +289,11 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
                     **relay_state,
+                    **(
+                        {"sandbox_backend": input.sandbox_backend}
+                        if input.sandbox_backend in ("modal", "hogland")
+                        else task_run.failure_sandbox_backend_properties()
+                    ),
                 },
             )
 

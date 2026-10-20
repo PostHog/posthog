@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -7,6 +8,13 @@ from django.db import IntegrityError
 from django.utils import timezone as django_timezone
 from django.utils.dateparse import parse_datetime
 
+from posthog.errors import InternalCHQueryError
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.backfill.pinning import (
@@ -16,16 +24,22 @@ from products.cohorts.backend.backfill.pinning import (
 )
 from products.cohorts.backend.backfill.runs import (
     _validate_boundary_at,
+    behavioral_backfill_ineligibility_reason,
     check_person_run_preconditions,
     check_run_preconditions,
     create_person_team_backfill_run,
     create_team_backfill_run,
-    has_behavioral_filters,
+    judge_team_cohorts,
     person_backfill_ineligibility_reason,
 )
-from products.cohorts.backend.backfill.sizing import estimate_person_seed_topic_bytes
+from products.cohorts.backend.backfill.sizing import (
+    BehavioralScanEstimate,
+    PersonSeedEstimateScanCapExceeded,
+    estimate_behavioral_scan_events,
+    estimate_person_seed_topic_bytes,
+)
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRunCohort, CohortBackfillTrigger
-from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
 
@@ -62,6 +76,15 @@ class Command(BaseCommand):
         parser.add_argument("--cohort-ids", type=int, nargs="+")
         parser.add_argument("--boundary-at", help="ISO 8601 disaster recovery boundary with a UTC offset")
         parser.add_argument("--person-horizon-days", type=int)
+        parser.add_argument(
+            "--max-scan-events-per-day",
+            type=int,
+            help=(
+                "Behavioral runs only: refuse the run when its pinned event names had more events than this on "
+                "any of the last 7 complete UTC days. Overrides BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY; "
+                "0 disables it."
+            ),
+        )
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -76,6 +99,13 @@ class Command(BaseCommand):
             raise CommandError("--person-horizon-days is required with --kind person_property")
         if kind == CohortBackfillKind.BEHAVIORAL and person_horizon_days is not None:
             raise CommandError("--person-horizon-days is only valid with --kind person_property")
+        max_scan_events_per_day: int | None = options.get("max_scan_events_per_day")
+        if kind == CohortBackfillKind.PERSON_PROPERTY and max_scan_events_per_day is not None:
+            raise CommandError("--max-scan-events-per-day is only valid with --kind behavioral")
+        if max_scan_events_per_day is None:
+            max_scan_events_per_day = settings.BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY
+        if max_scan_events_per_day < 0:
+            raise CommandError("--max-scan-events-per-day must be 0 or more")
 
         if not is_realtime_cohort_team(team_id):
             raise CommandError(f"Team {team_id} is not in the realtime cohort allowlist")
@@ -98,26 +128,43 @@ class Command(BaseCommand):
 
         cohort_ids = options.get("cohort_ids")
         if options["dry_run"]:
-            queryset = Cohort.objects.filter(
-                team_id=team_id,
-                cohort_type=CohortType.REALTIME,
-                is_static=False,
-                deleted=False,
-            )
-            if cohort_ids is not None:
-                queryset = queryset.filter(id__in=cohort_ids)
-            cohorts = [cohort for cohort in queryset.order_by("id") if has_behavioral_filters(cohort)]
-            if cohort_ids is not None and {cohort.id for cohort in cohorts} != set(cohort_ids):
-                raise CommandError("One or more --cohort-ids are not eligible realtime behavioral cohorts")
+            cohorts = self._dry_run_cohorts(team_id, cohort_ids, behavioral_backfill_ineligibility_reason, "behavioral")
             pinned, event_names = pin_conditions_for_cohorts(cohorts)
             self.stdout.write(
                 f"Dry run: {len(cohorts)} cohorts, {len(pinned['conditions'])} conditions, "
                 f"{len(event_names)} event names"
             )
+            if max_scan_events_per_day:
+                self._write_scan_estimate(
+                    self._scan_estimate(team_id, event_names, max_scan_events_per_day), len(event_names)
+                )
+            else:
+                self.stdout.write("Scan estimate: skipped, because the limit is 0")
             return
 
+        scan_estimate: BehavioralScanEstimate | None = None
+        if max_scan_events_per_day:
+            # Estimated before the creator locks the cohorts, so an edit in between can shift the names.
+            # The limit is a preflight, not a guarantee: the save path creates runs without it.
+            eligible = [
+                cohort
+                for cohort, reason in judge_team_cohorts(team_id, cohort_ids, behavioral_backfill_ineligibility_reason)
+                if reason is None
+            ]
+            _, event_names = pin_conditions_for_cohorts(eligible)
+            scan_estimate = self._scan_estimate(team_id, event_names, max_scan_events_per_day)
+            self._write_scan_estimate(scan_estimate, len(event_names))
+            if scan_estimate.over_limit:
+                raise CommandError(
+                    f"The run would scan {scan_estimate.peak_day_events} events on its busiest day "
+                    f"({scan_estimate.peak_day}), above the limit of {scan_estimate.max_events_per_day}. "
+                    "Narrow it with --cohort-ids, or pass --max-scan-events-per-day to accept the volume."
+                )
+
         try:
-            run = create_team_backfill_run(team_id, trigger, cohort_ids, boundary_at=boundary_at)
+            run = create_team_backfill_run(
+                team_id, trigger, cohort_ids, boundary_at=boundary_at, scan_estimate=scan_estimate
+            )
         except (Team.DoesNotExist, ValueError) as error:
             raise CommandError(str(error)) from error
         except IntegrityError as error:
@@ -164,7 +211,7 @@ class Command(BaseCommand):
                 cohort_ids,
                 boundary_at=boundary_at,
             )
-        except (Team.DoesNotExist, ValueError) as error:
+        except (Team.DoesNotExist, ValueError, PersonSeedEstimateScanCapExceeded) as error:
             raise CommandError(str(error)) from error
         except IntegrityError as error:
             raise CommandError(f"Team {team_id} already has an active person-property team backfill run") from error
@@ -188,30 +235,7 @@ class Command(BaseCommand):
         cohort_ids: list[int] | None,
         boundary_at: datetime | None,
     ) -> None:
-        requested_ids = set(cohort_ids) if cohort_ids is not None else None
-        # Deliberately wider than `_person_cohorts_for_team`, which narrows the SQL-expressible half
-        # of eligibility away before it locks: the dry run's whole job is naming *why* each cohort was
-        # refused, and it takes no locks. Both sides decide with `person_backfill_ineligibility_reason`.
-        queryset = Cohort.objects.filter(team_id=team_id)
-        if requested_ids is not None:
-            queryset = queryset.filter(id__in=requested_ids)
-        candidates = [(cohort, person_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
-
-        refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
-        if requested_ids is not None:
-            candidate_ids = {cohort.id for cohort, _ in candidates}
-            refusals.extend((cohort_id, "not found") for cohort_id in sorted(requested_ids - candidate_ids))
-
-        if refusals:
-            self.stdout.write(
-                "Refused cohorts: " + ", ".join(f"{cohort_id} ({reason})" for cohort_id, reason in refusals)
-            )
-        if requested_ids is not None and refusals:
-            raise CommandError("One or more --cohort-ids are not eligible realtime person-property cohorts")
-
-        cohorts = [cohort for cohort, reason in candidates if reason is None]
-        if not cohorts:
-            raise CommandError(f"Team {team_id} has no eligible realtime person-property cohorts")
+        cohorts = self._dry_run_cohorts(team_id, cohort_ids, person_backfill_ineligibility_reason, "person-property")
         try:
             pinned = pin_person_conditions_for_cohorts(
                 cohorts,
@@ -231,11 +255,14 @@ class Command(BaseCommand):
             person_scan_since = (normalized_boundary or django_timezone.now()) - timedelta(days=person_horizon_days)
         except (OverflowError, ValueError) as error:
             raise CommandError(str(error)) from error
-        estimate = estimate_person_seed_topic_bytes(
-            team_id,
-            person_scan_since,
-            len(pinned["conditions"]),
-        )
+        try:
+            estimate = estimate_person_seed_topic_bytes(
+                team_id,
+                person_scan_since,
+                len(pinned["conditions"]),
+            )
+        except PersonSeedEstimateScanCapExceeded as error:
+            raise CommandError(str(error)) from error
         verdict = "yes" if estimate.over_budget else "no"
         self.stdout.write(
             f"Dry run: {len(cohorts)} cohorts, {len(pinned['conditions'])} conditions, "
@@ -243,3 +270,51 @@ class Command(BaseCommand):
             f"{estimate.estimated_topic_bytes} estimated topic bytes, budget {estimate.budget_bytes}, "
             f"would refuse: {verdict}"
         )
+
+    def _scan_estimate(self, team_id: int, event_names: list[str], max_events_per_day: int) -> BehavioralScanEstimate:
+        try:
+            return estimate_behavioral_scan_events(team_id, event_names, max_events_per_day=max_events_per_day)
+        except (
+            ClickHouseQueryTimeOut,
+            ClickHouseEstimatedQueryExecutionTimeTooLong,
+            ClickHouseQueryMemoryLimitExceeded,
+            ClickHouseAtCapacity,
+            InternalCHQueryError,
+        ) as error:
+            raise CommandError(
+                f"The scan estimate failed: {error}. Pass --max-scan-events-per-day 0 to create the run without it."
+            ) from error
+
+    def _write_scan_estimate(self, estimate: BehavioralScanEstimate, event_name_count: int) -> None:
+        largest = ", ".join(f"{name} {count}" for name, count in estimate.largest_events(5)) or "none"
+        verdict = "yes" if estimate.over_limit else "no"
+        self.stdout.write(
+            f"Scan estimate: {estimate.peak_day_events} events on the busiest of the last {estimate.days_sampled} "
+            f"complete UTC days ({estimate.peak_day or 'no events'}) across {event_name_count} event names, "
+            f"limit {estimate.max_events_per_day}, would refuse: {verdict}. Largest on that day: {largest}"
+        )
+
+    def _dry_run_cohorts(
+        self,
+        team_id: int,
+        cohort_ids: list[int] | None,
+        ineligibility_reason: Callable[[Cohort], str | None],
+        kind_label: str,
+    ) -> list[Cohort]:
+        candidates = judge_team_cohorts(team_id, cohort_ids, ineligibility_reason)
+        refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
+        if cohort_ids is not None:
+            candidate_ids = {cohort.id for cohort, _ in candidates}
+            refusals.extend((cohort_id, "not found") for cohort_id in sorted(set(cohort_ids) - candidate_ids))
+
+        if refusals:
+            self.stdout.write(
+                "Refused cohorts: " + ", ".join(f"{cohort_id} ({reason})" for cohort_id, reason in refusals)
+            )
+        if cohort_ids is not None and refusals:
+            raise CommandError(f"One or more --cohort-ids are not eligible realtime {kind_label} cohorts")
+
+        cohorts = [cohort for cohort, reason in candidates if reason is None]
+        if not cohorts:
+            raise CommandError(f"Team {team_id} has no eligible realtime {kind_label} cohorts")
+        return cohorts

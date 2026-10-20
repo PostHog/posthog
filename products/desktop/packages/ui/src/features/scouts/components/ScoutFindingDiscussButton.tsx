@@ -40,7 +40,6 @@ export function ScoutFindingDiscussButton({
         findingId: emission.finding_id,
         description: emission.description,
         severity: emission.severity,
-        confidence: emission.confidence,
         question: question.trim() || undefined,
       }),
     [
@@ -50,7 +49,6 @@ export function ScoutFindingDiscussButton({
       emission.finding_id,
       emission.description,
       emission.severity,
-      emission.confidence,
       question,
     ],
   );

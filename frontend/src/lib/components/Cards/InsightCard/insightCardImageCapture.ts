@@ -1,6 +1,6 @@
 import { CaptureImageTarget } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 
-import { DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardTile, InsightModel } from '~/types'
 
 /**
  * Marks each card with a key of its own. A dashboard renders many cards, so a capture that looked for a
@@ -20,10 +20,7 @@ export function dashboardTileScreenshotKey(dashboardId?: number | null): string 
 /** The card's own chrome: the controls in the corner, the resize handles, and the grid's own handles. */
 const CARD_CHROME_SELECTOR = '.CardMeta__controls, .handle, .react-resizable-handle'
 
-export function insightCardKey(
-    insight: Pick<QueryBasedInsightModel, 'short_id'>,
-    tile?: Pick<DashboardTile<QueryBasedInsightModel>, 'id'>
-): string {
+export function insightCardKey(insight: Pick<InsightModel, 'short_id'>, tile?: Pick<DashboardTile, 'id'>): string {
     // The same insight can sit on a dashboard more than once, so the tile identifies the card when there is one.
     return tile?.id != null ? `tile-${tile.id}` : `insight-${insight.short_id}`
 }
@@ -35,8 +32,8 @@ export function insightCardKey(
  * "⋯" menu sits in the corner at all times, and a picture of a menu helps nobody.
  */
 export function insightCardCaptureTarget(
-    insight: Pick<QueryBasedInsightModel, 'short_id' | 'name' | 'derived_name'>,
-    tile?: Pick<DashboardTile<QueryBasedInsightModel>, 'id'>,
+    insight: Pick<InsightModel, 'short_id' | 'name' | 'derived_name'>,
+    tile?: Pick<DashboardTile, 'id'>,
     dashboardId?: number | null
 ): CaptureImageTarget {
     return {

@@ -1,5 +1,7 @@
 export const METRIC_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/
 
+export const HOGQL_METRIC_DEFINITION_KIND = 'HogQLQuery'
+
 /** Values typed in the new metric modal, carried into the SQL editor's "Save as metric" dialog. */
 export interface MetricFormPrefill {
     name?: string
@@ -19,7 +21,7 @@ export function humanizeDefinitionKind(kind: string | null): string {
     if (!kind) {
         return 'Stub'
     }
-    if (kind === 'HogQLQuery') {
+    if (kind === HOGQL_METRIC_DEFINITION_KIND) {
         return 'SQL'
     }
     if (kind === 'MarkdownDefinition') {
@@ -39,7 +41,7 @@ export function validateMetricName(name: string): string | undefined {
 }
 
 // Mirrors MAX_DESCRIPTION_LENGTH enforced in products/data_catalog/backend/logic/validation.py.
-export const METRIC_DESCRIPTION_MAX_LENGTH = 1000
+export const METRIC_DESCRIPTION_MAX_LENGTH = 300
 
 // Mirrors MAX_MARKDOWN_DEFINITION_LENGTH enforced in products/data_catalog/backend/logic/validation.py.
 export const METRIC_MARKDOWN_MAX_LENGTH = 20000
@@ -53,7 +55,7 @@ export function metricCount(count: number): string {
 
 export function validateMetricDescription(description: string): string | undefined {
     if (description.length > METRIC_DESCRIPTION_MAX_LENGTH) {
-        return `Keep the description under ${METRIC_DESCRIPTION_MAX_LENGTH} characters. Say what the metric means in a few sentences.`
+        return `Keep the description under ${METRIC_DESCRIPTION_MAX_LENGTH} characters. Say what the number is in one or two sentences.`
     }
     return undefined
 }

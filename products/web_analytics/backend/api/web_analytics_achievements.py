@@ -16,15 +16,11 @@ from posthog.models.user import User
 from products.web_analytics.backend.achievements.definitions import (
     STREAK_ARM_CONTROL,
     TRACKS,
-    AchievementScope,
     TrackKey,
     serialize_definitions,
 )
-from products.web_analytics.backend.achievements.evaluators import EvalContext
 from products.web_analytics.backend.achievements.tasks import (
-    enqueue_recompute_web_analytics_achievements_debounced,
-    get_or_create_progress,
-    is_due,
+    ensure_team_progress,
     recompute_web_analytics_achievements_sync,
     streak_arm_for_user,
     team_local_today,
@@ -184,20 +180,12 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         user = cast(User, request.user)
         arm = streak_arm_for_user(user)
         canonical_team_id = self.team.parent_team_id or self.team.id
-        today = team_local_today(self.team)
-        team_ctx = EvalContext(team=self.team, user=None, today=today, arm=None)
-        is_control = arm == STREAK_ARM_CONTROL
 
-        if not is_control:
-            for track in TRACKS.values():
-                if track.scope == AchievementScope.TEAM:
-                    get_or_create_progress(team_ctx, track)
+        if arm != STREAK_ARM_CONTROL:
+            ensure_team_progress(self.team)
 
         user_rows = list(WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, user=user))
         team_rows = list(WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, user__isnull=True))
-
-        if not is_control and any(is_due(team_ctx, row) for row in team_rows):
-            enqueue_recompute_web_analytics_achievements_debounced(canonical_team_id, None, today)
 
         payload = {
             "definitions": serialize_definitions(arm),
@@ -212,7 +200,7 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         summary="Record a Web analytics visit",
         description=(
             "Idempotently records that the requesting user opened Web analytics today (team-local date) and "
-            "schedules a debounced achievement recompute. Intended to be called once per session."
+            "refreshes the user's per-user achievement tracks. Intended to be called once per session."
         ),
         request=None,
         responses={200: RecordVisitResponseSerializer},
@@ -231,7 +219,7 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
             recompute_web_analytics_achievements_sync(canonical_team_id, user_id=user.id, cheap_only=True)
         except Exception as e:
             capture_exception(e)
-        enqueue_recompute_web_analytics_achievements_debounced(canonical_team_id, None, today)
+        ensure_team_progress(self.team)
         return Response({"recorded": True})
 
     @extend_schema(

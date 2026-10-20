@@ -2,6 +2,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from django.conf import settings
 
 from parameterized import parameterized
 
@@ -9,6 +12,7 @@ from posthog.schema import DateRange, SessionQuery
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 
@@ -425,7 +429,10 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         trace = response.results[0]
         self.assertEqual(trace.id, "trace-date-from")
         self.assertEqual(trace.aiSessionId, "session-date-from")
-        self.assertEqual(trace.events[0].properties["$ai_output_choices"][0]["content"], "hi")
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn("$ai_output_choices", trace.events[0].properties)
+        else:
+            self.assertEqual(trace.events[0].properties["$ai_output_choices"][0]["content"], "hi")
         self.assertEqual(trace.inputTokens, 5)
         self.assertEqual(trace.outputTokens, 2)
         self.assertAlmostEqual(trace.totalCost or 0, 0.01)
@@ -495,7 +502,11 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
             for_evaluation=True,
         )
 
-        with self.capture_select_queries() as queries:
+        # Evaluation reads skip the full catalog build, which is slow on large warehouse projects.
+        with (
+            self.capture_select_queries() as queries,
+            patch.object(Database, "create_for", side_effect=AssertionError("built the full HogQL catalog")),
+        ):
             response = runner.calculate()
 
         select_queries = _select_queries_without_metadata(queries)

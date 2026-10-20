@@ -15,7 +15,7 @@ import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../..
 import { SignalSourcesPanel } from './SignalSourcesPanel'
 
 // Every axis the signal sources dialog renders from: which sources are armed
-// (SignalSourceConfig rows), which PostHog tools are on (team opt-ins), and which usage
+// (SignalSourceConfig rows), which PostHog products are on (team opt-ins), and which usage
 // events exist (event definitions). Each control drives one of the three mocks.
 interface PanelState {
     // Armed sources
@@ -27,7 +27,7 @@ interface PanelState {
     aiObservabilityArmed: boolean
     productAnalyticsArmed: boolean
     healthChecksArmed: boolean
-    // Tool enablement (team opt-ins)
+    // Product enablement (team opt-ins)
     exceptionAutocaptureOn: boolean
     sessionRecordingOn: boolean
     conversationsOn: boolean
@@ -252,11 +252,11 @@ export default meta
 
 type Story = StoryObj<typeof PanelHarness>
 
-/** Flip any control: armed sources, tool opt-ins, and which usage events exist. */
+/** Flip any control: armed sources, product opt-ins, and which usage events exist. */
 export const Playground: Story = {}
 
-/** Sources armed while every tool is off: each PostHog card warns and offers "Turn it on". */
-export const ArmedButToolsOff: Story = {
+/** Sources armed while every product is off: each PostHog card warns and offers "Turn it on". */
+export const ArmedButProductsOff: Story = {
     args: {
         errorTrackingArmed: true,
         replayVisionArmed: true,
@@ -271,7 +271,7 @@ export const ArmedButToolsOff: Story = {
     },
 }
 
-/** Nothing armed and every tool off: switches are disabled with the turn-on-the-tool reason. */
+/** Nothing armed and every product off: switches are disabled with the turn-on-the-product reason. */
 export const ArmingBlocked: Story = {
     args: {
         errorTrackingArmed: false,
@@ -290,7 +290,7 @@ export const ArmingBlocked: Story = {
     },
 }
 
-/** Every tool on and every source armed, with data flowing everywhere it can be measured. */
+/** Every product on and every source armed, with data flowing everywhere it can be measured. */
 export const EverythingHealthy: Story = {
     args: {
         errorTrackingArmed: true,
@@ -309,8 +309,8 @@ export const EverythingHealthy: Story = {
     },
 }
 
-/** Tools on but no recent events show the setup link. */
-export const ToolsOnNoRecentData: Story = {
+/** Products on but no recent events show the setup link. */
+export const ProductsOnNoRecentData: Story = {
     args: {
         errorTrackingArmed: true,
         replayVisionArmed: true,
@@ -327,7 +327,7 @@ export const ToolsOnNoRecentData: Story = {
     },
 }
 
-/** A failed event-definition check shows the retry action without marking tools as off. */
+/** A failed event-definition check shows the retry action without marking products as off. */
 export const EventDefinitionsUnavailable: Story = {
     args: {
         errorTrackingArmed: true,

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -19,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     OpenAIAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.openai_ads import (
+    INVALID_CREDENTIALS_ERROR,
+    NO_ACCESS_ERROR,
     OpenAIAdsResumeConfig,
     openai_ads_source,
     validate_credentials as validate_openai_ads_credentials,
@@ -34,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenAIAdsSource(ResumableSource[OpenAIAdsSourceConfig, OpenAIAdsResumeConfig]):
+    codebase_detection = detect(env=("^(OPEN_AI_ADS|OPENAIADS)_",), script_hosts=("bzrcdn.openai.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.openai.com/ads/api-overview"
 
@@ -47,7 +52,7 @@ class OpenAIAdsSource(ResumableSource[OpenAIAdsSourceConfig, OpenAIAdsResumeConf
             name=ExternalDataSourceType.OPENAIADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="OpenAI Ads",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your OpenAI Ads API key to pull your campaigns, ad groups, ads, and performance insights into the PostHog Data warehouse.
 
 Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai.com). Each key is scoped to a single ad account — to import more than one ad account, connect one source per account.""",
@@ -78,8 +83,8 @@ Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://api.ads.openai.com": "Your OpenAI Ads API key is invalid or has been revoked. Create a new API key in the Settings tab of OpenAI Ads Manager, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.ads.openai.com": "Your OpenAI Ads API key does not have access to this ad account. Create a key for this ad account in the Settings tab of OpenAI Ads Manager, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.ads.openai.com": INVALID_CREDENTIALS_ERROR,
+            "403 Client Error: Forbidden for url: https://api.ads.openai.com": NO_ACCESS_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -135,10 +140,7 @@ Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_openai_ads_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid OpenAI Ads API key"
+        return validate_openai_ads_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OpenAIAdsResumeConfig]:
         return ResumableSourceManager[OpenAIAdsResumeConfig](inputs, OpenAIAdsResumeConfig)

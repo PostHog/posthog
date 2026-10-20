@@ -393,6 +393,39 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(personManagerSpy).not.toHaveBeenCalled()
         })
 
+        it('attaches the person to a transactional email without their properties', async () => {
+            const transactional = await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: { type: 'trigger', config: { type: 'api' } },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                    })
+                    .build()
+            )
+            const invocation = createSerializedHogFlowInvocation(transactional, {
+                event: { distinct_id: 'distinct_A_1', properties: { to: 'a@example.com' } } as any,
+            })
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            // The send is still recorded against the person, but the template can't read what they hold.
+            expect(results[0].invocation.person).toMatchObject({
+                id: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                properties: {},
+                name: '',
+            })
+            const refreshed = await results[0].invocation.refreshPerson!()
+            expect(refreshed.person).toMatchObject({ properties: {}, name: '' })
+        })
+
         it('should make minimal calls to the person manager', async () => {
             const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersonsByDistinctIds')
             await processor.processInvocations(invocations)
@@ -504,6 +537,39 @@ describe('CdpCyclotronWorkerHogFlow', () => {
 
             expect(getPerson).toHaveBeenCalledWith(expect.any(Number), 'distinct_A_1', 'distinct_id', {
                 forceFresh: true,
+            })
+        })
+
+        it('reads the person fresh at dequeue when a matched event woke the wait', async () => {
+            const event = { distinct_id: 'distinct_A_1', properties: {} } as any
+            await processor.processInvocations([createSerializedHogFlowInvocation(hogFlows[2], { event })])
+
+            const personRepository = processor['personsManager'][
+                'personRepository'
+            ] as jest.Mocked<PersonReadRepository>
+            personRepository.fetchPersonsByDistinctIds.mockResolvedValueOnce([
+                {
+                    ...toInternalPerson({
+                        id: '1',
+                        uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                        teamId: team.id,
+                        distinctId: 'distinct_A_1',
+                        properties: { name: 'Person A 1', email: 'woke-the-wait@posthog.com' },
+                    }),
+                    distinct_id: 'distinct_A_1',
+                },
+            ])
+
+            const results = (await processor.processInvocations([
+                createSerializedHogFlowInvocation(hogFlows[2], {
+                    event,
+                    currentAction: { id: 'wait', startedAtTimestamp: Date.now(), eventMatched: true },
+                }),
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results[0].invocation.person?.properties).toEqual({
+                name: 'Person A 1',
+                email: 'woke-the-wait@posthog.com',
             })
         })
 

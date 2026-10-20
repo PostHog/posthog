@@ -1,77 +1,42 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-import time_machine
-from unittest import mock
+from unittest.mock import patch
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram import deepgram as deepgram_mod
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.deepgram import (
     DEEPGRAM_BASE_URL,
     DeepgramResumeConfig,
+    _format_start_date,
     _format_start_value,
-    _make_child_map,
+    _normalize_row,
     _redact_url_userinfo,
-    deepgram_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.settings import DEEPGRAM_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the deepgram module.
-DEEPGRAM_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.deepgram.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.source import DeepgramSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepgram import (
+    DeepgramSourceConfig,
 )
 
 # The framework injects the parent project id under this key before the child data_map lifts it out.
 PARENT_KEY = "_projects_project_id"
 
 
-def _response(body: Any) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(DeepgramSource(), DeepgramSourceConfig(api_key="token"))
 
 
-def _make_manager(resume_state: DeepgramResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
-    """Wire a mock session; capture each request's (url, params) AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so snapshot a copy when each request
-    is prepared instead of inspecting it after the run.
-    """
-    session.headers = {}
-    snapshots: list[tuple[str, dict[str, Any]]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append((request.url, dict(request.params or {})))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return deepgram_source(
-        api_key="token", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
-    )
+def _response(body: Any) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
 class TestFormatStartValue:
@@ -87,30 +52,13 @@ class TestFormatStartValue:
     def test_format(self, _name: str, value: Any, expected: str) -> None:
         assert _format_start_value(value) == expected
 
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_datetime_clamped_to_now(self) -> None:
-        # Asking for requests created after "now" is pointless; cap it so we don't skip the window.
-        assert _format_start_value(datetime(2027, 1, 1, tzinfo=UTC)) == "2026-06-15T12:00:00+00:00"
 
-
-class TestChildMap:
+class TestNormalizeRow:
     def test_injects_project_id(self) -> None:
-        row = _make_child_map(DEEPGRAM_ENDPOINTS["members"])({PARENT_KEY: "proj-1", "member_id": "m1"})
+        row = _normalize_row(DEEPGRAM_ENDPOINTS["members"], {PARENT_KEY: "proj-1", "member_id": "m1"})
         assert row["project_id"] == "proj-1"
         assert row["member_id"] == "m1"
         assert PARENT_KEY not in row
-
-    def test_flattens_nested_key_to_root(self) -> None:
-        # /keys nests the key under "api_key"; api_key_id must land at the row root or the composite
-        # primary key can't be built and the delta merge multi-matches duplicate rows.
-        row = _make_child_map(DEEPGRAM_ENDPOINTS["keys"])(
-            {PARENT_KEY: "proj-1", "api_key": {"api_key_id": "k1", "comment": "ci"}, "member": {"email": "a@b.co"}}
-        )
-        assert row["api_key_id"] == "k1"
-        assert row["comment"] == "ci"
-        assert row["project_id"] == "proj-1"
-        assert row["member"] == {"email": "a@b.co"}
-        assert "api_key" not in row
 
     @parameterized.expand(
         [
@@ -121,15 +69,15 @@ class TestChildMap:
     )
     def test_redacts_callback_userinfo(self, _name: str, callback: str, expected: str) -> None:
         # A callback URL can embed Basic Auth creds; they must not reach the warehouse.
-        row = _make_child_map(DEEPGRAM_ENDPOINTS["requests"])(
-            {PARENT_KEY: "proj-1", "request_id": "r1", "callback": callback}
+        row = _normalize_row(
+            DEEPGRAM_ENDPOINTS["requests"], {PARENT_KEY: "proj-1", "request_id": "r1", "callback": callback}
         )
         assert row["callback"] == expected
 
     def test_missing_primary_key_raises(self) -> None:
         # A row missing request_id would let the merge overwrite unrelated rows; fail instead of emit.
         with pytest.raises(ValueError, match="request_id"):
-            _make_child_map(DEEPGRAM_ENDPOINTS["requests"])({PARENT_KEY: "proj-1", "created": "2026-01-01"})
+            _normalize_row(DEEPGRAM_ENDPOINTS["requests"], {PARENT_KEY: "proj-1", "created": "2026-01-01"})
 
 
 class TestRedactUrlUserinfo:
@@ -137,27 +85,10 @@ class TestRedactUrlUserinfo:
         assert _redact_url_userinfo("http://[") == "http://["
 
 
-class TestProjectsEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_projects_without_fan_out(self, MockSession) -> None:
-        session = MockSession.return_value
-        projects = [{"project_id": "p1"}, {"project_id": "p2"}]
-        snapshots = _wire(session, [_response({"projects": projects})])
-
-        rows = _rows(_source("projects", _make_manager()))
-
-        assert rows == projects
-        # projects is its own endpoint — one request, and it must NOT fan out per project.
-        assert len(snapshots) == 1
-        assert snapshots[0][0] == f"{DEEPGRAM_BASE_URL}/projects"
-
-
 class TestFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_projects_and_injects_project_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_fans_out_over_projects_and_injects_project_id(self) -> None:
+        result = _driver().run(
+            "members",
             [
                 _response({"projects": [{"project_id": "p1"}, {"project_id": "p2"}]}),
                 _response({"members": [{"member_id": "m1"}]}),
@@ -165,201 +96,81 @@ class TestFanOut:
             ],
         )
 
-        rows = _rows(_source("members", _make_manager()))
-
-        assert [(r["member_id"], r["project_id"]) for r in rows] == [("m1", "p1"), ("m2", "p2")]
-        assert [url for url, _ in snapshots] == [
+        assert result.raised is None
+        assert [(r["member_id"], r["project_id"]) for r in result.rows] == [("m1", "p1"), ("m2", "p2")]
+        assert result.urls == [
             f"{DEEPGRAM_BASE_URL}/projects",
             f"{DEEPGRAM_BASE_URL}/projects/p1/members",
             f"{DEEPGRAM_BASE_URL}/projects/p2/members",
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_flattens_keys_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"projects": [{"project_id": "p1"}]}),
-                _response({"api_keys": [{"api_key": {"api_key_id": "k1"}, "member": {"email": "a@b.co"}}]}),
-            ],
-        )
-
-        rows = _rows(_source("keys", _make_manager()))
-
-        assert rows == [{"api_key_id": "k1", "member": {"email": "a@b.co"}, "project_id": "p1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_project_without_id_is_skipped(self, MockSession) -> None:
-        session = MockSession.return_value
-        # A project row missing project_id can't be fanned out; the old code skipped it, so no
-        # /projects//members request is made for it.
-        snapshots = _wire(
-            session,
-            [
-                _response({"projects": [{"name": "no-id"}, {"project_id": "p2"}]}),
-                _response({"members": [{"member_id": "m2"}]}),
-            ],
-        )
-
-        rows = _rows(_source("members", _make_manager()))
-
-        assert [r["project_id"] for r in rows] == ["p2"]
-        assert [url for url, _ in snapshots] == [
-            f"{DEEPGRAM_BASE_URL}/projects",
-            f"{DEEPGRAM_BASE_URL}/projects/p2/members",
-        ]
-
 
 class TestRequestsPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_terminates_on_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        # page size patched to 2, so a page returning fewer than 2 rows ends pagination for a project
-        # without paying an extra empty-page request.
-        snapshots = _wire(
-            session,
-            [
-                _response({"projects": [{"project_id": "p1"}]}),
-                _response({"requests": [{"request_id": "r1"}, {"request_id": "r2"}]}),
-                _response({"requests": [{"request_id": "r3"}]}),
-            ],
-        )
+    def test_checkpoint_advances_page_after_yield(self) -> None:
+        with patch.object(deepgram_mod, "REQUESTS_PAGE_SIZE", 2):
+            result = _driver().run(
+                "requests",
+                [
+                    _response({"projects": [{"project_id": "p1"}]}),
+                    _response({"requests": [{"request_id": "r1"}, {"request_id": "r2"}]}),
+                    _response({"requests": [{"request_id": "r3"}]}),
+                ],
+                should_use_incremental_field=True,
+            )
 
-        with mock.patch.object(deepgram_mod, "REQUESTS_PAGE_SIZE", 2):
-            rows = _rows(_source("requests", _make_manager(), should_use_incremental_field=True))
-
-        assert [r["request_id"] for r in rows] == ["r1", "r2", "r3"]
-        # projects + page 0 + page 1 == 3 requests; no trailing empty page.
-        assert len(snapshots) == 3
-        assert snapshots[1][1]["page"] == 0
-        assert snapshots[2][1]["page"] == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_advances_page_after_yield(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"projects": [{"project_id": "p1"}]}),
-                _response({"requests": [{"request_id": "r1"}, {"request_id": "r2"}]}),
-                _response({"requests": [{"request_id": "r3"}]}),
-            ],
-        )
-        manager = _make_manager()
-
-        with mock.patch.object(deepgram_mod, "REQUESTS_PAGE_SIZE", 2):
-            _rows(_source("requests", manager, should_use_incremental_field=True))
-
+        assert result.raised is None
+        assert result.params("page") == [None, "0", "1"]
+        assert result.params("limit") == [None, "2", "2"]
+        assert [row["request_id"] for row in result.rows] == ["r1", "r2", "r3"]
         # After yielding the first full page we persist the next page so a crash re-fetches page 1.
         child_pages = [
-            call.args[0].fanout_state.get("child_state", {}).get("page")
-            for call in manager.save_state.call_args_list
-            if call.args[0].fanout_state and call.args[0].fanout_state.get("child_state")
+            state.fanout_state.get("child_state", {}).get("page")
+            for state in result.saved_states
+            if state.fanout_state and state.fanout_state.get("child_state")
         ]
         assert 1 in child_pages
 
 
 class TestRequestsIncremental:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_start_filter_only_on_requests(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [_response({"projects": [{"project_id": "p1"}]}), _response({"requests": []})],
+    def test_start_filter_only_on_requests(self) -> None:
+        result = _driver().run(
+            "requests",
+            [
+                _response({"projects": [{"project_id": "p1"}]}),
+                _response({"requests": []}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
 
-        _rows(
-            _source(
-                "requests",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
-        )
-
-        assert snapshots[-1][1]["start"] == "2026-03-04T02:58:14+00:00"
-        assert snapshots[-1][1]["limit"] == deepgram_mod.REQUESTS_PAGE_SIZE
+        assert result.raised is None
+        assert result.requests[-1].param("start") == "2026-03-04T02:58:14+00:00"
+        assert result.requests[-1].param("limit") == str(deepgram_mod.REQUESTS_PAGE_SIZE)
         # The parent project enumeration carries no incremental filter.
-        assert "start" not in snapshots[0][1]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_start_filter_on_full_refresh(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [_response({"projects": [{"project_id": "p1"}]}), _response({"requests": []})],
-        )
-
-        _rows(_source("requests", _make_manager(), should_use_incremental_field=False))
-
-        assert "start" not in snapshots[-1][1]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_start_filter_when_no_cursor_yet(self, MockSession) -> None:
-        session = MockSession.return_value
-        # First incremental sync: no persisted watermark, so no server-side filter (full pull).
-        snapshots = _wire(
-            session,
-            [_response({"projects": [{"project_id": "p1"}]}), _response({"requests": []})],
-        )
-
-        _rows(
-            _source(
-                "requests", _make_manager(), should_use_incremental_field=True, db_incremental_field_last_value=None
-            )
-        )
-
-        assert "start" not in snapshots[-1][1]
+        assert result.requests[0].param("start") is None
 
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_skips_completed_project(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_skips_completed_project(self) -> None:
         # p1 already fully synced last run — only projects (re-enumerated) and p2 are fetched.
-        snapshots = _wire(
-            session,
+        resume = DeepgramResumeConfig(
+            fanout_state={"completed": ["/projects/p1/members"], "current": None, "child_state": None}
+        )
+        result = _driver().run(
+            "members",
             [
                 _response({"projects": [{"project_id": "p1"}, {"project_id": "p2"}]}),
                 _response({"members": [{"member_id": "m2"}]}),
             ],
-        )
-        resume = DeepgramResumeConfig(
-            fanout_state={"completed": ["/projects/p1/members"], "current": None, "child_state": None}
+            resume_state=resume,
         )
 
-        rows = _rows(_source("members", _make_manager(resume)))
-
-        assert [r["member_id"] for r in rows] == ["m2"]
-        assert [url for url, _ in snapshots] == [
+        assert result.raised is None
+        assert [r["member_id"] for r in result.rows] == ["m2"]
+        assert result.urls == [
             f"{DEEPGRAM_BASE_URL}/projects",
             f"{DEEPGRAM_BASE_URL}/projects/p2/members",
         ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_records_completed_child_path(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"projects": [{"project_id": "p1"}]}), _response({"members": [{"member_id": "m1"}]})])
-        manager = _make_manager()
-
-        _rows(_source("members", manager))
-
-        assert manager.save_state.called
-        last_saved = manager.save_state.call_args.args[0]
-        assert isinstance(last_saved, DeepgramResumeConfig)
-        assert last_saved.fanout_state is not None
-        assert last_saved.fanout_state["completed"] == ["/projects/p1/members"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_legacy_resume_state_restarts_from_beginning(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"projects": [{"project_id": "p1"}]}), _response({"members": [{"member_id": "m1"}]})])
-        # An old-format saved state (no fanout_state) parses but resumes nothing — a full re-read the
-        # merge dedupes, rather than mis-mapping the old positional scope onto the new fan-out state.
-        rows = _rows(_source("members", _make_manager(DeepgramResumeConfig(project_id="p1", page=3))))
-
-        assert [r["member_id"] for r in rows] == ["m1"]
 
 
 class TestSourceResponse:
@@ -371,25 +182,172 @@ class TestSourceResponse:
         ]
     )
     def test_shape(self, _name: str, endpoint: str, sort_mode: str, primary_keys: list[str]) -> None:
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, [])
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
-
-    def test_partitioned_only_when_partition_key_set(self) -> None:
-        assert _source("requests", _make_manager()).partition_mode == "datetime"
-        assert _source("requests", _make_manager()).partition_keys == ["created"]
-        assert _source("members", _make_manager()).partition_mode is None
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
-        with mock.patch(DEEPGRAM_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("token") is expected
+        assert network.requests_log[0].path == "/v1/projects"
+        assert network.requests_log[0].headers["authorization"] == "Token token"
 
-    def test_network_error_is_false(self) -> None:
-        with mock.patch(DEEPGRAM_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-            assert validate_credentials("token") is False
+
+class TestFormatStartDate:
+    @parameterized.expand(
+        [
+            ("utc_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04"),
+            ("naive_datetime", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04"),
+            ("date_value", date(2026, 3, 4), "2026-03-04"),
+            ("iso_string", "2026-03-04T02:58:14+00:00", "2026-03-04"),
+        ]
+    )
+    def test_truncates_to_whole_days(self, _name: str, value: Any, expected: str) -> None:
+        # The usage and billing endpoints reject anything but YYYY-MM-DD with a 400.
+        assert _format_start_date(value) == expected
+
+
+class TestModelsEndpoint:
+    @parameterized.expand(
+        [
+            (
+                "both_catalogues",
+                {"stt": [{"uuid": "u1", "name": "nova-3"}], "tts": [{"uuid": "u2", "name": "zeus"}]},
+                [("u1", "stt"), ("u2", "tts")],
+            ),
+            # A project with no text-to-speech access omits the key entirely rather than sending [].
+            ("missing_catalogue", {"stt": [{"uuid": "u1"}]}, [("u1", "stt")]),
+            ("empty_catalogues", {"stt": [], "tts": []}, []),
+        ]
+    )
+    def test_splits_parallel_catalogues_into_rows(
+        self, _name: str, body: dict[str, Any], expected: list[tuple[str, str]]
+    ) -> None:
+        # The body is two parallel arrays, not one list of rows, and only the array a model came from
+        # records whether it is speech-to-text or text-to-speech.
+        result = _driver().run("models", [_response({"projects": [{"project_id": "p1"}]}), _response(body)])
+
+        assert result.raised is None
+        assert [(r["uuid"], r["model_type"]) for r in result.rows] == expected
+        assert all(r["project_id"] == "p1" for r in result.rows)
+
+
+class TestBreakdownEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "usage",
+                "usage_breakdown",
+                "/usage/breakdown",
+                {"hours": 1619.7, "requests": 373381},
+                {"start": "2025-01-16", "end": "2025-01-16", "endpoint": "listen", "models": ["nova-3"]},
+                "|listen||nova-3|||",
+            ),
+            (
+                "billing",
+                "billing_breakdown",
+                "/billing/breakdown",
+                {"dollars": "0.25"},
+                {"start": "2025-01-16", "end": "2025-01-16", "line_item": "streaming::nova-3"},
+                "||streaming::nova-3|",
+            ),
+            # Every dimension is null when the response is grouped by period only. The derived key
+            # stays non-null so the merge predicate is still exact.
+            (
+                "ungrouped",
+                "billing_breakdown",
+                "/billing/breakdown",
+                {"dollars": "1.00"},
+                {"start": "2025-01-16", "end": "2025-01-16"},
+                "|||",
+            ),
+        ]
+    )
+    def test_flattens_grouping_and_derives_grouping_key(
+        self,
+        _name: str,
+        endpoint: str,
+        path: str,
+        measures: dict[str, Any],
+        grouping: dict[str, Any],
+        expected_key: str,
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response({"projects": [{"project_id": "p1"}]}),
+                _response({"results": [{**measures, "grouping": grouping}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.requests[-1].url == f"{DEEPGRAM_BASE_URL}/projects/p1{path}"
+        assert len(result.rows) == 1
+        # The period bounds live under "grouping"; they have to reach the row root or the primary key
+        # can't be built.
+        assert result.rows[0]["start"] == "2025-01-16"
+        assert result.rows[0]["project_id"] == "p1"
+        assert result.rows[0]["grouping_key"] == expected_key
+        assert "grouping" not in result.rows[0]
+        for measure, value in measures.items():
+            assert result.rows[0][measure] == value
+
+
+class TestFieldsEndpoints:
+    def test_usage_fields_emits_one_row_per_value(self) -> None:
+        result = _driver().run(
+            "usage_fields",
+            [
+                _response({"projects": [{"project_id": "p1"}]}),
+                _response(
+                    {
+                        "tags": ["tag=dev"],
+                        "models": [{"name": "2-medical-nova", "language": "en-MY", "version": "1", "model_id": "m1"}],
+                        "processing_methods": ["sync"],
+                        "features": ["punctuate"],
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(r["field"], r["value"]) for r in result.rows] == [
+            ("models", "m1"),
+            ("tags", "tag=dev"),
+            ("processing_methods", "sync"),
+            ("features", "punctuate"),
+        ]
+        assert result.rows[0]["name"] == "2-medical-nova"
+        assert result.rows[0]["language"] == "en-MY"
+        assert all(r["project_id"] == "p1" for r in result.rows)
+
+    def test_billing_fields_unpacks_the_line_item_map(self) -> None:
+        result = _driver().run(
+            "billing_fields",
+            [
+                _response({"projects": [{"project_id": "p1"}]}),
+                _response(
+                    {
+                        "accessors": ["a1"],
+                        "deployments": ["hosted"],
+                        "tags": [],
+                        "line_items": {"streaming::nova-3": "Streaming Nova 3"},
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(r["field"], r["value"]) for r in result.rows] == [
+            ("accessors", "a1"),
+            ("deployments", "hosted"),
+            ("line_items", "streaming::nova-3"),
+        ]
+        # Line items arrive as a name -> description map, so the description has to survive the unpack.
+        assert result.rows[-1]["description"] == "Streaming Nova 3"

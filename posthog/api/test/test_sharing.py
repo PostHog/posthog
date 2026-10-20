@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from functools import wraps
+from typing import Any
 from urllib.parse import quote
 
 import time_machine
@@ -24,14 +25,18 @@ from posthog.api.sharing import (
     check_can_access_sharing_configuration,
     shared_url_as_png,
 )
+from posthog.api.sharing_publish_gate import dashboard_filter_leaves
+from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.filters.filter import Filter
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.test.authentication_checks import covers_authentication
+from posthog.test.insight_queries import browser_filtered_pageview_query
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -43,6 +48,7 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.testing import create_subscription
 
 
 def mock_exporter_template(test_func):
@@ -123,18 +129,13 @@ class TestSharing(APIBaseTest):
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
 
-    insight_filter_dict = {
-        "events": [{"id": "$pageview"}],
-        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-    }
-
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=cls.team,
             created_by=cls.user,
         )
@@ -180,6 +181,38 @@ class TestSharing(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
+
+    @patch("posthog.api.sharing.render_template")
+    @covers_authentication(SharingPasswordProtectedAuthentication)
+    def test_password_protected_dashboard_does_not_add_social_metadata(self, mock_render_template: Mock) -> None:
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            enabled=True,
+            password_required=True,
+        )
+        share_password, _ = SharePassword.create_password(
+            sharing_configuration=sharing_configuration,
+            created_by=self.user,
+        )
+        mock_render_template.return_value = HttpResponse("")
+        share_url = f"/shared_dashboard/{sharing_configuration.access_token}"
+
+        unlock_response = self.client.get(share_url)
+
+        assert unlock_response.status_code == status.HTTP_200_OK
+        assert mock_render_template.call_args.kwargs["context"]["add_safe_og_tags"] == self.dashboard
+        assert mock_render_template.call_args.kwargs["context"]["add_og_tags"] is None
+
+        self.client.cookies["posthog_sharing_token"] = sharing_configuration.generate_password_protected_token(
+            share_password
+        )
+
+        response = self.client.get(share_url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_render_template.call_args.kwargs["context"]["add_safe_og_tags"] == self.dashboard
+        assert mock_render_template.call_args.kwargs["context"]["add_og_tags"] is False
 
     @time_machine.travel("2022-01-01", tick=False)
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
@@ -438,6 +471,36 @@ class TestSharing(APIBaseTest):
         assert ExportedAsset.objects.count() == 1
         assert item_opengraph_image.status_code == 302
         assert item_opengraph_image["Location"] == "https://s3.example.com/presigned-url"
+
+    @parameterized.expand(["insights", "dashboards"])
+    @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_shared_thing_uses_placeholder_while_open_graph_image_is_pending(
+        self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
+    ) -> None:
+        target = self.insight if type == "insights" else self.dashboard
+        share_response = self.client.patch(
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
+            {"enabled": True},
+        )
+        image_url = f"/shared/{share_response.json()['access_token']}.png"
+
+        pending_response = self.client.get(image_url)
+
+        assert pending_response.status_code == 302
+        assert pending_response["Location"] == "/static/blank-dashboard-hog.png"
+        assert pending_response["Cache-Control"] == "no-store"
+        patched_exporter_task.assert_called_once()
+
+        exported_asset = ExportedAsset.objects.get(team_id=self.team.id)
+        exported_asset.content_location = "some object url"
+        exported_asset.save(update_fields=["content_location"])
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
+
+        ready_response = self.client.get(image_url)
+
+        assert ready_response.status_code == 302
+        assert ready_response["Location"] == "https://s3.example.com/presigned-url"
 
     @parameterized.expand(["insights", "dashboards"])
     @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
@@ -1638,11 +1701,30 @@ class TestExportRendererTokenFlow(APIBaseTest):
         encoded_data = json.loads(html[start:end])
         return json.loads(encoded_data) if isinstance(encoded_data, str) else encoded_data
 
+    @parameterized.expand(
+        [
+            ("exact", "https://example.com", "url_exact", "https://example.com"),
+            (
+                "query_string_stays_exact",
+                "https://example.com/p?a=1+2&b=(x)",
+                "url_exact",
+                "https://example.com/p?a=1+2&b=(x)",
+            ),
+            (
+                "wildcard_escapes_the_rest",
+                "https://example.com/users/*?tab=1",
+                "url_pattern",
+                "https\\:\\/\\/example\\.com\\/users\\/*\\?tab\\=1",
+            ),
+        ]
+    )
     @mock_exporter_template
-    def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(self) -> None:
+    def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(
+        self, _name: str, heatmap_data_url: str, url_param: str, url_value: str
+    ) -> None:
         export_context = {
             "heatmap_url": "https://example.com",
-            "heatmap_data_url": "https://example.com",
+            "heatmap_data_url": heatmap_data_url,
             "heatmap_type": "click",
             "width": 1400,
             "common_filters": {"date_from": "-7d"},
@@ -1671,7 +1753,7 @@ class TestExportRendererTokenFlow(APIBaseTest):
             {
                 "type": "click",
                 "date_from": "-7d",
-                "url_exact": "https://example.com",
+                url_param: url_value,
                 "viewport_width_min": "1260",
                 "viewport_width_max": "1540",
                 "aggregation": "total_count",
@@ -1844,7 +1926,13 @@ class TestSharedCohortInlining(APIBaseTest):
             team=self.team, insight=insight, name="High event count", enabled=True, created_by=self.user
         )
         DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight)
-        text = Text.objects.create(team=self.team, body="Read me", created_by=self.user, last_modified_by=self.user)
+        text = Text.objects.create(
+            team=self.team,
+            body="Read me",
+            agent_context="Private agent context",
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
         DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, text=text)
         button = ButtonTile.objects.create(
             team=self.team,
@@ -1862,6 +1950,7 @@ class TestSharedCohortInlining(APIBaseTest):
 
         body = response.content.decode()
         assert self.user.email not in body
+        assert "Private agent context" not in body
 
         exported = self._parse_exported_data(body)
         exported_dashboard = exported["dashboard"]
@@ -1871,6 +1960,8 @@ class TestSharedCohortInlining(APIBaseTest):
                 if tile_content is not None:
                     assert "created_by" not in tile_content
                     assert "last_modified_by" not in tile_content
+            if tile.get("text") is not None:
+                assert "agent_context" not in tile["text"]
             if tile.get("insight") is not None:
                 assert tile["insight"]["alerts"] == []
         for theme in exported["themes"]:
@@ -2134,6 +2225,52 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["enabled"] is True
 
+    @parameterized.expand(
+        [
+            (
+                "warehouse_person_chain",
+                "data_warehouse_person_property",
+                "allowed_join.denied_join.id",
+                "`person`.`allowed_join`.`denied_join`.`id`",
+            ),
+            ("warehouse_chain", "data_warehouse", "stripe.charges.amount", "`stripe`.`charges`.`amount`"),
+            ("keyword_chain", "data_warehouse_person_property", "null.id", "`person`.`null`.`id`"),
+            ("percent_chain", "data_warehouse", "discount%", "`discount%`"),
+            ("escaped_chain", "data_warehouse", "odd`name.amount", "`odd``name`.`amount`"),
+            ("event_metadata", "event_metadata", "(SELECT 1 FROM t)", "(SELECT 1 FROM t)"),
+            ("person_property", "person", "email", None),
+        ]
+    )
+    def test_breakdown_reads_the_chain_trends_resolves(
+        self, _name: str, breakdown_type: str, key: str, expected: str | None
+    ):
+        leaves = dashboard_filter_leaves({"breakdown_filter": {"breakdown_type": breakdown_type, "breakdown": key}})
+
+        assert leaves == ([{"type": "hogql", "key": expected}] if expected else [])
+
+    @parameterized.expand([("dashboard_filters",), ("tile_overrides",)])
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+    def test_denied_dashboard_filters_saved_before_sharing_block_enabling(self, target: str, _flag):
+        # Saved while unshared, so the save-time check did not run. Enabling the share must catch them.
+        denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+        filters = {"properties": [denied_filter]}
+        dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.user, filters=filters if target == "dashboard_filters" else {}
+        )
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=Insight.objects.create(team=self.team, created_by=self.user),
+            filters_overrides=filters if target == "tile_overrides" else {},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "denied_warehouse_table" in str(response.json())
+        assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+
     def test_system_table_denial_blocks_publishing(self):
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
@@ -2340,20 +2477,31 @@ class TestSaveTimeAccessBlock(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
 
-    def test_adding_insight_to_shared_dashboard_blocked(self):
+    @parameterized.expand([("stored_query",), ("query_in_same_patch",)])
+    def test_adding_insight_to_shared_dashboard_blocked(self, coverage: str):
         self._deny_editor()
-        self.insight.query = self._DENIED_QUERY
-        self.insight.save()
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
         SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        payload: dict = {"dashboards": [dashboard.id]}
+        if coverage == "stored_query":
+            self.insight.query = self._DENIED_QUERY
+            self.insight.save()
+        else:
+            # The insight isn't shared yet, so only the dashboard gate runs. It must see the
+            # incoming query, not the stored one that is about to be overwritten.
+            payload["query"] = self._DENIED_QUERY
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"dashboards": [dashboard.id]}
-        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/insights/{self.insight.id}/", payload)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "publicly shared" in str(response.json())
         assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists()
+        if coverage == "query_in_same_patch":
+            self.insight.refresh_from_db()
+            assert self.insight.query == {
+                "kind": "DataTableNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
+            }
 
     def test_adding_insight_to_unshared_dashboard_allowed(self):
         self._deny_editor()
@@ -2514,3 +2662,79 @@ class TestSaveTimeAccessBlock(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "publicly shared" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("tile_overrides", "shared", status.HTTP_400_BAD_REQUEST),
+            ("dashboard_filters", "subscription", status.HTTP_400_BAD_REQUEST),
+            ("grouped_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("grouped_tile_overrides", "shared", status.HTTP_400_BAD_REQUEST),
+            ("null_dashboard_filters", "shared", status.HTTP_200_OK),
+            ("breakdown_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("metadata_breakdown_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("list_breakdown_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("untyped_dashboard_filters", "shared", status.HTTP_200_OK),
+            ("untyped_breakdown_dashboard_filters", "shared", status.HTTP_200_OK),
+            ("dashboard_filters", "none", status.HTTP_200_OK),
+        ]
+    )
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+    def test_filters_through_denied_table_on_delivered_dashboard(
+        self, target: str, exposure: str, expected: int, _flag
+    ):
+        denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        if exposure == "shared":
+            SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        elif exposure == "subscription":
+            create_subscription(team_id=self.team.id, dashboard_id=dashboard.id)
+        filters = {"properties": [denied_filter]}
+        sent_filters: dict[str, Any] = filters
+        if target.startswith("grouped"):
+            sent_filters = {"properties": [{"type": "AND", "values": [denied_filter]}]}
+        elif target.startswith("null"):
+            sent_filters = {"properties": None}
+        elif target.startswith("breakdown"):
+            sent_filters = {
+                "breakdown_filter": {"breakdown_type": "data_warehouse_person_property", "breakdown": "denied_join.id"}
+            }
+        elif target.startswith("metadata_breakdown"):
+            sent_filters = {
+                "breakdown_filter": {
+                    "breakdown_type": "event_metadata",
+                    "breakdown": "(SELECT any(id) FROM denied_warehouse_table)",
+                }
+            }
+        elif target.startswith("list_breakdown"):
+            sent_filters = {
+                "breakdown_filter": {
+                    "breakdown_type": "hogql",
+                    "breakdown": ["distinct_id", "(SELECT count() FROM denied_warehouse_table)"],
+                }
+            }
+        elif target.startswith("untyped_breakdown"):
+            sent_filters = {"breakdown_filter": {"breakdown_type": [], "breakdown": "denied_join.id"}}
+        elif target.startswith("untyped"):
+            sent_filters = {"properties": [{"type": [], "key": "x", "value": "y"}]}
+        payload = (
+            {"filters": sent_filters}
+            if target.endswith("dashboard_filters")
+            else {"tiles": [{"id": tile.id, "filters_overrides": sent_filters}]}
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {**payload, "name": "Renamed"}
+        )
+
+        assert response.status_code == expected, response.content
+        dashboard.refresh_from_db()
+        tile.refresh_from_db()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert "denied_warehouse_table" in str(response.json())
+            assert dashboard.name != "Renamed"
+            assert dashboard.filters == {}
+            assert not tile.filters_overrides
+        else:
+            assert dashboard.filters == sent_filters

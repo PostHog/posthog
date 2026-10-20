@@ -1,23 +1,30 @@
 from typing import cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
     IntercomSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
+    IntercomConversationCursor,
+    IntercomResumeConfig,
     intercom_source,
     validate_credentials as validate_intercom_credentials,
 )
@@ -29,10 +36,61 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
+class IntercomSource(
+    ResumableSource[IntercomSourceConfig, IntercomResumeConfig],
+    CursorSource[IntercomConversationCursor],
+    OAuthMixin,
+):
+    codebase_detection = detect(
+        env=(
+            "^INTERCOM_",
+            "^IOS_INTERCOM_APP_ID$",
+            "^IOS_INTERCOM_KEY$",
+            "^ANDROID_INTERCOM_APP_ID$",
+            "^ANDROID_INTERCOM_KEY$",
+        ),
+        script_hosts=("widget.intercom.io", "js.intercomcdn.com", "app.intercom.io", "static.intercomcdn.com"),
+        npm=(
+            "intercom-client",
+            "@intercom/messenger-js-sdk",
+            "@intercom/intercom-react-native",
+            "react-use-intercom",
+            "cordova-plugin-intercom",
+            "@intercom/cli",
+            "passport-intercom",
+            "@types/intercom-web",
+            "@types/intercom-client",
+            "@capacitor-community/intercom",
+            "@capgo/capacitor-intercom",
+            "@awesome-cordova-plugins/intercom",
+            "@ionic-native/intercom",
+            "react-intercom",
+            "@supy-io/ngx-intercom",
+            "ng-intercom",
+            "@mathieustan/vue-intercom",
+        ),
+        pypi=("python-intercom", "django-intercom"),
+        cocoapods=("Intercom",),
+        composer=("intercom/intercom-php", "intercom/oauth2-intercom"),
+        go=("github.com/intercom/intercom-go", "gopkg.in/intercom/intercom-go.v2"),
+        hex=("intercom",),
+        maven=(
+            "io.intercom.android:intercom-sdk",
+            "io.intercom:intercom-java",
+            "io.intercom.android:intercom-sdk-base",
+            "io.intercom.android:intercom-sdk-fcm",
+            "io.intercom.android:intercom-sdk-ui",
+            "io.intercom.android:intercom-sdk-base-transitive",
+        ),
+        pub=("intercom_flutter", "intercom_flutter_web", "intercom_flutter_platform_interface"),
+        rubygems=("intercom", "intercom-rails", "omniauth-intercom", "intercom-app"),
+        swiftpm=("github.com/intercom/intercom-ios-sp", "github.com/intercom/intercom-ios"),
+        alternative_to=(ProductKey.CONVERSATIONS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2.13", "2.15", "2.16")
-    default_version = "2.16"
+    supported_versions = ("2.13", "2.15", "2.16", "2.17")
+    default_version = "2.17"
     api_docs_url = "https://developers.intercom.com/docs/references/rest-api"
 
     @property
@@ -56,7 +114,18 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             "Missing integration ID": "Intercom integration ID is not configured. Please reconnect your Intercom account.",
             "Integration not found": "The linked Intercom integration no longer exists. Please reconnect your Intercom account.",
             "Intercom access token not found": "Intercom OAuth access token is missing. Please reconnect your Intercom account.",
+            # Raised by intercom_source for a table Intercom only serves on a newer API version.
+            "requires Intercom API version": "This table needs a newer Intercom API version. Upgrade the source's API version, then sync again.",
         }
+
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # The companies Scroll API cannot preserve a cursor across worker hand-offs.
+        return schema_name != "companies"
 
     def get_retryable_errors(self) -> set[str]:
         # The `companies` table walks Intercom's companies Scroll API (`_iter_companies` in
@@ -75,6 +144,14 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         return {
             "Not Found for url: https://api.intercom.io/companies/scroll",
             "Bad Request for url: https://api.intercom.io/companies/scroll",
+            # Every Intercom request goes through `_make_intercom_session`, whose transport-level
+            # retry (`_INTERCOM_RETRY`, derived from `DEFAULT_RETRY`) already retries a 429/5xx
+            # response before `raise_for_status` can raise. A `HTTPError` reaching here has already
+            # exhausted that budget, so it's a transient upstream blip — Temporal retries the whole
+            # activity next. `raise_for_status` derives the "Server Error" prefix from the status
+            # code alone, not Intercom's reason text, so it's stable to match on (see
+            # convex/app_store_connect for the same pattern).
+            "Server Error",
         }
 
     @property
@@ -108,8 +185,11 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        resolved_version = self.resolve_api_version(api_version)
         schemas = []
         for endpoint_config in INTERCOM_ENDPOINTS.values():
+            if endpoint_config.api_versions is not None and resolved_version not in endpoint_config.api_versions:
+                continue
             incremental_fields = INCREMENTAL_FIELDS.get(endpoint_config.name, [])
             supports_incremental = bool(incremental_fields)
             schemas.append(
@@ -144,7 +224,23 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             integration.access_token, schema_name=schema_name, api_version=self.resolve_api_version(api_version)
         )
 
-    def source_for_pipeline(self, config: IntercomSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def cursor_class(self) -> type[IntercomConversationCursor]:
+        return IntercomConversationCursor
+
+    def merge_cursors(
+        self, current: IntercomConversationCursor, candidate: IntercomConversationCursor
+    ) -> IntercomConversationCursor:
+        return max(current, candidate, key=lambda cursor: cursor.updated_at)
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[IntercomResumeConfig]:
+        return ResumableSourceManager[IntercomResumeConfig](inputs, IntercomResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: IntercomSourceConfig,
+        resumable_source_manager: ResumableSourceManager[IntercomResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.intercom_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -156,9 +252,14 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             api_version=self.resolve_api_version(inputs.api_version),
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
+            else None,
+            # Only the HITL events table keeps a source cursor; see `_conversation_hitl_events_generator`.
+            cursor_manager=self.get_cursor_manager(inputs)
+            if inputs.schema_name == "conversation_hitl_events"
             else None,
         )

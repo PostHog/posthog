@@ -8,6 +8,104 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `Generic (Leave feedback button)` - Leave Feedback
+ * * `Visiting PostHog web` - Posthog Web
+ */
+export type DesktopFeedbackSourceEnumApi =
+    (typeof DesktopFeedbackSourceEnumApi)[keyof typeof DesktopFeedbackSourceEnumApi]
+
+export const DesktopFeedbackSourceEnumApi = {
+    GenericLeaveFeedbackButton: 'Generic (Leave feedback button)',
+    VisitingPostHogWeb: 'Visiting PostHog web',
+} as const
+
+/**
+ * * `bug` - Bug
+ * * `feature` - Feature
+ * * `general` - General
+ */
+export type DesktopFeedbackTypeEnumApi = (typeof DesktopFeedbackTypeEnumApi)[keyof typeof DesktopFeedbackTypeEnumApi]
+
+export const DesktopFeedbackTypeEnumApi = {
+    Bug: 'bug',
+    Feature: 'feature',
+    General: 'general',
+} as const
+
+export interface DesktopFeedbackRequestApi {
+    /**
+     * Feedback text entered by the user.
+     * @maxLength 4000
+     */
+    response: string
+    /** Desktop surface that opened the feedback form.
+     *
+     * * `Generic (Leave feedback button)` - Leave Feedback
+     * * `Visiting PostHog web` - Posthog Web */
+    source: DesktopFeedbackSourceEnumApi
+    /**
+     * Desktop view that was active when the feedback form opened.
+     * @maxLength 100
+     */
+    feedback_view: string
+    /** Feedback type selected by the user: bug, feature, or general.
+     *
+     * * `bug` - Bug
+     * * `feature` - Feature
+     * * `general` - General */
+    feedback_type?: DesktopFeedbackTypeEnumApi
+    /**
+     * Task that was active when the feedback form opened.
+     * @maxLength 100
+     */
+    feedback_task_id?: string
+    /**
+     * Folder that was active when the feedback form opened.
+     * @maxLength 100
+     */
+    feedback_folder_id?: string
+    /**
+     * Recent Desktop logs that the user chose to include.
+     * @maxLength 20000
+     */
+    feedback_app_logs?: string
+    /**
+     * Version of PostHog Desktop that submitted the feedback.
+     * @maxLength 100
+     */
+    app_version?: string
+    /** PostHog session recording identifier for the Desktop session. */
+    session_id?: string
+    /** Screenshot that the user chose to include. */
+    screenshot?: Blob
+    /** First image that the user attached. */
+    image_1?: Blob
+    /** Second image that the user attached. */
+    image_2?: Blob
+}
+
+export interface DesktopFeedbackResponseApi {
+    /** Whether the feedback response was accepted. */
+    accepted: boolean
+    /** Identifier of the survey response event. */
+    response_id: string
+}
+
+export interface DesktopFeedbackErrorApi {
+    /** Error category. */
+    type: string
+    /** Machine-readable error code. */
+    code: string
+    /** Human-readable error detail. */
+    detail: string
+    /**
+     * Request field associated with the error, if any.
+     * @nullable
+     */
+    attr: string | null
+}
+
+/**
  * * `popover` - popover
  * * `widget` - widget
  * * `external_survey` - external survey
@@ -1200,6 +1298,33 @@ export interface SurveyConditionsSchemaApi {
 }
 
 /**
+ * * `top_left` - top_left
+ * * `top_center` - top_center
+ * * `top_right` - top_right
+ * * `middle_left` - middle_left
+ * * `middle_center` - middle_center
+ * * `middle_right` - middle_right
+ * * `left` - left
+ * * `center` - center
+ * * `right` - right
+ * * `next_to_trigger` - next_to_trigger
+ */
+export type SurveyPositionEnumApi = (typeof SurveyPositionEnumApi)[keyof typeof SurveyPositionEnumApi]
+
+export const SurveyPositionEnumApi = {
+    TopLeft: 'top_left',
+    TopCenter: 'top_center',
+    TopRight: 'top_right',
+    MiddleLeft: 'middle_left',
+    MiddleCenter: 'middle_center',
+    MiddleRight: 'middle_right',
+    Left: 'left',
+    Center: 'center',
+    Right: 'right',
+    NextToTrigger: 'next_to_trigger',
+} as const
+
+/**
  * * `button` - button
  * * `tab` - tab
  * * `selector` - selector
@@ -1212,6 +1337,21 @@ export const WidgetTypeEnumApi = {
     Selector: 'selector',
 } as const
 
+/**
+ * * `top` - top
+ * * `left` - left
+ * * `right` - right
+ * * `bottom` - bottom
+ */
+export type SurveyTabPositionEnumApi = (typeof SurveyTabPositionEnumApi)[keyof typeof SurveyTabPositionEnumApi]
+
+export const SurveyTabPositionEnumApi = {
+    Top: 'top',
+    Left: 'left',
+    Right: 'right',
+    Bottom: 'bottom',
+} as const
+
 export interface SurveyAppearanceSchemaApi {
     backgroundColor?: string
     submitButtonColor?: string
@@ -1222,6 +1362,12 @@ export interface SurveyAppearanceSchemaApi {
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
     ratingButtonHoverColor?: string
+    /** Color of secondary text, such as question descriptions. */
+    textSubtleColor?: string
+    /** Background color of open text inputs and rating buttons. */
+    inputBackground?: string
+    /** Text color of open text inputs and rating buttons. Calculated from inputBackground when not set. */
+    inputTextColor?: string
     whiteLabel?: boolean
     autoDisappear?: boolean
     displayThankYouMessage?: boolean
@@ -1229,10 +1375,40 @@ export interface SurveyAppearanceSchemaApi {
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: DescriptionContentTypeEnumApi
     thankYouMessageCloseButtonText?: string
+    /** Whether to show an intro screen before the first question. The intro screen shows only when introScreenHeader or introScreenDescription is set. */
+    displayIntroScreen?: boolean
+    /** Heading of the intro screen. */
+    introScreenHeader?: string
+    /** Body text of the intro screen. */
+    introScreenDescription?: string
+    /** Content type of introScreenDescription.
+     *
+     * * `text` - text
+     * * `html` - html */
+    introScreenDescriptionContentType?: DescriptionContentTypeEnumApi
+    /** Label of the button that closes the intro screen and starts the survey. */
+    introScreenButtonText?: string
     borderColor?: string
     placeholder?: string
+    /** Where a popover survey appears on the page. Defaults to 'right'.
+     *
+     * * `top_left` - top_left
+     * * `top_center` - top_center
+     * * `top_right` - top_right
+     * * `middle_left` - middle_left
+     * * `middle_center` - middle_center
+     * * `middle_right` - middle_right
+     * * `left` - left
+     * * `center` - center
+     * * `right` - right
+     * * `next_to_trigger` - next_to_trigger */
+    position?: SurveyPositionEnumApi
     shuffleQuestions?: boolean
-    surveyPopupDelaySeconds?: number
+    /**
+     * Seconds to wait before a popover survey appears. Null shows it without a delay.
+     * @nullable
+     */
+    surveyPopupDelaySeconds?: number | null
     /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
     allowGoBack?: boolean
     /** Optional override for the back button label. Defaults to 'Back'. */
@@ -1241,11 +1417,22 @@ export interface SurveyAppearanceSchemaApi {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
+    /** Which edge of the page holds the tab of a widget survey with widgetType 'tab'.
+     *
+     * * `top` - top
+     * * `left` - left
+     * * `right` - right
+     * * `bottom` - bottom */
+    tabPosition?: SurveyTabPositionEnumApi
     fontFamily?: string
     maxWidth?: string
     zIndex?: string
     disabledButtonOpacity?: string
     boxPadding?: string
+    /** CSS box-shadow value of the survey box. */
+    boxShadow?: string
+    /** CSS border-radius value of the survey box. */
+    borderRadius?: string
 }
 
 export interface SurveySerializerCreateUpdateOnlySchemaApi {
@@ -1948,6 +2135,14 @@ export interface GeneratedSurveyRootTranslationApi {
     thankYouMessageDescription?: string
     /** Translated thank-you close button text. */
     thankYouMessageCloseButtonText?: string
+    /** Translated intro screen header. */
+    introScreenHeader?: string
+    /** Translated intro screen description. */
+    introScreenDescription?: string
+    /** Translated intro screen button text. */
+    introScreenButtonText?: string
+    /** Translated back button text. */
+    backButtonText?: string
 }
 
 /**
@@ -2167,6 +2362,10 @@ export type SurveysListParams = {
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * Filter surveys by the ID of the feature flag they are linked to.
+     */
+    linked_flag_id?: number
     /**
      * The initial index from which to return the results.
      */

@@ -5,7 +5,7 @@ import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 // Every surface this server is allowed to stamp. `test_mcp_server_only_emits_sources_this_enum_knows`
 // in `posthog/test/test_event_usage.py` holds the same list against Django's EventSource, so adding
 // one here without adding it there fails on that side.
-const SURFACES_THE_API_KNOWS = ['mcp', 'cli', 'wizard', 'slack', 'posthog_ai', 'posthog_code', 'self_driving']
+const SURFACES_THE_API_KNOWS = ['mcp', 'cli', 'wizard', 'slack', 'posthog_ai', 'posthog_code', 'self_driving', 'webmcp']
 
 const SANDBOX_SCOPES = ['insight:read', 'internal_run:read']
 const CONSENTED_SCOPES = ['insight:read']
@@ -14,6 +14,7 @@ const CONSENTED_SCOPES = ['insight:read']
 const ARRAY_CLIENT_ID = 'DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ'
 const POSTHOG_AI_CLIENT_ID = 'DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1'
 const SIGNALS_CLIENT_ID = 'xMT3Nejjbi4lUdhJLkzmCVJKFsx0JsHXdU0pIjl8'
+const WEBMCP_CLIENT_ID = 'https://posthog.com/.well-known/oauth/webmcp/client-metadata.json'
 
 describe('resolveEventSource', () => {
     it.each([
@@ -61,6 +62,11 @@ describe('resolveEventSource', () => {
             'a Signals run, which declares the posthog-code consumer',
             { mcpConsumer: 'posthog-code', apiKeyScopes: SANDBOX_SCOPES, oauthClientId: SIGNALS_CLIENT_ID },
             EVENT_SOURCE.SELF_DRIVING,
+        ],
+        [
+            'the WebMCP proxy',
+            { mcpConsumer: 'webmcp', apiKeyScopes: CONSENTED_SCOPES, oauthClientId: WEBMCP_CLIENT_ID },
+            EVENT_SOURCE.WEBMCP,
         ],
         [
             'a third-party application declaring a first-party consumer',

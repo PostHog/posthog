@@ -6,13 +6,22 @@ const mockSeekToTime = jest.fn()
 const mockPlayer = jest.fn<JSX.Element, [unknown]>(() => <div data-attr="recording-player" />)
 let mockSessionPlayerData: { start: { valueOf: () => number } | null; end: { valueOf: () => number } | null } | null
 let mockCurrentTimestamp: number | undefined
+let mockIsNotFound = false
 
 jest.mock('kea', () => ({
-    useValues: () => ({ sessionPlayerData: mockSessionPlayerData, currentTimestamp: mockCurrentTimestamp }),
+    useValues: () => ({
+        sessionPlayerData: mockSessionPlayerData,
+        currentTimestamp: mockCurrentTimestamp,
+        isNotFound: mockIsNotFound,
+    }),
 }))
 
 jest.mock('scenes/session-recordings/player/SessionRecordingPlayer', () => ({
     SessionRecordingPlayer: (props: unknown) => mockPlayer(props),
+}))
+
+jest.mock('scenes/session-recordings/player/sessionRecordingMetaLogic', () => ({
+    sessionRecordingMetaLogic: jest.fn(),
 }))
 
 jest.mock('scenes/session-recordings/player/sessionRecordingPlayerLogic', () => ({
@@ -28,13 +37,15 @@ describe('ObservationRecording', () => {
         mockPlayer.mockClear()
         mockSessionPlayerData = null
         mockCurrentTimestamp = undefined
+        mockIsNotFound = false
     })
 
     it('preserves player options and seeks once per citation after recording data arrives', () => {
-        const props = { playerKey: 'player-example', sessionRecordingId: 'session-example' }
+        const props = { playerKey: 'player-example', sessionRecordingId: 'session-example', unavailable: null }
         const { rerender } = render(<ObservationRecording {...props} pendingSeek={null} />)
         expect(mockPlayer).toHaveBeenLastCalledWith({
-            ...props,
+            playerKey: props.playerKey,
+            sessionRecordingId: props.sessionRecordingId,
             mode: 'standard',
             autoPlay: false,
             noBorder: true,
@@ -79,5 +90,19 @@ describe('ObservationRecording', () => {
 
         rerender(<ObservationRecording {...props} pendingSeek={null} />)
         expect(mockSeekToTime).toHaveBeenCalledTimes(3)
+    })
+
+    it('swaps the player for the unavailable message once the recording turns out to be gone', () => {
+        mockIsNotFound = true
+        const { getByText } = render(
+            <ObservationRecording
+                playerKey="player-example"
+                sessionRecordingId="session-expired"
+                pendingSeek={null}
+                unavailable={<span>Recording gone</span>}
+            />
+        )
+        expect(getByText('Recording gone')).toBeTruthy()
+        expect(mockPlayer).not.toHaveBeenCalled()
     })
 })

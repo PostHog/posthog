@@ -33,8 +33,8 @@ interface TaskSelectionActions {
 
 type TaskSelectionStore = TaskSelectionState & TaskSelectionActions;
 
-export const useTaskSelectionStore = create<TaskSelectionStore>()(
-  (set, get) => ({
+export function createTaskSelectionStore() {
+  return create<TaskSelectionStore>()((set, get) => ({
     selectedTaskIds: [],
     lastClickedId: null,
 
@@ -90,5 +90,11 @@ export const useTaskSelectionStore = create<TaskSelectionStore>()(
         }
         return { selectedTaskIds: filtered };
       }),
-  }),
-);
+  }));
+}
+
+export type TaskSelectionStoreHook = ReturnType<
+  typeof createTaskSelectionStore
+>;
+
+export const useTaskSelectionStore = createTaskSelectionStore();

@@ -3,6 +3,10 @@
 A curated marketplace of third-party MCP servers (Linear, Notion, Sentry, ...) that users browse and connect from Settings → MCP servers (behind the `mcp-gateway` feature flag).
 Connected servers are consumed by agent surfaces via the `backend/facade/` package.
 
+Store connections to PostHog MCP use individual tools so each call receives its own policy check. They cannot invoke the `exec` wrapper or expand nested connections. Direct PostHog MCP clients retain CLI mode and access to their own connected tools.
+
+Tool names missing from the cached registry are re-listed before use and refused if the server still does not advertise them. OAuth responses are limited to 1 MiB. Buffered MCP handshakes and calls allow 8 MiB for full tool schemas and results. Both paths enforce a total response deadline. Upstream servers must honor `Accept-Encoding: identity`.
+
 This is unrelated to `products/*/mcp/tools.yaml`, which exposes PostHog's own endpoints as MCP tools.
 
 ## Keep the desktop UI in sync
@@ -164,6 +168,9 @@ A later successful refresh clears the flag.
 OAuth catalog entries can set `oauth_scope_allowlist` to limit registration and authorization to reviewed scopes. Without an allowlist, the client requests every scope advertised by the server. Shared clients derive their token endpoint authentication method from discovered metadata unless `oauth_credentials.token_endpoint_auth_method` overrides it.
 
 Slack uses the existing `SLACK_APP_CLIENT_ID` and `SLACK_APP_CLIENT_SECRET` instance settings. Its catalog entry remains suspended until the production Slack app supports MCP and its regional callbacks are live. After the suspension is removed, catalog sync activates Slack only when both settings exist and the shared-client probe passes. Each Desktop user still completes a separate OAuth grant for the catalog's reviewed MCP scopes.
+
+For a project-restricted connection through a separate Slack app, see [Slack MCP development app setup](../../docs/internal/slack-local-setup-guide.md#use-a-development-slack-app-from-production-desktop).
+This uses separate OAuth credentials and does not change the Slack bot or its webhook settings.
 
 ## Operator runbook: activating a manually provisioned shared-creds server
 

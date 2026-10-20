@@ -1,5 +1,7 @@
+import dataclasses
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -7,22 +9,37 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SourceFieldSwitchGroupConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_API_VERSION_V2,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+    BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR,
+    BIGQUERY_INTEGRATION_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
     BIGQUERY_INVALID_TOKEN_URI_ERROR,
+    BIGQUERY_JOB_TIMEOUT_ERROR,
+    BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
+    BIGQUERY_NO_CREDENTIALS_ERROR,
     BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR,
+    BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX,
+    BIGQUERY_READ_TIMEOUT_ERROR,
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
+    BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
+    classify_bigquery_validation_error,
+    resolve_bigquery_auth,
     validate_bigquery_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import config as source_config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -30,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
+    BigQueryAuthTypeConfigKeyFileConfig,
     BigQuerySourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -38,9 +56,185 @@ __all__ = ["BigQuerySource", "build_destination_table_prefix"]
 
 _BIGQUERY_IMPLEMENTATION = BigQueryImplementation()
 
+# Every field of the key file is read out of the JSON the user uploads, never typed into the form,
+# so the generic "Required field ..." error for one names something they have no way to fill in.
+_KEY_FILE_FIELD_NAMES = tuple(field.name for field in dataclasses.fields(BigQueryAuthTypeConfigKeyFileConfig))
+_KEY_FILE_FIELD_ERRORS = frozenset(source_config.missing_field_error(name) for name in _KEY_FILE_FIELD_NAMES)
+_MISSING_KEY_FILE_ERROR = "Upload a Google Cloud service account JSON key file."
+_INCOMPLETE_KEY_FILE_ERROR = (
+    "That file is not a complete Google Cloud service account key. Upload the JSON key file "
+    "exactly as you downloaded it, then try again."
+)
+
 
 @SourceRegistry.register
 class BigQuerySource(SQLSource[BigQuerySourceConfig]):
+    # BigQuery authenticates with a Google Cloud service-account JSON key
+    # file, like Firebase - the source's only required credential field
+    # is a file upload, and the terminal prompt collects single-line text, so
+    # there is no in-cli path that can accept it. Deep-link to the app's
+    # new-source form instead of dead-ending on an unpasteable credential.
+    codebase_detection = detect(
+        env=("^BIGQUERY_",),
+        npm=(
+            "@google-cloud/bigquery",
+            "@google-cloud/bigquery-storage",
+            "@google-cloud/bigquery-storage-api",
+            "@google-cloud/bigquery-data-transfer",
+            "@google-cloud/bigquery-connection",
+            "@google-cloud/bigquery-reservation",
+            "@google-cloud/bigquery-migration",
+            "@google-cloud/bigquery-analyticshub",
+            "@google-cloud/bigquery-datapolicies",
+            "@google-cloud/bigquery-data-exchange",
+            "@googleapis/bigquery",
+            "@googleapis/bigquerydatatransfer",
+            "@googleapis/bigqueryreservation",
+            "@googleapis/bigqueryconnection",
+            "@googleapis/bigquerydatapolicy",
+            "@firebaseextensions/firestore-bigquery-change-tracker",
+            "@dataform/core",
+            "@dataform/cli",
+        ),
+        pypi=(
+            "google-cloud-bigquery",
+            "sqlalchemy-bigquery",
+            "pandas-gbq",
+            "google-cloud-bigquery-storage",
+            "google-cloud-bigquery-datatransfer",
+            "google-cloud-bigquery-connection",
+            "google-cloud-bigquery-reservation",
+            "google-cloud-bigquery-migration",
+            "google-cloud-bigquery-datapolicies",
+            "google-cloud-bigquery-analyticshub",
+            "google-cloud-bigquery-data-exchange",
+            "google-cloud-bigquery-logging",
+            "google-cloud-bigquery-biglake",
+            "bigframes",
+            "bigquery-magics",
+            "pybigquery",
+            "dbt-bigquery",
+        ),
+        cargo=(
+            "gcp-bigquery-client",
+            "google-cloud-bigquery",
+            "google-cloud-bigquery-v2",
+            "google-cloud-bigquery-derive",
+            "google-cloud-bigquery-datapolicies-v1",
+            "google-cloud-bigquery-datapolicies-v2",
+            "google-cloud-bigquery-reservation-v1",
+            "google-cloud-bigquery-datatransfer-v1",
+            "google-cloud-bigquery-connection-v1",
+            "google-cloud-bigquery-migration-v2",
+            "google-cloud-bigquery-analyticshub-v1",
+            "gcloud-bigquery",
+            "google-bigquery2",
+            "google-bigquerydatatransfer1",
+            "google-bigqueryreservation1",
+        ),
+        composer=(
+            "google/cloud-bigquery",
+            "google/cloud-bigquery-storage",
+            "google/cloud-bigquerydatatransfer",
+            "google/cloud-bigquery-connection",
+            "google/cloud-bigquery-reservation",
+            "google/cloud-bigquery-analyticshub",
+            "google/cloud-bigquery-datapolicies",
+            "google/cloud-bigquery-migration",
+            "google/cloud-bigquery-data-exchange",
+        ),
+        go=("cloud.google.com/go/bigquery",),
+        hex=(
+            "google_api_big_query",
+            "google_api_big_query_connection",
+            "google_api_big_query_data_policy",
+            "google_api_big_query_data_transfer",
+            "google_api_big_query_reservation",
+            "req_bigquery",
+        ),
+        maven=(
+            "com.google.cloud:google-cloud-bigquery",
+            "com.google.cloud:google-cloud-bigquerystorage",
+            "com.google.cloud:google-cloud-bigquerydatatransfer",
+            "com.google.cloud:google-cloud-bigqueryconnection",
+            "com.google.cloud:google-cloud-bigqueryreservation",
+            "com.google.cloud:google-cloud-bigquerymigration",
+            "com.google.cloud:google-cloud-bigquerydatapolicy",
+            "com.google.cloud:google-cloud-bigquery-data-exchange",
+            "com.google.cloud:google-cloud-analyticshub",
+            "com.google.cloud:google-cloud-bigquery-jdbc",
+            "com.google.cloud:google-cloud-bigquery-bom",
+            "com.google.cloud:gcloud-java-bigquery",
+            "com.google.cloud:spring-cloud-gcp-starter-bigquery",
+            "com.google.cloud:spring-cloud-gcp-bigquery",
+            "org.springframework.cloud:spring-cloud-gcp-starter-bigquery",
+            "org.springframework.cloud:spring-cloud-gcp-bigquery",
+            "com.google.apis:google-api-services-bigquery",
+            "com.google.apis:google-api-services-bigquerydatatransfer",
+            "com.google.apis:google-api-services-bigqueryconnection",
+            "com.google.apis:google-api-services-bigqueryreservation",
+            "com.google.apis:google-api-services-bigquerydatapolicy",
+            "com.google.cloud.bigdataoss:bigquery-connector",
+            "com.google.cloud.spark:spark-bigquery-with-dependencies_2.11",
+            "com.google.cloud.spark:spark-bigquery-with-dependencies_2.12",
+            "com.google.cloud.spark:spark-bigquery-with-dependencies_2.13",
+            "com.google.cloud.spark:spark-bigquery_2.11",
+            "com.google.cloud.spark:spark-bigquery_2.12",
+            "com.google.cloud.spark:spark-bigquery_2.13",
+            "com.google.cloud.spark:spark-2.4-bigquery",
+            "com.google.cloud.spark:spark-3.1-bigquery",
+            "com.google.cloud.spark:spark-3.2-bigquery",
+            "com.google.cloud.spark:spark-3.3-bigquery",
+            "com.google.cloud.spark:spark-3.4-bigquery",
+            "com.google.cloud.spark:spark-3.5-bigquery",
+            "com.google.cloud.spark:spark-4.0-bigquery",
+            "com.google.cloud.spark:spark-4.1-bigquery",
+            "com.google.cloud.spark:spark-4.2-bigquery",
+            "com.google.cloud.flink:flink-1.17-connector-bigquery",
+            "com.google.cloud.flink:flink-2.1-connector-bigquery",
+            "com.google.cloud.hive:hive-bigquery-connector",
+        ),
+        rubygems=(
+            "google-cloud-bigquery",
+            "google-cloud-bigquery-data_transfer",
+            "google-cloud-bigquery-data_transfer-v1",
+            "google-cloud-bigquery-storage",
+            "google-cloud-bigquery-storage-v1",
+            "google-cloud-bigquery-reservation",
+            "google-cloud-bigquery-reservation-v1",
+            "google-cloud-bigquery-connection",
+            "google-cloud-bigquery-connection-v1",
+            "google-cloud-bigquery-migration",
+            "google-cloud-bigquery-migration-v2",
+            "google-cloud-bigquery-analytics_hub",
+            "google-cloud-bigquery-analytics_hub-v1",
+            "google-cloud-bigquery-data_policies",
+            "google-cloud-bigquery-data_policies-v1",
+            "google-cloud-bigquery-data_policies-v1beta1",
+            "google-cloud-bigquery-data_exchange",
+            "google-cloud-bigquery-data_exchange-v1beta1",
+            "google-apis-bigquery_v2",
+            "google-apis-bigquerydatatransfer_v1",
+            "google-apis-bigqueryreservation_v1",
+            "google-apis-bigqueryconnection_v1",
+            "google-apis-bigqueryconnection_v1beta1",
+            "google-apis-bigquerydatapolicy_v1",
+            "fluent-plugin-bigquery",
+            "embulk-output-bigquery",
+        ),
+        swiftpm=(
+            "github.com/googleapis/swift-google-cloud-bigquery-analyticshub-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-biglake-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-connection-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-datapolicies-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-datapolicies-v2",
+            "github.com/googleapis/swift-google-cloud-bigquery-datatransfer-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-logging-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-migration-v2",
+            "github.com/googleapis/swift-google-cloud-bigquery-reservation-v1",
+        ),
+    )
+
     # BigQuery's core REST API is stable at v2. Existing sources stay on the legacy unversioned pin;
     # new sources start on v2. Both resolve to the same /bigquery/v2/ REST endpoint, so the default
     # bump leaves existing syncs byte-for-byte unchanged.
@@ -55,6 +249,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BIGQUERY
+
+    def get_retryable_errors(self) -> set[str]:
+        # The client-side limits on a query job and on the wait for one page of rows. BigQuery was
+        # reachable and then gave no result in time, so a later attempt can succeed.
+        return {BIGQUERY_JOB_TIMEOUT_ERROR, BIGQUERY_READ_TIMEOUT_ERROR}
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -84,6 +283,38 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # Raised before any request when the key file's token endpoint is not Google's. The key
             # file is the problem, so retrying cannot help; the user must re-upload an unedited key.
             BIGQUERY_INVALID_TOKEN_URI_ERROR: BIGQUERY_INVALID_TOKEN_URI_ERROR,
+            # Raised by `resolve_bigquery_auth` before any request, when the source's stored
+            # credentials cannot produce an identity to sync as: the service account integration was
+            # disconnected, the uploaded key file lost fields, the instance can't impersonate, or the
+            # source has no credentials at all. Each is a config problem the user has to fix in the
+            # source, so retrying only repeats the same failure every run.
+            BIGQUERY_INTEGRATION_NOT_FOUND_ERROR: BIGQUERY_INTEGRATION_NOT_FOUND_ERROR,
+            BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR: BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
+            BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR: BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR,
+            BIGQUERY_NO_CREDENTIALS_ERROR: BIGQUERY_NO_CREDENTIALS_ERROR,
+            # Raised when PostHog impersonates the customer's service account but Google Cloud
+            # rejects the ownership check that guards impersonation — the account is gone, PostHog
+            # can't read it, or its description doesn't name the connecting organization. All three
+            # need a change in the customer's Google Cloud project, so retrying can't recover them.
+            BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR: BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR,
+            BIGQUERY_IMPERSONATION_PERMISSION_ERROR: BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            # The ownership check above only needs `iam.serviceAccounts.get`, so it can pass while a
+            # later gRPC call (the Storage Read API's `create_read_session`/`read_rows`) still fails
+            # to mint a token, because minting one needs `iam.serviceAccounts.getAccessToken` too.
+            # grpc's auth metadata plugin surfaces that denial as a `ServiceUnavailable` wrapping
+            # Google's raw token-endpoint JSON, e.g. "Getting metadata from plugin failed with
+            # error: ('Unable to acquire impersonated credentials', '{"error": {"code": 403,
+            # "message": "Permission \'iam.serviceAccounts.getAccessToken\' denied on resource ..." ...'".
+            # Same remediation as the ownership check — grant Service Account Token Creator — so reuse
+            # its message. Deterministic IAM config problem; retrying can't grant the permission.
+            # Matched on the stable permission name plus "denied", not the volatile error id or
+            # troubleshooter URL. Mirrors the same check in `classify_bigquery_validation_error`,
+            # which covers this for the connection wizard rather than an in-progress sync. Python's
+            # `repr()` of the JSON body (inside the tuple `str()`) backslash-escapes the quotes
+            # around the permission name, so match both the raw and escaped forms.
+            "iam.serviceAccounts.getAccessToken' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            "iam.serviceAccounts.getAccessToken\\' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX: None,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
             # row-filtered reads) needs write access on the dataset those tables live in. When the
@@ -204,6 +435,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             BIGQUERY_INVALID_IDENTIFIER_ERROR: BIGQUERY_INVALID_IDENTIFIER_ERROR,
             "Invalid dataset ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
             "Invalid project ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
+            # `bq.dataset(...)`-based REST calls (`list_tables`, used by temp-table cleanup and
+            # credential validation) reject a malformed project/dataset ID with this resource-name
+            # wording instead of "Invalid project ID"/"Invalid dataset ID", which only query jobs
+            # raise for the same misconfiguration. Matched on the stable wording, not the volatile
+            # offending id.
+            "Invalid resource name": BIGQUERY_INVALID_IDENTIFIER_ERROR,
             # Raised as a 400 BadRequest from job creation (POST .../jobs) when the location the
             # client runs in — the custom region from the source form, or the dataset's own location
             # auto-detected in `connect` — isn't a region BigQuery can run query jobs in, e.g.
@@ -231,6 +468,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # must fix the project reference. Matched on the stable guidance wording rather than the
             # volatile project id that appears earlier in the message.
             "Make sure it references valid GCP project": "BigQuery couldn't find the Google Cloud project this source references — it may have been deleted, or the Project ID in your service account key file (or the configured dataset project) may be incorrect. Verify the project exists in Google Cloud and correct the project details in your source configuration, then reconnect the source.",
+            # Raised as a 403 Forbidden by `bq_client.get_table(...)` in `_build_source_response` (and
+            # other direct REST calls) when the GCP project the source runs against has been deleted,
+            # e.g. "... Project #898288516447 has been deleted.". Unlike the "Make sure it references
+            # valid GCP project" key above (a 404 naming the friendly project id), this is a 403 naming
+            # the numeric project number, so it slips through and retries forever against a project that
+            # no longer exists. The `delete_table` cleanup path in `bigquery.py` already treats this
+            # wording as terminal (skips rather than raises); this key gives the same condition the same
+            # treatment on the main sync path. Matched on the stable "has been deleted" wording rather
+            # than the volatile project number.
+            "has been deleted": "BigQuery couldn't complete this sync because the Google Cloud project it uses has been deleted. Restore the project in Google Cloud, or update your source configuration to use a project that still exists, then reconnect the source.",
             # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
             # more than the three `project.dataset.table` components. This happens when the
             # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then
@@ -353,7 +600,54 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # every retry. The user must update the source's column selection to match the table's
             # current schema. Matched on the stable wording, not the volatile list of column names.
             "do not exist in the table schema": "BigQuery couldn't read this table because it referenced columns that no longer exist on it — usually columns selected for syncing were renamed or removed. Retrying won't help — please update the source's column selection to match the table's current schema, then reconnect the source.",
+            # Raised as a 400 BadRequest from `jobs.getQueryResults` (the same poll `_with_job_not_
+            # found_retry` in `bigquery.py` awaits) when the table or view being synced is guarded by
+            # a deprecation check the customer's own BigQuery team added to it — a query against that
+            # relation deliberately errors to redirect callers to its replacement. It's a deterministic
+            # property of which table the source reads, not of our query shape: the same table fails
+            # identically on every retry until the source is pointed at the replacement. Matched on
+            # BigQuery's stable "Deprecated legacy table/view" wording, not the volatile project name
+            # or job id that surround it.
+            "Deprecated legacy table/view": "BigQuery rejected a query for this source because the table or view it reads has been marked deprecated by your BigQuery team, in favor of a newer replacement. Retrying won't help — please update this source to sync the replacement table or view, then reconnect the source.",
         }
+
+    def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
+        is_valid, errors = super().validate_config(job_inputs)
+
+        # An empty `key_file` object reaches us both when the upload produced nothing and when the
+        # form sends the option the user did not pick, so on its own it says nothing worth showing.
+        if any(error in _KEY_FILE_FIELD_ERRORS for error in errors):
+            errors = [error for error in errors if error not in _KEY_FILE_FIELD_ERRORS]
+            is_valid = not errors
+
+        # The credential fields under each option are optional on the form, because the option the
+        # user did not pick must not block the save. That makes this the only check that stops a
+        # source being created with no credentials at all.
+        auth_type = job_inputs.get("auth_type")
+        selection: str | None
+        credentials: dict
+        if isinstance(auth_type, str):
+            # A select container also arrives as the bare string naming the chosen option, and
+            # then its fields sit at the top level of the payload rather than under it.
+            selection, credentials = auth_type, job_inputs
+        elif isinstance(auth_type, dict):
+            selection, credentials = auth_type.get("selection"), auth_type
+        else:
+            return is_valid, errors
+
+        if selection == "key_file":
+            key_file = credentials.get("key_file")
+            if not isinstance(key_file, dict) or not any(key_file.values()):
+                errors.append(_MISSING_KEY_FILE_ERROR)
+                is_valid = False
+            elif not all(key_file.get(name) for name in _KEY_FILE_FIELD_NAMES):
+                errors.append(_INCOMPLETE_KEY_FILE_ERROR)
+                is_valid = False
+        elif credentials.get("google_cloud_service_account_integration_id") in (None, ""):
+            errors.append("Pick a Google Cloud service account.")
+            is_valid = False
+
+        return is_valid, errors
 
     def validate_credentials(
         self,
@@ -362,6 +656,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            auth = resolve_bigquery_auth(config, team_id)
+        except Exception as e:
+            return False, classify_bigquery_validation_error(e)
+
         region: str | None = None
         if (
             config.use_custom_region
@@ -372,13 +671,8 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             region = config.use_custom_region.region
         return validate_bigquery_credentials(
             config.dataset_id,
-            {
-                "project_id": config.key_file.project_id,
-                "private_key": config.key_file.private_key,
-                "private_key_id": config.key_file.private_key_id,
-                "client_email": config.key_file.client_email,
-                "token_uri": config.key_file.token_uri,
-            },
+            auth.project_id,
+            auth.credentials,
             config.dataset_project.dataset_project_id if config.dataset_project else None,
             region,
         )
@@ -393,20 +687,65 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             iconPath="/static/services/bigquery.png",
             caption=(
                 "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
-                "warehouse. To send PostHog data to BigQuery instead, set up a batch export."
+                "warehouse. To send PostHog data to BigQuery instead, set up a batch export.\n\n"
+                "To use a service account, select **Choose Google Cloud service account connection**, then "
+                "**Configure new Google Cloud service account**. It shows how to let PostHog use your service account.\n\n"
+                "Your service account also needs these BigQuery roles: **BigQuery Job User** and **BigQuery Read "
+                "Session User** on the project, and **BigQuery Data Editor** on the dataset you sync. If you use a "
+                "separate dataset for temporary tables, grant **BigQuery Data Editor** there instead and **BigQuery "
+                "Data Viewer** on the dataset you sync. Without these roles, the connection check can pass but the "
+                "sync fails."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldFileUploadConfig(
-                        name="key_file",
-                        label="Google Cloud JSON key file",
-                        fileFormat=SourceFieldFileUploadJsonFormatConfig(
-                            format=".json",
-                            keys=["project_id", "private_key", "private_key_id", "client_email", "token_uri"],
-                        ),
+                    SourceFieldSelectConfig(
+                        name="auth_type",
+                        label="Authentication type",
                         required=True,
+                        defaultValue="service_account",
+                        options=[
+                            SourceFieldSelectConfigOption(
+                                label="Google Cloud service account",
+                                value="service_account",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldOauthConfig(
+                                            name="google_cloud_service_account_integration_id",
+                                            label="Google Cloud service account",
+                                            required=False,
+                                            kind="google-cloud-service-account",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="JSON key file",
+                                value="key_file",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldFileUploadConfig(
+                                            name="key_file",
+                                            label="Google Cloud JSON key file",
+                                            fileFormat=SourceFieldFileUploadJsonFormatConfig(
+                                                format=".json",
+                                                keys=[
+                                                    "project_id",
+                                                    "private_key",
+                                                    "private_key_id",
+                                                    "client_email",
+                                                    "token_uri",
+                                                ],
+                                            ),
+                                            required=False,
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        ],
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="use_custom_region",

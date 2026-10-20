@@ -36,7 +36,7 @@ FLEET_SYNCED_EVENT = "signals_scout_fleet_synced"
 # Which surface asked for the materialization. The whole point of the `surface` dimension is to
 # separate a fleet the coordinator was going to deliver anyway from one a person's tab-open
 # rescued, so an unlabelled caller is recorded as unknown rather than folded into a real surface.
-SYNC_SURFACES = ("roster", "desktop", "wizard")
+SYNC_SURFACES = ("roster", "desktop", "wizard", "onboarding")
 UNKNOWN_SURFACE = "unknown"
 
 # A prune reaping more than half the canonical fleet, and at least this many scouts, is not a
@@ -64,8 +64,9 @@ def materialize_scout_fleet(team: Team, *, surface: str | None = None) -> set[st
 
     `prune=True` puts this on the same terms as the coordinator tick: a scout retired from
     `products/signals/skills/` is tombstoned on the team instead of lingering as a live row the
-    fleet UI keeps listing. The reap only touches rows the harness seeded and the team never
-    edited, so a hand-authored or forked scout of the same name survives it.
+    fleet UI keeps listing, and its config is retired with it rather than left enabled behind a
+    skill that is gone. The reap only touches rows the harness seeded and the team never edited,
+    so a hand-authored or forked scout of the same name survives it.
     """
     # Timed from the first read, not from the reconcile: `duration_ms` is what a cold project
     # waits with its roster under a skeleton, and the flag read is part of that wait.
@@ -78,7 +79,9 @@ def materialize_scout_fleet(team: Team, *, surface: str | None = None) -> set[st
     seed_config_layers, withheld = resolve_sync_seed_inputs(team.id)
     configs_before = _config_skill_names(team.id)
     result = sync_canonical_skills(team, prune=True, withheld_skill_names=withheld)
-    register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld)
+    register_missing_configs(
+        team.id, seed_config_layers, withheld_skill_names=withheld, enable_new_configs=surface != "onboarding"
+    )
     configs_after = _config_skill_names(team.id)
     _capture_fleet_synced(
         team=team,
@@ -135,6 +138,10 @@ def _capture_fleet_synced(
                 "diverged_count": len(result.diverged_skill_names),
                 "tombstoned_count": len(result.tombstoned_skill_names),
                 "pruned_count": pruned_count,
+                # Configs this pass moved to a retired pause. The measure of the ghost-row
+                # problem: before the lifecycle every prune left its config enabled with no
+                # skill behind it, so a non-zero prune with a zero retire count is a regression.
+                "retired_count": len(result.retired_config_skill_names),
                 "configs_registered_count": len(configs_after - configs_before),
                 "withheld_count": withheld_count,
                 "fleet_size": len(configs_after),

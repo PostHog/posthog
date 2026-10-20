@@ -12,9 +12,12 @@ class TestIcpScoringConfigAdminPermissions(BaseTest):
         super().setUp()
         self.admin = IcpScoringConfigAdmin(IcpScoringConfig, AdminSite())
         self.request = RequestFactory().get("/admin/growth/icpscoringconfig/")
+        self.request.user = self.user
 
-    def test_add_is_never_permitted(self) -> None:
+    def test_add_requires_staff_permission(self) -> None:
         assert self.admin.has_add_permission(self.request) is False
+        self.user.is_staff = True
+        assert self.admin.has_add_permission(self.request) is True
 
     def test_delete_is_never_permitted(self) -> None:
         config = IcpScoringConfig.objects.create(version="v1", is_active=True)

@@ -30,6 +30,9 @@ DEFAULT_LOOKBACK_SECONDS = 0
 # is better served by a full refresh, which at least produces a table with no stale rows.
 MAX_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
 
+# The incremental_state key under which the managed warehouse's Trino shadow keeps its own progress.
+TRINO_INCREMENTAL_SCOPE = "trino"
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class IncrementalConfig:
@@ -62,6 +65,7 @@ class IncrementalState:
     definition_fingerprint: Optional[str] = None
     last_full_refresh_at: Optional[str] = None
     last_run_mode: Optional[str] = None
+    has_incremental_history: bool = False
 
 
 def get_incremental_config(saved_query) -> Optional[IncrementalConfig]:
@@ -91,8 +95,16 @@ def get_incremental_config(saved_query) -> Optional[IncrementalConfig]:
     )
 
 
-def get_incremental_state(saved_query) -> IncrementalState:
-    raw = saved_query.incremental_state
+def _scoped(state: Any, scope: Optional[str]) -> Any:
+    """The state blob for one engine. ClickHouse owns the top level; other engines keep their own
+    watermark under a key, because a failed or lagging engine must not move another's progress."""
+    if scope is None or not isinstance(state, dict):
+        return state
+    return state.get(scope)
+
+
+def get_incremental_state(saved_query, *, scope: Optional[str] = None) -> IncrementalState:
+    raw = _scoped(saved_query.incremental_state, scope)
     if not isinstance(raw, dict):
         return IncrementalState()
     return IncrementalState(
@@ -101,7 +113,38 @@ def get_incremental_state(saved_query) -> IncrementalState:
         definition_fingerprint=raw.get("definition_fingerprint"),
         last_full_refresh_at=raw.get("last_full_refresh_at"),
         last_run_mode=raw.get("last_run_mode"),
+        has_incremental_history=raw.get("has_incremental_history") is True,
     )
+
+
+def has_incremental_history(saved_query) -> bool:
+    """Whether an incremental plan participated in a run.
+
+    The config fallback covers views that used the feature before the durable marker existed.
+    Current clients remove the config when they disable incremental materialization.
+    """
+    state = get_incremental_state(saved_query)
+    return (
+        state.has_incremental_history
+        or state.last_run_mode is not None
+        or isinstance(saved_query.incremental_config, dict)
+    )
+
+
+def record_incremental_history(saved_query) -> None:
+    """Persist the history marker once without overwriting concurrent state changes."""
+    if get_incremental_state(saved_query).has_incremental_history:
+        return
+
+    model = type(saved_query)
+    with transaction.atomic():
+        locked = model.objects.select_for_update().get(pk=saved_query.pk)
+        state = dict(locked.incremental_state or {})
+        if state.get("has_incremental_history") is not True:
+            state["has_incremental_history"] = True
+            locked.incremental_state = state
+            locked.save(update_fields=["incremental_state"])
+    saved_query.incremental_state = state
 
 
 def definition_fingerprint(query: dict | None, config: IncrementalConfig) -> Optional[str]:
@@ -162,7 +205,9 @@ def window_start(state: IncrementalState, config: IncrementalConfig) -> Any:
     return watermark
 
 
-def set_incremental_state(saved_query, *, watermark: Any, fingerprint: Optional[str], mode: str) -> None:
+def set_incremental_state(
+    saved_query, *, watermark: Any, fingerprint: Optional[str], mode: str, scope: Optional[str] = None
+) -> None:
     """Row-locked read-modify-write of the state blob.
 
     Locked and re-read because the API can be writing ``incremental_config`` on the same row while
@@ -173,13 +218,14 @@ def set_incremental_state(saved_query, *, watermark: Any, fingerprint: Optional[
     with transaction.atomic():
         locked = model.objects.select_for_update().get(pk=saved_query.pk)
         state = dict(locked.incremental_state or {})
-        state["last_run_mode"] = mode
+        target = _writable_scope(state, scope)
+        target["last_run_mode"] = mode
         if mode == "full_refresh":
-            state["last_full_refresh_at"] = _isoformat(watermark_now())
+            target["last_full_refresh_at"] = _isoformat(watermark_now())
         if watermark is not None:
-            state["watermark"] = _serialize_watermark(watermark)
-            state["watermark_type"] = _watermark_type(watermark)
-        state["definition_fingerprint"] = fingerprint
+            target["watermark"] = _serialize_watermark(watermark)
+            target["watermark_type"] = _watermark_type(watermark)
+        target["definition_fingerprint"] = fingerprint
         locked.incremental_state = state
         locked.save(update_fields=["incremental_state"])
     saved_query.incremental_state = state
@@ -201,19 +247,28 @@ def _clamp_temporal_watermark(watermark: Any) -> Any:
     return watermark
 
 
-def clear_incremental_state(saved_query) -> None:
+def clear_incremental_state(saved_query, *, scope: Optional[str] = None) -> None:
     """Drop the watermark so the next run rebuilds from scratch. Used by a definition change, by
     an explicit full refresh, and by any engine failure we do not want to retry incrementally."""
     model = type(saved_query)
     with transaction.atomic():
         locked = model.objects.select_for_update().get(pk=saved_query.pk)
         state = dict(locked.incremental_state or {})
-        state.pop("watermark", None)
-        state.pop("watermark_type", None)
-        state.pop("definition_fingerprint", None)
+        target = _writable_scope(state, scope)
+        target.pop("watermark", None)
+        target.pop("watermark_type", None)
+        target.pop("definition_fingerprint", None)
         locked.incremental_state = state
         locked.save(update_fields=["incremental_state"])
     saved_query.incremental_state = state
+
+
+def _writable_scope(state: dict[str, Any], scope: Optional[str]) -> dict[str, Any]:
+    if scope is None:
+        return state
+    nested = state.get(scope)
+    state[scope] = dict(nested) if isinstance(nested, dict) else {}
+    return state[scope]
 
 
 def watermark_now() -> datetime:

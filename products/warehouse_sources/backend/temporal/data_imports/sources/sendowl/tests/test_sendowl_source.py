@@ -1,9 +1,7 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendowl import (
     SendowlSourceConfig,
 )
@@ -15,23 +13,6 @@ class TestSendowlSource:
         self.source = SendowlSource()
         self.team_id = 123
         self.config = SendowlSourceConfig(api_key="sendowl-key", api_secret="sendowl-secret")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Sendowl"
-        assert config.label == "Sendowl"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible — it must not carry the scaffolding flag.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/sendowl"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key", "api_secret"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # Both fields are secrets; the base URL is hardcoded and the account is implicit in the key
-        # pair. There is no non-secret field that retargets where the credentials are sent.
-        assert self.source.connection_host_fields == []
 
     @parameterized.expand(
         [
@@ -83,12 +64,6 @@ class TestSendowlSource:
         assert is_valid is expected_valid
         assert returned == expected_message
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.source.check_access")
-    def test_validate_credentials_probes_the_credential_pair(self, mock_check: mock.MagicMock) -> None:
-        mock_check.return_value = (200, None)
-        self.source.validate_credentials(self.config, self.team_id, schema_name="orders")
-        mock_check.assert_called_once_with("sendowl-key", "sendowl-secret")
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.source.sendowl_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_sendowl_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
@@ -103,9 +78,3 @@ class TestSendowlSource:
         assert kwargs["api_secret"] == "sendowl-secret"
         assert kwargs["endpoint"] == "products"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown SendOwl schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

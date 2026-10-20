@@ -87,17 +87,53 @@ const VARIANT_META: Record<
 // Failed first, then in-flight, then the rest — the buckets worth a human's attention lead.
 const VARIANT_ORDER: CheckVariant[] = ['failure', 'pending', 'cancelled', 'stale', 'success', 'neutral']
 
-function CheckSummary({ variant, count }: { variant: CheckVariant; count: number }): JSX.Element | null {
+function CheckSummary({
+    variant,
+    count,
+    compact,
+}: {
+    variant: CheckVariant
+    count: number
+    compact: boolean
+}): JSX.Element | null {
     if (count === 0) {
         return null
     }
 
     const meta = VARIANT_META[variant]
+    const label = `${count} ${meta.label.toLowerCase()}`
     return (
-        <span className={`inline-flex items-center gap-1 whitespace-nowrap ${meta.summaryClassName}`}>
-            <span className={`flex items-center [&_svg]:size-3 ${meta.iconClassName}`}>{meta.icon}</span>
+        <span
+            className={`inline-flex items-center gap-1 whitespace-nowrap ${meta.summaryClassName}`}
+            title={compact ? label : undefined}
+        >
+            <span aria-hidden className={`flex items-center [&_svg]:size-3 ${meta.iconClassName}`}>
+                {meta.icon}
+            </span>
             <span className="font-medium tabular-nums">{count}</span>
-            <span>{meta.label.toLowerCase()}</span>
+            <span className={compact ? 'sr-only' : undefined}>{meta.label.toLowerCase()}</span>
+        </span>
+    )
+}
+
+function CheckSummaryList({
+    counts,
+    compact,
+}: {
+    counts: Record<CheckVariant, number>
+    compact: boolean
+}): JSX.Element {
+    return (
+        <span
+            className={
+                compact
+                    ? 'inline-flex items-center gap-x-2.5 text-[0.6875rem]'
+                    : 'flex w-full flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.6875rem]'
+            }
+        >
+            {VARIANT_ORDER.map((variant) => (
+                <CheckSummary key={variant} variant={variant} count={counts[variant]} compact={compact} />
+            ))}
         </span>
     )
 }
@@ -134,27 +170,24 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
         },
         { failure: 0, cancelled: 0, pending: 0, stale: 0, success: 0, neutral: 0 }
     )
-    const hasChecksNeedingAttention =
-        counts.failure > 0 || counts.cancelled > 0 || counts.pending > 0 || counts.stale > 0
 
     return (
         <DetailSection
-            // `DetailSection` reads `defaultCollapsed` only on mount. This section mounts while
-            // `prChecks` is still null (skeleton), when the "all green → collapse" default computes to
-            // false, so remount once the checks resolve to let the settled default take effect.
-            key={prChecks === null ? 'checks-loading' : 'checks-loaded'}
             icon={<IconCheckCircle />}
             title="CI checks"
             collapsible
-            defaultCollapsed={sorted.length > 0 && !hasChecksNeedingAttention}
+            // `DetailSection` reads `defaultCollapsed` only on mount, so remount when an error appears
+            // or clears. The header shows the per-status counts, so the list stays collapsed and does
+            // not push the sections under it out of view. An error stays open so it is not hidden.
+            key={prChecksError ? 'checks-error' : 'checks'}
+            defaultCollapsed={!prChecksError}
             meta={
-                sorted.length > 0 ? (
-                    <span className="flex items-center justify-end gap-x-2.5 gap-y-1 flex-wrap text-[0.6875rem]">
-                        {VARIANT_ORDER.map((variant) => (
-                            <CheckSummary key={variant} variant={variant} count={counts[variant]} />
-                        ))}
-                    </span>
-                ) : undefined
+                sorted.length > 0 ? (open) => (open ? null : <CheckSummaryList counts={counts} compact />) : undefined
+            }
+            summary={
+                sorted.length > 0
+                    ? (open) => (open ? <CheckSummaryList counts={counts} compact={false} /> : null)
+                    : undefined
             }
         >
             {prChecksError ? (

@@ -8,7 +8,13 @@ import api from 'lib/api'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { TZLabel } from 'lib/components/TZLabel'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { API_SCOPES, scopeMatchesSearch, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
+import {
+    API_SCOPES,
+    type ScopeAccessLevel,
+    scopeMatchesSearch,
+    scopesArrayToObject,
+    scopesObjectToArray,
+} from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { IntegrationType } from '~/types'
@@ -177,25 +183,28 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                         {filteredScopes.length === 0 ? (
                             <div className="text-muted text-sm py-2">No scopes match "{searchTerm}"</div>
                         ) : (
-                            filteredScopes.map((scope) => (
-                                <ScopeAccessRow
-                                    key={scope.key}
-                                    label={scope.objectName}
-                                    info={scope.info}
-                                    value={scopeActions[scope.key] ?? 'none'}
-                                    onChange={(value) => setScopeAction(scope.key, value)}
-                                    readDisabledReason={
-                                        scope.disabledActions?.includes('read')
-                                            ? 'Does not apply to this resource'
-                                            : undefined
-                                    }
-                                    writeDisabledReason={
-                                        scope.disabledActions?.includes('write')
-                                            ? 'Does not apply to this resource'
-                                            : undefined
-                                    }
-                                />
-                            ))
+                            filteredScopes.map((scope) => {
+                                const disabledReason = (action: 'read' | 'write'): string | undefined =>
+                                    scope.disabledActions?.includes(action)
+                                        ? 'Does not apply to this resource'
+                                        : undefined
+                                return (
+                                    <ScopeAccessRow
+                                        key={scope.key}
+                                        row={{
+                                            key: scope.key,
+                                            label: scope.objectName,
+                                            info: scope.info,
+                                            value: (scopeActions[scope.key] ?? 'none') as ScopeAccessLevel,
+                                            disabledReasons: {
+                                                read: disabledReason('read'),
+                                                write: disabledReason('write'),
+                                            },
+                                        }}
+                                        onChange={setScopeAction}
+                                    />
+                                )
+                            })
                         )}
                     </div>
                 </div>

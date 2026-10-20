@@ -30,7 +30,7 @@ class TestUpsertAccountTool(BaseTest):
 
     async def _tags_for(self, account: Account) -> list[str]:
         return await sync_to_async(
-            lambda: sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True))
+            lambda: sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True))
         )()
 
     @sync_to_async

@@ -1,14 +1,16 @@
+import json
 import threading
 import dataclasses
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from collections.abc import Callable, Generator, Iterable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 from requests import PreparedRequest, Request, Response, Session
 
 from posthog.dataclasses import frozen
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
@@ -46,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     CURSOR_PARAM,
     CURSOR_PATH,
     DATA_SELECTOR,
+    EPOCH_RFC_3339,
     METRONOME_BASE_URL,
     METRONOME_ENDPOINTS,
     USAGE_HISTORY,
@@ -57,9 +60,6 @@ REQUEST_TIMEOUT_SECONDS = 30.0
 # Metronome accepts RFC 3339 timestamps and returns them in this shape.
 RFC_3339_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
-# Lower bound for a first incremental run — earlier than any Metronome account.
-EPOCH_RFC_3339 = "1970-01-01T00:00:00Z"
-
 # `POST /v1/usage` documents `ending_before` as at least one day after `starting_on`.
 MIN_USAGE_WINDOW = timedelta(days=1)
 
@@ -70,20 +70,25 @@ USAGE_COALESCE_ROWS = 20_000
 # first sync costs one request per page whatever the account holds, and a large account runs to
 # hundreds of thousands of requests. Customers are independent, so walk several at once. The
 # endpoint sits in Metronome's default rate tier, 8 requests a second shared with every other table
-# on the same account, so take well under it and leave the rest for the account's other syncs.
-# Two, not more: the pacer below is what governs throughput, and at the latency this endpoint
-# answers in, two workers already saturate it. Each worker holds one customer's rows while it walks
-# them, so a third would buy no request rate and cost another customer's worth of memory. More
-# workers only pay off if the endpoint slows enough for the workers, rather than the rate, to become
-# the limit.
+# on the same account. Hold just under the tier rather than far below it: the request count is what
+# sets how long a first sync takes, so rate left unused is time the walk cannot get back, and a
+# throttle costs one hold instead of the run.
+# Two workers, not more: the pacer is what governs throughput, and two are enough to keep the rate
+# above saturated at the latency this endpoint answers in. Each worker holds one customer's rows
+# while it walks them, so a third would buy no request rate and cost another customer's worth of
+# memory. More workers only pay off if the endpoint slows enough for the workers, rather than the
+# rate, to become the limit.
 USAGE_CUSTOMER_CONCURRENCY = 2
-USAGE_REQUESTS_PER_SECOND = 5.0
+USAGE_REQUESTS_PER_SECOND = 7.5
 # Metronome documents its limit per second and documents no Retry-After, so a throttled pool only
 # has to stand down for a second or two, and it has to decide that for itself. The pacer's own
 # default is sized for a vendor that sends the header and falls back rarely.
 USAGE_RATE_LIMIT_HOLD_SECONDS = 5.0
 # Caps a batch when an account's customers are small enough that the row cap never trips.
 USAGE_CUSTOMERS_PER_BATCH = 100
+# How long the walk waits on one customer before it looks for a worker shutdown again. One customer
+# can take minutes on an account with many billable metrics, and a batch can take hours to fill.
+USAGE_SHUTDOWN_POLL_SECONDS = 5.0
 
 
 @frozen
@@ -100,8 +105,8 @@ class MetronomeResumeConfig:
     # attempt replays it instead of recomputing from the clock, so one table never mixes rows
     # aggregated to two different cutoffs. None for endpoints that send no window.
     ending_before: str | None = None
-    # The `starting_on` bound of the same request. A bucketed table resolves it against the clock
-    # when the schema recorded no range, so it is pinned for the walk for the same reason.
+    # The `starting_on` bound of the same request. A bucketed table with no watermark resolves it
+    # against the clock, so it is pinned for the walk for the same reason.
     starting_on: str | None = None
     # Partitioned usage walks. The cursor that fetches the customer page being worked on, and the
     # customers within that page whose rows are already written. Both reset together when a page
@@ -122,8 +127,10 @@ class MetronomeCursorPaginator(JSONResponseCursorPaginator):
     window only rides the request that has no cursor on it.
     """
 
-    def __init__(self, first_page_only_params: tuple[str, ...] = ()) -> None:
-        super().__init__(cursor_path=CURSOR_PATH, cursor_param=CURSOR_PARAM)
+    def __init__(
+        self, first_page_only_params: tuple[str, ...] = (), param_location: Literal["query", "json"] = "query"
+    ) -> None:
+        super().__init__(cursor_path=CURSOR_PATH, cursor_param=CURSOR_PARAM, param_location=param_location)
         self._first_page_only_params = first_page_only_params
 
     def _drop_first_page_only_params(self, request: Request) -> None:
@@ -152,7 +159,7 @@ def _paginator_for(config: MetronomeEndpointConfig) -> BasePaginator:
     if not config.paginated:
         return SinglePagePaginator()
     first_page_only: tuple[str, ...] = (config.incremental_start_param,) if config.incremental_start_param else ()
-    return MetronomeCursorPaginator(first_page_only_params=first_page_only)
+    return MetronomeCursorPaginator(first_page_only_params=first_page_only, param_location=config.page_param_location)
 
 
 def _format_rfc3339(value: Any) -> str:
@@ -221,25 +228,37 @@ def _clamp_window_start(starting_on: str, ending_before: str) -> str:
 def _resolve_window_start(
     config: MetronomeEndpointConfig,
     db_incremental_field_last_value: Any,
-    history_start: datetime | None,
+    usage_history: timedelta | None,
 ) -> str:
     """Where the requested usage window begins.
 
     The lifetime table asks for everything the account has. A bucketed table starts at the period
     its watermark reached, so each run asks only for what it does not already hold. With no
-    watermark it starts where the schema recorded its range on the first sync, and resolves the
-    table's own bound against the clock only when no range was recorded.
+    watermark it reaches back by the depth the source is set to, measured from today, so a depth the
+    user edits takes effect on the next run and the window stays the size they asked for however
+    long the source has existed.
     """
     window_size = config.window_size
     if window_size != "hour" and window_size != "day":
         return EPOCH_RFC_3339
 
-    start = (
-        parse_datetime_value(db_incremental_field_last_value)
-        or coerce_datetime_to_utc(history_start)
-        or datetime.now(UTC) - USAGE_HISTORY[config.name]
+    start = parse_datetime_value(db_incremental_field_last_value) or datetime.now(UTC) - (
+        usage_history or USAGE_HISTORY[config.name]
     )
     return _format_rfc3339(_align_to_utc_midnight(start))
+
+
+def _query_window(history: timedelta, db_incremental_field_last_value: Any) -> dict[str, str]:
+    """The `starting_on`/`ending_before` query window of a fan-out child that requires one.
+
+    Both bounds sit on UTC midnight for the same reason as a usage window: a daily breakdown's start
+    is part of its primary key, so asking from mid-day would return a partial day as a second row.
+    """
+    now = datetime.now(UTC)
+    ending_before = _format_rfc3339(_usage_window_end(now))
+    start = parse_datetime_value(db_incremental_field_last_value) or now - history
+    starting_on = _clamp_window_start(_format_rfc3339(_align_to_utc_midnight(start)), ending_before)
+    return {"starting_on": starting_on, "ending_before": ending_before}
 
 
 @frozen
@@ -257,7 +276,7 @@ def _walk_start(
     config: MetronomeEndpointConfig,
     resumable_source_manager: "Optional[ResumableSourceManager[MetronomeResumeConfig]]",
     db_incremental_field_last_value: Any,
-    history_start: datetime | None,
+    usage_history: timedelta | None,
 ) -> MetronomeWalkStart:
     """Read the resume checkpoint, then fill in whatever it did not carry.
 
@@ -299,7 +318,7 @@ def _walk_start(
             # Only a freshly resolved start is clamped. A resumed walk replays the exact window its
             # checkpoint stored, and both bounds come back together or neither does.
             starting_on = _clamp_window_start(
-                _resolve_window_start(config, db_incremental_field_last_value, history_start), ending_before
+                _resolve_window_start(config, db_incremental_field_last_value, usage_history), ending_before
             )
 
     return MetronomeWalkStart(
@@ -343,12 +362,23 @@ def _rest_client(api_key: str) -> RESTClient:
     )
 
 
+def _sends_page_size(config: MetronomeEndpointConfig) -> bool:
+    return config.paginated and config.accepts_page_size
+
+
 def _list_params(config: MetronomeEndpointConfig) -> dict[str, Any]:
     params: dict[str, Any] = {}
-    if config.paginated and config.accepts_page_size:
+    if _sends_page_size(config) and config.page_param_location == "query":
         params["limit"] = config.page_size
     params.update(config.extra_params)
     return params
+
+
+def _list_body(config: MetronomeEndpointConfig) -> dict[str, Any]:
+    body = dict(config.json_body)
+    if _sends_page_size(config) and config.page_param_location == "json":
+        body["limit"] = config.page_size
+    return body
 
 
 def _retry_after_seconds(response: Response) -> float | None:
@@ -510,18 +540,25 @@ def _parallel_usage_pages(
     config: MetronomeEndpointConfig,
     json_body: dict[str, Any],
     walk: "MetronomeWalkStart",
-    commit_checkpoint: Callable[[Optional[str], tuple[str, ...]], None],
-) -> Iterator[list[Any]]:
+    stage_checkpoint: Callable[[Optional[str], tuple[str, ...]], None],
+    safe_point: Callable[[], None] = lambda: None,
+) -> Generator[list[Any]]:
     """Walk each customer's usage separately, several at a time, and yield whole customers.
 
     `customer_ids` makes each customer's walk independent, which is the only parallelism this
     endpoint allows: its cursor is one opaque chain per customer and billable metric, so the next
     cursor is unknowable until the previous page returns.
 
-    A batch carries only customers whose walk finished, and its checkpoint is committed after the
-    `yield` returns, once the consumer has written the batch. So the recorded set never runs ahead
-    of rows that reached Delta, and a resumed attempt re-walks only customers that wrote nothing.
-    That is what lets a full refresh resume here without duplicating rows.
+    A batch carries only customers whose walk finished, and its checkpoint is staged before the
+    `yield`. The pipeline commits a staged checkpoint when it has written the rows yielded so far,
+    and it can end the attempt before control returns here. A checkpoint staged after the `yield`
+    is lost on that path, and the next attempt starts again at the first customer. So the recorded
+    set never runs ahead of rows that reached Delta, and a resumed attempt re-walks only customers
+    that wrote nothing. That is what lets a full refresh resume here without duplicating rows.
+
+    A customer with no usage yields nothing, so its checkpoint is staged at a safe point instead.
+    `safe_point` also tells the walk about a worker shutdown. The walk then hands over the customers
+    it has finished, so the attempt ends in seconds and keeps its progress.
     """
     parent = METRONOME_ENDPOINTS["customers"]
     paginator = _paginator_for(parent)
@@ -539,6 +576,8 @@ def _parallel_usage_pages(
 
     page_cursor = walk.parent_cursor
     done_in_page = set(walk.completed_customers)
+    batch: list[Any] = []
+    batch_customers: list[str] = []
     pool = ThreadPoolExecutor(max_workers=USAGE_CUSTOMER_CONCURRENCY, thread_name_prefix="metronome-usage")
 
     cancelled = threading.Event()
@@ -547,6 +586,14 @@ def _parallel_usage_pages(
         return submit_with_context(
             pool, lambda: _usage_rows_for_customer(clients.get(), config, json_body, customer_id, cancelled)
         )
+
+    def take_batch() -> list[Any]:
+        """Stage the checkpoint that covers the finished customers, and give back their rows."""
+        nonlocal batch, batch_customers
+        done_in_page.update(batch_customers)
+        stage_checkpoint(page_cursor, tuple(done_in_page))
+        rows, batch, batch_customers = batch, [], []
+        return rows
 
     try:
         for page_index, customer_page in enumerate(
@@ -567,23 +614,35 @@ def _parallel_usage_pages(
             todo = deque(cid for row in customer_page if (cid := _customer_id(row)) not in done_in_page)
             in_flight: deque[tuple[str, Future[list[Any]]]] = deque()
             _fill_in_flight(submit_walk, todo, in_flight)
-            batch: list[Any] = []
-            batch_customers: list[str] = []
             while in_flight:
-                customer_id, future = in_flight.popleft()
-                batch.extend(future.result())
-                batch_customers.append(customer_id)
-                _fill_in_flight(submit_walk, todo, in_flight)
-                if len(batch) >= USAGE_COALESCE_ROWS or len(batch_customers) >= USAGE_CUSTOMERS_PER_BATCH:
-                    yield batch
-                    done_in_page.update(batch_customers)
-                    commit_checkpoint(page_cursor, tuple(done_in_page))
-                    batch, batch_customers = [], []
+                customer_id, future = in_flight[0]
+                # Not `future.result(timeout=...)`: a walk that fails with a `TimeoutError` of its
+                # own would look the same as one that has not finished.
+                wait([future], timeout=USAGE_SHUTDOWN_POLL_SECONDS)
+                if future.done():
+                    in_flight.popleft()
+                    batch.extend(future.result())
+                    batch_customers.append(customer_id)
+                    _fill_in_flight(submit_walk, todo, in_flight)
+                    if not batch:
+                        # Only customers with no usage so far. Nothing has to be written before
+                        # their checkpoint is safe, so the walk does not wait for a batch to fill.
+                        take_batch()
+                    elif len(batch) >= USAGE_COALESCE_ROWS or len(batch_customers) >= USAGE_CUSTOMERS_PER_BATCH:
+                        yield take_batch()
+                try:
+                    # Any staged checkpoint covers only rows already yielded, so this is a safe
+                    # point also while `batch` holds rows.
+                    safe_point()
+                except WorkerShuttingDownError:
+                    # The rows held here belong to finished customers. Hand them over with their
+                    # checkpoint, or the next attempt walks those customers again.
+                    if batch_customers and (rows := take_batch()):
+                        yield rows
+                    raise
 
             if batch:
-                yield batch
-                done_in_page.update(batch_customers)
-                commit_checkpoint(page_cursor, tuple(done_in_page))
+                yield take_batch()
     finally:
         # The consumer may close the generator early. Signal first so a walk already running stops
         # at its next page, then never block on the ones still in flight.
@@ -670,35 +729,68 @@ def get_resource(
     return resource
 
 
+def _pricing_group_key(pricing_group_values: Any) -> str:
+    """A stable string for a rate's pricing group, so the group can be part of the primary key.
+
+    `pricing_group_values` is an object, and a rate with none is a different rate from one scoped
+    to a group, so the absent case gets its own value rather than a null.
+    """
+    return json.dumps(pricing_group_values or {}, sort_keys=True, separators=(",", ":"))
+
+
+def _shape_fanout_row(
+    config: MetronomeEndpointConfig, row: dict[str, Any], parent_values: dict[str, Any]
+) -> dict[str, Any]:
+    for name, value in parent_values.items():
+        if row.get(name) is None:
+            row[name] = value
+    if config.keys_pricing_group:
+        row["pricing_group_key"] = _pricing_group_key(row.get("pricing_group_values"))
+    return row
+
+
+def _parent_pages(client: RESTClient, parent: MetronomeEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    if parent.body_fanout is not None:
+        yield from _body_fanout_pages(client, parent)
+        return
+    yield from client.paginate(
+        parent.path,
+        method=parent.method,
+        params=_list_params(parent),
+        # The POST lists expect a JSON document even when they take no filters.
+        json=_list_body(parent) if parent.method == "post" else None,
+        data_selector=DATA_SELECTOR,
+        data_selector_required=True,
+        paginator=_paginator_for(parent),
+    )
+
+
 def _body_fanout_pages(client: RESTClient, config: MetronomeEndpointConfig) -> Iterator[list[dict[str, Any]]]:
-    """Walk the parent list and call the child once per parent row, binding the id into the body."""
+    """Walk the parent list and call the child once per parent row, binding its ids into the body."""
     fanout = config.body_fanout
     if fanout is None:
         raise ValueError(f"'{config.name}' has no body fan-out configured")
 
     parent = METRONOME_ENDPOINTS[fanout.parent_name]
 
-    for parent_page in client.paginate(
-        parent.path,
-        params=_list_params(parent),
-        data_selector=DATA_SELECTOR,
-        data_selector_required=True,
-        paginator=_paginator_for(parent),
-    ):
+    for parent_page in _parent_pages(client, parent):
         for parent_row in parent_page:
-            parent_id = parent_row.get(fanout.resolve_field)
-            if not parent_id:
+            if fanout.skip_parents_with and parent_row.get(fanout.skip_parents_with):
+                continue
+            parent_values = {param: parent_row.get(field) for param, field in fanout.body_params.items()}
+            if not all(parent_values.values()):
                 continue
             for page in client.paginate(
                 config.path,
                 method=config.method,
-                json={**config.json_body, fanout.body_param: parent_id},
+                params=_list_params(config),
+                json={**_list_body(config), **parent_values},
                 data_selector=DATA_SELECTOR,
                 data_selector_required=True,
                 paginator=_paginator_for(config),
             ):
                 if page:
-                    yield page
+                    yield [_shape_fanout_row(config, row, parent_values) for row in page]
 
 
 def _make_source_response(
@@ -733,7 +825,7 @@ def metronome_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
-    history_start: Optional[datetime] = None,
+    usage_history: timedelta | None = None,
 ) -> SourceResponse:
     endpoint_config = METRONOME_ENDPOINTS[endpoint]
 
@@ -745,6 +837,9 @@ def metronome_source(
 
     if endpoint_config.fanout:
         parent_config = METRONOME_ENDPOINTS[endpoint_config.fanout.parent_name]
+        child_params = dict(endpoint_config.extra_params)
+        if endpoint_config.query_window_history is not None:
+            child_params.update(_query_window(endpoint_config.query_window_history, db_incremental_field_last_value))
         # Dependent resources don't support resume in the rest_source framework, so the manager is
         # intentionally not threaded into this path.
         dependent_resource = cast(
@@ -752,7 +847,7 @@ def metronome_source(
             build_dependent_resource(
                 endpoint_configs=METRONOME_ENDPOINTS,
                 child_endpoint=endpoint,
-                fanout=dataclasses.replace(endpoint_config.fanout, child_params=dict(endpoint_config.extra_params)),
+                fanout=dataclasses.replace(endpoint_config.fanout, child_params=child_params),
                 client_config=_rest_api_client_config(api_key),
                 path_format_values={},
                 team_id=team_id,
@@ -760,6 +855,9 @@ def metronome_source(
                 db_incremental_field_last_value=db_incremental_field_last_value,
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
+                # The window rides `child_params`, so there is no cursor param for the framework to
+                # inject. The child still merges on its primary key.
+                incremental_config_factory=lambda _field: None,
                 parent_endpoint_extra={
                     "paginator": _paginator_for(parent_config),
                     "data_selector": DATA_SELECTOR,
@@ -774,7 +872,7 @@ def metronome_source(
         )
         return _make_source_response(endpoint_config, lambda: dependent_resource)
 
-    walk = _walk_start(endpoint_config, resumable_source_manager, db_incremental_field_last_value, history_start)
+    walk = _walk_start(endpoint_config, resumable_source_manager, db_incremental_field_last_value, usage_history)
 
     # A usage walk pages per customer and billable metric, so one sequential pass is one request
     # per page for the whole account. Partition it by customer and run several walks at once.
@@ -790,7 +888,7 @@ def metronome_source(
             api_key, RequestPacer(USAGE_REQUESTS_PER_SECOND, hold_seconds=USAGE_RATE_LIMIT_HOLD_SECONDS)
         )
 
-        def commit_usage_checkpoint(parent_cursor: Optional[str], completed: tuple[str, ...]) -> None:
+        def stage_usage_checkpoint(parent_cursor: Optional[str], completed: tuple[str, ...]) -> None:
             # Nothing to resume to once the customer list is exhausted and its last page is written.
             if resumable_source_manager is None or (parent_cursor is None and not completed):
                 return
@@ -803,9 +901,15 @@ def metronome_source(
                 )
             )
 
+        def reach_usage_safe_point() -> None:
+            if resumable_source_manager is not None:
+                resumable_source_manager.safe_point()
+
         return _make_source_response(
             endpoint_config,
-            lambda: _parallel_usage_pages(clients, endpoint_config, json_body, walk, commit_usage_checkpoint),
+            lambda: _parallel_usage_pages(
+                clients, endpoint_config, json_body, walk, stage_usage_checkpoint, reach_usage_safe_point
+            ),
             chunk_size=1,
         )
 

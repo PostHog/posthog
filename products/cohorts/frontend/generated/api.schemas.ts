@@ -440,6 +440,10 @@ export interface CohortApi {
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
     _create_static_person_ids?: string[]
 }
 
@@ -509,6 +513,10 @@ export interface PatchedCohortApi {
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
     _create_static_person_ids?: string[]
 }
 
@@ -517,40 +525,72 @@ export interface PatchedAddPersonsToStaticCohortRequestApi {
     person_ids?: string[]
 }
 
-/**
- * * `person` - person
- */
-export type CohortPersonResultTypeEnumApi =
-    (typeof CohortPersonResultTypeEnumApi)[keyof typeof CohortPersonResultTypeEnumApi]
-
-export const CohortPersonResultTypeEnumApi = {
-    Person: 'person',
-} as const
-
-export type CohortPersonResultApiProperties = { [key: string]: unknown }
-
-export type CohortPersonResultApiMatchedRecordingsItem = { [key: string]: unknown }
-
-export interface CohortPersonResultApi {
+export interface CohortUsedInWorkflowApi {
+    /** Workflow ID (UUID) */
     id: string
-    uuid: string
-    type: CohortPersonResultTypeEnumApi
+    /** Workflow display name */
     name: string
-    distinct_ids: string[]
-    properties: CohortPersonResultApiProperties
-    /** @nullable */
+    /** Workflow status. Always 'active', because only active workflows rely on the cohort */
+    status: string
+}
+
+export interface CohortUsedInWorkflowsBlockApi {
+    /** Active workflows relying on this cohort that the caller can view, capped at 100 results */
+    results: CohortUsedInWorkflowApi[]
+    /** Total number of active workflows relying on this cohort, including ones the caller cannot view */
+    total: number
+    /** Number of relying workflows the caller cannot view. They count toward total but are never listed */
+    hidden: number
+    /** True when some relying workflows are not listed in results */
+    has_more: boolean
+}
+
+/**
+ * The actor's properties.
+ */
+export type SerializedPersonActorApiProperties = { [key: string]: unknown }
+
+export type SerializedPersonActorApiMatchedRecordingsItem = { [key: string]: unknown }
+
+export interface SerializedPersonActorApi {
+    /** The person's UUID, or the group's key. */
+    id: string
+    /** The actor's properties. */
+    properties: SerializedPersonActorApiProperties
+    /**
+     * When the actor was first seen.
+     * @nullable
+     */
     created_at: string | null
-    /** @nullable */
-    last_seen_at: string | null
-    /** @nullable */
-    is_identified: boolean | null
-    matched_recordings: CohortPersonResultApiMatchedRecordingsItem[]
-    /** @nullable */
+    /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+    matched_recordings: SerializedPersonActorApiMatchedRecordingsItem[]
+    /**
+     * The actor's value at the data point it was queried for. Null unless the query computes one.
+     * @nullable
+     */
     value_at_data_point: number | null
+    /** Marks this actor as a person. */
+    type: 'person'
+    /** The person's UUID. Same value as `id`. */
+    uuid: string
+    /** Display name, resolved from the person's properties or distinct IDs. */
+    name: string
+    /** The person's distinct IDs, newest first. */
+    distinct_ids: string[]
+    /**
+     * When the person was last seen.
+     * @nullable
+     */
+    last_seen_at: string | null
+    /**
+     * Whether the person has been identified.
+     * @nullable
+     */
+    is_identified: boolean | null
 }
 
 export interface CohortPersonsResponseApi {
-    results: CohortPersonResultApi[]
+    results: SerializedPersonActorApi[]
     /** @nullable */
     next: string | null
     /** @nullable */
@@ -624,6 +664,8 @@ export interface CohortUsedInResponseApi {
     insights: CohortUsedInInsightsBlockApi
     /** Other cohorts that include this cohort as a criterion, with truncation metadata */
     cohorts: CohortUsedInCohortsBlockApi
+    /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
+    workflows: CohortUsedInWorkflowsBlockApi
 }
 
 export type CohortsStaffListParams = {

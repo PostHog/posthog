@@ -17,15 +17,15 @@ export const EngineeringAnalyticsCiSignalsConfigUpdateBody = /* @__PURE__ */ zod
 })
 
 /**
- * Opens a pull request that edits the repository's checked-in .test_quarantine.json — and, for a new quarantine, a tracking issue the PR links but does not close. The file stays the source of truth that CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges.
+ * Opens a pull request that edits the repository's checked-in .test_quarantine.json and, for a new quarantine, opens a tracking issue that the PR links but does not close. The file stays the source of truth that CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges.
  * @summary Quarantine, extend, or unquarantine a flaky test
  */
 export const EngineeringAnalyticsQuarantineRequestBody = /* @__PURE__ */ zod.object({
     operation: zod
         .enum(['quarantine', 'extend', 'remove'])
-        .describe('\* `quarantine` - QUARANTINE\n\* `extend` - EXTEND\n\* `remove` - REMOVE')
+        .describe('\* `quarantine` - Quarantine\n\* `extend` - Extend\n\* `remove` - Remove')
         .describe(
-            "What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.\n\n\* `quarantine` - QUARANTINE\n\* `extend` - EXTEND\n\* `remove` - REMOVE"
+            "What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.\n\n\* `quarantine` - Quarantine\n\* `extend` - Extend\n\* `remove` - Remove"
         ),
     selector: zod
         .string()
@@ -36,12 +36,12 @@ export const EngineeringAnalyticsQuarantineRequestBody = /* @__PURE__ */ zod.obj
         .union([
             zod
                 .enum(['pytest', 'jest', 'playwright'])
-                .describe('\* `pytest` - PYTEST\n\* `jest` - JEST\n\* `playwright` - PLAYWRIGHT'),
+                .describe('\* `pytest` - Pytest\n\* `jest` - Jest\n\* `playwright` - Playwright'),
             zod.null(),
         ])
         .optional()
         .describe(
-            "Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.\n\n\* `pytest` - PYTEST\n\* `jest` - JEST\n\* `playwright` - PLAYWRIGHT"
+            "Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.\n\n\* `pytest` - Pytest\n\* `jest` - Jest\n\* `playwright` - Playwright"
         ),
     repo: zod
         .string()
@@ -71,9 +71,9 @@ export const EngineeringAnalyticsQuarantineRequestBody = /* @__PURE__ */ zod.obj
         ),
     mode: zod
         .enum(['run', 'skip'])
-        .describe('\* `run` - RUN\n\* `skip` - SKIP')
+        .describe('\* `run` - Run\n\* `skip` - Skip')
         .optional()
         .describe(
-            "'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all). Defaults to 'run'.\n\n\* `run` - RUN\n\* `skip` - SKIP"
+            "'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all). Defaults to 'run'.\n\n\* `run` - Run\n\* `skip` - Skip"
         ),
 })

@@ -167,11 +167,23 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AmazonAdsDefaultSources(StrEnum):
+    AMAZON = "amazon"
+    AMAZON_ADS = "amazon_ads"
+
+
 class AnnotationScope(StrEnum):
     DASHBOARD_ITEM = "dashboard_item"
     DASHBOARD = "dashboard"
     PROJECT = "project"
     ORGANIZATION = "organization"
+
+
+class AppleSearchAdsDefaultSources(StrEnum):
+    APPLE = "apple"
+    APPLE_SEARCH_ADS = "apple_search_ads"
+    APPLE_ADS = "apple_ads"
+    ASA = "asa"
 
 
 class ApprovalDecisionStatus(StrEnum):
@@ -234,17 +246,34 @@ class Style(StrEnum):
     PERCENT = "percent"
 
 
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     BOLD_NUMBER = "BoldNumber"
+    METRIC = "Metric"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
+    ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     SCATTER_PLOT = "ScatterPlot"
     BOX_PLOT = "BoxPlot"
+
+
+class Summary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
 
 
 class Scale(StrEnum):
@@ -274,6 +303,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     SESSION = "session"
     HOGQL = "hogql"
     COHORT = "cohort"
@@ -401,6 +431,11 @@ class Key5(StrEnum):
     SNAPSHOT_SOURCE = "snapshot_source"
 
 
+class AssistantRetentionDisplayType(StrEnum):
+    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
+    ACTIONS_BAR = "ActionsBar"
+
+
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
@@ -458,8 +493,6 @@ class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     CREATE_AI_TRACE_PARSER = "create_ai_trace_parser"
     FIX_HOGQL_QUERY = "fix_hogql_query"
-    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
-    CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
@@ -520,10 +553,11 @@ class AssistantTool(StrEnum):
     MARKETING_AUDIT_UTM = "marketing_audit_utm"
     MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
-    SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
+    COMPARE_REPLAY_VISION_VARIANTS = "compare_replay_vision_variants"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
     SEARCH_REPLAY_VISION_OBSERVATIONS = "search_replay_vision_observations"
     SCAN_REPLAY_VISION_SESSIONS = "scan_replay_vision_sessions"
+    GET_REPLAY_VISION_SCAN_RESULTS = "get_replay_vision_scan_results"
     RETRY_REPLAY_VISION_OBSERVATION = "retry_replay_vision_observation"
     GET_REPLAY_VISION_QUOTA = "get_replay_vision_quota"
     CREATE_REPLAY_VISION_SCANNER = "create_replay_vision_scanner"
@@ -539,25 +573,23 @@ class AssistantTool(StrEnum):
     OPEN_ACCOUNT = "open_account"
 
 
-class Display(StrEnum):
-    AUTO = "Auto"
+class AssistantTrendsDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
-    BOLD_NUMBER = "BoldNumber"
+    SLOPE_GRAPH = "SlopeGraph"
+    BOX_PLOT = "BoxPlot"
     METRIC = "Metric"
+    BOLD_NUMBER = "BoldNumber"
+    ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
-    ACTIONS_BAR_VALUE = "ActionsBarValue"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
-    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
-    BOX_PLOT = "BoxPlot"
-    SLOPE_GRAPH = "SlopeGraph"
-    SCATTER_PLOT = "ScatterPlot"
 
 
 class MetricSummary(StrEnum):
@@ -610,6 +642,105 @@ class AutocompleteCompletionItemKind(StrEnum):
     SNIPPET = "Snippet"
 
 
+class BIAggregation(StrEnum):
+    COUNT = "count"
+    COUNT_DISTINCT = "count_distinct"
+    SUM = "sum"
+    AVERAGE = "average"
+    MINIMUM = "minimum"
+    MAXIMUM = "maximum"
+    CUSTOM = "custom"
+
+
+class Operator1(StrEnum):
+    AND_ = "AND"
+    OR_ = "OR"
+
+
+class ComparisonPeriod(Enum):
+    PREVIOUS = "previous"
+    NONE_TYPE_NONE = None
+
+
+class MissingDates(StrEnum):
+    GAP = "gap"
+    ZERO = "zero"
+
+
+class BIDateBucket(StrEnum):
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    QUARTER = "quarter"
+    YEAR = "year"
+
+
+class DatePart(StrEnum):
+    MONTH = "month"
+    QUARTER = "quarter"
+    DAY_OF_WEEK = "day_of_week"
+
+
+class BIFilterOperator(StrEnum):
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    CONTAINS = "contains"
+    IN_ = "in"
+    NOT_IN = "not_in"
+    BETWEEN = "between"
+    GREATER_THAN = "greater_than"
+    LESS_THAN = "less_than"
+    LAST_7_DAYS = "last_7_days"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    CUSTOM = "custom"
+
+
+class ReferenceLines(StrEnum):
+    PANE = "pane"
+    WORKSHEET = "worksheet"
+
+
+class BIQueryLimit(float, Enum):
+    NUMBER_100 = 100
+    NUMBER_1000 = 1000
+    NUMBER_10000 = 10000
+    NUMBER_50000 = 50000
+
+
+class Operator2(StrEnum):
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    GREATER_THAN = "greater_than"
+    LESS_THAN = "less_than"
+    GREATER_THAN_OR_EQUAL = "greater_than_or_equal"
+    LESS_THAN_OR_EQUAL = "less_than_or_equal"
+    BETWEEN = "between"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
+class BISortDirection(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
+
+
+class BITableCalculationType(StrEnum):
+    PERCENT_OF_TOTAL = "percent_of_total"
+    RUNNING_TOTAL = "running_total"
+    DIFFERENCE = "difference"
+    PERCENT_CHANGE = "percent_change"
+    MOVING_AVERAGE = "moving_average"
+    RANK = "rank"
+
+
+class Shelf(StrEnum):
+    ROWS = "rows"
+    COLUMNS = "columns"
+
+
 class BaseMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"
@@ -656,6 +787,7 @@ class BreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
@@ -687,6 +819,7 @@ class ChartDisplayType(StrEnum):
     METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
@@ -697,11 +830,9 @@ class ChartDisplayType(StrEnum):
     SCATTER_PLOT = "ScatterPlot"
 
 
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
+class ValueLabelPosition(StrEnum):
+    END = "end"
+    CENTER = "center"
 
 
 class Curve(StrEnum):
@@ -941,6 +1072,11 @@ class CustomChannelOperator(StrEnum):
     NOT_REGEX = "not_regex"
 
 
+class Kind(StrEnum):
+    CUSTOM_PROPERTY = "custom_property"
+    RELATIONSHIP = "relationship"
+
+
 class DataColorToken(StrEnum):
     PRESET_1 = "preset-1"
     PRESET_2 = "preset-2"
@@ -1064,6 +1200,7 @@ class DetectorType(StrEnum):
     LOF = "lof"
     OCSVM = "ocsvm"
     PCA = "pca"
+    LLM = "llm"
 
 
 class DistanceFunc(StrEnum):
@@ -1193,6 +1330,7 @@ class ErrorTrackingOrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+    SEVERITY = "severity"
 
 
 class ErrorTrackingQueryIssueSeverity(StrEnum):
@@ -1244,19 +1382,45 @@ class MultipleVariantHandling(StrEnum):
     FIRST_SEEN = "first_seen"
 
 
-class Kind(StrEnum):
+class ExperimentApiBreakdownAttributionType(StrEnum):
+    FIRST_TOUCH = "first_touch"
+    LAST_TOUCH = "last_touch"
+    STEP = "step"
+
+
+class Kind1(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
 
 
-class Kind1(StrEnum):
+class Kind2(StrEnum):
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     ACTIONS_NODE = "ActionsNode"
+
+
+class GroupTypeIndex(float, Enum):
+    NUMBER_0 = 0
+    NUMBER_1 = 1
+    NUMBER_2 = 2
+    NUMBER_3 = 3
+    NUMBER_4 = 4
 
 
 class StartHandling(StrEnum):
     FIRST_SEEN = "first_seen"
     LAST_SEEN = "last_seen"
+
+
+class ExperimentApiPropertyBreakdownType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    SESSION = "session"
+
+
+class Kind3(StrEnum):
+    EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
 
 
 class ConversionRateInputType(StrEnum):
@@ -1268,6 +1432,24 @@ class ManualMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN_COUNT = "mean_count"
     MEAN_SUM_OR_AVG = "mean_sum_or_avg"
+
+
+class ExperimentExposureHealthFindingActionKind(StrEnum):
+    EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
+    ADJUST_DISTRIBUTION = "adjust_distribution"
+    USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+
+
+class ExperimentExposureHealthFindingCode(StrEnum):
+    ZERO_EXPOSURES = "zero_exposures"
+    SRM = "srm"
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+
+
+class ExperimentExposureHealthFindingSeverity(StrEnum):
+    CRITICAL = "critical"
+    WARNING = "warning"
+    INFO = "info"
 
 
 class ExperimentMetricGoal(StrEnum):
@@ -1343,16 +1525,18 @@ class Tag(StrEnum):
 class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
+    CANVAS = "canvas"
     LLM_ANALYTICS = "llm_analytics"
-    AI_GATEWAY = "ai_gateway"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
     MARKETING_ANALYTICS = "marketing_analytics"
+    CUSTOMER_ANALYTICS = "customer_analytics"
     MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
+    BUSINESS_INTELLIGENCE = "business_intelligence"
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
@@ -1361,21 +1545,20 @@ class FileSystemIconType(StrEnum):
     SESSION_PROFILE = "session_profile"
     SURVEY = "survey"
     PRODUCT_TOUR = "product_tour"
-    USER_INTERVIEW = "user_interview"
     EARLY_ACCESS_FEATURE = "early_access_feature"
     EXPERIMENT = "experiment"
     FEATURE_FLAG = "feature_flag"
     FEATURE_FLAG_OFF = "feature_flag_off"
+    DATA_MODELING = "data_modeling"
     DATA_PIPELINE = "data_pipeline"
     DATA_PIPELINE_METADATA = "data_pipeline_metadata"
     DATA_WAREHOUSE = "data_warehouse"
     TASK = "task"
-    LINK = "link"
-    LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     TRACING = "tracing"
     METRICS = "metrics"
     WORKFLOWS = "workflows"
+    BROADCASTS = "broadcasts"
     NOTEBOOK = "notebook"
     ACTION = "action"
     ACTIVITY = "activity"
@@ -1422,6 +1605,24 @@ class FileSystemIconType(StrEnum):
     LLM_CLUSTERS = "llm_clusters"
     MCP_ANALYTICS = "mcp_analytics"
     EXPORTS = "exports"
+    PULSE = "pulse"
+    SKILL = "skill"
+    WIZARD = "wizard"
+    DATA_CATALOG = "data_catalog"
+    WAREHOUSE_DESTINATION = "warehouse_destination"
+    WAREHOUSE_PROPERTY = "warehouse_property"
+    DATA_SOURCE = "data_source"
+    DATA_DESTINATION = "data_destination"
+    DATA_TRANSFORMATION = "data_transformation"
+    EVENT_FILTER = "event_filter"
+    MANAGED_MIGRATION = "managed_migration"
+    WEB_SCRIPT = "web_script"
+    CORE_EVENT = "core_event"
+    PROPERTY_GROUP = "property_group"
+    MCP_SERVER = "mcp_server"
+    STREAMLIT_APP = "streamlit_app"
+    SQL_VARIABLE = "sql_variable"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
 
 
 class FilterLogicalOperator(StrEnum):
@@ -1478,9 +1679,22 @@ class FunnelVizType(StrEnum):
     FLOW = "flow"
 
 
+class Calculation(StrEnum):
+    FIXED = "fixed"
+    MEAN = "mean"
+    MEDIAN = "median"
+    MIN = "min"
+    MAX = "max"
+
+
 class Position(StrEnum):
     START = "start"
     END = "end"
+
+
+class Scope(StrEnum):
+    ALL = "all"
+    SERIES = "series"
 
 
 class GoogleAdsDefaultSources(StrEnum):
@@ -1550,6 +1764,7 @@ class HedgehogActorSkinOption(StrEnum):
     ROBOHOG = "robohog"
     HOGZILLA = "hogzilla"
     GHOST = "ghost"
+    PIG = "pig"
 
 
 class HogLanguage(StrEnum):
@@ -1565,6 +1780,11 @@ class HogQLAlertEvaluation(StrEnum):
     LAST_ROW = "last_row"
     FIRST_ROW = "first_row"
     ANY_ROW = "any_row"
+
+
+class ExecutionTarget(StrEnum):
+    DEFAULT = "default"
+    MANAGED_TRINO = "managed_trino"
 
 
 class BounceRatePageViewMode(StrEnum):
@@ -1722,12 +1942,14 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
     APNS = "apns"
+    APPLE_ADS = "apple-ads"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
     AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
+    TWITTER_ADS = "twitter-ads"
 
 
 class IntervalType(StrEnum):
@@ -1808,6 +2030,7 @@ class MCPToolQualitySortColumn(StrEnum):
     USERS = "users"
     SESSIONS = "sessions"
     LAST_SEEN = "last_seen"
+    TREND_SCORE = "trend_score"
 
 
 class MCPToolQualitySortDirection(StrEnum):
@@ -1903,6 +2126,23 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     BOOLEAN = "boolean"
 
 
+class Breakdown1(StrEnum):
+    KEYWORD = "keyword"
+    PAGE = "page"
+
+
+class Platform(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    BING_ADS = "BingAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
+
+
+class SourceType(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    BING_ADS = "BingAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
+
+
 class MatchField(StrEnum):
     CAMPAIGN_NAME = "campaign_name"
     CAMPAIGN_ID = "campaign_id"
@@ -1965,12 +2205,6 @@ class MetaAdsDefaultSources(StrEnum):
     THREADS = "threads"
 
 
-class Summary(StrEnum):
-    TOTAL = "total"
-    AVERAGE = "average"
-    LATEST = "latest"
-
-
 class MetricsAggregation(StrEnum):
     SUM = "sum"
     AVG = "avg"
@@ -1992,6 +2226,13 @@ class MetricsAttributeScope(StrEnum):
 class MetricsAxisScale(StrEnum):
     LINEAR = "linear"
     LOG = "log"
+
+
+class MetricsDashboardVariableSource(StrEnum):
+    CUSTOM = "custom"
+    PROMQL = "promql"
+    SQL = "sql"
+    TEXTBOX = "textbox"
 
 
 class MetricsDisplayType(StrEnum):
@@ -2024,6 +2265,17 @@ class MetricsOtelType(StrEnum):
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsQueryLanguage(StrEnum):
+    BUILDER = "builder"
+    PROMQL = "promql"
+    SQL = "sql"
+
+
+class MetricsRangeFunction(StrEnum):
+    RATE = "rate"
+    INCREASE = "increase"
 
 
 class MetricsReducer(StrEnum):
@@ -2059,6 +2311,7 @@ class MultipleBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
@@ -2077,6 +2330,11 @@ class NativeMarketingSource(StrEnum):
     BING_ADS = "BingAds"
     SNAPCHAT_ADS = "SnapchatAds"
     PINTEREST_ADS = "PinterestAds"
+    APPLE_SEARCH_ADS = "AppleSearchAds"
+    OPEN_AI_ADS = "OpenAIAds"
+    AMAZON_ADS = "AmazonAds"
+    ROKT_ADS = "RoktAds"
+    TWITTER_ADS = "TwitterAds"
 
 
 class NodeKind(StrEnum):
@@ -2111,6 +2369,7 @@ class NodeKind(StrEnum):
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
     LOG_VALUES_QUERY = "LogValuesQuery"
     METRICS_QUERY = "MetricsQuery"
+    METRICS_HISTOGRAM_QUERY = "MetricsHistogramQuery"
     TRACE_SPANS_QUERY = "TraceSpansQuery"
     TRACE_SPANS_AGGREGATION_QUERY = "TraceSpansAggregationQuery"
     TRACE_SPANS_TREE_QUERY = "TraceSpansTreeQuery"
@@ -2119,6 +2378,7 @@ class NodeKind(StrEnum):
     SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
+    BI_VISUALIZATION_NODE = "BIVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
     INSIGHT_VIZ_NODE = "InsightVizNode"
     TRENDS_QUERY = "TrendsQuery"
@@ -2149,6 +2409,7 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
+    MARKETING_ANALYTICS_SEARCH_QUERY = "MarketingAnalyticsSearchQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
@@ -2157,6 +2418,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
+    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
@@ -2178,6 +2440,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_CALLS_AND_ERRORS_QUERY = "MCPToolCallsAndErrorsQuery"
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     MCP_MODEL_BREAKDOWN_QUERY = "MCPModelBreakdownQuery"
+    MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY = "MCPProtocolVersionBreakdownQuery"
     MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
     MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
     MCP_TOOL_FAILURE_OCCURRENCES_QUERY = "MCPToolFailureOccurrencesQuery"
@@ -2193,6 +2456,12 @@ class NodeKind(StrEnum):
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
+
+
+class OpenAIAdsDefaultSources(StrEnum):
+    OPENAI = "openai"
+    CHATGPT = "chatgpt"
+    OPENAI_ADS = "openai_ads"
 
 
 class PathType(StrEnum):
@@ -2234,6 +2503,12 @@ class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class PredicateFixAction(StrEnum):
+    EDIT_QUERY = "edit_query"
+    EDIT_PROPERTY_TYPE = "edit_property_type"
+    MATERIALIZE = "materialize"
 
 
 class PredicateIndexVerdict(StrEnum):
@@ -2359,23 +2634,23 @@ class ProductIntentContext(StrEnum):
 
 class ProductItemCategory(StrEnum):
     ANALYTICS = "Analytics"
+    DATA = "Data"
     AI_ENGINEERING = "AI engineering"
-    BEHAVIOR = "Behavior"
-    APP_MONITORING = "App monitoring"
-    FEATURES = "Features"
+    PRODUCT_ENGINEERING = "Product engineering"
+    MESSAGING = "Messaging"
+    MONITORING = "Monitoring"
     TOOLS = "Tools"
     SCHEMA = "Schema"
-    PIPELINE = "Pipeline"
-    METADATA = "Metadata"
+    CDP = "CDP"
     UNRELEASED = "Unreleased"
 
 
 class ProductKey(StrEnum):
     ACTIONS = "actions"
-    AI_GATEWAY = "ai_gateway"
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
+    AUTORESEARCH = "autoresearch"
     BUSINESS_KNOWLEDGE = "business_knowledge"
     COHORTS = "cohorts"
     COMMENTS = "comments"
@@ -2396,8 +2671,6 @@ class ProductKey(StrEnum):
     HISTORY = "history"
     INGESTION_WARNINGS = "ingestion_warnings"
     INTEGRATIONS = "integrations"
-    LINKS = "links"
-    LIVE_DEBUGGER = "live_debugger"
     LLM_CLUSTERS = "llm_clusters"
     LLM_DATASETS = "llm_datasets"
     LLM_EVALUATIONS = "llm_evaluations"
@@ -2436,7 +2709,6 @@ class ProductKey(StrEnum):
     TOOLBAR = "toolbar"
     TRACING = "tracing"
     METRICS = "metrics"
-    USER_INTERVIEWS = "user_interviews"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
@@ -2516,6 +2788,7 @@ class PropertyOperator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    IS_CLEANED_PATH_NOT_EXACT = "is_cleaned_path_not_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
     SEMVER_EQ = "semver_eq"
     SEMVER_NEQ = "semver_neq"
@@ -2553,13 +2826,12 @@ class QueryScanFindingKind(StrEnum):
     PERSONS_JOIN = "persons_join"
 
 
-class QueryScanFindingReason(StrEnum):
-    IN_OR = "in_or"
-    WRAPPED = "wrapped"
-    NEGATED = "negated"
-    DYNAMIC = "dynamic"
-    NOT_PRUNED = "not_pruned"
-    FILTERS = "filters"
+class QueryScanFixLocation(StrEnum):
+    QUERY = "query"
+    SUBQUERY = "subquery"
+    VIEW = "view"
+    INSIGHT_DATE_RANGE = "insight_date_range"
+    DASHBOARD_DATE_FILTER = "dashboard_date_filter"
 
 
 class QuickFilterContext(StrEnum):
@@ -2591,6 +2863,11 @@ class RecordingOrder(StrEnum):
 class RecordingOrderDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
+
+
+class EventMatchScope(StrEnum):
+    RECORDING = "recording"
+    SESSION = "session"
 
 
 class HideViewedRecordings(Enum):
@@ -2642,6 +2919,11 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 
+class RoktAdsDefaultSources(StrEnum):
+    ROKT = "rokt"
+    ROKT_ADS = "rokt_ads"
+
+
 class XScale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
@@ -2667,11 +2949,6 @@ class Theme(StrEnum):
     LIGHT = "light"
     DARK = "dark"
     SYSTEM = "system"
-
-
-class SidebarDensity(StrEnum):
-    COMFORTABLE = "comfortable"
-    COMPACT = "compact"
 
 
 class SlackIntegrationScope(StrEnum):
@@ -2786,7 +3063,7 @@ class SurveyQuestionDescriptionContentType(StrEnum):
     TEXT = "text"
 
 
-class Display1(StrEnum):
+class Display(StrEnum):
     NUMBER = "number"
     EMOJI = "emoji"
 
@@ -2929,6 +3206,13 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
+
+
+class TwitterAdsDefaultSources(StrEnum):
+    TWITTER = "twitter"
+    X = "x"
+    TWITTER_ADS = "twitter_ads"
+    X_ADS = "x_ads"
 
 
 class UsageMetricDisplay(StrEnum):

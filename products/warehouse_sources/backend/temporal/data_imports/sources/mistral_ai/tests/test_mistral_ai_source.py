@@ -1,25 +1,19 @@
-from typing import Any
-
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mistralai import (
+    MistralAISourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.source import MistralAISource
 
 
-def _make_inputs(**overrides: Any) -> MagicMock:
-    inputs = MagicMock()
-    inputs.schema_name = overrides.get("schema_name", "files")
-    inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", False)
-    inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", None)
-    inputs.incremental_field = overrides.get("incremental_field", None)
-    inputs.logger = MagicMock()
-    return inputs
+def _config() -> MistralAISourceConfig:
+    return MistralAISourceConfig(api_key="sk-x")
 
 
 class TestSourceConfig:
@@ -33,12 +27,6 @@ class TestSourceConfig:
         assert api_key.required is True
         assert api_key.secret is True
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
-
-    def test_alpha_and_docs_url(self) -> None:
-        config = MistralAISource().get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # docsUrl filename must match the posthog.com doc (kebab-case) for the source page to resolve.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/mistral-ai"
 
 
 class TestGetSchemas:
@@ -56,7 +44,7 @@ class TestGetSchemas:
     def test_incremental_only_where_server_filter_exists(self, endpoint: str, supports_incremental: bool) -> None:
         # Only fine-tuning and batch jobs expose a server-side created_after filter; the rest must ship
         # full refresh, never advertise incremental they can't honor.
-        schemas = {s.name: s for s in MistralAISource().get_schemas(MagicMock(), team_id=1)}
+        schemas = {s.name: s for s in MistralAISource().get_schemas(_config(), team_id=1)}
         schema = schemas[endpoint]
         assert schema.supports_incremental is supports_incremental
         assert schema.supports_append is supports_incremental
@@ -67,30 +55,18 @@ class TestGetSchemas:
 
     @parameterized.expand([("agents", False), ("conversations", False), ("libraries", False), ("files", True)])
     def test_beta_endpoints_off_by_default(self, endpoint: str, should_sync_default: bool) -> None:
-        schemas = {s.name: s for s in MistralAISource().get_schemas(MagicMock(), team_id=1)}
+        schemas = {s.name: s for s in MistralAISource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].should_sync_default is should_sync_default
-
-    def test_names_filter(self) -> None:
-        schemas = MistralAISource().get_schemas(MagicMock(), team_id=1, names=["files", "models"])
-        assert {s.name for s in schemas} == {"files", "models"}
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials must stay True so posthog.com renders the Supported tables section.
-        source = MistralAISource()
-        assert source.lists_tables_without_credentials is True
-        tables = source.get_documented_tables()
-        assert {t["name"] for t in tables} == {s.name for s in source.get_schemas(source._placeholder_config(), 0)}
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid Mistral AI API key"))])
-    def test_maps_probe_result(self, _name: str, probe: bool, expected: tuple[bool, str | None]) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.source.validate_mistral_ai_credentials",
-            return_value=probe,
-        ):
-            result = MistralAISource().validate_credentials(MagicMock(api_key="sk-x"), team_id=1)
+    @parameterized.expand([("valid", 200, (True, None)), ("invalid", 401, (False, "Invalid Mistral AI API key"))])
+    def test_maps_probe_result(self, _name: str, status: int, expected: tuple[bool, str | None]) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            result = MistralAISource().validate_credentials(_config(), team_id=1)
         assert result == expected
+        assert [request.path for request in network.requests_log] == ["/v1/models"]
+        assert network.requests_log[0].headers["authorization"] == "Bearer sk-x"
 
 
 class TestNonRetryableErrors:
@@ -133,12 +109,11 @@ class TestNonRetryableErrors:
 class TestPipelinePlumbing:
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
         # Passing a stale watermark on a full-refresh run would build a bogus created_after filter.
-        source = MistralAISource()
-        inputs = _make_inputs(
-            schema_name="files", should_use_incremental_field=False, db_incremental_field_last_value=1_772_000_000
+        result = SourceDriver(MistralAISource(), _config()).run(
+            "batch_jobs",
+            [ScriptedResponse(json={"data": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=1_772_000_000,
         )
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.source.mistral_ai_source"
-        ) as mock_source:
-            source.source_for_pipeline(MagicMock(api_key="sk-x"), MagicMock(), inputs)
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].param("created_after") is None

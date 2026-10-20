@@ -32,6 +32,7 @@ export interface LemonButtonPropsBase
         | 'style'
         | 'role'
         | 'aria-haspopup'
+        | 'aria-current'
         | 'aria-pressed'
         | 'aria-expanded'
         | 'aria-controls'

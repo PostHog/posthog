@@ -1,23 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product web_analytics
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product web_analytics
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Web analytics
 feature: web_analytics
 url_prefix: /web
 ui_apps: {}
 tools:
-    heatmap-screenshot-settings-retrieve:
-        operation: heatmap_screenshot_settings_retrieve
-        enabled: false
-    heatmap-screenshot-settings-update:
-        operation: heatmap_screenshot_settings_update
-        enabled: false
-    heatmap-screenshots-content-retrieve:
-        operation: heatmap_screenshots_content_retrieve
-        enabled: false
     heatmaps-events:
         operation: heatmaps_events_retrieve
         enabled: true
@@ -137,36 +126,6 @@ tools:
             Update a saved heatmap by its `short_id`. Send only the fields to change — rename via `name`, change
             `widths`, or soft-delete by setting `deleted: true` (deletion goes through this update, not a destroy call).
             Changing the `url` of a 'screenshot' heatmap triggers a fresh render.
-    saved-capture-create:
-        operation: saved_capture_create
-        enabled: false
-    saved-destroy:
-        operation: saved_destroy
-        enabled: false
-    saved-preflight-create:
-        operation: saved_preflight_create
-        enabled: false
-    saved-prewarm-create:
-        operation: saved_prewarm_create
-        enabled: false
-    web-analytics-achievements-acknowledge-celebration:
-        operation: web_analytics_achievements_acknowledge_celebration
-        enabled: false
-    web-analytics-achievements-overview:
-        operation: web_analytics_achievements_overview
-        enabled: false
-    web-analytics-achievements-preferences:
-        operation: web_analytics_achievements_preferences
-        enabled: false
-    web-analytics-achievements-record-interaction:
-        operation: web_analytics_achievements_record_interaction
-        enabled: false
-    web-analytics-achievements-record-visit:
-        operation: web_analytics_achievements_record_visit
-        enabled: false
-    web-analytics-achievements-update-preferences:
-        operation: web_analytics_achievements_update_preferences
-        enabled: false
     web-analytics-bot-rules-create:
         operation: web_analytics_bot_rules_create
         enabled: true
@@ -213,75 +172,6 @@ tools:
             List the project's own bot rules. Each rule names an event property, how to match it, a value, and the label
             reported when it matches. Rules extend PostHog's built-in bot list, so `Is bot` (isLikelyBot), `Bot name`,
             and `Traffic category` reflect them everywhere — insights, web analytics, session filters, and SQL.
-    web-analytics-content-autopilot-profiles-create:
-        operation: web_analytics_content_autopilot_profiles_create
-        enabled: false
-    web-analytics-content-autopilot-profiles-destroy:
-        operation: web_analytics_content_autopilot_profiles_destroy
-        enabled: false
-    web-analytics-content-autopilot-profiles-discover:
-        operation: web_analytics_content_autopilot_profiles_discover
-        enabled: false
-    web-analytics-content-autopilot-profiles-list:
-        operation: web_analytics_content_autopilot_profiles_list
-        enabled: false
-    web-analytics-content-autopilot-profiles-partial-update:
-        operation: web_analytics_content_autopilot_profiles_partial_update
-        enabled: false
-    web-analytics-content-autopilot-profiles-retrieve:
-        operation: web_analytics_content_autopilot_profiles_retrieve
-        enabled: false
-    web-analytics-content-autopilot-proposals-edit:
-        operation: web_analytics_content_autopilot_proposals_edit
-        enabled: false
-    web-analytics-content-autopilot-proposals-export:
-        operation: web_analytics_content_autopilot_proposals_export
-        enabled: false
-    web-analytics-content-autopilot-proposals-list:
-        operation: web_analytics_content_autopilot_proposals_list
-        enabled: false
-    web-analytics-content-autopilot-proposals-regenerate:
-        operation: web_analytics_content_autopilot_proposals_regenerate
-        enabled: false
-    web-analytics-content-autopilot-proposals-reject:
-        operation: web_analytics_content_autopilot_proposals_reject
-        enabled: false
-    web-analytics-content-autopilot-proposals-retrieve:
-        operation: web_analytics_content_autopilot_proposals_retrieve
-        enabled: false
-    web-analytics-content-autopilot-runs-cancel:
-        operation: web_analytics_content_autopilot_runs_cancel
-        enabled: false
-    web-analytics-content-autopilot-runs-list:
-        operation: web_analytics_content_autopilot_runs_list
-        enabled: false
-    web-analytics-content-autopilot-runs-retrieve:
-        operation: web_analytics_content_autopilot_runs_retrieve
-        enabled: false
-    web-analytics-content-autopilot-runs-start:
-        operation: web_analytics_content_autopilot_runs_start
-        enabled: false
-    web-analytics-fetch-llms-txt:
-        operation: web_analytics_fetch_llms_txt
-        enabled: false
-    web-analytics-filter-presets-create:
-        operation: web_analytics_filter_presets_create
-        enabled: false
-    web-analytics-filter-presets-destroy:
-        operation: web_analytics_filter_presets_destroy
-        enabled: false
-    web-analytics-filter-presets-list:
-        operation: web_analytics_filter_presets_list
-        enabled: false
-    web-analytics-filter-presets-partial-update:
-        operation: web_analytics_filter_presets_partial_update
-        enabled: false
-    web-analytics-filter-presets-retrieve:
-        operation: web_analytics_filter_presets_retrieve
-        enabled: false
-    web-analytics-filter-presets-update:
-        operation: web_analytics_filter_presets_update
-        enabled: false
     web-analytics-path-cleaning-suggestions-apply:
         operation: web_analytics_path_cleaning_suggestions_apply
         enabled: true
@@ -322,12 +212,6 @@ tools:
             then.
         requires_ai_consent: true
         feature_flag: web-analytics-path-cleaning-suggestions
-    web-analytics-path-cleaning-suggestions-preview:
-        operation: web_analytics_path_cleaning_suggestions_preview
-        enabled: false
-    web-analytics-recap:
-        operation: web_analytics_recap
-        enabled: false
     web-analytics-weekly-digest:
         operation: web_analytics_weekly_digest
         enabled: true

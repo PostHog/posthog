@@ -3,6 +3,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.temporal.client import execute_review_pr_workflow
 
 
@@ -32,6 +33,12 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--review-mode",
+            choices=[REVIEW_MODE_FULL, REVIEW_MODE_FLASH],
+            default=REVIEW_MODE_FULL,
+            help="Review mode for this run (default: full)",
+        )
+        parser.add_argument(
             "--publish",
             action="store_true",
             help="Post the review back to the PR (default off — the CLI is for eval/debug runs)",
@@ -44,10 +51,18 @@ class Command(BaseCommand):
         pr_url = options["pr_url"]
         team_id = options["team_id"]
         user_id = options["user_id"]
+        review_mode = options["review_mode"]
         publish = options["publish"]
         mode = "publish" if publish else "no-publish"
-        self.stdout.write(self.style.MIGRATE_HEADING(f"ReviewHog ▶ starting · {pr_url} · team {team_id} · {mode}"))
+        self.stdout.write(
+            self.style.MIGRATE_HEADING(f"ReviewHog ▶ starting · {pr_url} · team {team_id} · {review_mode} · {mode}")
+        )
         report_id = execute_review_pr_workflow(
-            pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish, acting_user_id=user_id
+            pr_url=pr_url,
+            team_id=team_id,
+            user_id=user_id,
+            publish=publish,
+            acting_user_id=user_id,
+            review_mode=review_mode,
         )
         self.stdout.write(self.style.SUCCESS(f"ReviewHog ✓ finished · report {report_id}"))

@@ -31,8 +31,9 @@ class PersonalAPIKeyContext(ActivityContextBase):
 def get_personal_api_key_access_locations(api_key: PersonalAPIKey) -> set[LogScope]:
     """Calculate where activity logs should be created for a PersonalAPIKey based on its scope."""
     if api_key.scoped_teams:
-        teams = Team.objects.filter(pk__in=api_key.scoped_teams).select_related("organization")
-        return {LogScope(str(team.organization_id), team.id) for team in teams}
+        # `organization_id` is a column on the team row, so no organization join is needed.
+        teams = Team.objects.filter(pk__in=api_key.scoped_teams).values_list("organization_id", "id")
+        return {LogScope(str(organization_id), team_id) for organization_id, team_id in teams}
     elif api_key.scoped_organizations:
         return {LogScope(str(org_id), None) for org_id in api_key.scoped_organizations}
     else:

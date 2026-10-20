@@ -7,6 +7,13 @@ team discovery and per-team success/failure across pipeline runs.
 from posthog.temporal.ai_observability.metrics import get_metric_meter
 
 
+def increment_consent_query_failed() -> None:
+    get_metric_meter().create_counter(
+        "llma_coordinator_consent_query_failed",
+        "Discovery activities that returned no teams because the consent query failed",
+    ).add(1)
+
+
 def record_teams_discovered(count: int, pipeline: str, analysis_level: str) -> None:
     meter = get_metric_meter({"pipeline": pipeline, "analysis_level": analysis_level})
     meter.create_counter(

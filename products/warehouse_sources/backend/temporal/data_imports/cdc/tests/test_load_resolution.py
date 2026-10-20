@@ -1,6 +1,3 @@
-import pytest
-from unittest.mock import MagicMock, patch
-
 import pyarrow as pa
 from parameterized import parameterized
 
@@ -16,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     dedupe_keep_highest_seq,
     drop_superseded_rows,
     has_engine_seq,
-    is_cdc_write_resolution_enabled,
     resolve_batch,
     verify_delete_enrichment,
 )
@@ -135,17 +131,21 @@ class TestVerifyDeleteEnrichment:
         assert report.delete_rows_checked == 1
         assert report.columns == ()
 
-    def test_unenriched_delete_is_reported(self):
-        table = _batch([1], [None], ["D"])
+    @parameterized.expand([("alone", [1], [None], ["D"]), ("before_a_reinsert", [1, 1], [None, "carol"], ["D", "I"])])
+    def test_unenriched_delete_is_reported(self, _name, ids, names, ops):
+        table = _batch(ids, names, ops)
         report = verify_delete_enrichment(table, ["id"], _existing([1], ["alice"]))
 
         assert not report.ok
         assert report.rows_with_nulled_columns == 1
         assert report.columns == ("name",)
 
-    def test_ignores_non_delete_rows(self):
+    @parameterized.expand(
+        [("update", [1], [None], ["U"]), ("delete_after_that_update", [1, 1], [None, None], ["U", "D"])]
+    )
+    def test_ignores_a_null_the_source_set(self, _name, ids, names, ops):
         # A NULL on an UPDATE is the source's own value, not lost data.
-        table = _batch([1], [None], ["U"])
+        table = _batch(ids, names, ops)
         report = verify_delete_enrichment(table, ["id"], _existing([1], ["alice"]))
 
         assert report.ok
@@ -179,59 +179,6 @@ class TestVerifyDeleteEnrichment:
         report = verify_delete_enrichment(table, ["id"], _existing(ids, [f"name{i}" for i in ids]))
 
         assert report.delete_rows_checked == MAX_VERIFIED_DELETE_ROWS
-
-
-class TestIsCdcWriteResolutionEnabled:
-    @pytest.fixture(autouse=True)
-    def _clear_cache(self):
-        # The helper memoizes per run; tests reuse ids, so a stale entry would leak between them.
-        is_cdc_write_resolution_enabled.cache_clear()
-        yield
-        is_cdc_write_resolution_enabled.cache_clear()
-
-    def _team(self):
-        team = MagicMock()
-        team.uuid = "team-uuid"
-        team.organization_id = "org-id"
-        return team
-
-    @parameterized.expand([("on", True), ("off", False)])
-    def test_follows_the_flag(self, _name, flag_value):
-        with (
-            patch("posthog.models.Team.objects") as objects,
-            patch("posthoganalytics.feature_enabled", return_value=flag_value) as feature_enabled,
-        ):
-            objects.only.return_value.get.return_value = self._team()
-            assert is_cdc_write_resolution_enabled(2, "schema-1", "run-1") is flag_value
-
-        assert feature_enabled.call_args.kwargs["person_properties"] == {"team_id": "2", "schema_id": "schema-1"}
-
-    def test_evaluates_once_per_run_then_again_on_the_next_run(self):
-        with (
-            patch("posthog.models.Team.objects") as objects,
-            patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled,
-        ):
-            objects.only.return_value.get.return_value = self._team()
-            for _ in range(5):
-                assert is_cdc_write_resolution_enabled(2, "schema-1", "run-1") is True
-            assert feature_enabled.call_count == 1
-
-            # A new run re-reads it, so a flag flip lands within one run rather than one pod.
-            assert is_cdc_write_resolution_enabled(2, "schema-1", "run-2") is True
-            assert feature_enabled.call_count == 2
-
-    def test_fails_closed_when_flag_service_raises(self):
-        with (
-            patch("posthog.models.Team.objects") as objects,
-            patch("posthoganalytics.feature_enabled", side_effect=Exception("flags down")),
-        ):
-            objects.only.return_value.get.return_value = self._team()
-            assert is_cdc_write_resolution_enabled(2, "schema-1", "run-1") is False
-
-    def test_fails_closed_when_team_is_missing(self):
-        with patch("posthog.models.Team.objects") as objects:
-            objects.only.return_value.get.side_effect = Exception("no such team")
-            assert is_cdc_write_resolution_enabled(2, "schema-1", "run-1") is False
 
 
 class TestDropSupersededRows:

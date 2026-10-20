@@ -59,9 +59,39 @@ class PinnedAccountProperty:
     id: UUID
 
 
+class InvalidPinnedAccountProperties(ValueError):
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
+TASK_DIGEST_SEND_TIME_FORMAT = "%H:%M"
+
+
+@dataclass(frozen=True)
+class TaskDigestPreferences:
+    """One user's task digest email preferences for one project.
+
+    ``send_time`` is HH:MM in the project timezone.
+    """
+
+    enabled: bool = False
+    send_time: str = "09:00"
+    cadence: Literal["weekdays", "every_day"] = "weekdays"
+
+
+@dataclass(frozen=True)
+class AccountDetailTabsConfig:
+    ordered_tab_ids: list[str] = field(default_factory=list)
+    hidden_tab_ids: list[str] = field(default_factory=list)
+    default_tab_id: str | None = None
+
+
 @dataclass(frozen=True)
 class UserCustomerAnalyticsConfig:
     pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+    task_digest: TaskDigestPreferences = field(default_factory=TaskDigestPreferences)
+    account_detail_tabs: AccountDetailTabsConfig = field(default_factory=AccountDetailTabsConfig)
 
 
 RelationshipSourceValue = Literal["human", "workflow", "ai", "salesforce_claim", "migration"]
@@ -114,6 +144,12 @@ class Account:
 class AccountPresenceViewer:
     user_id: int
     display_name: str
+
+
+@dataclass(frozen=True)
+class AccountPresence:
+    account_id: UUID
+    viewers: list[AccountPresenceViewer]
 
 
 @dataclass(frozen=True)
@@ -171,6 +207,7 @@ class CalendarSyncStatus:
     integration_id: int
     last_synced_at: datetime | None
     is_syncing: bool
+    sync_interval_minutes: int
 
 
 @dataclass(frozen=True)
@@ -190,6 +227,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    is_recurring: bool
     gong_url: str | None
     start_time: datetime
     end_time: datetime | None
@@ -607,7 +645,6 @@ OwnershipClaimOutcome = Literal["accepted", "already_applied", "cleared", "not_h
 OwnershipClaimReason = Literal[
     "account_not_found",
     "binding_changed",
-    "role_not_managed",
     "identity_mismatch",
     "assignee_not_member",
     "role_occupied",
@@ -642,8 +679,8 @@ class OwnershipClaimDecision:
 class OwnershipClaimResult:
     """What customer analytics did with a decision. ``rejected`` and ``blocked`` carry a reason;
     ``blocked`` means the decision may apply after review, ``rejected`` that it does not apply as
-    read. Refusals are not stored, so every sweep evaluates the Task again; in practice only an
-    allocation that was still in the future can turn into an acceptance."""
+    read. Refusals are not stored, so every sweep evaluates the Task again, and a refusal turns into an
+    acceptance once its cause is gone."""
 
     outcome: OwnershipClaimOutcome
     reason: OwnershipClaimReason | None
@@ -747,7 +784,7 @@ class UserBasicInfo:
 
 
 @stdlib_dataclass(frozen=True)
-class AccountView:
+class AccountDetails:
     """An account as returned by the accounts list/detail endpoints.
 
     ``properties`` is the raw stored JSON dict (``Account._properties``), not the
@@ -779,11 +816,28 @@ class AccountView:
     updated_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class AccountView:
+    id: UUID
+    name: str
+    visibility: Literal["private", "team"]
+    content: dict[str, Any]
+    text_content: str
+    version: int
+    created_by: int | None
+    last_modified_by: int | None
+    created_at: datetime
+    updated_at: datetime
+    can_edit: bool
+    can_delete: bool
+    can_change_visibility: bool
+
+
 @stdlib_dataclass(frozen=True)
 class CustomerJourneyView:
     """A customer journey as returned by the customer-journey endpoints.
 
-    Defaults exist for the same reason as :class:`AccountView` — the wrapping serializer
+    Defaults exist for the same reason as :class:`AccountDetails` — the wrapping serializer
     doubles as request + response so the OpenAPI components stay identical.
     """
 
@@ -838,6 +892,18 @@ class FeatureRequestAccountLinkView:
 
 
 @stdlib_dataclass(frozen=True)
+class FeatureRequestGitHubLinkView:
+    id: UUID | None = None
+    issue_url: str = ""
+    repository: str = ""
+    issue_number: int = 0
+    issue_title: str = ""
+    issue_state: Literal["open", "closed"] = "open"
+    sync_enabled: bool = True
+    last_synced_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class FeatureRequestView:
     id: UUID | None = None
     title: str = ""
@@ -853,6 +919,7 @@ class FeatureRequestView:
     account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
     evidence_count: int = 0
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
+    github_link: FeatureRequestGitHubLinkView | None = None
     created_by: int | None = None
     updated_by: int | None = None
     created_at: datetime | None = None
@@ -938,6 +1005,13 @@ class UpdateFeatureRequestInput:
 
 
 @dataclass(frozen=True)
+class LinkFeatureRequestGitHubInput:
+    expected_version: int
+    integration_id: int
+    issue_url: str
+
+
+@dataclass(frozen=True)
 class AddFeatureRequestAccountInput:
     expected_version: int
     account_id: UUID
@@ -979,7 +1053,7 @@ class CustomerProfileConfigView:
     """A customer profile config as returned by the profile-config endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1017,7 +1091,7 @@ class CustomPropertyDefinitionView:
     custom-property-definitions endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
+    :class:`AccountDetails`). ``created_by`` is the creator's user id (or ``None``), matching
     the old model serializer's ``PrimaryKeyRelatedField`` output. ``references`` lists where the
     property is used (workflows), resolved by definition id. ``source`` is the read-only
     view-sync binding when one is configured for this definition, else ``None``.
@@ -1051,7 +1125,7 @@ class CustomPropertySourceView:
     run. Account-target sources set ``saved_query`` + ``source_column``; person- and group-target
     sources set ``column_property_map`` plus exactly one of ``external_data_schema`` (an imported
     table) and ``saved_query`` (a materialized view). Defaults exist so the wrapping serializer can
-    parse partial request bodies (see :class:`AccountView`).
+    parse partial request bodies (see :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1115,7 +1189,7 @@ class AccountNotebookView:
     """An account notebook as returned by the nested account-notebooks endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1133,7 +1207,7 @@ class AccountNotebookView:
 class AccountNoteView:
     """A row of the team-wide account-notes list: an internal notebook plus the account it's
     linked to. Read-only (the wrapping serializer never parses request bodies), so fields are
-    strict — no serializer-instantiation defaults like :class:`AccountView` needs."""
+    strict — no serializer-instantiation defaults like :class:`AccountDetails` needs."""
 
     short_id: str
     title: str | None
@@ -1162,6 +1236,7 @@ class CreateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -1179,11 +1254,13 @@ class UpdateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
     # Distinguishes omitted fields from fields explicitly set to null.
     external_id_provided: bool = False
     properties_provided: bool = False
     slack_summary_cadence_provided: bool = False
     churned_at_provided: bool = False
+    ignored_at_provided: bool = False
 
 
 @dataclass(frozen=True)
@@ -1248,7 +1325,7 @@ class EventStreamView:
     (``event_names``), the owner's Slack delivery target, and the member accounts
     (``account_ids``) whose users' events are streamed.
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1296,6 +1373,8 @@ class AnnouncementView:
     short_id: str = ""
     message: str = ""
     status: str = ""
+    send_as: str = "bot"
+    sender_display_name: str = ""
     total_channels: int = 0
     sent_count: int = 0
     failed_count: int = 0
@@ -1315,6 +1394,10 @@ class CustomerTaskAssigneeInvalid(Exception):
 
 
 class CustomerTaskAssigneeCannotViewAccount(Exception):
+    pass
+
+
+class CustomerTaskRoleNotFound(Exception):
     pass
 
 
@@ -1387,6 +1470,7 @@ class CustomerTaskListFilters:
     search: str | None = None
     account_id: UUID | None = None
     assigned_to: str | None = None
+    assigned_role_id: UUID | None = None
     statuses: tuple[str, ...] = ()
     archive_state: str = "active"
     due_after: datetime | None = None
@@ -1419,3 +1503,14 @@ class UpdateCustomerTaskInput:
     assigned_to_id_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False
+
+
+@dataclass(frozen=True)
+class KeyMetric:
+    key: str
+    name: str
+    people: bool
+    daily: list[tuple[date, float]]
+    this_week: float
+    last_week: float
+    node: dict[str, Any]

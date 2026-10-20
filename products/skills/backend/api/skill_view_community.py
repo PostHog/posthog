@@ -14,6 +14,8 @@ from posthog.models import User
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
+from ..models.community_skills import CommunitySkillKind
+from ..models.skills import SCOUT_SKILL_CATEGORY
 from .community_publish_services import (
     CommunitySkillPublishError,
     CommunitySkillPublishNotConfiguredError,
@@ -39,6 +41,7 @@ class SkillCommunityPublishMixin(SkillAccessMixin):
         request=LLMSkillPublishToCommunitySerializer,
         responses={201: CommunitySkillPublishResultSerializer, 409: LLMSkillPublishConflictSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=False,
@@ -59,9 +62,14 @@ class SkillCommunityPublishMixin(SkillAccessMixin):
         payload = LLMSkillPublishToCommunitySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
+        # Category rides along with id and version because registering a skill as a scout stamps
+        # `category` without raising the version: on version alone, a skill reviewed as an ordinary
+        # one could publish as a scout, carrying a schedule its publisher never consented to.
+        expected_category = payload.validated_data.get("expected_category")
         if (
             skill.id != payload.validated_data["expected_skill_id"]
             or skill.version != payload.validated_data["expected_version"]
+            or (expected_category is not None and skill.category != expected_category)
         ):
             return Response(
                 {
@@ -80,6 +88,12 @@ class SkillCommunityPublishMixin(SkillAccessMixin):
         # The LLMSkill name is the kebab slug; default the community display name to a title-cased form.
         display_name = payload.validated_data.get("display_name") or skill.name.replace("-", " ").title()
 
+        # Derived, not caller-supplied: a scout published as a plain skill is exactly the entry the
+        # catalog can't tell apart, and it lands in another project inert.
+        kind = (
+            CommunitySkillKind.SCOUT.value if skill.category == SCOUT_SKILL_CATEGORY else CommunitySkillKind.SKILL.value
+        )
+
         try:
             result = publish_skill_to_community(
                 slug=skill.name,
@@ -96,6 +110,8 @@ class SkillCommunityPublishMixin(SkillAccessMixin):
                 compatibility=skill.compatibility or "",
                 author_handle=payload.validated_data.get("author_handle", ""),
                 metadata=skill.metadata,
+                kind=kind,
+                scout_config=payload.validated_data.get("scout_config"),
             )
         except CommunitySkillPublishNotConfiguredError:
             # The fail-safe is otherwise silent, so an instance that meant to have publishing on

@@ -21,6 +21,8 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { DetectorType } from '~/queries/schema/schema-general'
+
 import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
 
@@ -149,13 +151,21 @@ export function AlertHistorySection({
 
     const investigationAgentEnabled = alertHistoryIsAnomalyDetection && !!alert?.investigation_agent_enabled
     const isAnyRowSqlAlert = isAnyRowHogQLConfig(alert?.config)
+    // Only the AI detector reports a reason, so no other alert type gets an always-empty column.
+    const isLLMDetectorAlert = alert?.detector_config?.type === DetectorType.LLM
+    // Past AI checks keep their reason after the alert moves to another detector.
+    const showWhyColumn =
+        isLLMDetectorAlert ||
+        alertHistoryChecksSortedDesc.some(
+            (check) => !!check.triggered_metadata?.rationale || !!check.triggered_metadata?.skipped_reason
+        )
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {
         const columns: LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] = [
             {
                 title: 'Status',
                 key: 'state',
-                render: (_value, check) => check.state,
+                render: (_value, check) => (check.triggered_metadata?.skipped_reason ? 'Skipped' : check.state),
             },
             {
                 title: 'Time',
@@ -170,14 +180,46 @@ export function AlertHistorySection({
                 render: (_value, check) => check.calculated_value ?? '—',
             },
         ]
+        if (alertHistoryChecksSortedDesc.some((check) => check.triggered_metadata?.evaluated_interval_start)) {
+            columns.push({
+                title: 'Evaluated interval',
+                render: (_value, check) => {
+                    const metadata = check.triggered_metadata
+                    return metadata?.evaluated_interval_start ? (
+                        <div className="text-sm max-w-xs break-words">{`${metadata.evaluated_interval_start} to ${metadata.evaluated_interval_end} (${metadata.evaluated_interval_timezone}; delay: ${metadata.evaluation_delay_intervals} intervals)`}</div>
+                    ) : null
+                },
+            })
+        }
         if (alertHistoryIsAnomalyDetection) {
             columns.push({
-                title: 'Score',
+                title: alertHistoryChartSeriesName === 'Anomaly confidence' ? 'Anomaly confidence' : 'Score',
+                tooltip:
+                    alertHistoryChartSeriesName === 'Anomaly confidence'
+                        ? "How sure the model was that the latest point is an anomaly. This is the model's own estimate, not a measured probability."
+                        : undefined,
                 align: 'right',
                 render: (_value, check) => {
                     const scores = check.anomaly_scores
                     const lastScore = scores?.length ? scores[scores.length - 1] : null
                     return lastScore != null ? lastScore.toFixed(3) : '—'
+                },
+            })
+        }
+        if (showWhyColumn) {
+            columns.push({
+                title: 'Why',
+                render: (_value, check) => {
+                    const metadata = check.triggered_metadata as { rationale?: string; skipped_reason?: string } | null
+                    const rationale = (metadata?.skipped_reason ?? metadata?.rationale)?.trim()
+                    if (!rationale) {
+                        return '—'
+                    }
+                    return (
+                        <Tooltip title={rationale}>
+                            <div className="text-sm leading-normal line-clamp-2 text-muted max-w-md">{rationale}</div>
+                        </Tooltip>
+                    )
                 },
             })
         }
@@ -243,7 +285,14 @@ export function AlertHistorySection({
             },
         })
         return columns
-    }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled, isAnyRowSqlAlert])
+    }, [
+        alertHistoryIsAnomalyDetection,
+        investigationAgentEnabled,
+        isAnyRowSqlAlert,
+        alertHistoryChartSeriesName,
+        showWhyColumn,
+        alertHistoryChecksSortedDesc,
+    ])
 
     if (!alert) {
         return null

@@ -87,7 +87,7 @@ describe('hogflow schema', () => {
             const parsed = HogFlowSchema.parse({
                 ...baseHogFlow,
                 conversion: {
-                    window_minutes: 60,
+                    window: '1h',
                     filters: {},
                     bytecode: [],
                     events: [{ filters: { bytecode: ['_H', 1] }, name: 'subscribed' }],
@@ -99,21 +99,20 @@ describe('hogflow schema', () => {
         it('accepts a conversion goal without an events list (optional)', () => {
             const parsed = HogFlowSchema.parse({
                 ...baseHogFlow,
-                conversion: { window_minutes: 60, filters: {}, bytecode: [] },
+                conversion: { window: '1h', filters: {}, bytecode: [] },
             })
             expect(parsed.conversion?.events).toBeUndefined()
         })
 
-        it('accepts a conversion goal carrying only the duration-string window', () => {
-            // A workflow migrated onto `window` has no `window_minutes` key at all. Requiring one
-            // fails the whole flow to parse, which stops it running rather than just mis-reading the
-            // window.
+        it('still parses a row that carries the removed legacy field', () => {
+            // Rows keep window_minutes until the backfill strips it. Zod drops an unknown key, so the
+            // flow must still parse; failing here would stop those workflows running altogether.
             const parsed = HogFlowSchema.parse({
                 ...baseHogFlow,
-                conversion: { window: '60d', filters: {}, bytecode: [] },
+                conversion: { window: '60d', window_minutes: 604800, filters: {}, bytecode: [] },
             })
             expect(parsed.conversion?.window).toBe('60d')
-            expect(parsed.conversion?.window_minutes).toBeUndefined()
+            expect(parsed.conversion).not.toHaveProperty('window_minutes')
         })
     })
 })

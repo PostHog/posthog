@@ -2,23 +2,14 @@ import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable, LemonTableColumn, LemonTag } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DestinationIcon, destinationTypeLabel } from './DestinationIcon'
-
-/** Where a destination writes, as far as its non-secret config says. Null when there is nothing to add. */
-export function destinationTarget(destination: ExternalDataDestinationApi): string | null {
-    if (destination.is_posthog_warehouse) {
-        return 'Managed by PostHog'
-    }
-    const config = (destination.config ?? {}) as Record<string, unknown>
-    const parts = [config.database, config.schema, config.dataset, config.bucket].filter(
-        (part): part is string => typeof part === 'string' && part.length > 0
-    )
-    return parts.length > 0 ? parts.join('.') : null
-}
+import { DESTINATION_STATUS_TAGS } from './destinationStatus'
+import { destinationTarget } from './destinationTarget'
 
 export interface DestinationListProps {
     destinations: ExternalDataDestinationApi[]
@@ -45,10 +36,6 @@ export function DestinationList({
     toggleDisabledReason,
     metricsSourceId,
 }: DestinationListProps): JSX.Element {
-    // Turning the last one off would leave the source syncing nowhere, which is what disabling a
-    // table is for. Pin it on rather than letting the save fail.
-    const isLastSelected = (id: string): boolean => selectedIds.length === 1 && selectedIds[0] === id
-
     const columns: LemonTableColumn<ExternalDataDestinationApi, any>[] = [
         {
             title: '',
@@ -77,6 +64,25 @@ export function DestinationList({
                     {destinationTypeLabel(destination.type)}
                 </LemonTag>
             ),
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            render: (_, destination) => {
+                if (
+                    destination.is_posthog_warehouse ||
+                    (destination.status !== 'failing' && destination.status !== 'paused')
+                ) {
+                    return null
+                }
+                const tag = DESTINATION_STATUS_TAGS[destination.status]
+                const tagContent = <LemonTag type={tag.type}>{tag.label}</LemonTag>
+                return destination.latest_error ? (
+                    <Tooltip title={destination.latest_error}>{tagContent}</Tooltip>
+                ) : (
+                    tagContent
+                )
+            },
         },
         ...(metricsSourceId
             ? [
@@ -127,16 +133,14 @@ export function DestinationList({
                             destination.is_posthog_warehouse ? 'The PostHog warehouse is managed for you' : undefined
                         }
                     />
+                    {/* Every toggle stays free, the last one on included, so a person can turn the
+                        warehouse off before turning another destination on. The caller's save button
+                        rejects an empty set. */}
                     <LemonSwitch
                         checked={selectedIds.includes(destination.id)}
                         onChange={() => onToggle(destination.id)}
                         data-attr="warehouse-destination-toggle"
-                        disabledReason={
-                            toggleDisabledReason ??
-                            (isLastSelected(destination.id)
-                                ? 'Pick at least one destination. To stop syncing, turn off syncing instead.'
-                                : undefined)
-                        }
+                        disabledReason={toggleDisabledReason}
                     />
                 </div>
             ),

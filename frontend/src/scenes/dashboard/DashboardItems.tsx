@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
@@ -14,6 +14,7 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -24,7 +25,11 @@ import {
     getInsightQueryError,
     isWidgetTileVisibleOnPlacement,
 } from 'scenes/dashboard/dashboardUtils'
-import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
+import {
+    continueDragGestureInEditMode,
+    continueResizeGestureInEditMode,
+    whenPressBecomesDrag,
+} from 'scenes/dashboard/editLayoutGesture'
 import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
@@ -36,6 +41,8 @@ import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
+import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
+import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDashboardContainerWidth'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
@@ -97,6 +104,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
+        sizeKey,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -120,7 +128,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
-    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
+    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
+        // Dashboard pages hide the survey suggestion in compact headers; notebook embeds also use this component and can show it.
+        skip: placement === DashboardPlacement.Dashboard,
+    })
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
@@ -189,7 +200,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         'dashboard-edit-mode box-content pb-[40vh]': layoutEditMode,
     })
 
-    const { width, containerRef, mounted } = useContainerWidth()
+    const { width: gridWidth, containerRef } = useDashboardContainerWidth()
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
         useDashboardLayoutInteraction({
             layoutEditMode,
@@ -197,16 +208,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             updateLayouts,
         })
 
-    // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
-    // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
-    const [gridWidth, setGridWidth] = useState(width)
     useEffect(() => {
-        const timer = setTimeout(() => setGridWidth(width), 100)
-        return () => clearTimeout(timer)
-    }, [width])
-
-    useEffect(() => {
-        if (!mounted || !containerRef.current) {
+        if (!containerRef.current) {
             return
         }
 
@@ -231,8 +234,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         return () => {
             observer.disconnect()
         }
-    }, [mounted, containerRef])
-    const isMobileView = !!width && width <= BREAKPOINTS['sm']
+    }, [containerRef])
+    const isMobileView = !!gridWidth && gridWidth <= BREAKPOINTS['sm']
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
         DashboardPlacement.ProjectHomepage,
@@ -252,6 +255,22 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         () => BASE_MARGIN.map(() => gridGap * spacingFactor) as [number, number],
         [gridGap, spacingFactor]
     )
+
+    const widgetTilesShown = dashboardWidgetsEnabled && isWidgetTileVisibleOnPlacement(placement)
+    const activeBreakpoint = sizeKey ?? 'sm'
+    const groupTitlesByTileId = useMemo(
+        () =>
+            getGroupTitlesByTileId({
+                tiles: tiles || [],
+                layout: layouts[activeBreakpoint],
+                activeBreakpoint,
+                groupTitles: dashboard?.customization?.group_titles,
+                compactor: gridCompactor,
+                widgetTilesShown,
+            }),
+        [tiles, layouts, activeBreakpoint, dashboard?.customization?.group_titles, gridCompactor, widgetTilesShown]
+    )
+    const showDecorationSpace = hasTileDecorations({ tiles: tiles || [], groupTitlesByTileId, widgetTilesShown })
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
     const showEditingControls = isEditablePlacement || layoutEditMode
@@ -284,9 +303,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         () =>
             canEnterEditModeFromEdge
                 ? (e: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => {
-                      setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardEdgeHover)
-                      // continue the press into a live resize so the user doesn't have to release and grab again
-                      continueResizeGestureInEditMode(e, edge)
+                      whenPressBecomesDrag(e, (moveEvent) => {
+                          setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardEdgeHover)
+                          // continue the press into a live resize so the user doesn't have to release and grab again
+                          continueResizeGestureInEditMode(e, edge, moveEvent)
+                      })
                   }
                 : undefined,
         [canEnterEditModeFromEdge, setDashboardEditing]
@@ -316,9 +337,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                       }
                       e.preventDefault()
                       e.stopPropagation()
-                      setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardDragHandle)
-                      // continue the press into a live drag so the user doesn't have to release and grab again
-                      continueDragGestureInEditMode(e)
+                      whenPressBecomesDrag(e, (moveEvent) => {
+                          setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardDragHandle)
+                          // continue the press into a live drag so the user doesn't have to release and grab again
+                          continueDragGestureInEditMode(e, moveEvent)
+                      })
                   }
                 : undefined,
         [canEnterEditModeFromEdge, setDashboardEditing]
@@ -458,8 +481,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     resize tiles.
                 </LemonBanner>
             )}
-            {mounted && (
-                <div className="relative">
+            {gridWidth > 0 && (
+                <div className={clsx('relative', showDecorationSpace && 'mt-10')}>
                     {layoutEditMode && !isMobileView && (
                         <GridBackground
                             width={gridWidth}
@@ -475,6 +498,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
                     <ReactGridLayout
                         width={gridWidth}
+                        style={{ width: gridWidth }}
                         className={className}
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
@@ -500,8 +524,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                 return l.i == tile.id.toString()
                             })
 
+                            const decorations = (
+                                <TileDecorations badge={tile.badge} groupTitle={groupTitlesByTileId[tile.id]} />
+                            )
+
                             const commonTileProps = {
                                 dashboardId: dashboard?.id,
+                                canEditDashboard,
                                 showResizeHandles,
                                 canEnterEditModeFromEdge,
                                 onEnterEditModeFromEdge,
@@ -530,7 +559,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         onEnterEditModeFromEdge={onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={onDragHandleMouseDown}
                                         showEditingControls={showEditingControls}
-                                    />
+                                    >
+                                        {decorations}
+                                    </MemoizedDashboardErrorTileItem>
                                 )
                             }
 
@@ -590,7 +621,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                         showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                                         {...commonTileProps}
-                                    />
+                                    >
+                                        {decorations}
+                                    </MemoizedInsightCard>
                                 )
                             }
 
@@ -615,7 +648,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
-                                    />
+                                    >
+                                        {decorations}
+                                    </MemoizedDashboardTextItem>
                                 )
                             }
 
@@ -640,11 +675,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
-                                    />
+                                    >
+                                        {decorations}
+                                    </MemoizedDashboardButtonTileItem>
                                 )
                             }
 
-                            if (widget && dashboardWidgetsEnabled && isWidgetTileVisibleOnPlacement(placement)) {
+                            if (widget && widgetTilesShown) {
                                 const runResult = widgetResultsByTileId[tile.id]
                                 const refreshState = widgetRefreshStatus[tile.id]
 
@@ -677,6 +714,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         onUpdateWidgetTile={async (patch) => {
                                             await updateWidgetTile({ tile, ...patch })
                                         }}
+                                        onConfigPublished={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
@@ -687,7 +725,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
-                                    />
+                                    >
+                                        {decorations}
+                                    </MemoizedDashboardWidgetItem>
                                 )
                             }
                         })}

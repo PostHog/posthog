@@ -67,7 +67,7 @@ class TestTemplateDefinitions(SimpleTestCase):
 
 
 class TestTemplateSpecsCompile(SimpleTestCase):
-    # Drift guard: every template's population spec must have a compiler branch in
+    # Drift guard: every template's population spec must have a registered compiler in
     # labeling.py, in both row mode (inference/eligible count) and anchor mode (training).
 
     @parameterized.expand(list(TEMPLATES.keys()))
@@ -76,7 +76,7 @@ class TestTemplateSpecsCompile(SimpleTestCase):
         for population in (t.training_population_spec, t.inference_population_spec):
             row = _build_population_kind_conditions(population, target_cond="event = {target}")
             anchor = _build_population_kind_conditions(population, anchor_mode=True, target_cond="event = {target}")
-            self.assertTrue(row.where_parts)
+            self.assertTrue(row.where_parts or row.person_parts)
             self.assertTrue(anchor.anchor_having_parts)
 
 

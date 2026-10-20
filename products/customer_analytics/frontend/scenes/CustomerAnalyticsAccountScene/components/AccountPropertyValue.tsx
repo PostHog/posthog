@@ -23,7 +23,7 @@ export function AccountPropertyValue({ property }: AccountPropertyValueProps): J
                 {property.members.map((member) => (
                     <span key={member.id} className="inline-flex items-center gap-2 min-w-0">
                         <ProfilePicture user={{ email: member.email }} size="sm" />
-                        <span className="text-sm font-medium truncate" title={member.email}>
+                        <span className="text-sm font-medium truncate select-all" title={member.email}>
                             {member.name || member.email}
                         </span>
                     </span>
@@ -50,14 +50,14 @@ export function AccountPropertyValue({ property }: AccountPropertyValueProps): J
     if (definition.display_type === 'link') {
         return (
             <Link to={raw} target="_blank" className="inline-flex min-w-0 max-w-full items-center text-sm font-medium">
-                <span className="min-w-0 truncate">{raw}</span>
+                <span className="min-w-0 truncate select-all">{raw}</span>
             </Link>
         )
     }
     if (definition.display_type === 'date' || definition.display_type === 'datetime') {
         const parsed = dayjs(definition.display_type === 'date' ? raw.slice(0, 10) : raw)
         if (!parsed.isValid()) {
-            return <span className="text-sm font-medium truncate">{raw}</span>
+            return <span className="text-sm font-medium truncate select-all">{raw}</span>
         }
         return definition.display_type === 'datetime' ? (
             <span className="text-sm font-medium">
@@ -72,12 +72,14 @@ export function AccountPropertyValue({ property }: AccountPropertyValueProps): J
         return (
             <span className="inline-flex items-center gap-1.5 min-w-0 text-sm font-medium">
                 {option ? <LemonColorGlyph colorToken={option.color as DataColorToken} size="small" /> : null}
-                <span className="truncate">{raw}</span>
+                <span className="truncate select-all">{raw}</span>
             </span>
         )
     }
 
     return (
-        <span className="text-sm font-medium tabular-nums truncate">{formatCustomPropertyValue(raw, definition)}</span>
+        <span className="text-sm font-medium tabular-nums truncate select-all">
+            {formatCustomPropertyValue(raw, definition)}
+        </span>
     )
 }

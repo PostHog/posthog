@@ -1,18 +1,21 @@
 import { useMountedLogic, useValues } from 'kea'
-import { JSX, useCallback, useEffect, useRef } from 'react'
+import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { IconNotebook } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
+import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
@@ -22,10 +25,13 @@ import {
     SignalReport,
 } from '../../types'
 import { mergeReportRows, selectedFlatListSections } from '../../utils/flatReportList'
+import { rankingSortScore } from '../../utils/reportOrdering'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
 import { ReportContextMenu } from '../cards/ReportContextMenu'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
+import { InboxMcpBanner } from '../InboxMcpBanner'
+import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
 import { SelfDrivingInstallingHint } from '../SelfDrivingInstallingHint'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
@@ -39,7 +45,7 @@ import { useSelectableReportList } from '../useSelectableReportList'
  * surfaced nothing worth acting on. The empty-state verdict is a separate question, answered over
  * the states the current user can actually see.
  */
-const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed'] as const
+const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed', 'held-back'] as const
 
 type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 
@@ -83,7 +89,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
 }
 
 /**
- * Every state's count and loaded rows, keyed by state. All five logics are mounted regardless of
+ * Every state's count and loaded rows, keyed by state. All six logics are mounted regardless of
  * who is looking or which states the filter selects, so the hooks never change shape when the
  * staff flag resolves or a checkbox toggles; callers decide which states matter to them.
  */
@@ -93,6 +99,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
         'needs-decision': useSectionState('needs-decision'),
         resolved: useSectionState('resolved'),
         dismissed: useSectionState('dismissed'),
+        'held-back': useSectionState('held-back'),
         'not-actionable': useSectionState('not-actionable'),
     }
 }
@@ -153,6 +160,38 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
     ])
 }
 
+/**
+ * One row of the flat list, memoized. The list above it re-renders on every count, page and poll
+ * that lands, and repainting a few hundred rows each time is what made the inbox stop answering
+ * clicks. The restore closure is built here so the row's props stay comparable.
+ */
+const ReportRow = memo(function ReportRow({
+    report,
+    sectionKey,
+    rankingSortField,
+    timestampField,
+}: {
+    report: SignalReport
+    sectionKey: InboxReportSectionKey
+    rankingSortField: InboxRankingSortField | null
+    timestampField: 'created_at' | 'updated_at'
+}): JSX.Element {
+    return (
+        <ReportContextMenu report={report} sectionKey={sectionKey}>
+            <ReportCard
+                report={report}
+                sectionKey={sectionKey}
+                selectable
+                rankingSortField={rankingSortField}
+                timestampField={timestampField}
+                onRestore={() =>
+                    reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
+                }
+            />
+        </ReportContextMenu>
+    )
+})
+
 /** Nothing has reached the inbox yet — the whole list is empty, not just one state. */
 function ReportsEmptyState(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -194,11 +233,15 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  * selection are shared across all of them.
  */
 export function ReportsTab(): JSX.Element {
+    const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
-    const { hasActiveFilters, visibleStateFilter, scope, sortField, sortDirection } = useValues(inboxFiltersLogic)
+    const { hasActiveFilters, visibleStateFilter, scope, activeSortField, activeSortDirection } =
+        useValues(inboxFiltersLogic)
+    const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
+    const timestampField = activeSortField === 'created_at' ? 'created_at' : 'updated_at'
     const sections = useSectionStates()
     useInboxViewedEvent(sections)
 
@@ -227,7 +270,11 @@ export function ReportsTab(): JSX.Element {
         InboxReportSectionKey,
         SignalReport[]
     >
-    const rows = mergeReportRows(reportsBySection, selectedSections, sortField, sortDirection)
+    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
+    // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
+    const firstUnscoredIndex = rankingSortField
+        ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
+        : -1
     useReportImpressions(rows, selectedSections)
     // Multi-select ranges over this order, and drops any id the merged list no longer holds.
     useSelectableReportList(rows.map(({ report }) => report.id))
@@ -329,9 +376,13 @@ export function ReportsTab(): JSX.Element {
                 </div>
             </div>
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
+            <InboxMcpBanner />
+            {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
 
             {inboxIsEmpty ? (
-                <ReportsEmptyState />
+                showActivation ? null : (
+                    <ReportsEmptyState />
+                )
             ) : showFirstLoadSkeleton ? (
                 // Hold the rows until every selected state's first page has settled: the states
                 // load in parallel, and painting the fastest one first would let the slower ones
@@ -356,20 +407,18 @@ export function ReportsTab(): JSX.Element {
                 )
             ) : (
                 <div className="@container flex flex-col gap-1.5">
-                    {rows.map(({ report, sectionKey }) => (
-                        <ReportContextMenu key={report.id} report={report} sectionKey={sectionKey}>
-                            <ReportCard
+                    {rows.map(({ report, sectionKey }, index) => (
+                        <Fragment key={report.id}>
+                            {index > 0 && index === firstUnscoredIndex && (
+                                <LemonDivider label="Not scored yet" className="my-2 text-xs text-tertiary" />
+                            )}
+                            <ReportRow
                                 report={report}
                                 sectionKey={sectionKey}
-                                selectable
-                                onRestore={() =>
-                                    reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(
-                                        report.id,
-                                        'list_row'
-                                    )
-                                }
+                                rankingSortField={rankingSortField}
+                                timestampField={timestampField}
                             />
-                        </ReportContextMenu>
+                        </Fragment>
                     ))}
                     {/* Skeleton cards continue the list while the next pages load – sleeker than a spinner. */}
                     {pageLoading && <CardSkeleton count={2} variant="cards" dashed />}

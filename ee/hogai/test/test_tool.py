@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from langgraph.errors import GraphInterrupt
 from pydantic import BaseModel
 
@@ -195,7 +197,7 @@ class TestMaxToolClientExecution(BaseTest):
                 tool.request_client_execution()
 
 
-class TestMaxToolErrorHierarchy(BaseTest):
+class TestMaxToolErrorHierarchy(SimpleTestCase):
     """Test the MaxToolError exception hierarchy and retry strategies."""
 
     def test_max_tool_error_base_has_never_retry_strategy(self):
@@ -322,7 +324,7 @@ class TestMaxToolErrorHierarchy(BaseTest):
         self.assertEqual(summary, "MaxToolFatalError: Error with whitespace")
 
 
-class TestMaxToolAccessDeniedError(BaseTest):
+class TestMaxToolAccessDeniedError(SimpleTestCase):
     """Test the MaxToolAccessDeniedError exception."""
 
     def test_access_denied_error_formats_correctly(self):
@@ -465,7 +467,6 @@ class TestToolAccessControlDeclarations(BaseTest):
         "execute_sql",
         "generate_hogql_query",
         "fix_hogql_query",
-        "analyze_user_interviews",
         "call_mcp_server",  # Scoped to user's own MCP installations (team + user filtered) but no protected resources modified
         "diagnose_proxy",  # Explicit OrganizationMembership.Level >= ADMIN check inside _arun_impl; resource-level RBAC doesn't recognize membership level so we can't use get_required_resource_access here
     }
@@ -529,3 +530,19 @@ class TestDangerousOperationBindsApprovedArguments(BaseTest):
 
         assert artifact["count"] == 5
         assert "5" in content
+
+    def test_parallel_resumption_keeps_approval_identity(self) -> None:
+        proposals = []
+        for call_id in ("first", "second", "first"):
+            tool = self._SpendingTool(
+                team=self.team,
+                user=self.user,
+                node_path=(NodePath(name="root", tool_call_id=call_id),),
+                config={"configurable": {"thread_id": "approval-test"}},
+            )
+            with patch("ee.hogai.tool.interrupt", side_effect=GraphInterrupt()) as mocked_interrupt:
+                with self.assertRaises(GraphInterrupt):
+                    tool._handle_dangerous_operation({"count": 5}, preview="Change count")
+                proposals.append(mocked_interrupt.call_args.args[0].proposal_id)
+        self.assertEqual(proposals[0], proposals[2])
+        self.assertNotEqual(proposals[0], proposals[1])

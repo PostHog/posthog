@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => ({
   historyTabId: undefined as string | undefined,
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
 }));
@@ -111,7 +114,6 @@ vi.mock("@tanstack/react-router", () => ({
     }),
 }));
 
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   showChannelList,
@@ -480,7 +482,6 @@ describe("ChannelsSidebar", () => {
     // with it — that part is deliberate.
     it("is absent in the channels alpha", () => {
       useSidebarStore.setState({ channelsEnabled: true });
-      mocks.featureFlags.set(PROJECT_BLUEBIRD_FLAG, true);
       renderSidebar();
       expect(screen.queryByText("Archived")).toBeNull();
     });

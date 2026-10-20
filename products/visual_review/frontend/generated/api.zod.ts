@@ -41,6 +41,8 @@ export const visualReviewReposQuarantineCreateBodyIdentifierMax = 512
 
 export const visualReviewReposQuarantineCreateBodyReasonMax = 255
 
+export const visualReviewReposQuarantineCreateBodyNotifyOwnersDefault = false
+
 export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object({
     identifier: zod
         .string()
@@ -50,13 +52,24 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .max(visualReviewReposQuarantineCreateBodyReasonMax)
         .describe('Why this snapshot is being quarantined.'),
+    expires_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later expiry becomes 30 days from now; anywhere else omitting it means no expiry.'
+        ),
     source_run_id: zod
         .uuid()
         .nullish()
         .describe(
             "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
         ),
-    expires_at: zod.iso.datetime({ offset: true }).nullish(),
+    notify_owners: zod
+        .boolean()
+        .default(visualReviewReposQuarantineCreateBodyNotifyOwnersDefault)
+        .describe(
+            'Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration.'
+        ),
 })
 
 /**
@@ -124,8 +137,8 @@ export const VisualReviewRunsAddSnapshotsCreateBody = /* @__PURE__ */ zod.object
  *
  * Records the per-snapshot "Accept change" decision. Does not commit the baseline
  * or change the GitHub gate — call finalize to ship the run. Works on a quarantined
- * snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
- * which gives a quarantined story a baseline entry without lifting the quarantine.
+ * snapshot too: a quarantined snapshot approved here is committed by finalize, which
+ * updates a quarantined story's baseline entry without lifting the quarantine.
  */
 export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
     snapshots: zod
@@ -145,12 +158,30 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Complete a run: detect removals, verify uploads, trigger diff processing.
+ */
+export const visualReviewRunsCompleteCreateBodyCheckRunIdMax = 32
+
+export const visualReviewRunsCompleteCreateBodyCheckRunIdRegExp = new RegExp('^\\d+$')
+
+export const VisualReviewRunsCompleteCreateBody = /* @__PURE__ */ zod.object({
+    check_run_id: zod
+        .string()
+        .max(visualReviewRunsCompleteCreateBodyCheckRunIdMax)
+        .regex(visualReviewRunsCompleteCreateBodyCheckRunIdRegExp)
+        .optional()
+        .describe(
+            'Numeric GitHub Actions job ID of the CI job that completes the run, from `${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict without capturing the snapshots again. Omit it outside GitHub Actions.'
+        ),
+})
+
+/**
  * Finalize a fully-reviewed run: commit the approved baseline and green the gate.
  *
  * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
  * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
  * any still-pending changed/new snapshot is approved first; quarantined snapshots are
- * skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+ * skipped, but a quarantined snapshot approved by identifier is still committed.
  * With commit_to_github=false the server returns the signed baseline YAML instead of
  * committing it.
  */
@@ -176,6 +207,20 @@ export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
         .default(visualReviewRunsFinalizeCreateBodyAddImagesToCommentOnPrDefault)
         .describe(
             "Whether to embed the before\/after snapshot images in the post-approval PR comment. The comment itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates the run's review prompt when the run has one, and posts a new comment when it does not. This flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots."
+        ),
+})
+
+/**
+ * Lift a quarantined snapshot's quarantine once this run's pull request merges. The lift applies only after a default-branch run that contains the merge renders the expected picture, and the baseline entry holds that same picture. Requesting a lift never approves a picture: approve a changed or new snapshot by identifier first. Requesting again from the same pull request replaces the pending request.
+ */
+export const visualReviewRunsLiftOnMergeCreateBodyIdentifierMax = 512
+
+export const VisualReviewRunsLiftOnMergeCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(visualReviewRunsLiftOnMergeCreateBodyIdentifierMax)
+        .describe(
+            "Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture."
         ),
 })
 

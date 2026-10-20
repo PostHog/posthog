@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import redis
+import temporalio.exceptions
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     LOCK_TTL_SECONDS,
@@ -53,6 +54,20 @@ class TestAcquireV3PipelineLock:
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         assert acquire_v3_pipeline_lock(1, "s-1", "tok-1") is False
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    def test_propagates_activity_cancellation_instead_of_failing_closed(
+        self, mock_ctx: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_redis = MagicMock()
+        mock_redis.set.side_effect = temporalio.exceptions.CancelledError()
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        with pytest.raises(temporalio.exceptions.CancelledError):
+            acquire_v3_pipeline_lock(1, "s-1", "tok-1")
+        mock_capture.assert_not_called()
 
 
 class TestGetV3PipelineLockHolder:
@@ -126,6 +141,20 @@ class TestReleaseV3PipelineLock:
 
         assert release_v3_pipeline_lock(1, "s-1", "tok-1") is False
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    def test_propagates_activity_cancellation_instead_of_failing_silently(
+        self, mock_ctx: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_redis = MagicMock()
+        mock_redis.eval.side_effect = temporalio.exceptions.CancelledError()
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        with pytest.raises(temporalio.exceptions.CancelledError):
+            release_v3_pipeline_lock(1, "s-1", "tok-1")
+        mock_capture.assert_not_called()
+
 
 class TestGetRedisClient:
     """The acquire/release activities run with a single Temporal attempt, so a bare
@@ -150,3 +179,17 @@ class TestGetRedisClient:
         with _get_redis_client() as client:
             assert client is None
         assert mock_redis.ping.call_count == 3
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_client")
+    def test_propagates_activity_cancellation_instead_of_failing_closed(
+        self, mock_get_client: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_redis = MagicMock()
+        mock_redis.ping.side_effect = temporalio.exceptions.CancelledError()
+        mock_get_client.return_value = mock_redis
+
+        with pytest.raises(temporalio.exceptions.CancelledError):
+            with _get_redis_client():
+                pass
+        mock_capture.assert_not_called()

@@ -1,18 +1,24 @@
 import './CohortCriteriaRowBuilder.scss'
 
 import clsx from 'clsx'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Field as KeaField } from 'kea-forms'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { eventsWithMoveNotice, moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { getRowShape, renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
@@ -37,6 +43,16 @@ export function CohortCriteriaRowBuilder({
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const moveNoticeEvents = eventsWithMoveNotice(
+        currentTeam?.flag_evaluations_mode,
+        useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
+    )
+    const announcementUrl = moveAnnouncementUrl(getFeatureFlagPayload(FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES))
+    const showsMoveNotice =
+        (criteria.event_type === TaxonomicFilterGroupType.Events && moveNoticeEvents.includes(String(criteria.key))) ||
+        (criteria.seq_event_type === TaxonomicFilterGroupType.Events &&
+            moveNoticeEvents.includes(String(criteria.seq_event)))
     // Falling back to another row's fields would let an edit merge into the unmapped criterion,
     // which cleanCriteria then strips to undefined. An empty row keeps the type selector as the
     // recovery path.
@@ -166,6 +182,21 @@ export function CohortCriteriaRowBuilder({
                                 })}
                             </div>
                         </div>
+                    )}
+                    {showsMoveNotice && (
+                        <LemonBanner
+                            className="my-2"
+                            type="warning"
+                            action={
+                                announcementUrl
+                                    ? { children: 'Learn more', to: announcementUrl, targetBlank: true }
+                                    : undefined
+                            }
+                        >
+                            Feature flag called is moving out of the events table. Once your organization starts the
+                            move, you can't add new criteria on it. When the move finishes, this criterion stops
+                            matching new flag calls. To see how a flag is used, open the flag and check its Usage tab.
+                        </LemonBanner>
                     )}
                 </>
             </KeaField>

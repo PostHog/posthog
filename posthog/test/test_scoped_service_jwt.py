@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from posthog.test.base import APIBaseTest
 
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.urls import resolve
 
 import jwt as pyjwt
@@ -17,6 +17,7 @@ from rest_framework.request import Request
 from posthog.auth import ScopedServiceJWTAuthentication
 from posthog.jwt import PosthogJwtAudience
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.test.authentication_checks import covers_authentication
 
 TEST_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.RECORDING_API,
@@ -59,7 +60,7 @@ def _unsigned_alg_none_token(claims: dict, audience: str = PosthogJwtAudience.RE
 
 
 @override_settings(TEST_SCOPED_SERVICE_JWT_SECRET="new-key,old-key")
-class TestScopedServiceJwtPurpose(APIBaseTest):
+class TestScopedServiceJwtPurpose(SimpleTestCase):
     def test_mint_round_trips_claims_and_audience(self):
         token = TEST_PURPOSE.mint({"team_id": 123, "ticket_id": "abc"})
 
@@ -131,6 +132,7 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         assert result is not None
         return result
 
+    @covers_authentication(ScopedServiceJWTAuthentication)
     def test_valid_token_authenticates_as_the_token_team(self):
         token = TEST_PURPOSE.mint({"team_id": self.team.id})
 

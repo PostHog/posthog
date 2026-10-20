@@ -1,6 +1,131 @@
+import math
+
 import pytest
 
-from products.ai_observability.backend.models.evaluation_configs import validate_target_config
+from products.ai_observability.backend.models.evaluation_configs import (
+    CategoricalOutputConfig,
+    NumericOutputConfig,
+    NumericScoreOutOfBounds,
+    validate_evaluation_configs,
+    validate_target_config,
+)
+
+
+class TestNumericOutputConfig:
+    @pytest.mark.parametrize(
+        "bounds,score,expected",
+        [
+            ({"max": 0.7}, 7 * 0.1, 0.7),
+            ({"min": -0.7}, -7 * 0.1, -0.7),
+            ({"min": 0.7}, math.nextafter(0.7, -math.inf), 0.7),
+            ({"max": -0.7}, math.nextafter(-0.7, math.inf), -0.7),
+            ({"min": 0, "max": 1}, 0.123456789, 0.123456789),
+            ({"max": 0.7}, math.nextafter(0.7, math.inf, steps=2), None),
+            ({"min": -0.7}, math.nextafter(-0.7, -math.inf, steps=2), None),
+            ({"max": 0.7}, 0.700001, None),
+            ({"max": 1e12}, 1e12 + 1, None),
+        ],
+    )
+    def test_score_boundary_roundoff(self, bounds, score, expected):
+        config = NumericOutputConfig.model_validate(bounds)
+        if expected is None:
+            with pytest.raises(NumericScoreOutOfBounds):
+                config.validate_score(score)
+        else:
+            assert config.validate_score(score) == expected
+
+    @pytest.mark.parametrize(
+        "runtime,config", [("llm_judge", {"prompt": "Score completeness"}), ("hog", {"source": "return 0;"})]
+    )
+    def test_numeric_configuration(self, runtime, config):
+        _, output = validate_evaluation_configs(
+            runtime, "numeric", config, {"min": 0, "max": 10, "passing_rule": {"operator": "gte", "threshold": 7}}
+        )
+        assert output == {"min": 0, "max": 10, "allows_na": False, "passing_rule": {"operator": "gte", "threshold": 7}}
+
+    @pytest.mark.parametrize(
+        "output",
+        [
+            {"min": 2, "max": 1},
+            {"min": True},
+            {"max": "10"},
+            {"max": float("inf")},
+            {"step": 0},
+            {"step": -1},
+            {"typo": 1},
+            {"passing_rule": {"operator": "gt", "threshold": 0}},
+            {"passing_rule": {"operator": "gte"}},
+            {"passing_rule": {"operator": "gte", "threshold": True}},
+            {"passing_rule": {"operator": "gte", "threshold": float("nan")}},
+            {"min": 0, "passing_rule": {"operator": "gte", "threshold": -1}},
+        ],
+    )
+    def test_invalid_numeric_configuration(self, output):
+        with pytest.raises(ValueError):
+            validate_evaluation_configs("hog", "numeric", {"source": "return 0;"}, output)
+
+    def test_unbounded_and_nullable_configuration(self):
+        _, output = validate_evaluation_configs(
+            "hog",
+            "numeric",
+            {"source": "return 0;"},
+            {"min": None, "max": None, "step": None, "passing_rule": None, "allows_na": True},
+        )
+        assert output == {"allows_na": True}
+
+
+class TestCategoricalOutputConfig:
+    @pytest.mark.parametrize("runtime", ["hog", "llm_judge"])
+    @pytest.mark.parametrize("selection_mode", ["single", "multiple"])
+    @pytest.mark.parametrize("option_count", [2, 100])
+    def test_categorical_configuration(self, runtime: str, selection_mode: str, option_count: int) -> None:
+        evaluation_config = (
+            {"source": "return 'resolved';"} if runtime == "hog" else {"prompt": "Classify the response"}
+        )
+        output_config = {
+            "options": [{"key": "resolved", "label": "Resolved"}, {"key": "incorrect", "label": "Incorrect"}]
+            + [{"key": f"category_{i}", "label": f"Category {i}"} for i in range(option_count - 2)],
+            "selection_mode": selection_mode,
+            "allows_na": True,
+            "passing_rule": {"categories": ["resolved"]},
+        }
+        _, validated = validate_evaluation_configs(runtime, "categorical", evaluation_config, output_config)
+        assert validated == output_config
+
+    @pytest.mark.parametrize(
+        "mode,value",
+        [
+            ("single", value)
+            for value in [[], ["resolved", "resolved"], ["unknown"], [1], True, None, {"resolved": True}]
+        ]
+        + [("multiple", ["resolved", "resolved"])],
+    )
+    def test_selection_rejects_invalid_results(self, mode: str, value: object) -> None:
+        config = CategoricalOutputConfig.model_validate(
+            {"options": [{"key": "resolved", "label": "Resolved"}], "selection_mode": mode}
+        )
+        with pytest.raises(ValueError):
+            config.validate_result(value)
+
+    @pytest.mark.parametrize(
+        "patch",
+        [
+            {"options": []},
+            {"options": [{"key": f"category_{i}", "label": f"Category {i}"} for i in range(101)]},
+            {"options": [{"key": "a", "label": "A"}, {"key": "a", "label": "B"}]},
+            {"options": [{"key": "A", "label": "A"}]},
+            {"options": [{"key": "a", "label": " "}]},
+            {"passing_rule": {"categories": ["unknown"]}},
+            {"passing_rule": {"categories": []}},
+            {"passing_rule": {"categories": ["resolved", "resolved"]}},
+            {"passing_rule": {"categories": ["resolved"], "operator": "any"}},
+            {"selection_mode": "other"},
+            {"unknown": True},
+        ],
+    )
+    def test_invalid_category_configuration_is_rejected(self, patch: dict) -> None:
+        with pytest.raises(ValueError):
+            CategoricalOutputConfig.model_validate({"options": [{"key": "resolved", "label": "Resolved"}], **patch})
 
 
 class TestValidateTargetConfig:

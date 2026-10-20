@@ -17,7 +17,7 @@ import { createHeatmapsPipeline } from './pipeline'
 
 export type HeatmapsConsumerConfig = CommonIngestionConsumerConfig &
     IngestionOutputsConfig &
-    Pick<IngestionConsumerConfig, 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'>
+    Pick<IngestionConsumerConfig, 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID' | 'TEAMS_PREFETCH_ENABLED'>
 
 export type HeatmapsSharedScope = Scope<{
     postgres: PostgresRouter
@@ -47,6 +47,6 @@ export function createHeatmapsConsumer(config: HeatmapsConsumerConfig, sharedSco
     )
 
     return new CommonIngestionConsumerScope('heatmaps', config, scope, ({ container }) =>
-        createHeatmapsPipeline(container)
+        createHeatmapsPipeline({ ...container, teamsPrefetchEnabled: config.TEAMS_PREFETCH_ENABLED })
     )
 }

@@ -26,7 +26,7 @@ For any MCP failure-rate headline, call `posthog:metric-list` before a typed too
 errors, p50/p95, users, sessions, intents), `posthog:query-mcp-tool-failures` (top error
 messages by harness), and `posthog:query-mcp-tool-daily-stats` (day-by-day trend). Each
 takes a `toolName` + `dateRange`, runs the same query runner as the tool-detail
-UI, and is gated behind the `mcp-analytics` flag — no hand-written SQL needed.
+UI — no hand-written SQL needed.
 
 **HogQL via `posthog:execute-sql` is the path for cross-tool questions** — the
 "which tool errors most" ranking below has no typed tool, so rank with SQL, then

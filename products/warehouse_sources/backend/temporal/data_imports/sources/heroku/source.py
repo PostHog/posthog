@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HerokuSource(ResumableSource[HerokuSourceConfig, HerokuResumeConfig]):
+    codebase_detection = detect(
+        env=("^HEROKU_",),
+        npm=("heroku-client",),
+        go=("github.com/heroku/heroku-go", "github.com/heroku/heroku-http-adapter"),
+        rubygems=(
+            "platform-api",
+            "heroku-bouncer",
+            "heroku-runtime-api",
+            "heroku_hatchet",
+            "omniauth-heroku",
+            "puma-heroku",
+            "rails_on_heroku",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("3",)  # Accept header: application/vnd.heroku+json; version=3
     default_version = "3"
@@ -102,6 +118,8 @@ You can find your API key in your [Heroku account settings](https://dashboard.he
                 return "Invoices for your personal Heroku account; team invoices are not included"
             if endpoint == "teams":
                 return "Only returns data for accounts that belong to Heroku Teams or Enterprise"
+            if endpoint == "team_monthly_usage":
+                return "Monthly usage for Heroku Enterprise teams, covering the last 12 months"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.rate_limit import MCPProxyBurstThrottle, MCPProxySustainedThrottle
 
 from ..agents import GatewayAgentPrincipal, resolve_gateway_agent_token
@@ -75,11 +76,13 @@ class MCPGatewayAgentSustainedThrottle(_MCPGatewayAgentThrottle):
     rate = MCPProxySustainedThrottle.rate
 
 
-class GatewayAgentAuthentication(BaseAuthentication):
+class GatewayAgentAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """Resolves `Authorization: Bearer mcp_gw_...` to an active service account.
 
     Returns no user — the agent is the principal; downstream code reads it from
     `request.auth`."""
+
+    activity_credential_type = "gateway_agent"
 
     def authenticate(self, request: Request) -> tuple[Any, GatewayAgentPrincipal] | None:
         header = request.headers.get("Authorization", "")
@@ -91,6 +94,7 @@ class GatewayAgentAuthentication(BaseAuthentication):
             raise AuthenticationFailed("Invalid gateway token.")
         if principal.account.status != "active":
             raise AuthenticationFailed("This agent is paused.")
+        self.record_activity_actor(None, str(principal.account.id))
         return (None, principal)
 
     def authenticate_header(self, request: Request) -> str:

@@ -16,6 +16,7 @@ describe('scale geometry, as it currently behaves', () => {
             textContent: `${p.text.content.width}x${p.text.content.height}`,
             textCanvas: `${p.text.canvas.width}x${p.text.canvas.height}`,
             stored: `${p.stored.width}x${p.stored.height}`,
+            codeScale: p.code.scale.toFixed(3),
         }
     }
 

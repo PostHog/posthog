@@ -15,7 +15,7 @@ import AlphaRelease from '../_snippets/alpha-release.mdx'
 
 <AlphaRelease />
 
-Clockodo is a cloud-based time-tracking and project-management tool for agencies, service firms, and freelancers. This connector syncs your Clockodo time entries, customers, projects, services, users, teams, and supporting reference data into the PostHog data warehouse so you can join tracked time and billing data with your product and revenue data.
+Clockodo is a cloud-based time-tracking and project-management tool for agencies, service firms, and freelancers. This connector syncs your Clockodo time entries, attendance, absences, target hours, yearly co-worker reports, customers, projects, services, users, teams, and supporting reference data into the PostHog data warehouse so you can join tracked time and billing data with your product and revenue data.
 
 ## Prerequisites
 
@@ -46,6 +46,11 @@ All Clockodo tables are **full refresh** only. The Clockodo API does not expose 
 ## Supported tables
 
 <SourceTables />
+
+Two tables cover a fixed period rather than your whole account history, because the Clockodo API bounds what they can return:
+
+- `work_times` starts at 21 August 2023, the first day the API reports attendance for.
+- `user_reports` covers 2011 to the current year. The API needs an explicit year per request, and Clockodo launched in 2011.
 
 ## Troubleshooting
 

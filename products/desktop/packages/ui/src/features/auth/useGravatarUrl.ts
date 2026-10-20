@@ -1,3 +1,4 @@
+import { useGravatarRefreshStore } from "@posthog/ui/features/auth/gravatarRefreshStore";
 import { useEffect, useState } from "react";
 
 const DEFAULT_GRAVATAR_SIZE = 96;
@@ -35,6 +36,9 @@ export function useGravatarUrl(
   size: number = DEFAULT_GRAVATAR_SIZE,
 ): string | undefined {
   const normalized = email?.trim().toLowerCase() || undefined;
+  const refreshedAt = useGravatarRefreshStore((state) =>
+    normalized ? state.refreshedAtByEmail[normalized] : undefined,
+  );
   const key = normalized ? cacheKey(normalized, size) : undefined;
   const cached = key ? gravatarUrls.get(key) : undefined;
   const [hashed, setHashed] = useState<HashedGravatar | null>(null);
@@ -56,6 +60,6 @@ export function useGravatarUrl(
     };
   }, [normalized, size, cached]);
 
-  if (cached) return cached;
-  return hashed && hashed.key === key ? hashed.url : undefined;
+  const url = cached ?? (hashed && hashed.key === key ? hashed.url : undefined);
+  return url && refreshedAt ? `${url}&_=${refreshedAt}` : url;
 }

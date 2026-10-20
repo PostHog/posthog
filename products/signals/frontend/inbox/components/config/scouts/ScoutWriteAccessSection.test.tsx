@@ -18,6 +18,8 @@ const CONFIG: SignalScoutConfigApi = {
     enabled: true,
     status: 'active',
     pause_reason: null,
+    managed_by: 'team',
+    deprecation: null,
     emit: true,
     run_interval_minutes: 1440,
     run_cron_schedule: null,
@@ -25,16 +27,28 @@ const CONFIG: SignalScoutConfigApi = {
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    allowed_mcp_tools: null,
+    tool_preset: null,
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
+    status_changed_by: null,
     auto_pause_exempt: false,
+    lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    precheck_query: null,
+    precheck_disabled: false,
+    effective_precheck_query: null,
+    precheck_query_source: 'off',
+    last_precheck_at: null,
+    last_precheck_outcome: null,
+    last_precheck_row_count: null,
     tags: [],
     source_product: null,
     source_id: null,
     created_at: '2026-07-21T12:00:00Z',
+    updated_at: '2026-07-21T12:00:00Z',
 }
 
 describe('ScoutWriteAccessSection', () => {
@@ -83,5 +97,20 @@ describe('ScoutWriteAccessSection', () => {
 
         fireEvent.click(screen.getByText('Save write access'))
         expect(onUpdate).toHaveBeenCalledWith('config-1', { write_scopes: ['dashboard:write'] })
+    })
+    it('shows write access read-only when a tool list sets it', () => {
+        // The API rejects a `write_scopes` change on a scout with a tool list, so no save may be offered.
+        const onUpdate = jest.fn()
+        render(
+            <ScoutWriteAccessSection
+                config={{ ...CONFIG, write_scopes: ['insight:write'], allowed_mcp_tools: ['insight-create'] }}
+                onUpdate={onUpdate}
+            />
+        )
+        fireEvent.click(screen.getByText('Write access'))
+
+        fireEvent.click(screen.getByLabelText('Let this scout write dashboards'))
+        expect(screen.queryByText('Save write access')).not.toBeInTheDocument()
+        expect(onUpdate).not.toHaveBeenCalled()
     })
 })

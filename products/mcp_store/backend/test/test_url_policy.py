@@ -1,9 +1,15 @@
+import ipaddress
+
+from unittest.mock import patch
+
 from django.test import override_settings
 
+from posthog.security.url_validation import PinnedUrlVerdict
+
 from products.mcp_store.backend.url_policy import (
-    allow_internal_mcp_url,
     check_mcp_url_policy,
     is_internal_mcp_url,
+    resolve_mcp_url_policy,
     trust_environment_proxy,
 )
 
@@ -25,15 +31,18 @@ def test_internal_mcp_url_requires_an_exact_match() -> None:
 @override_settings(
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM={"42": ["http://grafana-mcp.monitoring.svc.cluster.local/mcp"]}
 )
-def test_internal_mcp_url_can_override_a_failed_public_ssrf_check() -> None:
-    configured = "http://grafana-mcp.monitoring.svc.cluster.local/mcp"
+def test_resolve_mcp_url_policy_pins_public_hosts_and_names_internal_ones() -> None:
+    public = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips={ipaddress.ip_address("93.184.216.34")})
+    with patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=public):
+        assert resolve_mcp_url_policy("https://mcp.example.com/mcp", 42) == public
 
-    assert allow_internal_mcp_url(configured, 42, False, "Internal domain") == (True, None)
-    assert allow_internal_mcp_url(configured, 43, False, "Internal domain") == (False, "Internal domain")
-    assert allow_internal_mcp_url("http://other.svc.cluster.local/mcp", 42, False, "Internal domain") == (
-        False,
-        "Internal domain",
-    )
+    # The real SSRF check rejects cluster-local hosts on the internal-domain
+    # pattern (no DNS involved), so the override path runs end to end.
+    configured = "http://grafana-mcp.monitoring.svc.cluster.local/mcp"
+    internal = resolve_mcp_url_policy(configured, 42)
+    assert internal == PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
+    assert not resolve_mcp_url_policy(configured, 43).allowed
+    assert not resolve_mcp_url_policy("http://other.svc.cluster.local/mcp", 42).allowed
 
 
 @override_settings(

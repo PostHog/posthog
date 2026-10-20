@@ -9,8 +9,10 @@ import {
     LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,6 +23,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { reusableWidgetsDemoFrame } from 'products/notebooks/frontend/generated/api'
 
+import { NotebookWidgetBetaNotice } from '../NotebookNodeGeneratedWidget/NotebookWidgetBetaNotice'
+import { NotebookWidgetGenerationCost } from '../NotebookNodeGeneratedWidget/NotebookWidgetGenerationCost'
 import { NotebookWidgetTrustControls } from '../NotebookNodeGeneratedWidget/NotebookWidgetTrustControls'
 import { WidgetArtifactFrame } from '../NotebookNodeGeneratedWidget/WidgetArtifactFrame'
 import { WIDGET_MODEL_OPTIONS } from '../NotebookNodeGeneratedWidget/widgetModels'
@@ -76,6 +80,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         updateReusableWidget,
     } = useActions(logic)
     const { currentTeamId } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (reusableWidgetLoading && !reusableWidget) {
         return (
@@ -113,6 +118,11 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         <SceneContent className="@container/reusable-widget flex-1 min-h-0">
             <SceneTitleSection
                 name={reusableWidget.name}
+                nameSuffix={
+                    <LemonTag type="warning" size="small">
+                        BETA
+                    </LemonTag>
+                }
                 description={reusableWidget.description || 'Reusable notebook widget'}
                 resourceType={{ type: 'notebook' }}
                 forceBackTo={{
@@ -121,12 +131,21 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                     path: `${urls.notebooks()}?tab=widgets`,
                 }}
                 actions={
-                    <div className="flex flex-wrap gap-2">
-                        <LemonButton onClick={openDemoDataModal} data-attr="reusable-widget-demo-data">
-                            Demo data
-                        </LemonButton>
-                        <LemonButton onClick={openSourceModal}>View source</LemonButton>
-                    </div>
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button onClick={openDemoDataModal} data-attr="reusable-widget-demo-data">
+                                Demo data
+                            </Button>
+                            <Button onClick={openSourceModal}>View source</Button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton onClick={openDemoDataModal} data-attr="reusable-widget-demo-data">
+                                Demo data
+                            </LemonButton>
+                            <LemonButton onClick={openSourceModal}>View source</LemonButton>
+                        </div>
+                    )
                 }
             />
             <div className="grid grid-cols-1 items-start gap-4 @min-[56rem]/reusable-widget:grid-cols-3">
@@ -288,6 +307,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                                         data-attr="reusable-widget-model"
                                     />
                                 </div>
+                                <NotebookWidgetBetaNotice />
                                 <div className="flex flex-wrap items-center gap-2">
                                     <LemonButton
                                         type="primary"
@@ -366,6 +386,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                             }}
                             data-attr="reusable-widget-version"
                         />
+                        <NotebookWidgetGenerationCost cost={version.generation_cost_usd} />
                     </div>
                     {versionHistoryError ? (
                         <LemonBanner type="warning" action={{ children: 'Retry', onClick: () => loadVersionHistory() }}>

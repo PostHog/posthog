@@ -1,10 +1,14 @@
 from typing import Optional, cast
 
 import requests
+import structlog
 from google.auth.exceptions import RefreshError
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
+from posthog.schema_enums import ProductKey
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,9 +43,133 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+logger = structlog.get_logger(__name__)
+
+# Fallback messages for unexpected failures during credential validation. The raw exception can
+# embed OAuth tokens, ids, or an HTML error body, so we capture it for debugging and show generic
+# guidance instead of surfacing `str(e)` to the user.
+_LOAD_CONNECTION_ERROR = (
+    "PostHog couldn't load your Google Analytics connection. Reconnect your Google account, then try again."
+)
+_PROPERTY_METADATA_ERROR = (
+    "PostHog couldn't reach Google Analytics to read your property. Wait a few minutes, then try again."
+)
+
+# Google answers the metadata probe with 403 both when the account can't read the property (or the
+# property doesn't exist) and when the user unticked the Analytics scope on the consent screen. Only
+# a 401 means the token itself is bad, so reconnecting is the fix for the scope and 401 cases only.
+_CREDENTIALS_REJECTED_ERROR = (
+    "Google rejected the credentials for this connection. Reconnect your Google account, then try again."
+)
+_PROPERTY_ACCESS_ERROR = (
+    "Your connected Google account can't read this Google Analytics property. Check the property ID, "
+    "or reconnect with an account that has access to it."
+)
+_MISSING_SCOPE_ERROR = (
+    "Your Google connection doesn't include Google Analytics access. Reconnect your Google account "
+    "and allow Google Analytics access when Google asks."
+)
+
 
 @SourceRegistry.register
 class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleAnalyticsResumeConfig], OAuthMixin):
+    # gtag.js loads from googletagmanager.com, so a Tag Manager container also matches. It nearly always carries GA.
+    codebase_detection = detect(
+        env=(
+            "^GOOGLE_ANALYTICS_",
+            "^GA4_",
+            "^NEXT_PUBLIC_GA_ID$",
+            "^NEXT_PUBLIC_GA_MEASUREMENT_ID$",
+            "^NUXT_PUBLIC_GTAG_ID$",
+            "^GA_MEASUREMENT_ID$",
+            "^GA_TRACKING_ID$",
+            "^ANALYTICS_PROPERTY_ID$",
+        ),
+        script_hosts=("google-analytics.com", "googletagmanager.com", "stats.g.doubleclick.net"),
+        npm=(
+            "react-ga4",
+            "@google-analytics/data",
+            "@google-analytics/admin",
+            "react-ga",
+            "ga-gtag",
+            "vue-gtag",
+            "vue-gtag-next",
+            "vue-analytics",
+            "nuxt-gtag",
+            "@nuxtjs/google-analytics",
+            "@nuxtjs/google-gtag",
+            "gatsby-plugin-google-gtag",
+            "gatsby-plugin-google-analytics",
+            "ngx-google-analytics",
+            "@analytics/google-analytics",
+            "@types/gtag.js",
+            "@types/google.analytics",
+            "universal-analytics",
+            "@react-native-firebase/analytics",
+            "expo-firebase-analytics",
+            "ga-4-react",
+            "nextjs-google-analytics",
+            "autotrack",
+            "@vuepress/plugin-google-analytics",
+        ),
+        pypi=(
+            "google-analytics-data",
+            "google-analytics-admin",
+            "analytics-mcp",
+            "ga4mp",
+            "google-measurement-protocol",
+        ),
+        cargo=(
+            "google-analytics3",
+            "google-analyticsreporting4",
+            "google-analyticsdata1_beta",
+            "google-analyticsadmin1_alpha",
+        ),
+        cocoapods=("FirebaseAnalytics", "GoogleAnalytics", "GoogleAppMeasurement"),
+        composer=(
+            "google/analytics-data",
+            "google/analytics-admin",
+            "theiconic/php-ga-measurement-protocol",
+            "spatie/laravel-analytics",
+            "br33f/php-ga4-mp",
+        ),
+        go=("cloud.google.com/go/analytics",),
+        hex=(
+            "google_api_analytics",
+            "google_api_analytics_admin",
+            "google_api_analytics_data",
+            "google_api_analytics_reporting",
+        ),
+        maven=(
+            "com.google.analytics:google-analytics-data",
+            "com.google.analytics:google-analytics-admin",
+            "com.google.apis:google-api-services-analytics",
+            "com.google.apis:google-api-services-analyticsreporting",
+            "com.google.apis:google-api-services-analyticsadmin",
+            "com.google.apis:google-api-services-analyticsdata",
+            "com.google.firebase:firebase-analytics",
+            "com.google.firebase:firebase-analytics-ktx",
+            "com.google.android.gms:play-services-analytics",
+        ),
+        pub=("firebase_analytics", "usage"),
+        rubygems=(
+            "google-analytics-data",
+            "google-analytics-admin",
+            "google-analytics-data-v1beta",
+            "google-analytics-admin-v1alpha",
+            "google-apis-analytics_v3",
+            "google-apis-analyticsreporting_v4",
+            "google-apis-analyticsadmin_v1alpha",
+            "google-apis-analyticsdata_v1beta",
+            "staccato",
+            "legato",
+            "gabba",
+            "google-analytics-rails",
+        ),
+        swiftpm=("github.com/google/googleappmeasurement",),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developers.google.com/analytics/devguides/reporting/data/v1"
@@ -61,6 +189,16 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # `_run_report` raises this verbatim for any runReport response that isn't quota
+            # exhaustion or a 5xx — GA4 rejected the request itself (e.g. an invalid custom
+            # report dimension/metric name, or an incompatible dimension/metric combination),
+            # so retrying replays the identical request and fails identically every time.
+            "400 Client Error: Bad Request for url: https://analyticsdata.googleapis.com": (
+                "Google Analytics rejected this report request as invalid. This is usually caused by "
+                "a custom report dimension or metric name — GA4 API names are camelCase (e.g. "
+                "'bounceRate', not 'bounce_rate'). Check your custom report configuration against the "
+                "GA4 Data API schema, then try again."
+            ),
             "401 Client Error": "Your Google Analytics connection is invalid or expired. Please reconnect your account.",
             "403 Client Error": "PostHog is not authorized to read this Google Analytics property. Please make sure the connected Google account has access to the property.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Analytics account with the required scopes.",
@@ -196,25 +334,33 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                 "The Google Analytics connection for this source no longer exists. Please reconnect your Google account.",
             )
         except Exception as e:
-            return False, f"Could not load Google Analytics credentials: {e}"
+            capture_exception(e)
+            return False, _LOAD_CONNECTION_ERROR
 
         try:
             get_property_metadata(session, property_id)
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
-            if status in (401, 403):
-                return (
-                    False,
-                    f"Google Analytics rejected the credentials for property '{property_id}'. Please reconnect "
-                    "your account and ensure it has read access to the property.",
-                )
+            if status == 401:
+                return False, _CREDENTIALS_REJECTED_ERROR
+            if status == 403:
+                if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in e.response.text:
+                    return False, _MISSING_SCOPE_ERROR
+                return False, _PROPERTY_ACCESS_ERROR
             if status == 404:
                 return (
                     False,
                     f"GA4 property '{property_id}' was not found. Verify the numeric property ID in "
                     "Google Analytics admin settings.",
                 )
-            return False, f"Failed to read Google Analytics property metadata: {e}"
+            if status == 429 or (status is not None and 500 <= status < 600):
+                # Google is rate-limiting this metadata probe or briefly unavailable — both clear on
+                # their own and the status means nothing actionable for us, so log it rather than
+                # paging error tracking (same call as app_store_connect's credential probe).
+                logger.warning("ga4_property_metadata_probe_transient_status", status=status)
+                return False, _PROPERTY_METADATA_ERROR
+            capture_exception(e)
+            return False, _PROPERTY_METADATA_ERROR
         except RefreshError:
             # Raised while AuthorizedSession refreshes the OAuth access token (e.g. invalid_scope or
             # invalid_grant): the stored token is missing the required permissions, or has expired or
@@ -227,7 +373,8 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                 "account and grant access to Google Analytics.",
             )
         except Exception as e:
-            return False, f"Failed to read Google Analytics property metadata: {e}"
+            capture_exception(e)
+            return False, _PROPERTY_METADATA_ERROR
 
         return True, None
 
@@ -284,6 +431,19 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                             "Each report needs a name, GA4 dimensions, and GA4 metrics. PostHog always adds "
                             "the date dimension and syncs each report daily. GA4 allows up to 9 dimensions "
                             "(including date) and 10 metrics per report."
+                        ),
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="history_days",
+                        label="Days of history to sync initially (optional)",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder="730",
+                        caption=(
+                            "How far back the first sync of each report goes. The default is 730 days. "
+                            "If a large property runs out of Google Analytics API quota, set a lower "
+                            "value, for example 90 or 365."
                         ),
                         secret=False,
                     ),

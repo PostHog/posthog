@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 
 import { env } from '@/lib/env'
+import { getPublicUrl } from '@/lib/routing'
 import {
     loadSigningKeyFromEnv,
     NonceLedger,
@@ -25,7 +26,7 @@ export type App = {
 }
 
 const sseRedirect = (c: HonoCtx): Response => {
-    const target = new URL(c.req.url)
+    const target = getPublicUrl(c.req.raw)
     target.pathname = '/mcp' + target.pathname.slice('/sse'.length)
     target.searchParams.set('_deprecated', 'sse')
     return c.redirect(target.toString(), 308) as unknown as Response

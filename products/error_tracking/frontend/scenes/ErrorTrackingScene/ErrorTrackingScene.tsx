@@ -2,12 +2,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonBadge, LemonButton, LemonTab, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import api from 'lib/api'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconFeedback } from 'lib/lemon-ui/icons'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -157,6 +159,7 @@ const RecommendationsTabLabel = (): JSX.Element => {
 
 const Header = (): JSX.Element => {
     const { isDev } = useValues(preflightLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const buildExceptionSteps = (): {
         $type: string
@@ -174,7 +177,7 @@ const Header = (): JSX.Element => {
             },
             {
                 $type: 'http',
-                $message: 'GET /api/environments/:team_id/error_tracking/issues/',
+                $message: 'GET /api/projects/:team_id/error_tracking/issues/',
                 $level: 'info',
                 $timestamp: new Date(now.getTime() - 1200).toISOString(),
             },
@@ -202,41 +205,73 @@ const Header = (): JSX.Element => {
                     type: sceneConfigurations[Scene.ErrorTracking].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <>
-                        {isDev ? (
-                            <>
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => {
-                                        posthog.captureException(new Error('Kaboom !'), {
-                                            $exception_steps: buildExceptionSteps(),
-                                        })
-                                    }}
-                                >
-                                    Send an exception
-                                </LemonButton>
-                                <LemonButton size="small" onClick={onClick}>
-                                    Start exception loop
-                                </LemonButton>
-                            </>
-                        ) : null}
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconFeedback />}
-                            onClick={() => posthog.displaySurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
-                        >
-                            Feedback
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            to="https://posthog.com/docs/error-tracking"
-                            type="secondary"
-                            targetBlank
-                        >
-                            Documentation
-                        </LemonButton>
-                    </>
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            {isDev ? (
+                                <>
+                                    <Button
+                                        onClick={() => {
+                                            posthog.captureException(new Error('Kaboom !'), {
+                                                $exception_steps: buildExceptionSteps(),
+                                            })
+                                        }}
+                                    >
+                                        Send an exception
+                                    </Button>
+                                    <Button onClick={onClick}>Start exception loop</Button>
+                                </>
+                            ) : null}
+                            <Button
+                                variant="outline"
+                                onClick={() => posthog.displaySurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
+                            >
+                                <IconFeedback />
+                                Feedback
+                            </Button>
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to="https://posthog.com/docs/error-tracking" target="_blank" />}
+                            >
+                                Documentation
+                            </Button>
+                        </div>
+                    ) : (
+                        <>
+                            {isDev ? (
+                                <>
+                                    <LemonButton
+                                        size="small"
+                                        onClick={() => {
+                                            posthog.captureException(new Error('Kaboom !'), {
+                                                $exception_steps: buildExceptionSteps(),
+                                            })
+                                        }}
+                                    >
+                                        Send an exception
+                                    </LemonButton>
+                                    <LemonButton size="small" onClick={onClick}>
+                                        Start exception loop
+                                    </LemonButton>
+                                </>
+                            ) : null}
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconFeedback />}
+                                onClick={() => posthog.displaySurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
+                            >
+                                Feedback
+                            </LemonButton>
+                            <LemonButton
+                                size="small"
+                                to="https://posthog.com/docs/error-tracking"
+                                type="secondary"
+                                targetBlank
+                            >
+                                Documentation
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
         </>

@@ -219,12 +219,47 @@ FROM (
 )
 """
 
+# No-join variant of FIRST_PAGEVIEW_INNER_QUERY. The join path reads only
+# `session.session_id` and `session.$start_timestamp` from the sessions side
+# when bounce rate is off, and {session_id_present} already restricts the scan
+# to UUID session ids, so both come from the UUIDv7 id as in
+# NO_JOIN_MAIN_INNER_QUERY. Non-v7 ids collapse into one NULL session with a
+# NULL start timestamp, exactly as the join leaves them (raw_sessions is v7-only).
+NO_JOIN_FIRST_PAGEVIEW_INNER_QUERY = """
+SELECT
+    filtered_person_id,
+    filtered_pageview_count,
+    {breakdown_value} AS breakdown_value,
+    session_id,
+    start_timestamp
+FROM (
+    SELECT
+        {filtered_person_id} AS filtered_person_id,
+        {filtered_pageview_count} AS filtered_pageview_count,
+        {first_pageview_properties} AS first_pageview_properties,
+        if(
+            equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+            events.$session_id,
+            NULL
+        ) AS session_id,
+        any(if(
+            equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+            fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)),
+            NULL
+        )) AS start_timestamp
+    FROM events
+    WHERE and({inside_periods}, {event_where}, {all_properties}, {session_id_present})
+    GROUP BY session_id
+)
+"""
+
 # No-join variant of MAIN_INNER_QUERY for simple breakdowns that display no
-# session-derived column (no bounce, no conversion goal, event-property
-# breakdown value). The sessions join above contributes only `session_id`
-# (grouping) and `$start_timestamp` (period attribution) in that case — both
-# recoverable from the UUIDv7 session id itself, so the join is pure overhead
-# (prod-measured 10x wall / ~400x memory on DeviceType for a large team).
+# session-derived column (no bounce, event-property breakdown value). The
+# sessions join above contributes only `session_id` (grouping) and
+# `$start_timestamp` (period attribution) in that case — both recoverable from
+# the UUIDv7 session id itself, so the join is pure overhead (prod-measured 10x
+# wall / ~400x memory on DeviceType for a large team). Conversion-goal columns
+# aggregate event fields only, so they ride the same scan.
 # Sessionless and malformed-session-id events still count — the join keeps
 # them too (NULL session row). Non-UUIDv7 ids are lumped under a NULL
 # `session_id` (raw_sessions is v7-only, so the join's `session.session_id`
@@ -251,6 +286,43 @@ SELECT
 FROM events
 WHERE and({inside_periods}, {event_where}, {all_properties})
 GROUP BY session_id, breakdown_value
+"""
+
+# Channel-type breakdown in two phases. `$channel_type` is a session field, so the
+# sessions side cannot be dropped, but the lazy events↔sessions join re-runs the
+# sessions subquery on every events shard and probes it once per event. Here the
+# events are first reduced to one row per session with no join (same session key
+# as NO_JOIN_MAIN_INNER_QUERY), then joined once to the sessions that start in the
+# queried range. The LEFT JOIN keeps sessionless and non-UUIDv7 events under a
+# NULL session, as the lazy join does.
+CHANNEL_TYPE_TWO_PHASE_INNER_QUERY = """
+SELECT
+    e.filtered_person_id AS filtered_person_id,
+    e.filtered_pageview_count AS filtered_pageview_count,
+    s.breakdown_value AS breakdown_value,
+    e.session_id AS session_id,
+    s.start_timestamp AS start_timestamp
+FROM (
+    SELECT
+        {filtered_person_id} AS filtered_person_id,
+        {filtered_pageview_count} AS filtered_pageview_count,
+        if(
+            equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+            events.$session_id,
+            NULL
+        ) AS session_id
+    FROM events
+    WHERE and({inside_periods}, {event_where}, {all_properties})
+    GROUP BY session_id
+) AS e
+LEFT JOIN (
+    SELECT
+        sessions.session_id AS session_id,
+        sessions.$channel_type AS breakdown_value,
+        sessions.$start_timestamp AS start_timestamp
+    FROM sessions
+    WHERE {sessions_in_range}
+) AS s ON e.session_id = s.session_id
 """
 
 # No-join variants of the PAGE-breakdown queries: counts come straight from events

@@ -1,9 +1,11 @@
 import logging
+from datetime import timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -22,7 +24,6 @@ from products.slack_app.backend.api import (
     _user_repo_list_cache_key,
     parse_rules_command,
 )
-from products.slack_app.backend.services.commands import MENTION_HELP_REDIRECT
 
 
 def _repo_dict(org: str, name: str, repo_id: int = 1) -> dict:
@@ -116,7 +117,53 @@ class TestGetFullRepoNames:
             result = _get_full_repo_names(self.slack_integration, user_id=self.user.id)
 
         assert len(result) == 5
-        assert any("github_repo_list_capped" in r.message for r in caplog.records)
+        assert any("slack_app_github_repo_list_capped" in r.message for r in caplog.records)
+
+    @parameterized.expand(
+        [
+            ("no_snapshot_lists_inline", [], None, True, False),
+            ("empty_snapshot_lists_inline", [], 7, True, False),
+            ("fresh_snapshot_served", [_repo_dict("posthog", "posthog")], 2, False, False),
+            ("old_snapshot_served_and_refreshed_later", [_repo_dict("posthog", "posthog")], 7, False, True),
+            (
+                "webhook_invalidated_snapshot_served_and_refreshed_later",
+                [_repo_dict("posthog", "posthog")],
+                None,
+                False,
+                True,
+            ),
+        ]
+    )
+    @patch("products.slack_app.backend.api._schedule_user_repo_cache_refresh")
+    def test_snapshot_with_repos_does_not_block_on_github(
+        self,
+        _name,
+        snapshot_repos,
+        snapshot_age_hours,
+        expected_allow_refresh,
+        expected_scheduled,
+        mock_schedule,
+        mock_github_class,
+    ):
+        record = _create_user_github_integration(self.user)
+        record.repository_cache = snapshot_repos
+        record.repository_cache_updated_at = (
+            timezone.now() - timedelta(hours=snapshot_age_hours) if snapshot_age_hours is not None else None
+        )
+        record.save(update_fields=["repository_cache", "repository_cache_updated_at"])
+
+        mock_github = MagicMock()
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "posthog")]
+        mock_github_class.return_value = mock_github
+
+        result = _get_full_repo_names(self.slack_integration, user_id=self.user.id)
+
+        assert result == ["posthog/posthog"]
+        assert mock_github.list_all_cached_repositories.call_args.kwargs["allow_refresh"] is expected_allow_refresh
+        if expected_scheduled:
+            mock_schedule.assert_called_once_with(str(record.id))
+        else:
+            mock_schedule.assert_not_called()
 
     def test_results_are_sorted(self, mock_github_class):
         _create_user_github_integration(self.user)
@@ -424,7 +471,9 @@ class TestHandleRulesCommandActivity:
     def setup(self, db):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create(email="test@example.com", distinct_id="user-1")
+        # Org membership matters: the command activity resolves its target through the
+        # access-filtered resolver, which drops a project the caller cannot reach.
+        self.user = User.objects.create_and_join(self.organization, "test@example.com", "pw")
 
         self.integration = Integration.objects.create(
             team=self.team,
@@ -438,7 +487,17 @@ class TestHandleRulesCommandActivity:
         self.slack_user_id = "U_SLACK"
 
     def _make_inputs(self, text: str):
-        from posthog.temporal.ai.slack_app import PostHogCodeSlackMentionWorkflowInputs
+        from products.slack_app.backend.temporal import PostHogCodeSlackMentionCommandWorkflowInputs
+
+        return PostHogCodeSlackMentionCommandWorkflowInputs(
+            event={"text": text, "channel": self.channel, "thread_ts": self.thread_ts, "user": self.slack_user_id},
+            integration_ids=[self.integration.id],
+            slack_team_id="T12345",
+            user_id=self.user.id,
+        )
+
+    def _make_picker_inputs(self, text: str):
+        from products.slack_app.backend.temporal import PostHogCodeSlackMentionWorkflowInputs
 
         return PostHogCodeSlackMentionWorkflowInputs(
             event={"text": text, "channel": self.channel, "thread_ts": self.thread_ts, "user": self.slack_user_id},
@@ -452,39 +511,13 @@ class TestHandleRulesCommandActivity:
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+        from products.slack_app.backend.temporal import handle_posthog_code_slack_mention_command_activity
 
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs("<@U123> rules list"),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
-        )
+        result = handle_posthog_code_slack_mention_command_activity(self._make_inputs("rules list"), self.user.id)
 
-        assert result.status == "handled"
+        assert result.status == "done"
         msg = mock_slack.client.chat_postEphemeral.call_args
         assert "No routing rules" in msg.kwargs["text"]
-
-    @patch("posthog.models.integration.SlackIntegration")
-    def test_help_points_at_the_slash_command(self, mock_slack_cls):
-        mock_slack = MagicMock()
-        mock_slack_cls.return_value = mock_slack
-
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
-
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs("<@U123> help"),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
-        )
-
-        # The mention is still consumed as a command rather than becoming a task.
-        assert result.status == "handled"
-        msg = mock_slack.client.chat_postEphemeral.call_args
-        assert msg.kwargs["text"] == MENTION_HELP_REDIRECT
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_list_shows_rules(self, mock_slack_cls):
@@ -498,17 +531,11 @@ class TestHandleRulesCommandActivity:
             team=self.team, rule_text="Backend issues", repository="posthog/posthog", priority=1
         )
 
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+        from products.slack_app.backend.temporal import handle_posthog_code_slack_mention_command_activity
 
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs("<@U123> rules list"),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
-        )
+        result = handle_posthog_code_slack_mention_command_activity(self._make_inputs("rules list"), self.user.id)
 
-        assert result.status == "handled"
+        assert result.status == "done"
         msg = mock_slack.client.chat_postEphemeral.call_args
         assert "JS SDK bugs" in msg.kwargs["text"]
         assert "Backend issues" in msg.kwargs["text"]
@@ -521,17 +548,13 @@ class TestHandleRulesCommandActivity:
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+        from products.slack_app.backend.temporal import handle_posthog_code_slack_mention_command_activity
 
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs('<@U123> rules add "JS SDK bugs" posthog/posthog-js'),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
+        result = handle_posthog_code_slack_mention_command_activity(
+            self._make_inputs('rules add "JS SDK bugs" posthog/posthog-js'), self.user.id
         )
 
-        assert result.status == "handled"
+        assert result.status == "done"
         rule = RepoRoutingRule.objects.get(team=self.team)
         assert rule.rule_text == "JS SDK bugs"
         assert rule.repository == "posthog/posthog-js"
@@ -539,18 +562,15 @@ class TestHandleRulesCommandActivity:
         assert "Added rule" in msg.kwargs["text"]
 
     def test_add_without_repo_returns_needs_picker(self):
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+        from products.slack_app.backend.temporal import handle_posthog_code_slack_mention_command_activity
 
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs('<@U123> rules add "JS SDK bugs"'),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
+        result = handle_posthog_code_slack_mention_command_activity(
+            self._make_inputs('rules add "JS SDK bugs"'), self.user.id
         )
 
         assert result.status == "needs_picker"
         assert result.pending_rule_text == "JS SDK bugs"
+        assert result.target_integration_id == self.integration.id
 
     @patch("products.slack_app.backend.api._get_full_repo_names", return_value=["posthog/posthog"])
     @patch("posthog.models.integration.SlackIntegration")
@@ -558,17 +578,13 @@ class TestHandleRulesCommandActivity:
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+        from products.slack_app.backend.temporal import handle_posthog_code_slack_mention_command_activity
 
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs('<@U123> rules add "JS bugs" posthog/nonexistent'),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
+        result = handle_posthog_code_slack_mention_command_activity(
+            self._make_inputs('rules add "JS bugs" posthog/nonexistent'), self.user.id
         )
 
-        assert result.status == "handled"
+        assert result.status == "done"
         assert RepoRoutingRule.objects.filter(team=self.team).count() == 0
         msg = mock_slack.client.chat_postEphemeral.call_args
         assert "not connected" in msg.kwargs["text"]
@@ -578,18 +594,14 @@ class TestHandleRulesCommandActivity:
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+        from products.slack_app.backend.temporal import handle_posthog_code_slack_mention_command_activity
 
         long_rule = "x" * (RepoRoutingRule.MAX_RULE_TEXT_LENGTH + 1)
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs(f'<@U123> rules add "{long_rule}" posthog/posthog-js'),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
+        result = handle_posthog_code_slack_mention_command_activity(
+            self._make_inputs(f'rules add "{long_rule}" posthog/posthog-js'), self.user.id
         )
 
-        assert result.status == "handled"
+        assert result.status == "done"
         assert RepoRoutingRule.objects.filter(team=self.team).count() == 0
         msg = mock_slack.client.chat_postEphemeral.call_args
         assert f"limit is {RepoRoutingRule.MAX_RULE_TEXT_LENGTH}" in msg.kwargs["text"]
@@ -599,21 +611,17 @@ class TestHandleRulesCommandActivity:
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+        from products.slack_app.backend.temporal import handle_posthog_code_slack_mention_command_activity
 
         RepoRoutingRule.objects.bulk_create(
             RepoRoutingRule(team=self.team, rule_text=f"Rule {n}", repository="posthog/posthog-js", priority=n)
             for n in range(RepoRoutingRule.MAX_RULES_PER_TEAM)
         )
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs('<@U123> rules add "One more" posthog/posthog-js'),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
+        result = handle_posthog_code_slack_mention_command_activity(
+            self._make_inputs('rules add "One more" posthog/posthog-js'), self.user.id
         )
 
-        assert result.status == "handled"
+        assert result.status == "done"
         assert RepoRoutingRule.objects.filter(team=self.team).count() == RepoRoutingRule.MAX_RULES_PER_TEAM
         msg = mock_slack.client.chat_postEphemeral.call_args
         assert f"already has {RepoRoutingRule.MAX_RULES_PER_TEAM} rules" in msg.kwargs["text"]
@@ -623,11 +631,11 @@ class TestHandleRulesCommandActivity:
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
-        from posthog.temporal.ai.slack_app import create_posthog_code_routing_rule_activity
+        from products.slack_app.backend.temporal import create_posthog_code_routing_rule_activity
 
         long_rule = "x" * (RepoRoutingRule.MAX_RULE_TEXT_LENGTH + 1)
         create_posthog_code_routing_rule_activity(
-            self._make_inputs("<@U123> ignored"),
+            self._make_picker_inputs("ignored"),
             self.channel,
             self.thread_ts,
             self.user.id,
@@ -647,17 +655,11 @@ class TestHandleRulesCommandActivity:
         RepoRoutingRule.objects.create(team=self.team, rule_text="First rule", repository="org/repo", priority=0)
         RepoRoutingRule.objects.create(team=self.team, rule_text="Second rule", repository="org/repo2", priority=1)
 
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+        from products.slack_app.backend.temporal import handle_posthog_code_slack_mention_command_activity
 
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs("<@U123> rules remove 1"),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
-        )
+        result = handle_posthog_code_slack_mention_command_activity(self._make_inputs("rules remove 1"), self.user.id)
 
-        assert result.status == "handled"
+        assert result.status == "done"
         assert RepoRoutingRule.objects.filter(team=self.team).count() == 1
         remaining = RepoRoutingRule.objects.get(team=self.team)
         assert remaining.rule_text == "Second rule"
@@ -669,33 +671,23 @@ class TestHandleRulesCommandActivity:
 
         RepoRoutingRule.objects.create(team=self.team, rule_text="Only rule", repository="org/repo", priority=0)
 
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+        from products.slack_app.backend.temporal import handle_posthog_code_slack_mention_command_activity
 
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs("<@U123> rules remove 5"),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
-        )
+        result = handle_posthog_code_slack_mention_command_activity(self._make_inputs("rules remove 5"), self.user.id)
 
-        assert result.status == "handled"
+        assert result.status == "done"
         assert RepoRoutingRule.objects.filter(team=self.team).count() == 1
         msg = mock_slack.client.chat_postEphemeral.call_args
         assert "does not exist" in msg.kwargs["text"]
 
     def test_non_command_returns_not_a_command(self):
-        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+        from products.slack_app.backend.temporal import handle_posthog_code_slack_mention_command_activity
 
-        result = handle_posthog_code_rules_command_activity(
-            self._make_inputs("<@U123> fix the bug in posthog-js"),
-            self.channel,
-            self.thread_ts,
-            self.slack_user_id,
-            self.user.id,
+        result = handle_posthog_code_slack_mention_command_activity(
+            self._make_inputs("fix the bug in posthog-js"), self.user.id
         )
 
-        assert result.status == "not_a_command"
+        assert result.status == "done"
 
 
 class TestRepoRoutingRuleModel:

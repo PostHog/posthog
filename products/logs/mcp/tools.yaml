@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product logs
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product logs
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Logs
 feature: logs
 url_prefix: /logs
@@ -67,14 +65,16 @@ tools:
             idempotent: false
         title: Attach alert destination
         description: >
-            Attach a Slack, webhook, or Microsoft Teams notification destination to a log alert. Without a destination
-            an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved,
-            broken, errored) atomically. The returned hog_function_ids identify the destination group.
+            Attach a Slack, webhook, Microsoft Teams, or PagerDuty notification destination to a log alert. Without a
+            destination an alert evaluates silently and never notifies. One HogFunction is created per event kind
+            (firing, resolved, broken, errored) atomically. A PagerDuty destination gets the incident opened and
+            incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each
+            incident it opens is resolved. The returned hog_function_ids identify the destination group.
         param_overrides:
             type:
                 description: >
-                    Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and
-                    slack_channel_id. Webhook and teams require webhook_url.
+                    Destination type. Use slack, webhook, teams, or pagerduty. Slack requires slack_workspace_id and
+                    slack_channel_id. Webhook and teams require webhook_url. PagerDuty requires pagerduty_routing_key.
             slack_workspace_id:
                 description: Slack workspace integration ID. Required when type is slack.
             slack_channel_id:
@@ -83,6 +83,14 @@ tools:
                 description: Optional Slack channel name used for display.
             webhook_url:
                 description: Required when type is webhook or teams.
+            pagerduty_routing_key:
+                description: >
+                    The 32-character integration key of an Events API v2 integration on the PagerDuty service. Required
+                    when type is pagerduty.
+            pagerduty_severity:
+                description: Incident severity for PagerDuty. One of critical, error, warning, info. Defaults to critical.
+            pagerduty_region:
+                description: PagerDuty service region, us or eu. Defaults to us.
         response:
             include:
                 - hog_function_ids
@@ -212,9 +220,6 @@ tools:
                 - last_error_message
                 - created_at
                 - updated_at
-    logs-alerts-reset-create:
-        operation: logs_alerts_reset_create
-        enabled: false
     logs-alerts-retrieve:
         operation: logs_alerts_retrieve
         enabled: true
@@ -274,9 +279,6 @@ tools:
                 - total_buckets
                 - threshold_count
                 - threshold_operator
-    logs-alerts-update:
-        operation: logs_alerts_update
-        enabled: false
     logs-anomalies-scan:
         operation: logs_anomalies_scan_create
         enabled: true
@@ -312,12 +314,15 @@ tools:
             Return log volume for every (namespace, environment, severity) series of one service, each with an expected
             band learned from the same time of week over the previous weeks of the volume rollup. This is the data
             behind the Anomalies tab in the logs UI. A bucket whose observed count sits above upper or below lower fell
-            outside the expected range. lower and upper are null while a series is still learning; band_ready_at says
-            when its band arrives. Omit intervalMinutes and the grain is picked from the window (7 days gives 60
-            minutes, 1 day gives 15); pass 5, 15, 30 or 60 to choose. A series too sparse or too quiet for the requested
-            grain comes back coarser, with its own interval_minutes and a coarsened_reason. Requires a serviceName (use
-            logs-services-create or the resource attribute values tool to discover services). The window defaults to the
-            last 7 days, may span at most 7 days, and may start at most 35 days ago. Synchronous and read only.
+            outside the expected range. Ranges target 99% coverage of individual buckets, so an out-of-range bucket is a
+            reason to investigate, not a confirmed incident. lower and upper are null while a series is still learning.
+            band_ready_at gives the earliest end of a rolling window of the same length with enough earlier history.
+            Waiting does not add earlier history to a fixed historical window; select a more recent window instead. Omit
+            intervalMinutes and the grain is picked from the window (7 days gives 60 minutes, 1 day gives 15); pass 5,
+            15, 30 or 60 to choose. A series too sparse or too quiet for the requested grain comes back coarser, with
+            its own interval_minutes and a coarsened_reason. Requires a serviceName (use logs-services-create or the
+            resource attribute values tool to discover services). The window defaults to the last 7 days, may span at
+            most 7 days, and may start at most 35 days ago. Synchronous and read only.
         feature_flag: logs-anomalies
     logs-attribute-values-list:
         operation: logs_values_retrieve
@@ -352,6 +357,9 @@ tools:
             To search resource-level attributes (e.g. k8s.pod.name, k8s.namespace.name), you MUST explicitly pass
             attribute_type: "resource" — it will NOT return resource attributes unless you do. Accepts optional
             serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
+        exclude_params:
+            - date_from
+            - date_to
         response:
             include:
                 - results
@@ -385,12 +393,6 @@ tools:
             include:
                 - ranges
                 - interval
-    logs-explain-log-with-ai-create:
-        operation: logs_explainLogWithAI_create
-        enabled: false
-    logs-export-create:
-        operation: logs_export_create
-        enabled: false
     logs-facet-values-create:
         operation: logs_facet_values_create
         enabled: true
@@ -405,33 +407,6 @@ tools:
         response:
             include:
                 - results
-    logs-group-by-create:
-        operation: logs_group_by_create
-        enabled: false
-    logs-has-logs-retrieve:
-        operation: logs_has_logs_retrieve
-        enabled: false
-    logs-impact-create:
-        operation: logs_impact_create
-        enabled: false
-    logs-metric-rules-create:
-        operation: logs_metric_rules_create
-        enabled: false
-    logs-metric-rules-destroy:
-        operation: logs_metric_rules_destroy
-        enabled: false
-    logs-metric-rules-list:
-        operation: logs_metric_rules_list
-        enabled: false
-    logs-metric-rules-partial-update:
-        operation: logs_metric_rules_partial_update
-        enabled: false
-    logs-metric-rules-retrieve:
-        operation: logs_metric_rules_retrieve
-        enabled: false
-    logs-metric-rules-update:
-        operation: logs_metric_rules_update
-        enabled: false
     logs-patterns:
         operation: logs_patterns_create
         enabled: true
@@ -467,54 +442,6 @@ tools:
                 - entries.*.pattern.sparkline
                 - entries.*.pattern.count
                 - entries.*.pattern.error_count
-    logs-retention-rules-create:
-        operation: logs_retention_rules_create
-        enabled: false
-    logs-retention-rules-destroy:
-        operation: logs_retention_rules_destroy
-        enabled: false
-    logs-retention-rules-list:
-        operation: logs_retention_rules_list
-        enabled: false
-    logs-retention-rules-partial-update:
-        operation: logs_retention_rules_partial_update
-        enabled: false
-    logs-retention-rules-reorder-create:
-        operation: logs_retention_rules_reorder_create
-        enabled: false
-    logs-retention-rules-retrieve:
-        operation: logs_retention_rules_retrieve
-        enabled: false
-    logs-retention-rules-suggest-name-create:
-        operation: logs_retention_rules_suggest_name_create
-        enabled: false
-    logs-retention-rules-update:
-        operation: logs_retention_rules_update
-        enabled: false
-    logs-sampling-rules-create:
-        operation: logs_sampling_rules_create
-        enabled: false
-    logs-sampling-rules-destroy:
-        operation: logs_sampling_rules_destroy
-        enabled: false
-    logs-sampling-rules-list:
-        operation: logs_sampling_rules_list
-        enabled: false
-    logs-sampling-rules-partial-update:
-        operation: logs_sampling_rules_partial_update
-        enabled: false
-    logs-sampling-rules-reorder-create:
-        operation: logs_sampling_rules_reorder_create
-        enabled: false
-    logs-sampling-rules-retrieve:
-        operation: logs_sampling_rules_retrieve
-        enabled: false
-    logs-sampling-rules-simulate-create:
-        operation: logs_sampling_rules_simulate_create
-        enabled: false
-    logs-sampling-rules-update:
-        operation: logs_sampling_rules_update
-        enabled: false
     logs-services-create:
         operation: logs_services_create
         enabled: true
@@ -551,33 +478,6 @@ tools:
             idempotent: true
         title: Query logs sparkline
         description_file: ./prompts/logs-sparkline.md
-        response:
-            include:
-                - results
-    logs-views-create:
-        operation: logs_views_create
-        enabled: false
-    logs-views-destroy:
-        operation: logs_views_destroy
-        enabled: false
-    logs-views-list:
-        operation: logs_views_list
-        enabled: false
-    logs-views-partial-update:
-        operation: logs_views_partial_update
-        enabled: false
-    logs-views-retrieve:
-        operation: logs_views_retrieve
-        enabled: false
-    logs-views-update:
-        operation: logs_views_update
-        enabled: false
-    organizations-projects-logs-config-partial-update:
-        operation: organizations_projects_logs_config_partial_update
-        enabled: false
-    organizations-projects-logs-config-retrieve:
-        operation: organizations_projects_logs_config_retrieve
-        enabled: false
     query-logs:
         operation: logs_query_create
         enabled: true
@@ -593,6 +493,3 @@ tools:
         response:
             include:
                 - results
-    tasks-runs-logs-retrieve:
-        operation: tasks_runs_logs_retrieve
-        enabled: false

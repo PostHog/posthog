@@ -24,7 +24,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { dateFilterToText, dateStringToComponents } from 'lib/utils/dateFilters'
 import { clamp } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
@@ -45,10 +44,12 @@ import {
 } from '~/types'
 
 import { CohortConditionLink } from 'products/feature_flags/frontend/CohortConditionLink'
+import { ConditionSetSummary } from 'products/feature_flags/frontend/ConditionSetSummary'
 import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
+import { BlastRadiusSkeleton } from './BlastRadiusSkeleton'
 import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -202,27 +203,11 @@ export function FeatureFlagReleaseConditions({
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
                             <div>
-                                {group.properties?.length ? (
-                                    <>
-                                        {readOnly ? (
-                                            <>
-                                                Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
-                                                against <b>all</b> criteria
-                                            </>
-                                        ) : (
-                                            <>
-                                                Matching{' '}
-                                                <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
-                                                against the criteria
-                                            </>
-                                        )}
-                                    </>
-                                ) : (
-                                    <>
-                                        Condition set will match{' '}
-                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
-                                    </>
-                                )}
+                                <ConditionSetSummary
+                                    group={group}
+                                    aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
+                                    readOnly={readOnly}
+                                />
                             </div>
                         </div>
                         {!readOnly && (
@@ -465,7 +450,7 @@ export function FeatureFlagReleaseConditions({
                                         return (
                                             <div
                                                 role="status"
-                                                className="basis-full flex items-start gap-2 mt-1 text-secondary"
+                                                className="basis-full flex items-start gap-2 mt-1 min-h-[calc(3lh_+_0.25rem)] text-secondary"
                                             >
                                                 <IconErrorOutline className="text-danger text-base shrink-0 mt-0.5" />
                                                 <BlastRadiusErrorMessage
@@ -492,8 +477,8 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     if (affected === undefined || affected < 0 || total === undefined) {
                                         return (
-                                            <div className="basis-full flex items-center mt-1">
-                                                <Spinner />
+                                            <div className="basis-full mt-1 text-secondary">
+                                                <BlastRadiusSkeleton targetName={pluralName} />
                                             </div>
                                         )
                                     }

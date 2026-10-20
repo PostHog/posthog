@@ -1,10 +1,9 @@
-"""Run the query runners' validation rules when an insight is written, not only when it runs.
+"""Report an insight write whose query no runner can execute.
 
-The rules in `posthog/hogql_queries/validation` fire from `QueryRunner.calculate()`, so they
-only see a query on the read path. An insight whose query no runner can execute saves
-cleanly and then fails on every render, so a dashboard can hold a tile that has never drawn.
-This module runs the same rule objects against the query that is being written, which
-reports the problem once instead of on every read.
+An insight whose query breaks a validation rule saves cleanly and then fails on every render,
+so a dashboard can hold a tile that has never drawn. `first_query_rule_violation` runs the
+runner's own rules against the query being written, which reports the problem once instead of
+on every read.
 
 A rejection is recorded but not raised until the enforcement flag is on for the team. That
 shows which saves the rules would refuse before any save starts to fail.
@@ -22,7 +21,7 @@ from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner_or_none
+from posthog.hogql_queries.validation.validate_query import first_query_rule_violation
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.synthetic_user import SyntheticUser
@@ -46,12 +45,6 @@ class InsightWriteRejection:
     rule_code: str
     message: str
     query_kind: str
-
-
-@frozen
-class _RuleError:
-    message: str
-    code: str
 
 
 def validate_insight_write(
@@ -115,44 +108,15 @@ def _rejection_for(
     team: Team,
     user: Writer,
 ) -> InsightWriteRejection | None:
-    runner = _runner_or_none(query, team=team, user=user)
-    if runner is None:
+    violation = first_query_rule_violation(query, team=team, user=user if isinstance(user, User) else None)
+    if violation is None:
         return None
 
-    try:
-        runner.validate()
-    except ValidationError as error:
-        rule_error = _first_error(error)
-        return InsightWriteRejection(
-            rule_code=rule_error.code,
-            message=rule_error.message,
-            query_kind=str(getattr(runner.query, "kind", "unknown")),
-        )
-    except Exception:
-        # Only a rule saying "this can never run" is worth a 400. Anything else a rule throws
-        # is our bug, and failing the save on it would block writes the read path accepts.
-        logger.exception("Insight write validation rule failed")
-        return None
-
-    return None
-
-
-def _runner_or_none(query: dict[str, Any] | BaseModel, *, team: Team, user: Writer) -> QueryRunner | None:
-    try:
-        return get_query_runner_or_none(query, team, user=user if isinstance(user, User) else None)
-    except Exception:
-        # A payload no runner can be built for is one the read path already handles its own
-        # way. Rejecting it here would turn every shape we don't recognize into a 400.
-        return None
-
-
-def _first_error(error: ValidationError) -> _RuleError:
-    detail: Any = error.detail
-    if isinstance(detail, dict):
-        detail = next(iter(detail.values()), "")
-    if isinstance(detail, list):
-        detail = detail[0] if detail else ""
-    return _RuleError(message=str(detail), code=str(getattr(detail, "code", "invalid")))
+    return InsightWriteRejection(
+        rule_code=violation.code,
+        message=violation.message,
+        query_kind=violation.query_kind,
+    )
 
 
 def _record(

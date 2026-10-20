@@ -38,6 +38,8 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         enabled: true,
         status: 'active',
         pause_reason: null,
+        managed_by: 'team',
+        deprecation: null,
         emit: true,
         run_interval_minutes: 1440,
         run_cron_schedule: null,
@@ -45,16 +47,28 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         structured_output_schema: null,
         network_access: 'trusted',
         model: null,
+        precheck_query: null,
+        precheck_disabled: false,
+        effective_precheck_query: null,
+        precheck_query_source: 'off',
+        last_precheck_at: null,
+        last_precheck_outcome: null,
+        last_precheck_row_count: null,
         last_run_at: null,
         consecutive_failure_count: 0,
         status_changed_at: null,
+        status_changed_by: null,
         auto_pause_exempt: false,
+        lifecycle_locked: false,
         tags: [],
         mcp_gateway_server_ids: [],
         write_scopes: [],
+        allowed_mcp_tools: null,
+        tool_preset: null,
         source_product: null,
         source_id: null,
         created_at: '2026-06-11T09:00:00Z',
+        updated_at: '2026-06-11T09:00:00Z',
         ...overrides,
     }
 }
@@ -92,6 +106,7 @@ export function mockScoutRuns(configs: SignalScoutConfigApi[]): SignalScoutRunSu
             const startedAt = MOCK_NOW_MS - (runIndex + 1) * HOUR_MS
             return {
                 run_id: `${config.skill_name}-run-${runIndex}`,
+                total_spend: null,
                 skill_name: config.skill_name,
                 skill_version: 1,
                 status: failed ? ('failed' as const) : ('completed' as const),
@@ -121,6 +136,7 @@ export function mockDailyQuietRuns(config: SignalScoutConfigApi): SignalScoutRun
         const startedAt = MOCK_NOW_MS - (runIndex + 2) * 24 * HOUR_MS
         return {
             run_id: `${config.skill_name}-daily-run-${runIndex}`,
+            total_spend: null,
             skill_name: config.skill_name,
             skill_version: 1,
             status: 'completed' as const,

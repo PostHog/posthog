@@ -8,6 +8,7 @@ import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.slack.formatting import channel_id_from_target
 
 logger = structlog.get_logger(__name__)
 
@@ -50,10 +51,6 @@ def _channel_target(channel_id: str, channel_name: str) -> str:
     """Serialize to the "<id>|#name" form the signals notifier expects."""
     name = channel_name if channel_name.startswith("#") else f"#{channel_name}"
     return f"{channel_id}|{name}"
-
-
-def channel_id_from_target(value: str) -> str:
-    return value.split("|", 1)[0].strip()
 
 
 def channel_name_from_target(value: str) -> str:

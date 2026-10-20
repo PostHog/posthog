@@ -1,6 +1,6 @@
 """Sandbox reviewer invocation + output parsing.
 
-The whole review engine (hard gates, tier classification, git-blame
+The whole review engine (hard gates, tier classification, author
 familiarity, and the LLM reviewer) runs inside the sandbox via the engine's own
 modules (``products/stamphog/packages/pr-approval-agent/review_local.py``). This
 module no longer embeds a reviewer script. It only does two things:
@@ -55,7 +55,7 @@ _LEGACY_VERDICT_MAP = {
 }
 
 
-# Mirrors the engine's VERDICT_SCHEMA cap (products/stamphog/packages/pr-approval-agent/reviewer.py).
+# Mirrors the engine's FACTS_SCHEMA cap (products/stamphog/packages/pr-approval-agent/verdict_rule.py).
 # The columns that hold this text are TextField, so the schema is the only width it must respect.
 CHANGE_SUMMARY_MAX_CHARS = 600
 
@@ -111,13 +111,17 @@ def build_reviewer_invocation(
     pr_reactions: list[dict],
     author_pr_numbers: list[int],
     author_team_slugs: list[str],
+    familiarity_facts: dict | None,
+    commit_messages: list[str] | None,
     base_sha: str,
+    merge_base_sha: str | None,
     head_sha: str,
     repo: str,
     engine_dir: str,
     context_path: str,
     self_driving_review: bool = False,
     review_trigger: str = "",
+    review_evidence: list[dict] | None = None,
 ) -> ReviewerInvocation:
     """Assemble the context payload + command that reviews this PR in the sandbox.
 
@@ -127,11 +131,23 @@ def build_reviewer_invocation(
     GraphQL-only surface the tokenless sandbox can't fetch itself), so an
     unresolved inline "do not merge" reaches the reviewer prompt.
     ``author_pr_numbers`` are the author's merged-PR numbers the server fetched
-    (the engine needs them for the git-blame familiarity signal, which it
-    otherwise gets from a `gh` call it can't make in the sandbox).
+    (the familiarity signal matches a blamed commit to the author by its squash-merge
+    PR number when the commit has no GitHub login).
     ``author_team_slugs`` are every GitHub team the author belongs to, which the
     engine intersects with the teams owning the changed paths to tell the reviewer
     whether the author owns the code (another `gh` call the sandbox can't make).
+    ``review_evidence`` holds each registered external reviewer's status for this head
+    (``facade/review_evidence.py``). The engine waits on a pending one and counts a completed one
+    as assurance.
+    ``familiarity_facts`` are the blame and author-history facts the server read from GitHub
+    (``logic/familiarity_facts.py``), or None when that failed. The key is always set, because
+    its presence tells the engine to take familiarity from the facts and never from git history.
+    ``commit_messages`` are the PR's commit messages from GitHub, or None when they could not be read
+    at the reviewed head. The key is always set for the same reason: the engine reads provenance
+    trailers from them rather than from `git log`.
+    ``merge_base_sha`` lets the engine diff ``merge_base..head``. The sandbox checkout is shallow, so
+    git cannot compute the merge base there. It is None only for the gate-only pre-check, which reads
+    no checkout.
     ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
     to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
     never sets it, and only a run stamped with inbox provenance turns it on.
@@ -144,6 +160,7 @@ def build_reviewer_invocation(
     context = {
         "repo": repo,
         "base_sha": base_sha,
+        "merge_base_sha": merge_base_sha,
         "head_sha": head_sha,
         "pr": pr,
         "files": files,
@@ -152,8 +169,11 @@ def build_reviewer_invocation(
         "review_threads": review_threads,
         "check_runs": check_runs,
         "pr_reactions": pr_reactions,
+        "review_evidence": list(review_evidence or []),
         "author_pr_numbers": list(author_pr_numbers),
         "author_team_slugs": list(author_team_slugs),
+        "familiarity_facts": familiarity_facts,
+        "commit_messages": commit_messages,
         "self_driving_review": self_driving_review,
         "review_trigger": review_trigger,
     }
@@ -237,6 +257,14 @@ def _parse_legacy(obj: dict) -> ReviewerVerdict:
     if verdict == "escalate" and raw_verdict not in _LEGACY_VERDICT_MAP:
         showstoppers.append(f"Unrecognized verdict value: {raw_verdict!r}")
     return ReviewerVerdict(verdict=verdict, reasoning=reasoning, showstoppers=showstoppers)
+
+
+def parse_engine_timings(raw: str) -> dict[str, int]:
+    """The engine's own phase timings from its result line, or {} when it printed none."""
+    timings = (_find_result_object(raw) or {}).get("timings_ms")
+    if not isinstance(timings, dict):
+        return {}
+    return {str(name): value for name, value in timings.items() if isinstance(value, int)}
 
 
 def _find_result_object(raw: str) -> dict | None:

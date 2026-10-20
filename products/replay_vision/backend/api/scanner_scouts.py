@@ -2,15 +2,18 @@ from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
+from products.replay_vision.backend.variant_analysis import VARIANT_ANALYSIS_TAG, variant_analysis_config
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigSerializer, SignalScoutCreateSerializer
 from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission, scout_config_context
@@ -23,6 +26,14 @@ class ScannerScoutCreateSerializer(SignalScoutCreateSerializer):
     Inherits the Signals scout definition so a scout created here clears the same name and prompt-size
     bars as one created through the generic endpoint.
     """
+
+    variant_analysis = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison "
+            "of the variants, which the scanner's variants readout shows. Experiment scanners only."
+        ),
+    )
 
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
@@ -98,20 +109,54 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload = ScannerScoutCreateSerializer(data=request.data, context=serializer_context)
         payload.is_valid(raise_exception=True)
         validated = payload.validated_data
+        config_options = dict(validated.get("config", {}))
+        if validated["variant_analysis"]:
+            if scanner.scanner_type != ScannerType.EXPERIMENT:
+                raise ValidationError({"variant_analysis": "Variant analysis needs an experiment scanner."})
+            existing = signals_facade.scouts_for_source(
+                scanner.team_id, SCOUT_SOURCE_PRODUCT, str(scanner.id), tag=VARIANT_ANALYSIS_TAG
+            )
+            # One per scanner, paused ones included: the variants readout shows one scout's records.
+            # The same name again adopts that scout (a retried create), so it isn't a second one.
+            if any(scout.skill_name != validated.get("name") for scout in existing):
+                raise ValidationError(
+                    {
+                        "variant_analysis": (
+                            "This scanner already has a variant analysis scout. "
+                            "Turn that one back on or edit it instead."
+                        )
+                    }
+                )
+            # Attached here, not taken from the body, so the record the readout reads always has the
+            # shape it expects.
+            config_options = variant_analysis_config(config_options)
 
         result = signals_facade.create_scout_for_source(
             team=canonical_team,
             user=request.user,
-            name=validated["name"],
+            name=validated.get("name"),
+            display_name=validated.get("display_name", ""),
             description=validated["description"],
             body=validated["body"],
             files=[],
-            config_options=validated.get("config", {}),
+            config_options=config_options,
             request=request,
             serializer_context=serializer_context,
             # From the URL the caller's access was checked against, never from the body.
             source_product=SCOUT_SOURCE_PRODUCT,
             source_id=str(scanner.id),
+        )
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_scanner_scout_created",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "variant_analysis": validated["variant_analysis"],
+                "created": result.created,
+            },
+            team=self.team,
+            request=request,
         )
         return Response(
             ScannerScoutCreateResponseSerializer(

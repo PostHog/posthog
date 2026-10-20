@@ -1,27 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "dag_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Optional DAG to place this view into"
-        },
-        "deleted": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ]
-        },
         "description": {
             "anyOf": [
                 {
@@ -42,7 +21,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Activity log ID from the last known edit. Used for conflict detection."
+            "description": "The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime."
         },
         "folder_id": {
             "anyOf": [
@@ -130,7 +109,7 @@
                     "type": "null"
                 }
             ],
-            "description": "If true, skip column inference and validation. For saving drafts."
+            "description": "If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run."
         },
         "sync_frequency": {
             "anyOf": [

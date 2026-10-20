@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // --- Hoisted mocks ---
@@ -145,9 +146,9 @@ vi.mock("@posthog/agent/gateway-models", () => ({
   getClaudeModelRecency: vi.fn(() => 0),
   getProviderName: vi.fn(),
   isAnthropicModel: vi.fn((model) => model.owned_by === "anthropic"),
-  isBlockedModelId: vi.fn().mockReturnValue(false),
   isCloudflareModel: vi.fn((model) => model.owned_by === "cloudflare"),
   isModalModel: vi.fn((model) => model.owned_by === "modal"),
+  isOfferedModel: vi.fn().mockReturnValue(true),
   isOpenAIModel: vi.fn((model) => model.owned_by === "openai"),
   pickAllowedModel: vi.fn((_models, preferredModelId) => preferredModelId),
 }));
@@ -161,9 +162,12 @@ vi.mock("./context-wiki", () => ({
 }));
 
 vi.mock("./codex-home", () => ({
+  getCodexCloudHomeDir: vi.fn(() => "/mock/codex-cloud"),
+  getCodexCloudAuthFilePath: vi.fn(() => "/mock/codex-cloud/auth.json"),
   cleanupCodexHome: vi.fn().mockResolvedValue(undefined),
   getCodexHomeDir: vi.fn(() => "/mock/codex-home"),
   prepareCodexHome: vi.fn().mockResolvedValue("/mock/codex-home"),
+  writeCodexGatewayProvider: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -185,12 +189,13 @@ vi.mock("node:fs", async (importOriginal) => {
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
 import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
+import { RICH_OUTPUT_PROMPT_LEAD } from "@posthog/shared/rich-output-prompt";
 import {
   AgentService,
   buildAutoApproveOutcome,
   shouldAutoApprovePermissionRequest,
 } from "./agent";
+import { cleanupCodexHome, writeCodexGatewayProvider } from "./codex-home";
 import { AgentServiceEvent } from "./schemas";
 
 // --- Test helpers ---
@@ -220,7 +225,10 @@ function createMockDependencies() {
       gatewayAuthToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayPublishToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayProjectId: vi.fn().mockReturnValue(1),
-      ensureGatewayProxy: vi.fn().mockResolvedValue("http://127.0.0.1:9999"),
+      ensureGatewayProxy: vi.fn().mockResolvedValue({
+        proxyUrl: "http://127.0.0.1:9999",
+        mode: "legacy",
+      }),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
       createPosthogConfig: vi.fn((credentials) => ({
         apiUrl: credentials.apiHost,
@@ -323,6 +331,25 @@ describe("AgentService", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("rejects old cleanup while a newer cloud login owns the file", async () => {
+    vi.spyOn(fs.promises, "mkdir").mockResolvedValue(undefined);
+    const remove = vi.spyOn(fs.promises, "rm").mockResolvedValue(undefined);
+    await service.getCodexCloudAuthTerminal("attempt-1");
+    await expect(
+      service.getCodexCloudAuthTerminal("attempt-2"),
+    ).rejects.toThrow("in progress");
+    service.finishCodexCloudAuth("attempt-1");
+    await service.getCodexCloudAuthTerminal("attempt-2");
+    remove.mockClear();
+    service.finishCodexCloudAuth("attempt-1");
+    await expect(service.removeCodexCloudAuthFile("attempt-1")).rejects.toThrow(
+      "no longer active",
+    );
+    expect(remove).not.toHaveBeenCalled();
+    await service.removeCodexCloudAuthFile("attempt-2");
+    expect(remove).toHaveBeenCalledOnce();
   });
 
   describe("claude auth terminal", () => {
@@ -457,6 +484,20 @@ describe("AgentService", () => {
     });
   });
 
+  it("lists models from the legacy gateway when the proxy cannot start", async () => {
+    deps.agentAuthAdapter.ensureGatewayProxy.mockRejectedValueOnce(
+      new Error("PostHog session ended"),
+    );
+
+    await service.getPreviewConfigOptions("https://us.posthog.com", "claude");
+
+    expect(fetchGatewayModels).toHaveBeenCalledWith({
+      gatewayUrl: "https://gateway.example.com",
+      authToken: "gateway-token",
+      projectId: 1,
+    });
+  });
+
   it("includes Modal models in Claude preview options", async () => {
     vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
       {
@@ -482,8 +523,15 @@ describe("AgentService", () => {
       "claude",
     );
 
-    expect(fetchGatewayModels).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 1 }),
+    expect(fetchGatewayModels).toHaveBeenCalledWith({
+      gatewayUrl: "http://127.0.0.1:9999",
+      authToken: "gateway-token",
+      projectId: 1,
+    });
+    expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
+      "https://us.posthog.com",
+      1,
+      { awaitRecheck: false },
     );
     const modelOption = options.find((option) => option.id === "model");
     expect(modelOption).toMatchObject({
@@ -861,6 +909,71 @@ describe("AgentService", () => {
       const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
       expect(claudeMcp).toHaveLength(1);
       expect(codexMcp).toEqual(claudeMcp);
+    });
+
+    it("hands the CLIs the proxy placeholder, never the OAuth token", async () => {
+      await service.startSession(baseSessionParams);
+
+      expect(mockAgentRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          gatewayUrl: "http://127.0.0.1:9999",
+          gatewayApiKey: "posthog-code-auth-proxy",
+        }),
+      );
+    });
+
+    it("names the Codex base URL in its home config instead of argv", async () => {
+      await service.startSession({ ...baseSessionParams, adapter: "codex" });
+
+      expect(writeCodexGatewayProvider).toHaveBeenCalledWith(
+        "/mock/codex-home",
+        "http://127.0.0.1:9999/v1",
+        expect.anything(),
+      );
+      expect(mockAgentRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({ codexBaseUrlInConfig: true }),
+      );
+    });
+
+    it("refuses to start Codex when the gateway config write fails", async () => {
+      vi.mocked(writeCodexGatewayProvider).mockResolvedValueOnce(false);
+
+      await expect(
+        service.startSession({ ...baseSessionParams, adapter: "codex" }),
+      ).rejects.toThrow(/Codex gateway config/);
+      expect(mockAgentRun).not.toHaveBeenCalled();
+    });
+
+    it("removes the Codex home when a Codex session fails to start", async () => {
+      vi.mocked(cleanupCodexHome).mockClear();
+      mockAgentRun.mockRejectedValueOnce(new Error("spawn failed"));
+
+      await expect(
+        service.startSession({ ...baseSessionParams, adapter: "codex" }),
+      ).rejects.toThrow("spawn failed");
+      expect(cleanupCodexHome).toHaveBeenCalledWith(
+        expect.any(String),
+        "run-1",
+      );
+    });
+
+    it("pins the session to the gateway mode chosen at start", async () => {
+      deps.agentAuthAdapter.ensureGatewayProxy.mockResolvedValueOnce({
+        proxyUrl: "http://127.0.0.1:9998",
+        mode: "go",
+      });
+
+      const session = await service.startSession(baseSessionParams);
+
+      expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
+        baseSessionParams.apiHost,
+        baseSessionParams.projectId,
+      );
+      expect(session?.gatewayMode).toBe("go");
     });
 
     it("passes reasoning effort to local Codex startup options", async () => {
@@ -1424,7 +1537,7 @@ describe("AgentService", () => {
         const prompt = buildChannelPrompt(systemPromptOverride);
 
         expect(prompt).toContain(PRODUCT_ENGINEER_PROMPT);
-        expect(prompt).toContain(RICH_OUTPUT_TAGS_PROMPT);
+        expect(prompt).toContain(RICH_OUTPUT_PROMPT_LEAD);
         expect(prompt.indexOf(PRODUCT_ENGINEER_PROMPT)).toBeLessThan(
           prompt.indexOf(systemPromptOverride ?? "PostHog context:"),
         );

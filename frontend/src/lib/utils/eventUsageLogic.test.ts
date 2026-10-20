@@ -1,7 +1,5 @@
 import posthog from 'posthog-js'
 
-import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardingEventUsageLogic'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
@@ -9,7 +7,6 @@ import type {
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentTrendsQuery,
     Node,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -22,52 +19,39 @@ import {
     FilterLogicalOperator,
     FunnelVizType,
     PropertyFilterType,
-    type QueryBasedInsightModel,
     StepOrderValue,
 } from '~/types'
 
 import {
-    type OnboardingEventProperties,
     dashboardViewedProperties,
     eventUsageLogic,
     getEventPropertiesForMetric,
+    sanitizeDashboard,
     sanitizeQuery,
 } from './eventUsageLogic'
 
 describe('eventUsageLogic', () => {
-    describe('onboarding funnel events', () => {
-        let capture: jest.SpyInstance
-
-        beforeEach(() => {
+    describe('experiments list viewed', () => {
+        it('sends the state of the list under its pinned property names', () => {
             initKeaTests()
             eventUsageLogic.mount()
-            capture = jest.spyOn(posthog, 'capture').mockImplementation()
-        })
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
 
-        afterEach(() => {
+            eventUsageLogic.actions.reportExperimentsListViewed({
+                experimentsShown: 2,
+                statusFilter: 'running',
+                page: 2,
+                hasSearch: true,
+                archived: true,
+            })
+
+            expect(capture.mock.calls.map(([event, properties]) => [event, properties])).toEqual([
+                [
+                    'experiments list viewed',
+                    { experiments_shown: 2, status_filter: 'running', page: 2, has_search: true, archived: true },
+                ],
+            ])
             capture.mockRestore()
-        })
-
-        const cases: [string, OnboardingEventProperties | undefined, string][] = [
-            ['legacy', undefined, 'product_selection'],
-            ['self-driving', SELF_DRIVING_ONBOARDING_EVENT_PROPS, 'welcome'],
-        ]
-
-        it.each(cases)('stamps the %s entry point on every funnel event', (_, properties, entryPoint) => {
-            eventUsageLogic.actions.reportOnboardingStarted(properties)
-            eventUsageLogic.actions.reportOnboardingStepCompleted('install', undefined, properties)
-            eventUsageLogic.actions.reportOnboardingStepSkipped('install', undefined, properties)
-            eventUsageLogic.actions.reportOnboardingCompleted('product_analytics', properties)
-
-            for (const event of [
-                'onboarding started',
-                'onboarding step completed',
-                'onboarding step skipped',
-                'onboarding completed',
-            ]) {
-                const call = capture.mock.calls.find(([name]) => name === event)
-                expect(call?.[1]).toMatchObject({ entry_point: entryPoint })
-            }
         })
     })
 
@@ -393,10 +377,18 @@ describe('eventUsageLogic', () => {
         })
     })
 
+    it('keeps metric variable definitions out of a sanitized dashboard', () => {
+        const metricVariables = [{ name: 'env', source: 'sql', query: 'SELECT private_value' }]
+        const tile = { id: 1, insight: { id: 2, filter_override_context: { dashboard: { metricVariables } } } }
+        const dashboard = { id: 7, tiles: [tile], filters: { metricVariables }, persisted_filters: { metricVariables } }
+
+        const sanitized = sanitizeDashboard(dashboard as unknown as DashboardType)
+
+        expect(JSON.stringify(sanitized)).not.toContain('private_value')
+    })
+
     describe('dashboardViewedProperties', () => {
-        const dashboard = (
-            tiles: Partial<DashboardTile<QueryBasedInsightModel>>[]
-        ): DashboardType<QueryBasedInsightModel> =>
+        const dashboard = (tiles: Partial<DashboardTile>[]): DashboardType =>
             ({
                 id: 7,
                 created_at: '2026-01-01T00:00:00Z',
@@ -405,12 +397,12 @@ describe('eventUsageLogic', () => {
                 creation_mode: 'default',
                 created_by: { uuid: 'creator' },
                 tiles,
-            }) as unknown as DashboardType<QueryBasedInsightModel>
+            }) as unknown as DashboardType
 
-        const insightTile = (query: unknown, is_sample = false): Partial<DashboardTile<QueryBasedInsightModel>> =>
-            ({ insight: { query, is_sample } }) as unknown as Partial<DashboardTile<QueryBasedInsightModel>>
+        const insightTile = (query: unknown, is_sample = false): Partial<DashboardTile> =>
+            ({ insight: { query, is_sample } }) as unknown as Partial<DashboardTile>
 
-        const cases: [string, Partial<DashboardTile<QueryBasedInsightModel>>[], Record<string, unknown>][] = [
+        const cases: [string, Partial<DashboardTile>[], Record<string, unknown>][] = [
             ['no tiles', [], { item_count: 0, sample_items_count: 0 }],
             [
                 'an insight tile with a query',
@@ -431,9 +423,7 @@ describe('eventUsageLogic', () => {
             ],
             [
                 'text and widget tiles',
-                [{ text: { body: 'hi' } }, { text: { body: 'there' } }, { widget: {} }] as Partial<
-                    DashboardTile<QueryBasedInsightModel>
-                >[],
+                [{ text: { body: 'hi' } }, { text: { body: 'there' } }, { widget: {} }] as Partial<DashboardTile>[],
                 { item_count: 3, text_tiles_count: 2, widget_tiles_count: 1 },
             ],
         ]
@@ -464,7 +454,7 @@ describe('eventUsageLogic', () => {
         ]
 
         it.each(viewerCases)('reports viewer_is_creator when %s', (_, created_by, viewerUuid, expected) => {
-            const withCreator = { ...dashboard([]), created_by } as unknown as DashboardType<QueryBasedInsightModel>
+            const withCreator = { ...dashboard([]), created_by } as unknown as DashboardType
             expect(dashboardViewedProperties(withCreator, null, viewerUuid)).toMatchObject({
                 viewer_is_creator: expected,
                 created_by_system: created_by === null,
@@ -472,41 +462,12 @@ describe('eventUsageLogic', () => {
         })
     })
 
-    describe('legacy formats', () => {
-        it('extracts ExperimentFunnelsQuery properties', () => {
-            const metric = {
-                kind: NodeKind.ExperimentFunnelsQuery,
-                funnels_query: {
-                    series: [
-                        { kind: NodeKind.EventsNode },
-                        { kind: NodeKind.EventsNode },
-                        { kind: NodeKind.EventsNode },
-                    ],
-                    filterTestAccounts: true,
-                },
-            } as ExperimentFunnelsQuery
+    it('reports only the kind for a legacy metric', () => {
+        const metric = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: { series: [{ kind: NodeKind.EventsNode }] },
+        } as ExperimentFunnelsQuery
 
-            const result = getEventPropertiesForMetric(metric) as Record<string, any>
-
-            expect(result.kind).toBe(NodeKind.ExperimentFunnelsQuery)
-            expect(result.steps_count).toBe(3)
-            expect(result.filter_test_accounts).toBe(true)
-        })
-
-        it('extracts ExperimentTrendsQuery properties', () => {
-            const metric = {
-                kind: NodeKind.ExperimentTrendsQuery,
-                count_query: {
-                    series: [{ kind: NodeKind.ActionsNode, id: 1 }],
-                    filterTestAccounts: false,
-                },
-            } as ExperimentTrendsQuery
-
-            const result = getEventPropertiesForMetric(metric) as Record<string, any>
-
-            expect(result.kind).toBe(NodeKind.ExperimentTrendsQuery)
-            expect(result.series_kind).toBe(NodeKind.ActionsNode)
-            expect(result.filter_test_accounts).toBe(false)
-        })
+        expect(getEventPropertiesForMetric(metric)).toEqual({ kind: NodeKind.ExperimentFunnelsQuery })
     })
 })

@@ -24,6 +24,7 @@ class InsightResult:
     resolved_date_range: Optional[dict] = None
     # A QueryScanSummary dict. The insight serializer puts the stored analysis on it.
     query_scan: Optional[dict] = None
+    warnings: Optional[list] = None
 
 
 @dataclass(frozen=True)

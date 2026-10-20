@@ -33,3 +33,9 @@ type Story = StoryObj<typeof meta>;
 
 export const Empty: Story = {};
 export const WithText: Story = { args: { value: "Check the updated layout." } };
+export const SendToAgent: Story = {
+  args: {
+    value: "Make this heading red and a bit larger.",
+    onSendToAgent: () => {},
+  },
+};

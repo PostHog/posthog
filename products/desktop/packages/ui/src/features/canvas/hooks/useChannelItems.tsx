@@ -29,7 +29,7 @@ import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 /**
  * A channel's canvases + task feed as merged items, most recently active first, plus the
@@ -71,32 +71,20 @@ export function useChannelSessionFacts(): ChannelSessionFacts {
   }, [sessions, timestamps, workspaces]);
 }
 
-export function useChannelItems(channelId: string): {
-  items: ChannelItemModel[];
-  actions: ChannelItemActions;
-  /** Who the viewer is, for the created-by filter. */
-  me: ChannelItemOwner;
-  isLoading: boolean;
-  /** The channel id resolves to no channel in this project. */
-  channelMissing: boolean;
-} {
-  const navigate = useNavigate();
-
-  const { channels, isLoading: channelsLoading } = useChannels();
-  const channel = channels.find((c) => c.id === channelId);
-  const identityKnown = channel !== undefined;
-  const isPersonal = channel?.channelType === "personal";
-
-  const { dashboards, isLoading: dashboardsLoading } = useDashboards(channelId);
-  const { tasks: feedTasks, isLoading: feedLoading } =
-    useChannelFeed(channelId);
-  const { tasks: filedTaskRecords, isLoading: filedTasksLoading } =
-    useChannelTasks(channelId);
-  const { data: allTasks = [], isLoading: allTasksLoading } = useTasks({
-    showAllUsers: true,
-  });
-  const archivedTaskIds = useArchivedTaskIds();
-  const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
+/**
+ * The actions a row offers, for any list of channel items. Channel-agnostic on
+ * purpose: the Work column's Recent list spans every space, so the channel a
+ * row belongs to is asked per item rather than closed over.
+ */
+export function useChannelItemActions({
+  channelIdOf,
+  open,
+}: {
+  channelIdOf: (item: ChannelItemModel) => string | undefined;
+  open: (item: ChannelItemModel) => void;
+}): ChannelItemActions {
+  const { channels } = useChannels();
+  const { togglePin, setPinnedMany } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateUnscoped: true });
   const {
     setPinned: setCanvasPinned,
@@ -104,89 +92,10 @@ export function useChannelItems(channelId: string): {
     invalidateDashboards,
   } = useDashboardMutations();
   const primeCanvasView = usePrimeCanvasView();
-  const client = useOptionalAuthenticatedClient();
-  const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
-    client,
-  });
 
-  // What the filters ask about beyond the task itself: a live session's
-  // permission prompt, when you last looked, and where the workspace is. The
-  // session map is the sidebar's own subscription, which ignores the streamed
-  // events a turn fires and only wakes on the fields a row reads.
-  const sessionFacts = useChannelSessionFacts();
-  const meUuid = currentUser?.uuid ?? null;
-  const me = useMemo<ChannelItemOwner>(() => ({ uuid: meUuid }), [meUuid]);
-  // Only a uuid establishes identity — ownership compares uuids, so a viewer
-  // resolved without one can't be matched against anything and reads as unknown.
-  const viewerKnown = meUuid != null;
-
-  const items = useMemo<ChannelItemModel[]>(() => {
-    if (!identityKnown || (isPersonal && !viewerKnown)) return [];
-
-    const tasksById = new Map(allTasks.map((task) => [task.id, task]));
-    const mergedTasks = [...feedTasks];
-    const seenTaskIds = new Set(feedTasks.map((task) => task.id));
-    for (const record of filedTaskRecords) {
-      const task = tasksById.get(record.taskId);
-      if (task && !seenTaskIds.has(task.id)) {
-        mergedTasks.push(task);
-        seenTaskIds.add(task.id);
-      }
-    }
-
-    return buildChannelItems({
-      dashboards,
-      feedTasks: mergedTasks,
-      archivedTaskIds,
-      pinnedTaskIds,
-      // The personal channel is yours — but don't filter until we know
-      // who you are, or #me flashes everyone's items on a cold load.
-      ownedBy: isPersonal && viewerKnown ? me : null,
-      sessionFacts,
-    });
-  }, [
-    identityKnown,
-    sessionFacts,
-    dashboards,
-    feedTasks,
-    filedTaskRecords,
-    allTasks,
-    archivedTaskIds,
-    pinnedTaskIds,
-    isPersonal,
-    viewerKnown,
-    me,
-  ]);
-
-  const actions = useMemo<ChannelItemActions>(
+  return useMemo<ChannelItemActions>(
     () => ({
-      open: (item) => {
-        if (item.kind === "canvas") {
-          // Canvases report as dashboard opens, the same event the canvases
-          // pane fires, so the two entry points can be compared.
-          track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-            action_type: "open",
-            surface: "sidebar",
-            channel_id: channelId,
-            dashboard_id: item.id,
-          });
-          void navigate({
-            to: "/spaces/$channelId/dashboards/$dashboardId",
-            params: { channelId, dashboardId: item.id },
-          });
-        } else {
-          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-            action_type: "open_task",
-            surface: "sidebar",
-            channel_id: channelId,
-            task_id: item.id,
-          });
-          void navigate({
-            to: "/spaces/$channelId/tasks/$taskId",
-            params: { channelId, taskId: item.id },
-          });
-        }
-      },
+      open,
       togglePin: (item) => {
         const pin =
           item.kind === "canvas"
@@ -255,7 +164,7 @@ export function useChannelItems(channelId: string): {
         if (item.kind !== "canvas") return;
         deleteCanvasWithUndo({
           dashboardId: item.id,
-          channelId,
+          channelId: channelIdOf(item) ?? "",
           name: item.title,
           surface: "sidebar",
           invalidate: invalidateDashboards,
@@ -264,8 +173,8 @@ export function useChannelItems(channelId: string): {
       primeCanvas: primeCanvasView,
     }),
     [
-      channelId,
-      navigate,
+      open,
+      channelIdOf,
       setCanvasPinned,
       togglePin,
       setPinnedMany,
@@ -276,6 +185,124 @@ export function useChannelItems(channelId: string): {
       primeCanvasView,
     ],
   );
+}
+
+export function useChannelItems(channelId: string): {
+  items: ChannelItemModel[];
+  actions: ChannelItemActions;
+  /** Who the viewer is, for the created-by filter. */
+  me: ChannelItemOwner;
+  isLoading: boolean;
+  /** The channel id resolves to no channel in this project. */
+  channelMissing: boolean;
+} {
+  const navigate = useNavigate();
+
+  const { channels, isLoading: channelsLoading } = useChannels();
+  const channel = channels.find((c) => c.id === channelId);
+  const identityKnown = channel !== undefined;
+  const isPersonal = channel?.channelType === "personal";
+
+  const { dashboards, isLoading: dashboardsLoading } = useDashboards(channelId);
+  const { tasks: feedTasks, isLoading: feedLoading } =
+    useChannelFeed(channelId);
+  const { tasks: filedTaskRecords, isLoading: filedTasksLoading } =
+    useChannelTasks(channelId);
+  const { data: allTasks = [], isLoading: allTasksLoading } = useTasks({
+    showAllUsers: true,
+  });
+  const archivedTaskIds = useArchivedTaskIds();
+  const { pinnedTaskIds } = usePinnedTasks();
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
+    client,
+  });
+
+  // What the filters ask about beyond the task itself: a live session's
+  // permission prompt, when you last looked, and where the workspace is. The
+  // session map is the sidebar's own subscription, which ignores the streamed
+  // events a turn fires and only wakes on the fields a row reads.
+  const sessionFacts = useChannelSessionFacts();
+  const meUuid = currentUser?.uuid ?? null;
+  const me = useMemo<ChannelItemOwner>(() => ({ uuid: meUuid }), [meUuid]);
+  // Only a uuid establishes identity — ownership compares uuids, so a viewer
+  // resolved without one can't be matched against anything and reads as unknown.
+  const viewerKnown = meUuid != null;
+
+  const items = useMemo<ChannelItemModel[]>(() => {
+    if (!identityKnown || (isPersonal && !viewerKnown)) return [];
+
+    const tasksById = new Map(allTasks.map((task) => [task.id, task]));
+    const mergedTasks = [...feedTasks];
+    const seenTaskIds = new Set(feedTasks.map((task) => task.id));
+    for (const record of filedTaskRecords) {
+      const task = tasksById.get(record.taskId);
+      if (task && !seenTaskIds.has(task.id)) {
+        mergedTasks.push(task);
+        seenTaskIds.add(task.id);
+      }
+    }
+
+    return buildChannelItems({
+      dashboards,
+      feedTasks: mergedTasks,
+      archivedTaskIds,
+      pinnedTaskIds,
+      // The personal channel is yours — but don't filter until we know
+      // who you are, or #me flashes everyone's items on a cold load.
+      ownedBy: isPersonal && viewerKnown ? me : null,
+      sessionFacts,
+    });
+  }, [
+    identityKnown,
+    sessionFacts,
+    dashboards,
+    feedTasks,
+    filedTaskRecords,
+    allTasks,
+    archivedTaskIds,
+    pinnedTaskIds,
+    isPersonal,
+    viewerKnown,
+    me,
+  ]);
+
+  const openInChannel = useCallback(
+    (item: ChannelItemModel) => {
+      if (item.kind === "canvas") {
+        // Canvases report as dashboard opens, the same event the canvases
+        // pane fires, so the two entry points can be compared.
+        track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+          action_type: "open",
+          surface: "sidebar",
+          channel_id: channelId,
+          dashboard_id: item.id,
+        });
+        void navigate({
+          to: "/spaces/$channelId/dashboards/$dashboardId",
+          params: { channelId, dashboardId: item.id },
+        });
+        return;
+      }
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "open_task",
+        surface: "sidebar",
+        channel_id: channelId,
+        task_id: item.id,
+      });
+      void navigate({
+        to: "/spaces/$channelId/tasks/$taskId",
+        params: { channelId, taskId: item.id },
+      });
+    },
+    [channelId, navigate],
+  );
+
+  const channelIdOf = useCallback(() => channelId, [channelId]);
+  const actions = useChannelItemActions({
+    channelIdOf,
+    open: openInChannel,
+  });
 
   // A channel that isn't in the list will never resolve, so stop reporting
   // loading and let the caller say so instead of spinning forever.

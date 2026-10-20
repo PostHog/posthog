@@ -1,14 +1,18 @@
-from unittest.mock import patch
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.cohere import (
     COHERE_API_VERSION_V1,
     COHERE_BASE_URL,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import (
+    ENDPOINTS,
+    RETIRED_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.source import CohereSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
 
 
@@ -30,14 +34,13 @@ class TestCohereSourceClass:
         assert schemas[endpoint].supports_append is False
         assert schemas[endpoint].incremental_fields == []
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["datasets"])
-        assert [s.name for s in schemas] == ["datasets"]
-
-    def test_lists_tables_without_credentials_for_public_docs(self) -> None:
-        # get_schemas is a static catalog with no I/O, so the table list is safe to publish.
-        assert self.source.lists_tables_without_credentials is True
-        assert {t["name"] for t in self.source.get_documented_tables()} == set(ENDPOINTS)
+    @parameterized.expand([(e,) for e in sorted(RETIRED_ENDPOINTS)])
+    def test_retired_endpoint_is_off_the_catalog_and_stops_retrying(self, endpoint: str) -> None:
+        # Discovery drops the table because it left COHERE_ENDPOINTS. A schema created before the
+        # retirement keeps running until someone turns it off, so its failure has to be classified
+        # non-retryable or every scheduled run burns the full retry budget on a removed route.
+        assert endpoint not in ENDPOINTS
+        assert RETIRED_ENDPOINTS[endpoint] in self.source.get_non_retryable_errors()
 
     def test_declares_only_the_api_version_its_requests_use(self) -> None:
         # Cohere's v2 generation serves the inference surface only, and every list endpoint this
@@ -51,11 +54,12 @@ class TestCohereSourceClass:
         assert COHERE_BASE_URL == f"https://api.cohere.com/{COHERE_API_VERSION_V1}"
 
     def test_validate_credentials_success(self) -> None:
-        with patch.object(source_module, "validate_cohere_credentials", return_value=True):
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             assert self.source.validate_credentials(_config(), self.team_id) == (True, None)
+        assert network.requests_log[0].path == "/v1/models"
 
     def test_validate_credentials_failure(self) -> None:
-        with patch.object(source_module, "validate_cohere_credentials", return_value=False):
+        with scripted_network([ScriptedResponse(status=401)]):
             ok, error = self.source.validate_credentials(_config(), self.team_id)
         assert ok is False
-        assert error is not None
+        assert error == "Invalid Cohere API key"

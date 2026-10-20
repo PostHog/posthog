@@ -3,6 +3,7 @@ import {
     ensureRoutablePathname,
     removeProjectIdIfPresent,
     stripTrailingSlash,
+    stripTrailingSlashFromUrl,
 } from 'lib/utils/kea-router'
 
 describe('router-utils', () => {
@@ -105,6 +106,18 @@ describe('router-utils', () => {
         })
         it('leaves the empty string unchanged', () => {
             expect(stripTrailingSlash('')).toEqual('')
+        })
+    })
+
+    describe('stripTrailingSlashFromUrl', () => {
+        it.each([
+            ['/oauth/authorize/', '/oauth/authorize'],
+            ['/oauth/authorize/?client_id=abc', '/oauth/authorize?client_id=abc'],
+            ['/login?next=/oauth/authorize/', '/login?next=/oauth/authorize/'],
+            ['/insights/abc/#panel=/', '/insights/abc#panel=/'],
+            ['/', '/'],
+        ])('turns %s into %s', (input, expected) => {
+            expect(stripTrailingSlashFromUrl(input)).toEqual(expected)
         })
     })
 

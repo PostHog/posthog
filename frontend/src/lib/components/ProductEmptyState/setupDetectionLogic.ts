@@ -1,7 +1,17 @@
-import { BreakPointFunction, LogicWrapper, MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
+import {
+    BreakPointFunction,
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    listeners,
+    path,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { isScopeNotFoundError } from 'lib/api-error'
+import { ApiError, isBrowserNetworkFailure, isScopeNotFoundError } from 'lib/api-error'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -51,6 +61,14 @@ export interface SetupDetectionLogicOptions {
      * and a query on every scene entry.
      */
     cacheHasData?: boolean
+    /** Entity products can become empty when users delete their last item. Recheck mutations even after data exists. */
+    allowReturnToSetup?: boolean
+    /**
+     * With `cacheHasData`, re-run detection once in the background after a cached has-data
+     * answer, for data users can delete or that ages out of the probe's window. A no-data answer
+     * clears the cache so the next visit shows the empty state. It never replaces the mounted scene.
+     */
+    revalidateCachedHasData?: boolean
 }
 
 export interface SetupDetectionValues {
@@ -63,6 +81,7 @@ export interface SetupDetectionValues {
 
 export interface SetupDetectionActions {
     detectStatus: () => void
+    revalidateCachedStatus: () => { value: true }
     detectStatusSuccess: (
         detectedStatus: ProductSetupStatus | null,
         payload?: void
@@ -72,6 +91,52 @@ export interface SetupDetectionActions {
 }
 
 export type SetupDetectionLogicType = MakeLogicType<SetupDetectionValues, SetupDetectionActions>
+
+const HAS_DATA_CACHE_PREFIX = 'ph-product-setup-has-data/'
+
+function hasDataCacheKey(teamId: number, productKey: ProductKey): string {
+    return `${HAS_DATA_CACHE_PREFIX}${teamId}/${productKey}`
+}
+
+// localStorage throws in private modes or when disabled; a miss only costs a re-detect.
+function tryStorage<T>(fallback: T, run: (storage: Storage) => T): T {
+    try {
+        return run(window.localStorage)
+    } catch {
+        return fallback
+    }
+}
+
+/** Drops every product's cached has-data answer, so isolated renders (stories, tests) detect afresh. */
+export function clearAllCachedHasData(): void {
+    tryStorage(undefined, (storage) =>
+        Object.keys(storage)
+            .filter((key) => key.startsWith(HAS_DATA_CACHE_PREFIX))
+            .forEach((key) => storage.removeItem(key))
+    )
+}
+
+function readCachedHasData(teamId: number | null, productKey: ProductKey): boolean {
+    return (
+        teamId !== null && tryStorage(false, (storage) => storage.getItem(hasDataCacheKey(teamId, productKey)) === '1')
+    )
+}
+
+function writeCachedHasData(teamId: number | null, productKey: ProductKey): void {
+    if (teamId !== null) {
+        tryStorage(undefined, (storage) => storage.setItem(hasDataCacheKey(teamId, productKey), '1'))
+    }
+}
+
+function clearCachedHasData(teamId: number | null, productKey: ProductKey): void {
+    if (teamId !== null) {
+        tryStorage(undefined, (storage) => storage.removeItem(hasDataCacheKey(teamId, productKey)))
+    }
+}
+
+function isNoDataStatus(status: ProductSetupStatus | null): status is 'needs-setup' | 'waiting-for-data' {
+    return status === 'needs-setup' || status === 'waiting-for-data'
+}
 
 /**
  * Builds a product's empty-state detection logic: the piece that answers "is this
@@ -91,31 +156,17 @@ export type SetupDetectionLogicType = MakeLogicType<SetupDetectionValues, SetupD
  * Products whose detection drives more than the gate (extra selectors, multi-stage
  * dashboards like MCP analytics) keep a bespoke logic instead.
  */
-function hasDataCacheKey(teamId: number, productKey: ProductKey): string {
-    return `ph-product-setup-has-data/${teamId}/${productKey}`
-}
-
-// localStorage can throw (private modes, disabled storage); a cache miss is always safe.
-function readCachedHasData(teamId: number | null, productKey: ProductKey): boolean {
-    try {
-        return teamId !== null && window.localStorage.getItem(hasDataCacheKey(teamId, productKey)) === '1'
-    } catch {
-        return false
-    }
-}
-
-function writeCachedHasData(teamId: number | null, productKey: ProductKey): void {
-    try {
-        if (teamId !== null) {
-            window.localStorage.setItem(hasDataCacheKey(teamId, productKey), '1')
-        }
-    } catch {
-        // Nothing cached; the next mount just detects again.
-    }
-}
-
 export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): LogicWrapper<SetupDetectionLogicType> {
-    const { productKey, detect, pollIntervalMs, onDetected, recheckActionTypes, cacheHasData } = options
+    const {
+        productKey,
+        detect,
+        pollIntervalMs,
+        onDetected,
+        recheckActionTypes,
+        cacheHasData,
+        revalidateCachedHasData,
+        allowReturnToSetup,
+    } = options
     return buildKea<SetupDetectionLogicType>([
         path(options.path),
         connect(() => ({
@@ -129,27 +180,37 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 ['currentTeamId'],
             ],
         })),
-        loaders({
+        actions({ revalidateCachedStatus: true }),
+        loaders(({ cache }) => ({
             detectedStatus: {
                 __default: null as ProductSetupStatus | null,
                 detectStatus: async (_: void, breakpoint: BreakPointFunction): Promise<ProductSetupStatus | null> => {
-                    const status = await detect()
+                    const status = await detectOrNullOnOutageOrForbidden(detect, () =>
+                        cache.disposables.dispose('poll')
+                    )
                     breakpoint()
                     return status
                 },
             },
-        }),
+        })),
         listeners(({ actions, values, cache }) => ({
             ...Object.fromEntries(
                 (recheckActionTypes?.() ?? []).map((actionType) => [
                     actionType,
                     () => {
-                        if (values.currentProjectId) {
+                        if (values.currentProjectId && (allowReturnToSetup || values.setupStatus !== 'has-data')) {
                             actions.detectStatus()
                         }
                     },
                 ])
             ),
+            revalidateCachedStatus: async () => {
+                const teamId = values.currentTeamId
+                const status = await detectOrNull(detect)
+                if (isNoDataStatus(status)) {
+                    clearCachedHasData(teamId, productKey)
+                }
+            },
             detectStatusSuccess: ({ detectedStatus }) => {
                 if (!detectedStatus) {
                     if (values.setupStatus === 'loading') {
@@ -157,7 +218,15 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                     }
                     return
                 }
-                actions.setDetectedStatus(detectedStatus)
+                if (allowReturnToSetup && isNoDataStatus(detectedStatus)) {
+                    clearCachedHasData(values.currentTeamId, productKey)
+                    productSetupStatusLogic({ productKey }).actions.applyDetectedStatus(
+                        detectedStatus,
+                        values.currentTeamId
+                    )
+                } else {
+                    actions.setDetectedStatus(detectedStatus)
+                }
                 onDetected?.(detectedStatus)
                 // Data never disappears once it exists, so the poll's job is done.
                 if (detectedStatus === 'has-data') {
@@ -182,9 +251,10 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 }
             },
             [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {
-                // Covers non-polling products mounted before bootstrap settled.
-                if (values.detectedStatus === null && !values.detectedStatusLoading) {
-                    actions.detectStatus()
+                const run = cache.runWhenProjectKnown
+                if (run && values.currentProjectId) {
+                    cache.runWhenProjectKnown = null
+                    run()
                 }
             },
         })),
@@ -194,22 +264,75 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 // The cache skips detection, not the side effects - returning users take
                 // this path on every later visit.
                 onDetected?.('has-data')
+                if (revalidateCachedHasData) {
+                    runOnceProjectIsKnown(cache, values, actions.revalidateCachedStatus)
+                }
                 return
             }
-            // The API layer resolves the project from bootstrap state, so a check fired
-            // before that settles throws instead of answering - skip those ticks.
-            const detectIfProjectKnown = (): void => {
+            runOnceProjectIsKnown(cache, values, actions.detectStatus)
+            startPoll(cache, actions, values, pollIntervalMs)
+        }),
+    ])
+}
+
+async function detectOrNull(detect: () => Promise<ProductSetupStatus | null>): Promise<ProductSetupStatus | null> {
+    try {
+        return await detect()
+    } catch {
+        return null
+    }
+}
+
+// A 5xx, a dropped connection or a 403 says nothing about setup, and the gate treats null as
+// "cannot answer". Throwing would file one error tracking issue per product for each failure.
+// A 403 does not clear on retry, so it also stops the poll.
+async function detectOrNullOnOutageOrForbidden(
+    detect: () => Promise<ProductSetupStatus | null>,
+    onForbidden: () => void
+): Promise<ProductSetupStatus | null> {
+    try {
+        return await detect()
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 403) {
+            onForbidden()
+            return null
+        }
+        if (
+            (error instanceof ApiError && error.status !== undefined && error.status >= 500) ||
+            isBrowserNetworkFailure(error)
+        ) {
+            return null
+        }
+        throw error
+    }
+}
+
+function runOnceProjectIsKnown(
+    cache: Record<string, any>,
+    values: Pick<SetupDetectionValues, 'currentProjectId'>,
+    run: () => void
+): void {
+    if (values.currentProjectId) {
+        run()
+    } else {
+        cache.runWhenProjectKnown = run
+    }
+}
+
+function startPoll(
+    cache: Record<string, any>,
+    actions: Pick<SetupDetectionLogicType['actions'], 'detectStatus'>,
+    values: Pick<SetupDetectionValues, 'currentProjectId'>,
+    pollIntervalMs: number | undefined
+): void {
+    if (pollIntervalMs) {
+        cache.disposables.add(() => {
+            const id = window.setInterval(() => {
                 if (values.currentProjectId) {
                     actions.detectStatus()
                 }
-            }
-            detectIfProjectKnown()
-            if (pollIntervalMs) {
-                cache.disposables.add(() => {
-                    const id = window.setInterval(detectIfProjectKnown, pollIntervalMs)
-                    return () => clearInterval(id)
-                }, 'poll')
-            }
-        }),
-    ])
+            }, pollIntervalMs)
+            return () => clearInterval(id)
+        }, 'poll')
+    }
 }

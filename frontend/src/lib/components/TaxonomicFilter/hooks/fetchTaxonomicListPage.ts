@@ -43,7 +43,10 @@ export async function fetchTaxonomicListPage({
     }
 
     const minSearchQueryLength = group.minSearchQueryLength ?? 0
-    if (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) {
+    if (
+        (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) ||
+        group.shouldSearch?.(searchQuery) === false
+    ) {
         return { ...EMPTY_LIST, searchQuery }
     }
 
@@ -76,6 +79,7 @@ export async function fetchTaxonomicListPage({
     const useScoped = group.scopedEndpoint && !isExpanded
     const primaryUrl = useScoped ? group.scopedEndpoint! : remoteEndpoint
 
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
     const primary = await api.get(combineUrl(primaryUrl, baseParams).url, { signal })
 
     const results = primary?.results ?? primary ?? []

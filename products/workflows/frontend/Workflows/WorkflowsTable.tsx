@@ -1,11 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonCheckbox,
+    LemonDivider,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -13,14 +23,20 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AutomationEmptyState } from '../setupGuide/AutomationEmptyState'
+import { AutomationSuggestionBanner } from '../setupGuide/AutomationSuggestionBanner'
+import { MessagingSetupReminderBanner } from '../setupGuide/MessagingSetupReminderBanner'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
+import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
 import { workflowLogic } from './workflowLogic'
+import { findMatchingWorkflowSteps } from './workflowSearchMatches'
 import {
     WORKFLOW_TRIGGER_TYPE_OPTIONS,
     WorkflowStatusFilter,
@@ -28,6 +44,8 @@ import {
     WorkflowTypeFilter,
     workflowsLogic,
 } from './workflowsLogic'
+import { WorkflowStepMatches } from './WorkflowStepMatches'
+import { hasMessagingAction } from './workflowTypeFilters'
 
 const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
     active: { label: 'Active', type: 'success' },
@@ -36,13 +54,7 @@ const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default'
 }
 
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
-    const hasMessagingAction = useMemo(() => {
-        // Keep in sync with MESSAGING_ACTION_TYPES in products/workflows/backend/models/hog_flow/hog_flow.py,
-        // which the list API's `type` filter uses - the tag and the filter must agree on what "Messaging" is.
-        return workflow.actions.some((action) => {
-            return ['function_email', 'function_sms', 'function_push'].includes(action.type)
-        })
-    }, [workflow.actions])
+    const isMessaging = useMemo(() => hasMessagingAction(workflow.actions), [workflow.actions])
 
     if (workflow.origin_product === 'loops') {
         return (
@@ -51,7 +63,7 @@ function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
             </Link>
         )
     }
-    if (hasMessagingAction) {
+    if (isMessaging) {
         return <LemonTag type="completion">Messaging</LemonTag>
     }
     return <LemonTag type="default">Automation</LemonTag>
@@ -105,6 +117,9 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 }
 
 export function WorkflowsTable(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]
+    const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
     const logic = workflowsLogic()
     const {
         workflowsLoading,
@@ -115,6 +130,13 @@ export function WorkflowsTable(): JSX.Element {
         allArchivedSelected,
         selectedArchivedCount,
     } = useValues(logic)
+    // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
+    const showAutomationEmptyState =
+        filters.type === 'automation' &&
+        !filters.search &&
+        filters.createdBy === null &&
+        filters.status === 'all' &&
+        filters.triggerType === 'all'
     const {
         loadWorkflows,
         toggleWorkflowStatus,
@@ -124,6 +146,7 @@ export function WorkflowsTable(): JSX.Element {
         deleteWorkflow,
         deleteSelectedWorkflows,
         setFilters,
+        selectTypeTab,
         toggleArchivedWorkflowSelection,
         selectAllArchivedWorkflows,
         clearArchivedWorkflowSelection,
@@ -173,17 +196,48 @@ export function WorkflowsTable(): JSX.Element {
             key: 'name',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: (_, item) => {
-                return item.status === 'archived' ? (
-                    <Tooltip title="Restore this workflow to make changes">
-                        <span className="font-semibold text-sm text-muted">{item.name}</span>
-                    </Tooltip>
-                ) : (
-                    <LemonTableLink
-                        to={urls.workflow(item.id, 'workflow')}
-                        title={item.name}
-                        description={item.description}
-                        truncateDescription
-                    />
+                const stepMatches = findMatchingWorkflowSteps(item, filters.search)
+                return (
+                    <>
+                        {item.status === 'archived' ? (
+                            <Tooltip title="Restore this workflow to make changes">
+                                <span className="font-semibold text-sm text-muted">{item.name}</span>
+                            </Tooltip>
+                        ) : (
+                            <LemonTableLink
+                                to={urls.workflow(
+                                    item.id,
+                                    overviewTabEnabled && item.status === 'active' && item.trigger?.type !== 'batch'
+                                        ? 'overview'
+                                        : 'workflow'
+                                )}
+                                title={
+                                    <span className="flex items-center gap-2 flex-wrap">
+                                        {item.name}
+                                        {suggestionsAvailable &&
+                                            item.status === 'active' &&
+                                            item.suggestions_enabled && (
+                                                // Reads only: the row link already renders an anchor, and an
+                                                // interactive element inside it is unreachable by keyboard.
+                                                <LemonTag
+                                                    type={item.pending_suggestions ? 'completion' : 'option'}
+                                                    data-attr="workflow-list-suggestions"
+                                                >
+                                                    {!item.pending_suggestions
+                                                        ? 'Self-driving'
+                                                        : item.pending_suggestions === 1
+                                                          ? '1 suggestion'
+                                                          : `${item.pending_suggestions} suggestions`}
+                                                </LemonTag>
+                                            )}
+                                    </span>
+                                }
+                                description={item.description}
+                                truncateDescription
+                            />
+                        )}
+                        {stepMatches.length > 0 && <WorkflowStepMatches workflow={item} matches={stepMatches} />}
+                    </>
                 )
             },
         },
@@ -354,6 +408,24 @@ export function WorkflowsTable(): JSX.Element {
     return (
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
             <>
+                <MessagingSetupReminderBanner />
+                <div className="mb-3">
+                    <LemonSegmentedButton<WorkflowTypeFilter>
+                        size="small"
+                        value={filters.type}
+                        onChange={selectTypeTab}
+                        options={[
+                            { value: 'all', label: 'All', 'data-attr': 'workflows-type-tab-all' },
+                            { value: 'messaging', label: 'Messaging', 'data-attr': 'workflows-type-tab-messaging' },
+                            {
+                                value: 'automation',
+                                label: 'Automations',
+                                'data-attr': 'workflows-type-tab-automation',
+                            },
+                            { value: 'loop', label: 'Loops', 'data-attr': 'workflows-type-tab-loop' },
+                        ]}
+                    />
+                </div>
                 <div className="flex justify-between gap-2 flex-wrap mb-4">
                     <LemonInput
                         type="search"
@@ -376,21 +448,6 @@ export function WorkflowsTable(): JSX.Element {
                                 { label: 'Archived', value: 'archived' },
                             ]}
                             value={filters.status}
-                        />
-                        <span className="ml-1">
-                            <b>Type</b>
-                        </span>
-                        <LemonSelect
-                            dropdownMatchSelectWidth={false}
-                            size="small"
-                            onChange={(value) => setFilters({ type: value as WorkflowTypeFilter })}
-                            options={[
-                                { label: 'All', value: 'all' },
-                                { label: 'Messaging', value: 'messaging' },
-                                { label: 'Automation', value: 'automation' },
-                                { label: 'Loop', value: 'loop' },
-                            ]}
-                            value={filters.type}
                         />
                         <span className="ml-1">
                             <b>Trigger</b>
@@ -431,8 +488,9 @@ export function WorkflowsTable(): JSX.Element {
                     defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
                     pagination={pagination}
                     nouns={['workflow', 'workflows']}
-                    emptyState="No workflows matching filters"
+                    emptyState={showAutomationEmptyState ? <AutomationEmptyState /> : 'No workflows matching filters'}
                 />
+                <AutomationSuggestionBanner />
             </>
         </div>
     )

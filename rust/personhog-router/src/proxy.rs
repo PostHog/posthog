@@ -19,7 +19,9 @@ use tower::{Service, ServiceExt};
 
 use crate::backend::{ChannelBackend, LeaderBackend};
 use crate::config::RetryConfig;
-use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_response};
+use crate::grpc_http::{
+    grpc_error_response, grpc_status_code, is_grpc_error_response, unapplied_refusal_reason,
+};
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
@@ -27,6 +29,7 @@ const IDENTITY_PREFIX: &str = "/personhog.identity.v1.PersonHogIdentity/";
 const LIFECYCLE_PREFIX: &str = "/personhog.lifecycle.v1.PersonHogLifecycle/";
 
 pub const KNOWN_METHODS: &[&str] = &[
+    "AckPersonTombstones",
     "CheckCohortMembership",
     "CountCohortMembers",
     "CountGroupTypeMappings",
@@ -40,9 +43,11 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeletePersons",
     "DeletePersonsBatchForTeam",
     "DeleteTombstonedPersons",
+    "EnsurePersonVersionFloors",
     "FencePerson",
     "FencePersons",
     "FoldPersonDocument",
+    "GetDistinctIdRows",
     "GetDistinctIdsForPerson",
     "GetDistinctIdsForPersons",
     "GetGroup",
@@ -57,6 +62,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "GetPerson",
     "GetPersonByDistinctId",
     "GetPersonByUuid",
+    "GetPersonTombstones",
     "GetPersons",
     "GetPersonsByDistinctIds",
     "GetPersonsByDistinctIdsInTeam",
@@ -64,6 +70,8 @@ pub const KNOWN_METHODS: &[&str] = &[
     "InsertCohortMembers",
     "ListCohortMemberIds",
     "ListGroups",
+    "ListPersonTombstoneQueue",
+    "ListPersonsForTeam",
     "ReleaseFence",
     "ReleaseFences",
     "SetPersonDistinctIdVersionFloor",
@@ -511,13 +519,28 @@ impl RawProxyInner {
             match ready_channel.call(req).await {
                 Ok(response) => {
                     let channel_call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
+                    let unapplied = unapplied_refusal_reason(&response).map(str::to_owned);
                     histogram!(
                         "personhog_router_channel_call_ms",
                         "method" => method.clone(),
                         "client" => client.clone(),
-                        "outcome" => "ok",
+                        "outcome" => if unapplied.is_some() { "refused" } else { "ok" },
                     )
                     .record(channel_call_ms);
+                    if let (Some(reason), true) =
+                        (unapplied, attempt < self.retry_config.max_retries)
+                    {
+                        counter!(
+                            "personhog_router_unapplied_retries_total",
+                            "method" => method.clone(),
+                            "client" => client.clone(),
+                            "reason" => reason,
+                        )
+                        .increment(1);
+                        // The balancer re-picks an endpoint per request.
+                        retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
+                        continue;
+                    }
                     return (response, Some(channel_call_ms));
                 }
                 Err(e) => {
@@ -793,6 +816,18 @@ impl http_body::Body for ByteCountedBody {
         }
         result
     }
+
+    /// hyper sets END_STREAM on the response HEADERS frame only when this
+    /// returns true. A trailers-only gRPC error needs that flag. Without it,
+    /// grpcio reads the status headers as initial metadata and reports
+    /// UNKNOWN.
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.inner.size_hint()
+    }
 }
 
 impl Drop for ByteCountedBody {
@@ -979,6 +1014,20 @@ mod tests {
                 "wrong status for: {why}"
             );
         }
+    }
+
+    #[test]
+    fn byte_counted_body_reports_the_end_of_a_trailers_only_error() {
+        let inner = grpc_error_response(Code::Unavailable, "Server at capacity").into_body();
+        let body = ByteCountedBody::new(
+            inner,
+            Arc::from("GetPerson"),
+            "replica",
+            Arc::from("test"),
+            Arc::from(""),
+            0,
+        );
+        assert!(http_body::Body::is_end_stream(&body));
     }
 
     #[tokio::test]

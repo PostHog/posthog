@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { createElement, Fragment } from 'react'
 
@@ -12,17 +12,6 @@ import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker, NonPo
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
-/**
- * Refresh every mounted `dashboardTemplatesLogic` slice we use in-product:
- * - templates tab: `default-all-templatesTab`
- * - new dashboard chooser: `default-all` / `feature_flag-all`
- * - dashboards page featured row: `default-featured`
- *
- * All four go through `findMounted` so we never dispatch into an unmounted instance.
- * `connect.actions` did not reliably keep the templates-tab logic mounted across the
- * editor/modal lifecycle, which surfaced as `[KEA] Can not find path … in the store.`
- * when the post-save loader read its own reducers.
- */
 function refreshDashboardTemplateListsAfterMutation(): void {
     dashboardTemplatesLogic.findMounted({ scope: 'default', templatesTabList: true })?.actions.getAllTemplates()
     dashboardTemplatesLogic.findMounted({ scope: 'default' })?.actions.getAllTemplates()
@@ -418,6 +407,11 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
         deleteDashboardTemplateSuccess: async () => {
             refreshDashboardTemplateListsAfterMutation()
         },
+        openDashboardTemplateEditor: () => {
+            if (!values.templateSchema && !values.templateSchemaLoading) {
+                actions.getTemplateSchema()
+            }
+        },
         closeDashboardTemplateEditor: () => {
             actions.clear()
         },
@@ -503,7 +497,4 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.getTemplateSchema()
-    }),
 ])

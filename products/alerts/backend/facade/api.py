@@ -8,24 +8,43 @@ lifecycle machine in `facade.lifecycle`, and scheduling math in `facade.scheduli
 import uuid
 from collections.abc import Collection
 from datetime import datetime, timedelta
-from typing import Final, Literal
+from itertools import islice
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
 
-from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 from posthog.models.activity_logging.model_activity import ActingUserContext
+from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.schema_enums import AlertState
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.alerts.backend.facade.contracts import DestinationType
+from products.alerts.backend.facade import contracts
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    MAX_CONCURRENT_MODEL_CALLS,
+    MAX_PROMPT_POINTS,
+    LLMDetectorError,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+)
+from products.alerts.backend.llm_detector_limits import (
+    LLMAlertRefusal,
+    LLMAlertWrite,
+    admit_llm_alert_write,
+    is_llm_detector_config,
+    llm_detector_access_error,
+)
+from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 
@@ -34,15 +53,6 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
-
-# The event an insight alert check emits, named legacy where it is defined because it predates the
-# managed-alert event boundary. Do not take it from `posthog.tasks.alerts.utils` instead, because
-# that module imports this product's facade.
-INSIGHT_ALERT_EVENT_IDS: Final[tuple[str, ...]] = (LEGACY_INSIGHT_ALERT_EVENT,)
-
-# Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
-# destination an admin chose, while every other transport takes a URL the caller supplies.
-INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
@@ -170,3 +180,48 @@ def snooze_alert_from_slack(
             )
 
     return "snoozed"
+
+
+FIRING_ALERT_CANDIDATES = 200
+
+
+def list_firing_alerts_created_by(
+    team: Team, user: User, *, include_metrics_insights: bool, limit: int
+) -> list[contracts.FiringAlert]:
+    alerts = AlertConfiguration.objects.filter(
+        team_id=team.id,
+        enabled=True,
+        state=AlertState.FIRING,
+        created_by_id=user.id,
+        insight__deleted=False,
+    ).filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=timezone.now()))
+    if not include_metrics_insights:
+        alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
+    access = UserAccessControl(user, team=team)
+    candidates = alerts.select_related("insight").order_by("-created_at")[:FIRING_ALERT_CANDIDATES]
+    viewable = (alert for alert in candidates if access.check_access_level_for_object(alert.insight, "viewer"))
+    return [
+        contracts.FiringAlert(
+            id=alert.id,
+            name=alert.name,
+            insight_name=alert.insight.name or alert.insight.derived_name,
+            insight_short_id=alert.insight.short_id,
+        )
+        for alert in islice(viewable, limit)
+    ]
+
+
+__all__ = [
+    "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
+    "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
+    "MAX_CONCURRENT_MODEL_CALLS",
+    "MAX_PROMPT_POINTS",
+    "LLMAlertRefusal",
+    "LLMAlertWrite",
+    "LLMDetectorError",
+    "LLMDetectorMisconfiguredError",
+    "LLMDetectorUnavailableError",
+    "admit_llm_alert_write",
+    "is_llm_detector_config",
+    "llm_detector_access_error",
+]

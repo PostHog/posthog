@@ -1,6 +1,7 @@
 import type { LogicWrapper } from 'kea'
-import type { ComponentType, CSSProperties, ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
+import type { HoggiePngProps } from 'lib/brand/hoggies'
 import type { RestrictionScope } from 'lib/components/RestrictedArea'
 import type { FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 
@@ -113,7 +114,7 @@ export interface ProductEmptyStateConfig {
     /** Dark-mode accent override; falls back to `accentColor` */
     accentColorDark?: string
     /** A `pngHoggie(...)`-wrapped hedgehog, rendered above the product name */
-    hedgehog?: ComponentType<{ className?: string; style?: CSSProperties }>
+    hedgehog?: ComponentType<Pick<HoggiePngProps, 'className' | 'style' | 'loading'>>
     /**
      * Where the hedgehog sits: `above` (default) is a small illustration above the
      * product name; `beside` renders it large next to the text and install command,
@@ -148,6 +149,7 @@ export interface ProductEmptyStateConfig {
     manualSetupUrl?: string
     /** Rendered as "<previewLabel>" with a pulsing live dot, above the preview */
     previewLabel: string
+    previewClassName?: string
     /** Self-animating signature preview populated with realistic fake data */
     Preview: ComponentType<{ mode: ProductEmptyStateMode }>
     /** Product-specific live status line (e.g. a "listening for events" indicator), rendered under the command block */
@@ -221,4 +223,4 @@ export interface SceneProductEmptyState {
  * `tab` route param the gate covers, including `undefined` for the URL that carries no tab
  * segment - `/workflows` and `/workflows/workflows` are the same tab.
  */
-export type GatedScene = string | { scene: string; tabs: (string | undefined)[] }
+export type GatedScene = string | { scene: string; tabs: (string | undefined)[]; tabSource?: 'path' | 'search' }

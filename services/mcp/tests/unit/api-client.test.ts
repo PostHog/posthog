@@ -1,9 +1,68 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
+import { MCP_CLIENT_IP_HEADERS, verifySignedClientIp } from '@/lib/client-ip-signature'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
+import { PostHogTransportError } from '@/lib/errors'
+import { getToolByName } from '@/shared/test-utils'
+import { GENERATED_TOOLS as PROXY_TOOLS } from '@/tools/generated/proxy-records'
+import { GENERATED_TOOLS } from '@/tools/generated/skills'
+import type { Context } from '@/tools/types'
 
 describe('ApiClient', () => {
+    it('validates the resource path of a generated tool before fetching', async () => {
+        const send = vi.fn().mockResolvedValue(new Response('{}'))
+        vi.stubGlobal('fetch', send)
+        const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+        const context = { api: client, stateManager: { getOrgID: async () => 'example' } } as unknown as Context
+        const tool = getToolByName(PROXY_TOOLS, 'proxy-delete')
+        try {
+            await expect(tool.handler(context, tool.schema.parse({ id: '..' }))).rejects.toThrow('Invalid API path')
+            expect(send).not.toHaveBeenCalled()
+        } finally {
+            vi.unstubAllGlobals()
+        }
+    })
+
+    it.each(['.', '..', '%2e', '.%2e', '%2e.', '%2e%2e', ''])(
+        'rejects invalid resource segment case %# before sending',
+        async (id) => {
+            const send = vi.fn().mockResolvedValue(new Response('{}'))
+            vi.stubGlobal('fetch', send)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+            try {
+                await expect(
+                    client.request({ method: 'DELETE', path: `/api/organizations/example/proxy_records/${id}/` })
+                ).rejects.toThrow('Invalid API path')
+                expect(send).not.toHaveBeenCalled()
+            } finally {
+                vi.unstubAllGlobals()
+            }
+        }
+    )
+
+    it.each([200, 403, 500])('reads privacy only from the API response before handling status %s', async (status) => {
+        const shared = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+        const suppress = vi.fn()
+        const scoped = shared.withAnalyticsSuppression(suppress)
+        for (const header of [undefined, 'false', 'true']) {
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(
+                    async () =>
+                        new Response(JSON.stringify({ detail: 'Synthetic response' }), {
+                            status,
+                            headers: header ? { 'X-PostHog-Suppress-Analytics': header } : {},
+                        })
+                )
+            )
+            await scoped.request({ method: 'GET', path: '/api/projects/1/tasks/' }).catch(() => undefined)
+        }
+        expect(suppress).toHaveBeenCalledOnce()
+        expect(shared.config.onPrivateResponse).toBeUndefined()
+        vi.unstubAllGlobals()
+    })
+
     it('should create ApiClient with required config', () => {
         const client = new ApiClient({
             apiToken: 'test-token',
@@ -238,6 +297,37 @@ describe('ApiClient', () => {
     })
 
     it.each([
+        ['an IP and a key', { clientIp: '203.0.113.7', clientIpSigningKeys: ['mcp-key', 'old-key'] }, '203.0.113.7'],
+        ['an IP and no key', { clientIp: '203.0.113.7', clientIpSigningKeys: [] }, null],
+        ['a key and no IP', { clientIpSigningKeys: ['mcp-key'] }, null],
+    ] as const)('signs the end user IP for the activity log given %s', async (_label, extraConfig, expectedIp) => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            ...extraConfig,
+            clientIpSigningKeys: [...extraConfig.clientIpSigningKeys],
+        })
+        await (client as any).fetch('https://example.com/api/test', { method: 'GET' })
+
+        const headers = mockFetch.mock.calls[0]![1].headers
+        expect(headers[MCP_CLIENT_IP_HEADERS.ip] ?? null).toBe(expectedIp)
+        if (expectedIp) {
+            const outcome = await verifySignedClientIp(
+                headers[MCP_CLIENT_IP_HEADERS.ip],
+                headers[MCP_CLIENT_IP_HEADERS.timestamp],
+                headers[MCP_CLIENT_IP_HEADERS.signature],
+                ['mcp-key']
+            )
+            expect(outcome).toBe('valid')
+        }
+
+        vi.unstubAllGlobals()
+    })
+
+    it.each([
         [
             'both ids set',
             { mcpSessionId: 'abc123session', mcpConversationId: '01984ad9-bda4-7000-8000-abcdef012345' },
@@ -360,6 +450,60 @@ describe('ApiClient', () => {
 
             vi.unstubAllGlobals()
         })
+
+        it.each([
+            ['a seven-digit number', 1234567, 'https://example.com/api/projects/1/insights/1234567/'],
+            ['an eight-digit number', 12345678, 'https://example.com/api/projects/1/insights/12345678/'],
+            ['a seven-digit numeric string', '1234567', 'https://example.com/api/projects/1/insights/1234567/'],
+        ])('resolves %s through the retrieve endpoint only', async (_label, insightId, expectedUrl) => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify({ id: 42, short_id: 'abc12345' }), { status: 200 })
+            )
+
+            const result = await client.insights({ projectId: '1' }).get({ insightId })
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(mockFetch.mock.calls[0]![0]).toBe(expectedUrl)
+            expect(result.success).toBe(true)
+
+            vi.unstubAllGlobals()
+        })
+
+        it.each([
+            ['an all-digit short_id', { results: [{ id: 42, short_id: '12345678' }] }, 1],
+            ['a numeric id with no short_id match', { results: [] }, 2],
+        ])('resolves an eight-digit numeric string that is %s', async (_label, listBody, expectedCalls) => {
+            const { client, mockFetch } = setupClient()
+            mockFetch
+                .mockResolvedValueOnce(new Response(JSON.stringify(listBody), { status: 200 }))
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ id: 12345678, short_id: 'abc12345' }), { status: 200 })
+                )
+
+            const result = await client.insights({ projectId: '1' }).get({ insightId: '12345678' })
+
+            expect(mockFetch).toHaveBeenCalledTimes(expectedCalls)
+            expect(mockFetch.mock.calls[0]![0]).toContain('/api/projects/1/insights/?short_id=12345678')
+            if (expectedCalls === 2) {
+                expect(mockFetch.mock.calls[1]![0]).toBe('https://example.com/api/projects/1/insights/12345678/')
+            }
+            expect(result.success).toBe(true)
+
+            vi.unstubAllGlobals()
+        })
+
+        it('reports a missing alphanumeric short_id without a retrieve fallback', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+
+            const result = await client.insights({ projectId: '1' }).get({ insightId: 'abc12345' })
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(result.success).toBe(false)
+
+            vi.unstubAllGlobals()
+        })
     })
 
     describe('actors query paging', () => {
@@ -427,5 +571,221 @@ describe('ApiClient', () => {
 
             expect(query).not.toHaveProperty('orderBy')
         })
+    })
+
+    // A scout reads its required skill pages before it can start, so a dropped
+    // connection on one of those reads costs the whole run a manual repeat.
+    // Safe methods apply nothing upstream, so the client repeats them itself.
+    describe('transient transport failures', () => {
+        const networkError = (): Error => new TypeError('fetch failed')
+
+        const stubFetch = (...outcomes: (Response | Error)[]): ReturnType<typeof vi.fn> => {
+            const mockFetch = vi.fn()
+            for (const outcome of outcomes) {
+                if (outcome instanceof Error) {
+                    mockFetch.mockRejectedValueOnce(outcome)
+                } else {
+                    mockFetch.mockResolvedValueOnce(outcome)
+                }
+            }
+            mockFetch.mockImplementation(() => Promise.reject(networkError()))
+            vi.stubGlobal('fetch', mockFetch)
+            return mockFetch
+        }
+
+        const skillContext = (): Context =>
+            ({
+                api: new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' }),
+                stateManager: { getProjectId: vi.fn().mockResolvedValue('17') },
+            }) as unknown as Context
+
+        /** Drains the backoff sleeps, then returns the value or the thrown error. */
+        const settle = async (promise: Promise<unknown>): Promise<unknown> => {
+            const outcome = promise.then(
+                (value) => value,
+                (error) => error
+            )
+            await vi.runAllTimersAsync()
+            return outcome
+        }
+
+        const runTool = (name: string, params: Record<string, unknown>): Promise<unknown> =>
+            settle(getToolByName(GENERATED_TOOLS, name).handler(skillContext(), params))
+
+        beforeEach(() => {
+            vi.useFakeTimers()
+            vi.spyOn(console, 'warn').mockImplementation(() => {})
+            vi.spyOn(console, 'error').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            vi.useRealTimers()
+            vi.restoreAllMocks()
+            vi.unstubAllGlobals()
+        })
+
+        it('retries a paginated skill-get page that fails to connect', async () => {
+            const mockFetch = stubFetch(
+                networkError(),
+                new Response(JSON.stringify({ name: 'skills-store', body: 'page two' }), { status: 200 })
+            )
+
+            const result = await runTool('skill-get', {
+                skill_name: 'skills-store',
+                body_offset: 20000,
+                body_length: 20000,
+            })
+
+            expect(result).toEqual({ name: 'skills-store', body: 'page two' })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+            const [retriedUrl] = mockFetch.mock.calls[1]!
+            expect(retriedUrl).toContain('/llm_skills/name/skills-store/')
+            expect(retriedUrl).toContain('body_offset=20000')
+        })
+
+        it('retries a skill-file-get read whose body stream is cut short', async () => {
+            const truncated = new Response('{}', { status: 200 })
+            vi.spyOn(truncated, 'text').mockRejectedValue(new TypeError('Network connection lost'))
+            const mockFetch = stubFetch(
+                truncated,
+                new Response(JSON.stringify({ path: 'references/limits.md' }), { status: 200 })
+            )
+
+            const result = await runTool('skill-file-get', {
+                skill_name: 'skills-store',
+                file_path: 'references/limits.md',
+            })
+
+            expect(result).toEqual({ path: 'references/limits.md' })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('reports a retryable failure once the retry budget is spent', async () => {
+            const mockFetch = stubFetch()
+
+            const error = await settle(
+                getToolByName(GENERATED_TOOLS, 'skill-file-get').handler(skillContext(), {
+                    skill_name: 'skills-store',
+                    file_path: 'SKILL.md',
+                })
+            )
+
+            expect(error).toBeInstanceOf(PostHogTransportError)
+            const transportError = error as PostHogTransportError
+            expect(transportError.retryable).toBe(true)
+            expect(transportError.attempts).toBe(3)
+            expect(transportError.message).toContain('safe to retry')
+            expect(mockFetch).toHaveBeenCalledTimes(3)
+        })
+
+        it('retries a token introspection that fails to connect', async () => {
+            const mockFetch = stubFetch(
+                networkError(),
+                new Response(JSON.stringify({ active: true, scope: 'query:read' }), { status: 200 })
+            )
+            const client = new ApiClient({ apiToken: 'pha_test', baseUrl: 'https://us.posthog.com' })
+
+            const result = await settle(client.oauth().introspect({ token: 'pha_test' }))
+
+            expect(result).toEqual({ success: true, data: { active: true, scope: 'query:read' } })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+            expect(mockFetch.mock.calls[1]![1]).toMatchObject({ method: 'POST' })
+        })
+
+        it('does not repeat a write whose outcome is unknown', async () => {
+            const mockFetch = stubFetch()
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+            const error = await settle(client.request({ method: 'POST', path: '/api/projects/17/llm_skills/' }))
+
+            expect(error).toBeInstanceOf(PostHogTransportError)
+            // The write may have reached the handler before the connection died,
+            // so telling the agent to send it again invites a double apply.
+            expect((error as PostHogTransportError).retryable).toBe(false)
+            expect((error as PostHogTransportError).message).toContain('may have been applied upstream')
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        const stubStalledFetch = (): ReturnType<typeof vi.fn> => {
+            const mockFetch = vi.fn(
+                (_url: string, init?: RequestInit) =>
+                    new Promise<Response>((_resolve, reject) => {
+                        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+                    })
+            )
+            vi.stubGlobal('fetch', mockFetch)
+            return mockFetch
+        }
+
+        it.each([
+            { method: 'GET' as const, retryable: true, advice: 'safe to retry' },
+            { method: 'POST' as const, retryable: false, advice: 'may have been applied upstream' },
+        ])('ends a $method request that never answers', async ({ method, retryable, advice }) => {
+            const mockFetch = stubStalledFetch()
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+            const error = await settle(client.request({ method, path: '/api/projects/17/signals/scout/notes/' }))
+
+            expect(error).toBeInstanceOf(PostHogTransportError)
+            expect(error).toMatchObject({ retryable, timedOut: true, attempts: 1 })
+            expect((error as PostHogTransportError).message).toContain(advice)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            {
+                name: 'event definition',
+                lookup: { id: 'event-id', name: 'test_event' },
+                update: (client: ApiClient) =>
+                    client.projects().updateEventDefinition({
+                        projectId: '17',
+                        eventName: 'test_event',
+                        data: { description: 'Test' },
+                    }),
+            },
+            {
+                name: 'property definition',
+                lookup: { results: [{ id: 'property-id', name: 'test_property' }] },
+                update: (client: ApiClient) =>
+                    client.projects().updatePropertyDefinition({
+                        projectId: '17',
+                        propertyName: 'test_property',
+                        data: { description: 'Test' },
+                    }),
+            },
+        ])('ends a $name update that never answers', async ({ lookup, update }) => {
+            const mockFetch = stubStalledFetch()
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(lookup), { status: 200 }))
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+            const result = await settle(update(client))
+
+            expect(result).toMatchObject({ success: false })
+            const error = (result as { error: unknown }).error
+            expect(error).toBeInstanceOf(PostHogTransportError)
+            expect(error).toMatchObject({ method: 'PATCH', retryable: false, timedOut: true })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it.each(['/api/environments/17/query/', '/api/environments/17/mcp_tools/execute_sql/'])(
+            'gives a query request to %s more time than the default deadline',
+            async (path) => {
+                stubStalledFetch()
+                const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+                let settled = false
+                const pending = client
+                    .request({ method: 'POST', path })
+                    .finally(() => {
+                        settled = true
+                    })
+                    .catch((error) => error)
+
+                await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+                expect(settled).toBe(false)
+
+                await vi.runAllTimersAsync()
+                expect(await pending).toMatchObject({ timedOut: true })
+            }
+        )
     })
 })

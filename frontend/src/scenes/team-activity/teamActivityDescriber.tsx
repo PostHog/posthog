@@ -1,10 +1,12 @@
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
+import { shortIdActivityLink } from 'lib/components/ActivityLog/activityDescriptions/shortIdActivityLink'
 import {
     ActivityChange,
     ActivityLogItem,
     ActivityLogUserName,
     ChangeMapping,
-    Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -15,6 +17,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/currency'
 import { isObject } from 'lib/utils/guards'
 import { pluralize } from 'lib/utils/strings'
+import { ExperimentsConfig } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
@@ -156,13 +159,33 @@ function createFixedVerbValueHandler(
     }
 }
 
+function createExperimentsDefaultHandler(fieldName: string, format: (value: unknown) => string = String) {
+    return (change: ActivityChange): ChangeMapping | null => {
+        if (change.after === null || change.after === undefined) {
+            return { description: [<>cleared the {fieldName}</>] }
+        }
+        return {
+            description: [
+                <>
+                    changed the {fieldName} to <em>{format(change.after)}</em>
+                </>,
+            ],
+        }
+    }
+}
+
 const TEAM_PROPERTIES_MAPPING: Record<
-    keyof TeamType | 'heatmaps_screenshot_allowed_hostnames',
+    keyof TeamType | keyof ExperimentsConfig | 'heatmaps_screenshot_allowed_hostnames' | 'conversations_signing_secret',
     (change: ActivityChange) => ChangeMapping | null
 > = {
     // API-related tokens
     api_token: createApiTokenHandler('project token', 'set', 'reset'),
     secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
+    conversations_signing_secret: createApiTokenHandler(
+        'Conversations identity verification secret',
+        'generated',
+        'rotated'
+    ),
     heatmaps_screenshot_secret: createApiTokenHandler('heatmap screenshot value', 'generated', 'rotated'),
     heatmaps_screenshot_allowed_hostnames: createArrayChangeHandler('approved screenshot hostnames'),
     secret_api_token_backup: (change) => {
@@ -394,7 +417,15 @@ const TEAM_PROPERTIES_MAPPING: Record<
 
         if (before?.appearance?.displayThankYouMessage !== after?.appearance?.displayThankYouMessage) {
             descriptions.push(
-                `${preamble} displayThankYouMessage was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+                `${preamble} displayThankYouMessage was ${
+                    after?.appearance?.displayThankYouMessage ? 'enabled' : 'disabled'
+                }`
+            )
+        }
+
+        if (before?.appearance?.displayIntroScreen !== after?.appearance?.displayIntroScreen) {
+            descriptions.push(
+                `${preamble} Survey intro screen was ${after?.appearance?.displayIntroScreen ? 'enabled' : 'disabled'}`
             )
         }
 
@@ -406,6 +437,7 @@ const TEAM_PROPERTIES_MAPPING: Record<
         propertyChangeDesc('borderColor', (c) => c?.appearance?.borderColor)
         propertyChangeDesc('placeholder', (c) => c?.appearance?.placeholder)
         propertyChangeDesc('thankYouMessageHeader', (c) => c?.appearance?.thankYouMessageHeader)
+        propertyChangeDesc('intro screen header', (c) => c?.appearance?.introScreenHeader)
         propertyChangeDesc('position', (c) => c?.appearance?.position)
 
         return { description: descriptions }
@@ -595,6 +627,28 @@ const TEAM_PROPERTIES_MAPPING: Record<
             ],
         }
     },
+    home_tab_dashboard: (change) => {
+        if (!change.after) {
+            return {
+                description: [
+                    <>
+                        reset the <em>Home tab dashboard</em> to the generic view
+                    </>,
+                ],
+            }
+        }
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the <em>Home tab dashboard</em> to{' '}
+                    <Link to={urls.dashboard(change.after as number)}>
+                        <em>{String(change.after)}</em>
+                    </Link>
+                </>,
+            ],
+        }
+    },
     flags_persistence_default: (change) => {
         return {
             description: [
@@ -731,6 +785,43 @@ const TEAM_PROPERTIES_MAPPING: Record<
     revenue_analytics_config: revenueAnalyticsConfigurationDescriber,
     core_events_config: coreEventsConfigurationDescriber,
 
+    // Experiments defaults, written by the experiments_config endpoint and logged under the Team scope
+    default_experiment_stats_method: createExperimentsDefaultHandler('default statistical method for experiments'),
+    default_experiment_confidence_level: createExperimentsDefaultHandler(
+        'default confidence level for experiments',
+        (value) => `${Math.round(Number(value) * 100)}%`
+    ),
+    default_minimum_detectable_effect: createExperimentsDefaultHandler(
+        'default minimum detectable effect for experiments',
+        (value) => `${value}%`
+    ),
+    default_only_count_matured_users: createBooleanToggleHandler(
+        'only counting matured users by default in experiments'
+    ),
+    default_cuped_enabled: createBooleanToggleHandler('CUPED by default for experiments'),
+    default_cuped_lookback_days: createExperimentsDefaultHandler('default CUPED lookback window', (value) =>
+        pluralize(Number(value), 'day')
+    ),
+    default_sequential_testing_enabled: createBooleanToggleHandler('sequential testing by default for experiments'),
+    default_sequential_tuning_parameter: createExperimentsDefaultHandler(
+        'default tuning parameter for sequential testing'
+    ),
+    experiment_recalculation_times: (change) => {
+        if (!Array.isArray(change.after)) {
+            return { description: [<>reset the experiment recalculation time to the default</>] }
+        }
+        // Stored as HH:00:00 strings; the seconds carry no information.
+        const times = change.after.map((time: string) => time.slice(0, 5)).join(', ')
+        return {
+            description: [
+                <>
+                    changed the experiment recalculation time to <em>{times} UTC</em>
+                </>,
+            ],
+        }
+    },
+    flag_cleanup_repository: createExperimentsDefaultHandler('default repository for experiment flag cleanup PRs'),
+
     // Conversations
     conversations_enabled: createBooleanToggleHandler('conversations'),
     conversations_settings: () => {
@@ -758,18 +849,29 @@ const TEAM_PROPERTIES_MAPPING: Record<
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
     managed_viewsets: () => null,
+    flag_evaluations_mode: () => null,
     workflows_config: () => null,
     feature_flag_policy_config: () => null,
 }
 
-function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
-    return logItem?.detail?.short_id ? (
-        <Link to={urls.notebook(logItem.detail.short_id)}>{logItem?.detail.name || 'unknown'}</Link>
-    ) : logItem?.detail.name ? (
-        <>{logItem?.detail.name}</>
-    ) : (
-        <i>Untitled</i>
-    )
+function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedChange {
+    const wasSuspended = logItem.activity === 'email_sending_suspended'
+    const reason = logItem.detail?.context?.reason as string | undefined
+    return {
+        summary: activityLogSummary(
+            logItem,
+            wasSuspended ? 'Suspended workflow email sending' : 'Re-enabled workflow email sending',
+            shortIdActivityLink(logItem, urls.notebook),
+            wasSuspended ? reason : undefined
+        ),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
+                sending on {shortIdActivityLink(logItem, urls.notebook)}
+                {wasSuspended && reason ? <> (reason: {reason})</> : null}
+            </>
+        ),
+    }
 }
 
 export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -779,56 +881,20 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
     }
 
     if (logItem.activity === 'email_sending_suspended' || logItem.activity === 'email_sending_unsuspended') {
-        const wasSuspended = logItem.activity === 'email_sending_suspended'
-        const reason = logItem.detail?.context?.reason as string | undefined
-        return {
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
-                    sending on {nameAndLink(logItem)}
-                    {wasSuspended && reason ? <> (reason: {reason})</> : null}
-                </>
-            ),
-        }
+        return describeWorkflowEmailSuspension(logItem)
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
-        let changes: Description[] = []
-        let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !(change.field in TEAM_PROPERTIES_MAPPING)) {
-                continue //  not all fields are describable
-            }
-
-            const actionHandler = TEAM_PROPERTIES_MAPPING[change.field as keyof TeamType]
-            const processedChange = actionHandler(change)
-            if (processedChange === null) {
-                continue // some logs are indescribable
-            }
-
-            const { description, suffix } = processedChange
-            if (description) {
-                changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
-            }
-        }
-
-        if (changes.length) {
-            return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<ActivityLogUserName logItem={logItem} />}
-                        suffix={changeSuffix}
-                    />
-                ),
-            }
+        const changes = describeMappedChanges(
+            logItem,
+            TEAM_PROPERTIES_MAPPING,
+            shortIdActivityLink(logItem, urls.notebook),
+            <>on {shortIdActivityLink(logItem, urls.notebook)}</>
+        )
+        if (changes) {
+            return changes
         }
     }
 
-    return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
+    return defaultDescriber(logItem, asNotification, shortIdActivityLink(logItem, urls.notebook))
 }

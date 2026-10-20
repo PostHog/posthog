@@ -75,6 +75,117 @@ export const WizardRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * API endpoints for managing Wizard run tasks. Access is scoped to the Wizard only.
+ *
+ * The Wizard should be the only client that can update the tasks of a run.
+ */
+export const wizardRunsTasksUpdateBodyTasksItemNameMax = 255
+
+export const WizardRunsTasksUpdateBody = /* @__PURE__ */ zod.object({
+    tasks: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(wizardRunsTasksUpdateBodyTasksItemNameMax)
+                    .describe('Task name, unique within this run and stable across snapshots.'),
+                status: zod
+                    .enum(['created', 'running', 'completed', 'failed'])
+                    .describe(
+                        '\* `created` - created\n\* `running` - running\n\* `completed` - completed\n\* `failed` - failed'
+                    )
+                    .describe(
+                        'Current task status reported by the setup agent.\n\n\* `created` - created\n\* `running` - running\n\* `completed` - completed\n\* `failed` - failed'
+                    ),
+            })
+        )
+        .describe("Complete task snapshot. An empty list clears the run's tasks."),
+})
+
+/**
+ * @summary Record the tools a wizard scan found in a codebase
+ */
+export const wizardScansCreateBodySessionIdMax = 255
+
+export const wizardScansCreateBodyProgramMax = 50
+
+export const wizardScansCreateBodyWizardVersionMax = 32
+
+export const wizardScansCreateBodyWorkspaceFingerprintMax = 64
+
+export const wizardScansCreateBodyWorkspaceFingerprintRegExp = new RegExp('^[0-9a-f]{64}$')
+export const wizardScansCreateBodyToolsItemKindMax = 64
+
+export const wizardScansCreateBodyToolsItemSignalsItemSourceMax = 32
+
+export const wizardScansCreateBodyToolsItemSignalsItemNameMax = 255
+
+export const wizardScansCreateBodyToolsItemSignalsItemFileMax = 512
+
+export const wizardScansCreateBodyToolsItemSignalsMax = 50
+
+export const wizardScansCreateBodyToolsMax = 300
+
+export const wizardScansCreateBodyCompleteDefault = true
+
+export const WizardScansCreateBody = /* @__PURE__ */ zod.object({
+    session_id: zod.string().max(wizardScansCreateBodySessionIdMax).describe('The wizard run that made the scan.'),
+    program: zod
+        .string()
+        .max(wizardScansCreateBodyProgramMax)
+        .describe('The wizard program that scanned, such as `posthog-integration` or `warehouse-source`.'),
+    wizard_version: zod
+        .string()
+        .max(wizardScansCreateBodyWizardVersionMax)
+        .describe('Version of the wizard that made the scan.'),
+    workspace_fingerprint: zod
+        .string()
+        .max(wizardScansCreateBodyWorkspaceFingerprintMax)
+        .regex(wizardScansCreateBodyWorkspaceFingerprintRegExp)
+        .describe('sha256 hex digest that identifies the scanned repository without naming it.'),
+    scanned_at: zod.iso.datetime({ offset: true }).describe('When the wizard scanned the codebase.'),
+    tools: zod
+        .array(
+            zod.object({
+                kind: zod
+                    .string()
+                    .max(wizardScansCreateBodyToolsItemKindMax)
+                    .describe("The tool's kind in the wizard tool catalog, such as `Stripe` or `Amplitude`."),
+                signals: zod
+                    .array(
+                        zod.object({
+                            source: zod
+                                .string()
+                                .max(wizardScansCreateBodyToolsItemSignalsItemSourceMax)
+                                .describe(
+                                    'Where the wizard found the tool, such as `npm`, `pypi`, `env_key` or `script_host`.'
+                                ),
+                            name: zod
+                                .string()
+                                .max(wizardScansCreateBodyToolsItemSignalsItemNameMax)
+                                .describe(
+                                    'The package name, `.env` key name or script host that matched. Never a `.env` value.'
+                                ),
+                            file: zod
+                                .string()
+                                .max(wizardScansCreateBodyToolsItemSignalsItemFileMax)
+                                .nullish()
+                                .describe('Path of the file the signal came from, relative to the scanned directory.'),
+                        })
+                    )
+                    .max(wizardScansCreateBodyToolsItemSignalsMax)
+                    .describe('The signals that matched this tool.'),
+            })
+        )
+        .max(wizardScansCreateBodyToolsMax)
+        .describe('Every tool the scan found. An empty list is a scan that found nothing.'),
+    complete: zod
+        .boolean()
+        .default(wizardScansCreateBodyCompleteDefault)
+        .describe('False when the scan could not read the whole workspace. Tools it did not find are then kept.'),
+})
+
+/**
  * Upsert a wizard session. The `session_id` key is the idempotency anchor — reposting the same `session_id` replaces the existing row. Returns 201 on create, 200 on update.
  */
 export const wizardSessionsCreateBodyPendingInputOneIdMax = 255

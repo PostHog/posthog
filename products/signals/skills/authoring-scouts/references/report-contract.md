@@ -1,9 +1,10 @@
 # The report channel: `emit_report` / `edit_report`
 
-A scout's output is the **report channel**: it does its research, then authors (or edits) a full inbox `SignalReport` directly, 1:1.
+A report-producing scout's output is the **report channel**: it does its research, then authors (or edits) a full inbox `SignalReport` directly, 1:1.
 This reference is the contract for that channel: the tools, their fields, when to author vs. edit, and the two behaviors to design around (it isn't idempotent, and the pipeline may later rewrite what you authored).
 
-The channel is granted via the skill's frontmatter `allowed_tools` — **every scout should list `emit_report` / `edit_report` there**; see [Granting the tools](#granting-the-tools).
+The channel is granted via the skill's frontmatter `allowed_tools`: **every report-producing scout lists both `emit_report` and `edit_report` there**; see [Granting the tools](#granting-the-tools).
+A scout with a product-specific output omits both tools. See [Scouts with a product-specific output](#scouts-with-a-product-specific-output).
 
 > **Tool names vs. opt-in strings.** The callable MCP tools are
 > **`scout-emit-report`** and **`scout-edit-report`** — those are the names you
@@ -11,6 +12,31 @@ The channel is granted via the skill's frontmatter `allowed_tools` — **every s
 > are the **opt-in strings** you list under `allowed_tools`; they are not callable tool names. And
 > like every `scout-*` tool, **both report tools require the current `run_id`** (the run
 > you're executing in) on every call — omitting it fails validation.
+
+## Contents
+
+- [Author vs. edit](#author-vs-edit)
+- [`emit_report` — author a full report](#emit_report--author-a-full-report)
+  - [Measuring impact](#measuring-impact)
+    - [Choosing the kind](#choosing-the-kind)
+    - [Keeping the query live and bounded](#keeping-the-query-live-and-bounded)
+    - [Keeping semantics separate from formatting](#keeping-semantics-separate-from-formatting)
+    - [Titling and captioning](#titling-and-captioning)
+    - [Snapshots are optional cached fallbacks, not estimates](#snapshots-are-optional-cached-fallbacks-not-estimates)
+    - [A reader may see the tile without its data](#a-reader-may-see-the-tile-without-its-data)
+    - [Caps, and what an edit does](#caps-and-what-an-edit-does)
+  - [Attaching charts](#attaching-charts)
+  - [Suggesting follow-up prompts](#suggesting-follow-up-prompts)
+  - [Opening a draft PR (autostart)](#opening-a-draft-pr-autostart)
+- [Choosing `suggested_reviewers` — how a report gets assigned to a human](#choosing-suggested_reviewers--how-a-report-gets-assigned-to-a-human)
+- [`edit_report` — update an existing report](#edit_report--update-an-existing-report)
+  - [Replacing the report's pull request](#replacing-the-reports-pull-request)
+  - [Re-confirming a report you already filed](#re-confirming-a-report-you-already-filed)
+- [Finding "the report I made last time"](#finding-the-report-i-made-last-time)
+- [Dedup: the retry is covered, the near-duplicate is not](#dedup-the-retry-is-covered-the-near-duplicate-is-not)
+- [The pipeline may rewrite what you authored (accepted)](#the-pipeline-may-rewrite-what-you-authored-accepted)
+- [Granting the tools](#granting-the-tools)
+  - [Scouts with a product-specific output](#scouts-with-a-product-specific-output)
 
 ## Author vs. edit
 
@@ -27,18 +53,18 @@ A weak or partial observation belongs in the scratchpad, where a future run (wit
 
 Judges the report for safety, then persists it at the judged status.
 
-| Field                       | Type                    | Notes                                                                                                                                                                                                                                                                                                                                          |
-| --------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run_id`                    | string, required        | The current run's id — the run you're executing in, same as every `scout-*` tool.                                                                                                                                                                                                                                                              |
-| `title`                     | string, ≤300, non-empty | The inbox headline. One specific, quantified line.                                                                                                                                                                                                                                                                                             |
-| `summary`                   | string                  | The report body prose — one tight passage a busy human can act on: a **quantified hook** (what's happening, with numbers), the **pattern** that makes it signal rather than noise, the suspected-cause **hypothesis**, and the **recommendation**. Cite entities inline as markdown links so the reader pivots straight to source (see below). |
-| `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted.                                                                                             |
-| `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                                                          |
-| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it. See _Choosing actionability_ below.                                                                                                                                                                            |
-| `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
-| `metrics`                   | list, ≤6, optional      | Typed impact measurements the inbox shows as tiles. The report's full set. Each `{metric_id, title, kind, query, role?, value?, value_at?, series?, value_format?, unit?, caption?}`. See _Measuring impact_ below.                                                                                                                            |
-| `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
-| `suggested_prompts`         | list, ≤3, optional      | Follow-up prompts the inbox offers above the report's `Ask AI` box (questions to ask, or next-step actions to request), each ≤200 characters and all distinct. See _Suggesting follow-up prompts_ below.                                                                                                                                       |
+| Field                       | Type                              | Notes                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_id`                    | string, required                  | The current run's id — the run you're executing in, same as every `scout-*` tool.                                                                                                                                                                                                                                                              |
+| `title`                     | string, required, ≤300, non-empty | The inbox headline. One specific, quantified line.                                                                                                                                                                                                                                                                                             |
+| `summary`                   | string, required                  | The report body prose — one tight passage a busy human can act on: a **quantified hook** (what's happening, with numbers), the **pattern** that makes it signal rather than noise, the suspected-cause **hypothesis**, and the **recommendation**. Cite entities inline as markdown links so the reader pivots straight to source (see below). |
+| `evidence`                  | list, required, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted.                                                                                             |
+| `actionability_explanation` | string, required                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                                                          |
+| `actionability`             | enum, required                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it. See _Choosing actionability_ below.                                                                                                                                                                            |
+| `already_addressed`         | bool, default `false`             | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
+| `metrics`                   | list, ≤6, optional                | Typed impact measurements the inbox shows as tiles. The report's full set. Each `{metric_id, title, kind, query, role?, value?, value_at?, series?, value_format?, unit?, caption?}`. See _Measuring impact_ below.                                                                                                                            |
+| `charts`                    | list, ≤20, optional               | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
+| `suggested_prompts`         | list, ≤3, optional                | Follow-up prompts the inbox offers above the report's `Ask AI` box (questions to ask, or next-step actions to request), each ≤200 characters and all distinct. See _Suggesting follow-up prompts_ below.                                                                                                                                       |
 
 **Cite each entity as a link, not a bare id.** In `summary` and in `evidence` descriptions, write
 the entity you name as a markdown link: reuse the url the returning tool attached (`_posthogUrl`
@@ -327,12 +353,34 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
       "display": "ActionsBar",
       "chartSettings": { "xAxis": { "column": "exception_type" }, "yAxis": [{ "column": "people" }] }
     }
+  },
+  {
+    "chart_id": "exceptions-by-type-daily",
+    "title": "Exceptions per day, by type",
+    "query": {
+      "kind": "DataVisualizationNode",
+      "source": {
+        "kind": "HogQLQuery",
+        "query": "SELECT toDate(timestamp) AS day, exception_type, count() AS occurrences FROM ... GROUP BY day, exception_type ORDER BY day"
+      },
+      "display": "ActionsLineGraph",
+      "chartSettings": {
+        "xAxis": { "column": "day" },
+        "yAxis": [{ "column": "occurrences" }],
+        "seriesBreakdownColumn": "exception_type",
+        "showLegend": true
+      }
+    }
   }
 ]
 ```
 
 **A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box; `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of the result are which.
 Omit `display` altogether and the node renders the result table, which reads better than a chart for a handful of rows.
+
+**A graph from SQL needs one row per x-axis value.** The x axis is built from the result rows in the order they arrive, so a query that also groups by a second dimension puts several rows at the same x position and the line zigzags instead of trending.
+Either aggregate the query down to one row per x value, or name the second dimension in `chartSettings.seriesBreakdownColumn`, which pivots those rows into one series per value of that column.
+For a time series per segment, an `InsightVizNode` wrapping a `TrendsQuery` with a `breakdownFilter` is usually cleaner than SQL.
 
 **Only the node's `kind` and its serialized size are checked on write.** A well-formed node of an allowed kind carrying a broken query is stored without complaint, then fails to draw when a reader opens the report, and nothing reports that back to the scout.
 So a scout should attach a query it has already run in the same session, or point at an insight that already exists via `SavedInsightNode`, rather than composing a node from memory.
@@ -352,7 +400,7 @@ A reference inside a code span, a table cell, or a heading has no room to draw �
 Only `InsightVizNode` and `SavedInsightNode` charts render there, at most three per report with referenced charts first; a `DataVisualizationNode` chart shows only in the inbox.
 "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
 
-**Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
+**Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then. This holds for charts alone. A metric and a follow-up check measure the period before each run, so each one needs a relative `dateRange.date_from` and an empty `date_to`. An absolute window is refused there.
 
 **`charts` on an edit is the report's whole set, not an addition.**
 It replaces what the report had, the way `summary` replaces the summary — so send every chart you want kept, and re-send an id under a newer window to refresh that chart.
@@ -387,6 +435,19 @@ Rewriting `summary` on an edit does not clear them for you, so send the new set 
 The research pipeline does clear them when it rewrites a report it re-researches, since the prompts were written against the prose it replaces.
 
 Cap is **3 prompts per report**, each **≤200 characters**, and duplicates are refused.
+
+### Suggesting a product to turn on
+
+When a report would have had better evidence from a product the project does not use, record a `source_suggestion` artefact on it.
+After `emit_report` or `edit_report` returns the report id, call `inbox-report-artefacts-create` with `artefact_type: "source_suggestion"` and `content: {"product": ..., "reason": ...}`.
+The tool needs the `task:write` scope. If the session does not have it, continue without the suggestion.
+`product` is one of `logs`, `session_replay`, `error_tracking`, or `llm_analytics`.
+The inbox shows the suggestion under the report's evidence with a link to that product, and hides it once the project uses the product.
+
+Suggest a product only for a gap you hit this run: a question it would have answered that you could not answer.
+Confirm first that the project does not use it, from a `not-in-use:` memory or a probe that came back empty.
+`reason` is one sentence of at most 300 characters about what the product would have shown for this report, not a generic pitch.
+A report shows one suggestion, and a newer one replaces the older one.
 
 ### Opening a draft PR (autostart)
 
@@ -438,10 +499,21 @@ Otherwise resolve a `github_login`, cheapest source first:
    Reuse that reviewer for the same area — the safest general recipe, available to every scout.
 3. **CODEOWNERS / git** (only if the scout has a repo checkout).
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
-   Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
-4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
-   It returns this project's members, each with `user_uuid`, email, name, and a resolved `github_login`. Pass `search=` to narrow the result. Match the owner and route with `user_uuid`.
+   Neither hands you a reviewer directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email. A reviewer is always an individual, so resolve either to people with `scout-members-list` before you write it.
+4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner, and the way a team slug becomes reviewers.
+   It returns this project's members, each with `user_uuid`, email, name, a resolved `github_login`, and the `teams` they're on. Pass `search=` to narrow by name or email. Match the owner and route with `user_uuid`.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
+
+**Resolving a team slug to reviewers.** Call `scout-members-list` with `team=<slug>` (bare slug, no `@your-org/` prefix, case-insensitive). It returns the members of that team with its maintainers first, so:
+
+- Take the **first 1 to 3** rows and route them. Three is the cap `suggested_reviewers` enforces anyway, and past the maintainers the order carries no ownership signal, so a longer list dilutes rather than widens.
+- Prefer **one** reviewer when a maintainer is clearly the owner of the area. Add the next one or two only when the work spans the team.
+- Route each with `user_uuid`, the same as any other reviewer.
+
+Two things the roster can't tell you, which change what you should do rather than what you should report:
+
+- **A slug with no rows means "not synced here", not "no such team".** The GitHub `teams` and `team_members` schemas are off by default and need the organization Members permission, so coverage is partial on most projects. The tool returns an error saying which case it hit. Fall back to matching the owner by name or email, and don't write a report claiming the team doesn't exist.
+- **The roster is a snapshot, so it can lag the live team.** Someone who joined or left since the last sync is wrong here. Treat a surprising result as stale data, and cross-check against a recent author or an inbox precedent before routing on it alone.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.
 **Never guess a handle**: a wrong login mis-assigns the report (or silently fails to assign), which is worse than leaving it open.
@@ -452,8 +524,8 @@ The fleet's reviewer map should compound over time.
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, and/or replace `metrics` / `charts` / `suggested_prompts` on a report that already exists.
-Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `metrics`, `charts`, `suggested_prompts`.
+Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, correct the `repository`, change the work decisions (`actionability`, `priority`), and/or replace `metrics` / `charts` / `suggested_prompts` on a report that already exists.
+Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `repository`, `actionability`, `priority`, `metrics`, `charts`, `suggested_prompts`.
 An edit that supplies content (`title`, `summary`, `metrics`, `charts`, `suggested_prompts`, `append_note`, `append_evidence`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
@@ -473,6 +545,29 @@ Rules of good behavior:
 - **Take the questions down when you replace the prose they answer.** Rewriting `summary` leaves the report's `suggested_prompts` in place, and they were written against the summary you just replaced — send a fresh set in the same call, or `[]` to clear them.
 - **Use `suggested_reviewers` to rescue an unrouted report.** Setting reviewers (same `{github_login?, user_uuid?}` shape as `emit_report`) replaces the report's reviewer list and re-runs autostart — so a report that surfaced routed to no one can be assigned to an owner you resolved later, and a now-actionable report with a repo + priority can open a draft PR.
   An empty list is a no-op (it never clears existing reviewers).
+- **Use `repository` to fix a report that points at the wrong codebase.** Pass `owner/repo` to replace the target, or the `NO_REPO` sentinel when nothing under version control can change. Omit the field to keep the current target.
+  Correct the report in place instead of filing a duplicate. The change re-runs autostart, so a report that had no repository can now open a draft PR.
+
+### Changing the work decisions
+
+`edit_report` can replace the two decisions that control autostart.
+Each decision is a set of paired fields, and you send the full set together:
+
+| Decision      | Fields to send together                                               |
+| ------------- | --------------------------------------------------------------------- |
+| Actionability | `actionability`, `actionability_explanation`, and `already_addressed` |
+| Priority      | `priority` (`P0`–`P4`) and `priority_explanation`                     |
+
+- An explanation is 2–3 sentences of evidence. The edit fails when you set a decision without its explanation.
+- `already_addressed` is part of the actionability decision, so it needs `actionability` and `actionability_explanation` in the same call. When you omit it, the decision records `false`.
+- A decision change re-runs autostart. It does not change the report's inbox status.
+  `immediately_actionable` with a priority can open a draft PR. `requires_human_input` and `not_actionable` stop autostart from opening one.
+- `decision_fields_set` in the response names the decisions the edit replaced. It is empty when you re-send the decisions the report already holds.
+
+**Mark in-flight work so that autostart does not compete with it.**
+When a fix has landed, or a PR for the issue is already open, set `already_addressed: true` with the current `actionability` and an explanation that names the fix.
+Autostart then does not open a second, competing implementation.
+Do this instead of a note alone: a note records the fix for a reader, but autostart does not read it.
 
 ### Replacing the report's pull request
 
@@ -541,8 +636,8 @@ allowed_tools:
   - edit_report
 ```
 
-**Every scout needs this** — a scout that omits it falls back to a deprecated legacy channel (weak `emit-signal` findings a pipeline consolidated) and can't write reports at all.
-Don't author new scouts without the opt-in; if you find an existing scout missing it, add it and rework the scout's Decide section onto this contract.
+**Every report-producing scout needs this.** A report-producing scout that omits it falls back to a deprecated legacy channel (weak `emit-signal` findings a pipeline consolidated) and can't write reports at all.
+Don't author a new report-producing scout without the opt-in. If you find an existing report-producing scout missing it, add it and rework the scout's Decide section onto this contract.
 The canonical fleet runs on this channel; `signals-scout-anomaly-detection`'s `references/report-contract.md` keeps a worked, surface-specific shape (its notebook write-up + embedded-chart recipe).
 Add a short body section telling the scout what's report-shaped for its surface.
 Keep it lean — the field-level detail lives here (and in the harness prompt), not in the body.
@@ -550,3 +645,32 @@ Keep it lean — the field-level detail lives here (and in the harness prompt), 
 **Rollout posture:** for a chatty or high-stakes new scout, start in **dry-run** (`emit=false` on its `SignalScoutConfig`) so it runs and logs what it _would_ author without writing to the inbox.
 Inspect via `scout-runs-retrieve`, calibrate, then flip `emit=true`.
 The channel files a full inbox item on the first hit, so the cautious loop is worth it when in doubt.
+
+### Scouts with a product-specific output
+
+Some scouts write their output to a product surface, not to the inbox.
+Such a scout omits both `emit_report` and `edit_report`, and it does not call `emit_signal`.
+
+`signals-scout-workflows` is the example.
+It files suggestions through the workflows suggestions API, and the suggestion on the workflow page is its output.
+Its frontmatter description and its "Why this scout files no reports" section state that this is deliberate.
+A report on a workflow change could autostart a code PR for a change that is only PostHog configuration.
+
+Before you add the report tools to a scout that does not have them, read its description and output section.
+If the scout states a product-specific output, keep it off the report channel.
+
+To create such a scout per team, do not use `scout-create`, because it always grants both report tools.
+Make both calls below on the parent project, not on a child environment.
+`skill-create` stores the skill in the active environment, but `scout-config-create` looks for the skill in the parent project.
+From a child environment, registration fails, or it registers a different skill with the same name from the parent project.
+If the active context is a child environment, select the parent project with `switch-project` first.
+Some MCP contexts do not expose `switch-project`, for example a connection with a filtered tool set.
+In such a context, connect to the parent project directly.
+If you cannot, do not use this path from that context.
+Create the skill with `skill-create` and leave `allowed_tools` empty.
+Then register it with `scout-config-create`, and set its schedule, `enabled`, and `emit` on that call.
+Also set `write_scopes` on that call to the scope that writes the product output, for example `["hog_flow_proposal:write"]` for workflow suggestions.
+Without that grant, the scout cannot write its output.
+A dry run (`emit: false`) never holds the grant, so the scout writes no output in a dry run.
+Give the skill a name without the `signals-scout-` prefix.
+The coordinator auto-registers an enabled config for a prefixed skill that has no config, so a prefixed scout can run on the defaults before your `scout-config-create` call.

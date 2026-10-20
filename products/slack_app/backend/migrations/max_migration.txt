@@ -1,1 +1,1 @@
-0017_remove_slacksettings_ai_preferences
+0020_slacksettings_auto_model_choice

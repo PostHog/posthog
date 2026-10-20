@@ -294,7 +294,6 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
-            batch_export_schema=None,
             batch_export=batch_export_for_destination,
         )
 
@@ -383,6 +382,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
                     ("event", "STRING"),
                     ("properties", "VARIANT"),
                     ("distinct_id", "STRING"),
+                    ("person_id", "STRING"),
                     ("team_id", "BIGINT"),
                     ("timestamp", "TIMESTAMP"),
                     ("created_at", "TIMESTAMP"),
@@ -449,7 +449,6 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
-            batch_export_schema=None,
             batch_export=batch_export_for_destination,
             use_automatic_schema_evolution=use_automatic_schema_evolution,
         )
@@ -524,7 +523,6 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
-            batch_export_schema=None,
             batch_export=batch_export_for_destination,
         )
 
@@ -564,7 +562,6 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
-            batch_export_schema=None,
             batch_export=batch_export_for_destination,
         )
 

@@ -94,16 +94,22 @@ export function openMoveLabelDialog({
     labelName,
     fromVersion,
     toVersion,
+    followedBy = [],
     onMove,
 }: {
     labelName: string
     fromVersion: number
     toVersion: number
+    followedBy?: string[]
     onMove: () => Promise<void>
 }): void {
+    const propagationNote =
+        followedBy.length > 0
+            ? ` This also updates the content of ${followedBy.join(', ')}, which reference${followedBy.length === 1 ? 's' : ''} this prompt through this label.`
+            : ''
     LemonDialog.open({
         title: 'Move label?',
-        description: `${labelName}: v${fromVersion} → v${toVersion}. Anything fetching this prompt by this label picks up the change within seconds.`,
+        description: `${labelName}: v${fromVersion} → v${toVersion}. Anything fetching this prompt by this label picks up the change within seconds.${propagationNote}`,
         shouldAwaitSubmit: true,
         primaryButton: {
             children: 'Move',

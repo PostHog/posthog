@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA12",
+    "cluster": 39,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/tasks/backend/facade/api.py:504 calls the global find_task_run before applying team and task-shape rejection at 505-509. webhooks.py:41-56 filters URL/repository only and chooses the first nonterminal/newest run; its branch leg at 68-75 likewise selects before those predicates. TaskRun is a plain models.Model with no global unique URL/branch constraint (models.py:1063-1081,1103,1144-1174). Coexisting matches are supported: output.pr_url is caller-writable (facade/api.py:1770-1788,2149-2154), and task creation accepts same-team signal_report plus internal=False (presentation/serializers.py:435-460,611-646). Thus an older qualifying run for team A and a newer/live ordinary or team B run sharing its repository/URL cause the helper to return None. stamphog/backend/tasks/tasks.py:191-200 then denies the carve-out, and 881-912 skips the bot/draft re-review despite the valid match.",
+            "refutation": "I first looked for global uniqueness, automatic tenant scoping, or fallback after rejecting the selected run. TaskRun's default manager is global, URL/branch indexes are non-unique, the facade does not pass team_id, and neither rejection retries remaining candidates. The post-selection team check does prevent cross-team disclosure, but cannot prevent this false negative. Current auto-start internal=True tasks are separately excluded; that does not make this query defect unreachable because the public task serializer still permits qualifying non-internal signal tasks. Existing single-match tests at tests/test_webhooks.py:1245-1268 do not cover coexistence. Re-saving/replacing the qualifying run or removing the competing match is a workaround, so should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/tasks/backend/facade/api.py:504 calls an unscoped lookup, then :505-509 rejects the single chosen row by team/report/internal status. webhooks.py:41-56 filters only URL and repository before preferring nonterminal/newest and taking first; its branch leg :69-78 likewise takes the newest repo/branch match without team or implementation filters. TaskRun has ordinary team/task FKs and no URL/branch uniqueness (models.py:1063-1081,1144-1156). Consequently a newer non-signal run recording the same PR, or another team's nonterminal match, hides an otherwise qualifying signal run, and Stamphog tasks/tasks.py:199-200 drops the re-review instead of trying it.",
+            "refutation": "First checked whether caller scoping, uniqueness or production task creation prevents two qualifying/competing matches. The late team check prevents cross-team acceptance but cannot recover the intended row. Same-repository integrations across teams are an explicitly tested state (tests/test_webhooks.py:830-842). Noninternal report tasks are API-supported: presentation/serializers.py:435-460 exposes report/internal, validates only same-team report at :611-614, and tests/test_api.py:1300-1343 creates a signal-report implementation task through the API. Existing lookup tests/test_webhooks.py:1260-1311 exercise one matching run at a time; none tests an excluded winner masking a valid candidate. The defect is a narrow missed review, not a cross-tenant disclosure."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/tasks/backend/webhooks.py:41-59 selects the globally newest active matching PR URL before any team/implementation constraint; its branch match similarly selects first at 64-78. TaskRun is a plain model (models.py:1063) with newest-first ordering and non-unique URL/branch indexes (1144-1174), so no implicit tenant scope or uniqueness prevents competing matches. find_signal_implementation_run applies team and implementation checks only after selection at facade/api.py:504-509; it returns None without trying the eligible row. Stamphog treats that None as an absent carve-out at products/stamphog/backend/tasks/tasks.py:191-200, skipping the requested re-review. A qualifying production run is produced by Inbox's manual Create PR path, which creates a signal-linked task without internal=True and starts its signal-report run at frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96; the Task internal field defaults False. Another writable task output/branch can shadow it.",
+            "refutation": "I first checked whether repository scoping, tenant-aware managers, unique references, or the internal-task guard made competing valid matches impossible. Repository scoping exists but does not distinguish teams or task origins; output and branch are caller-writable (presentation/serializers.py:173-180, facade/api.py:2149-2154), and no reference uniqueness exists. Although auto-start tasks are internal, manual Inbox implementations remain eligible, so that separate guard does not make this trigger unreachable. The existing foreign-team test only checks rejection of one foreign match (tests/test_webhooks.py:1286-1311), not selection when an eligible match also exists. Thus a second task referencing the same native PR can silently suppress its review."
+        }
+    ]
+}

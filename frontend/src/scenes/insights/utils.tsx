@@ -13,6 +13,8 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
+import { queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
+import { isWarehouseSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +24,7 @@ import { examples } from '~/queries/examples'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    ExperimentDataWarehouseNode,
     BreakdownFilter,
     DashboardFilter,
     FileSystemIconType,
@@ -29,6 +32,7 @@ import {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InsightQueryNode,
     InsightVizNode,
     Node,
     NodeKind,
@@ -41,13 +45,16 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
+    isBIVisualizationNode,
     isDataTableNode,
-    isAnyDataWarehouseNode,
     isEventsNode,
     isGroupNode,
+    isHogQLQuery,
     isInsightVizNode,
+    isNodeWithSource,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
+import { getResultSeriesIndex } from '~/scenes/insights/utils/resultSeries'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionFilter,
@@ -119,7 +126,7 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
+    node: AnyEntityNode<AnyDataWarehouseNode | ExperimentDataWarehouseNode> | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
@@ -141,7 +148,7 @@ export const getDisplayNameFromEntityNode = (
         name = 'All events'
     }
 
-    const id = isAnyDataWarehouseNode(node)
+    const id = isWarehouseSeriesNode(node)
         ? node.table_name
         : isEventsNode(node)
           ? node.event
@@ -199,7 +206,8 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
 
     return insightId
         ? insightId
-        : (await api.get(`api/environments/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
+        : // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
+          (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
               .results[0]?.id
 }
 
@@ -307,7 +315,16 @@ function formatNumericBreakdownLabel(
         return BREAKDOWN_NULL_DISPLAY
     }
 
-    if (formatPropertyValueForDisplay) {
+    const breakdownType = (
+        typeof multipleBreakdownIndex === 'number'
+            ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]?.type
+            : breakdownFilter?.breakdown_type
+    ) as string | undefined
+
+    // Element breakdown values (tag_name, text, href) have no matching property definition — the type
+    // falls back to Event, so a same-named DateTime/Duration event property would otherwise reformat
+    // a numeric-looking element value into a date or duration.
+    if (formatPropertyValueForDisplay && breakdownType !== 'element') {
         const nestedBreakdown =
             typeof multipleBreakdownIndex === 'number'
                 ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
@@ -518,6 +535,7 @@ export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
     [InsightType.PATHS]: urls.insightNew({ type: InsightType.PATHS }),
     [InsightType.JOURNEYS]: urls.insightNew({ type: InsightType.JOURNEYS }),
     [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
+    [InsightType.METRICS]: urls.insightNew({ type: InsightType.METRICS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery)['query'] }),
@@ -594,17 +612,18 @@ export function getFunnelDatasetKey(dataset: { breakdown_value?: BreakdownKeyTyp
 
 /** Identifies the base series — deliberately excludes `compare_label`, so that current and
  * previous period datasets share a single result customization. */
-export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
+export function getTrendDatasetKey(
+    dataset: IndexedTrendResult,
+    querySource: InsightQueryNode | null | undefined
+): string {
     // for formulas, the position (not seriesIndex) identifies the base series: with compare
     // enabled, previous-period datasets have offset series indexes, but share the position
     // with their current-period counterpart
     const formulaPosition = getTrendDatasetPosition(dataset)
     const payload = {
-        series: Number.isInteger(dataset.action?.order)
-            ? dataset.action?.order
-            : formulaPosition > 0
-              ? `formula${formulaPosition + 1}`
-              : 'formula',
+        series:
+            getResultSeriesIndex(querySource, dataset) ??
+            (formulaPosition > 0 ? `formula${formulaPosition + 1}` : 'formula'),
         breakdown_value:
             dataset.breakdown_value !== undefined && !Array.isArray(dataset.breakdown_value)
                 ? [dataset.breakdown_value]
@@ -642,10 +661,11 @@ export function getFunnelDatasetPosition(
 
 export function getTrendResultCustomizationKey(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
-    dataset: IndexedTrendResult
+    dataset: IndexedTrendResult,
+    querySource: InsightQueryNode | null | undefined
 ): string {
     const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === ResultCustomizationBy.Value
-    return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
+    return assignmentByValue ? getTrendDatasetKey(dataset, querySource) : getTrendDatasetPosition(dataset).toString()
 }
 
 export function getTrendResultCustomization(
@@ -655,9 +675,10 @@ export function getTrendResultCustomization(
         | Record<string, ResultCustomizationByValue>
         | Record<number, ResultCustomizationByPosition>
         | null
-        | undefined
+        | undefined,
+    querySource: InsightQueryNode | null | undefined
 ): ResultCustomization | undefined {
-    const resultCustomizationKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
+    const resultCustomizationKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset, querySource)
     return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
         ? (resultCustomizations as any)[resultCustomizationKey]
         : undefined
@@ -681,9 +702,15 @@ export function getTrendResultCustomizationColorToken(
         | null
         | undefined,
     theme: DataColorTheme,
-    dataset: IndexedTrendResult
+    dataset: IndexedTrendResult,
+    querySource: InsightQueryNode | null | undefined
 ): DataColorToken {
-    const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
+    const resultCustomization = getTrendResultCustomization(
+        resultCustomizationBy,
+        dataset,
+        resultCustomizations,
+        querySource
+    )
 
     // for result customizations without a configuration, the color is determined
     // by the position in the dataset (shared by current/previous period pairs).
@@ -857,6 +884,9 @@ export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
 }
 
 export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
+    if (isBIVisualizationNode(query)) {
+        return 'business_intelligence'
+    }
     if (!query?.kind) {
         return 'product_analytics'
     }
@@ -888,13 +918,27 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
 }
 
 export const getOverrideWarningPropsForButton = (
+    query: Node | null | undefined,
     filtersOverride: DashboardFilter | null | undefined,
     variablesOverride: Record<string, HogQLVariable> | null | undefined
 ): Pick<LemonButtonProps, 'icon' | 'tooltip'> => {
+    // The backend applies dashboard filters to a SQL query only through a {filters} placeholder, and
+    // dashboard variables only to the variables the query declares. Other overrides do not change
+    // the result, so editing discards nothing.
+    const hogQLSource = isHogQLQuery(query)
+        ? query
+        : isNodeWithSource(query) && isHogQLQuery(query.source)
+          ? query.source
+          : null
     const filterOverridesExist =
         isObject(filtersOverride) &&
-        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0))
-    const variableOverridesExist = isObject(variablesOverride) && !isEmptyObject(variablesOverride)
+        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0)) &&
+        (!hogQLSource || queryUsesFiltersPlaceholder(hogQLSource.query))
+    const variableOverridesExist =
+        isObject(variablesOverride) &&
+        (hogQLSource
+            ? Object.keys(variablesOverride).some((variableId) => !!hogQLSource.variables?.[variableId])
+            : !isEmptyObject(variablesOverride))
 
     const overrideType =
         filterOverridesExist && variableOverridesExist ? 'overrides' : filterOverridesExist ? 'filters' : 'variables'

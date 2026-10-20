@@ -62,6 +62,7 @@ export interface BuildBulkActionEventsInput {
   bulkSize?: number;
   /** Dismissal category, only meaningful for `dismiss`. */
   dismissalReason?: string;
+  dismissalNote?: string;
 }
 
 /**
@@ -76,7 +77,14 @@ export interface BuildBulkActionEventsInput {
 export function buildBulkActionEvents(
   input: BuildBulkActionEventsInput,
 ): InboxReportActionProperties[] {
-  const { reports, actionType, surface, triageId, dismissalReason } = input;
+  const {
+    reports,
+    actionType,
+    surface,
+    triageId,
+    dismissalReason,
+    dismissalNote,
+  } = input;
   const bulkSize = input.bulkSize ?? reports.length;
   const isBulk = bulkSize > 1;
   return reports.map((report) => ({
@@ -93,6 +101,9 @@ export function buildBulkActionEvents(
     ...(triageId ? { triage_id: triageId } : {}),
     ...(actionType === "dismiss" && dismissalReason
       ? { dismissal_reason: dismissalReason }
+      : {}),
+    ...(actionType === "dismiss" && dismissalNote
+      ? { dismissal_note: dismissalNote }
       : {}),
   }));
 }

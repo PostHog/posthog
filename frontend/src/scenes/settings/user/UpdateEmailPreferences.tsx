@@ -2,13 +2,23 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconQuestion } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonSwitch,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
+import { AvailableFeature, NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
 
 import { LOCKED_BY_ORGANIZATION, lockedValueFor } from '../shared/notificationLocks'
 import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
@@ -21,9 +31,13 @@ enum NotificationBlock {
     IssueAssigned = 'issue-assigned',
     EtWeeklyDigest = 'et-weekly-digest',
     WaWeeklyDigest = 'wa-weekly-digest',
+    DataCatalogWeeklyDigest = 'data-catalog-weekly-digest',
     CommentMentions = 'comment-mentions',
+    Approvals = 'approvals',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
+    AiEvaluationDisabled = 'ai-evaluation-disabled',
+    WorkflowSuggestions = 'workflow-suggestions',
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
@@ -43,10 +57,15 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     discussions_mentioned: true,
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
+    ai_evaluation_disabled: true,
+    workflow_suggestions: true,
     materialized_view_sync_failed: false,
     materialized_view_sync_failed_daily: true,
     materialized_view_sync_failed_immediate: false,
     web_analytics_weekly_digest: true,
+    data_catalog_weekly_digest: true,
+    approval_requested: true,
+    approval_resolved: true,
 }
 
 function ProjectDigestSelector({
@@ -343,7 +362,7 @@ function PipelineNotificationSelector(): JSX.Element {
 }
 
 export function UpdateEmailPreferences(): JSX.Element {
-    const { user, userLoading } = useValues(userLogic)
+    const { user, userLoading, hasAvailableFeature } = useValues(userLogic)
     const {
         updateWeeklyDigestForTeam,
         updateWeeklyDigestForAllTeams,
@@ -355,6 +374,7 @@ export function UpdateEmailPreferences(): JSX.Element {
     } = useActions(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { searchParams } = useValues(router)
+    const workflowSuggestionsEnabled = useFeatureFlag('SELF_OPTIMISING_WORKFLOWS')
     const highlight = searchParams.highlight as NotificationBlock | undefined
     const dataLoaded = !userLoading && !currentOrganizationLoading && !!user && !!currentOrganization
 
@@ -543,6 +563,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                 )}
             </div>
         ),
+        [NotificationBlock.DataCatalogWeeklyDigest]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="data_catalog_weekly_digest"
+                    label="Data catalog weekly digest"
+                    description="Get a weekly summary of the metrics, relationships, and certifications waiting for review in your projects"
+                    dataAttr="data_catalog_weekly_digest_enabled"
+                />
+            </div>
+        ),
         [NotificationBlock.CommentMentions]: (
             <div className="border rounded p-4">
                 <SimpleSwitch
@@ -553,6 +583,28 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
             </div>
         ),
+        [NotificationBlock.Approvals]: (
+            <div className="border rounded p-4 space-y-3">
+                <div className="flex items-center gap-1 font-semibold">
+                    <span>Approvals</span>
+                    <Tooltip title="These switches apply to approval emails from all your organizations.">
+                        <IconQuestion className="text-secondary text-base" />
+                    </Tooltip>
+                </div>
+                <SimpleSwitch
+                    setting="approval_requested"
+                    label="Approval requests"
+                    description="Get an email when a change needs your approval"
+                    dataAttr="approval_requested_enabled"
+                />
+                <SimpleSwitch
+                    setting="approval_resolved"
+                    label="Change request updates"
+                    description="Get an email when your change request is approved, declined, expires, or goes live"
+                    dataAttr="approval_resolved_enabled"
+                />
+            </div>
+        ),
         [NotificationBlock.ApiKeyExposure]: (
             <div className="border rounded p-4">
                 <SimpleSwitch
@@ -560,6 +612,26 @@ export function UpdateEmailPreferences(): JSX.Element {
                     label="Private API key exposure"
                     description="Get notified when private API keys are publicly exposed"
                     dataAttr="project_api_key_exposure_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.AiEvaluationDisabled]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="ai_evaluation_disabled"
+                    label="Disabled AI evaluations"
+                    description="Get notified when an AI observability evaluation stops because of an error"
+                    dataAttr="ai_evaluation_disabled_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.WorkflowSuggestions]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="workflow_suggestions"
+                    label="Workflow suggestions"
+                    description="Get an email when PostHog suggests a change to a workflow you set up"
+                    dataAttr="workflow_suggestions_enabled"
                 />
             </div>
         ),
@@ -576,7 +648,12 @@ export function UpdateEmailPreferences(): JSX.Element {
         ),
     }
 
-    const highlightedBlock = highlight && NOTIFICATION_BLOCK_ORDER.includes(highlight) ? highlight : null
+    const visibleBlocks = NOTIFICATION_BLOCK_ORDER.filter(
+        (block) =>
+            (block !== NotificationBlock.Approvals || hasAvailableFeature(AvailableFeature.APPROVALS)) &&
+            (block !== NotificationBlock.WorkflowSuggestions || workflowSuggestionsEnabled)
+    )
+    const highlightedBlock = highlight && visibleBlocks.includes(highlight) ? highlight : null
     const highlightRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -587,7 +664,7 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     return (
         <div className="space-y-3">
-            {NOTIFICATION_BLOCK_ORDER.map((key) => (
+            {visibleBlocks.map((key) => (
                 <div
                     key={key}
                     ref={key === highlightedBlock ? highlightRef : undefined}

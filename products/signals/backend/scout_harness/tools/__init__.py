@@ -7,8 +7,14 @@ sandbox. Each tool is team-scoped and Postgres-backed.
 
 from products.signals.backend.scout_harness.tools.checks import (
     MAX_CHECK_EXPLANATION_LENGTH,
+    MAX_CHECKS_LISTED,
     InvalidCheckResultError,
+    InvalidCheckWriteError,
     RecordCheckResultResult,
+    ScoutCheckSummary,
+    cancel_report_check,
+    create_report_check,
+    list_report_checks,
     record_check_result,
 )
 from products.signals.backend.scout_harness.tools.emit import (
@@ -149,6 +155,12 @@ __all__ = [
     "list_notes",
     "normalize_tags",
     "record_check_result",
+    "MAX_CHECKS_LISTED",
+    "InvalidCheckWriteError",
+    "ScoutCheckSummary",
+    "cancel_report_check",
+    "create_report_check",
+    "list_report_checks",
     "record_structured_output",
     "record_structured_output_sync",
     "remember",

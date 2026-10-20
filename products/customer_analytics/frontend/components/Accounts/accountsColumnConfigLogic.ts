@@ -24,6 +24,9 @@ import type {
 import { ACCOUNT_FIELD_TAXONOMIC_OPTIONS, propertyTypeForDisplayType } from './accountsPropertyFilters'
 
 export const ACCOUNTS_NAME_COLUMN = 'name'
+export const ACCOUNTS_TAGS_COLUMN = 'accounts.tags.names AS tag_names'
+const LEGACY_ACCOUNTS_TAGS_NAME_COLUMN = 'accounts.tags.names AS names'
+const LEGACY_ACCOUNTS_TAGS_ACCOUNT_ID_COLUMN = 'accounts.tags.account_id AS account_id'
 
 // Legacy role names remain serialized for saved views and shared URLs.
 // Query planning maps them to seeded relationship definitions.
@@ -41,12 +44,24 @@ export function isLegacyRoleColumn(column: string): column is AccountRoleKey {
 
 export const ACCOUNTS_DEFAULT_COLUMNS: string[] = [
     ACCOUNTS_NAME_COLUMN,
-    'accounts.tags.names AS tag_names',
+    ACCOUNTS_TAGS_COLUMN,
     'accounts.notebooks.count AS notebook_count',
 ]
 
-function ensureNameColumn(columns: string[]): string[] {
-    return columns.includes(ACCOUNTS_NAME_COLUMN) ? columns : [ACCOUNTS_NAME_COLUMN, ...columns]
+export function normalizeAccountColumns(columns: string[]): string[] {
+    const normalizedColumns = columns.flatMap((column) => {
+        if (column === LEGACY_ACCOUNTS_TAGS_NAME_COLUMN) {
+            return [ACCOUNTS_TAGS_COLUMN]
+        }
+        if (column === LEGACY_ACCOUNTS_TAGS_ACCOUNT_ID_COLUMN) {
+            return []
+        }
+        return [column]
+    })
+    const deduplicatedColumns = [...new Set(normalizedColumns)]
+    return deduplicatedColumns.includes(ACCOUNTS_NAME_COLUMN)
+        ? deduplicatedColumns
+        : [ACCOUNTS_NAME_COLUMN, ...deduplicatedColumns]
 }
 
 export function diffColumnConfiguration(
@@ -181,7 +196,7 @@ const JOIN_FIELD_TYPES = new Set(['lazy_table', 'virtual_table', 'view', 'materi
 
 // Definition-driven groups replace these raw joins.
 const HIDDEN_JOIN_GROUPS = new Set(['custom_properties', 'relationships'])
-const POSTGRES_BACKED_JOIN_GROUPS = new Set(['tags', 'notebooks'])
+const POSTGRES_BACKED_JOIN_GROUPS = new Set(['notebooks'])
 const POSTGRES_BACKED_ACCOUNT_FIELDS = new Set<string>(Object.values(AccountsTableAccountField))
 
 const SKIPPED_DIRECT_FIELD_TYPES = new Set([
@@ -253,10 +268,18 @@ export function buildAccountColumnGroups(
     if (accountsTable) {
         for (const field of Object.values(accountsTable.fields)) {
             if (JOIN_FIELD_TYPES.has(field.type)) {
+                const joinedTable = field.table ? allTablesMap?.[field.table] : undefined
+                if (field.name === 'tags') {
+                    directOptions.push({
+                        name: 'tags',
+                        expression: ACCOUNTS_TAGS_COLUMN,
+                        type: 'tags',
+                    })
+                    continue
+                }
                 if (HIDDEN_JOIN_GROUPS.has(field.name) || !POSTGRES_BACKED_JOIN_GROUPS.has(field.name)) {
                     continue
                 }
-                const joinedTable = field.table ? allTablesMap?.[field.table] : undefined
                 addJoinGroup(field.name, joinOptionsFromSchema(field, joinedTable))
                 continue
             }
@@ -547,9 +570,9 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         selectColumns: [
             [...ACCOUNTS_DEFAULT_COLUMNS],
             {
-                setSelectColumns: (_, { columns }) => ensureNameColumn(columns),
-                setDefaultSelectColumns: (_, { columns }) => ensureNameColumn(columns),
-                restoreSelectColumns: (_, { columns }) => ensureNameColumn(columns),
+                setSelectColumns: (_, { columns }) => normalizeAccountColumns(columns),
+                setDefaultSelectColumns: (_, { columns }) => normalizeAccountColumns(columns),
+                restoreSelectColumns: (_, { columns }) => normalizeAccountColumns(columns),
                 selectColumn: (state, { column }) => (state.includes(column) ? state : [...state, column]),
                 unselectColumn: (state, { column }) =>
                     column === ACCOUNTS_NAME_COLUMN ? state : state.filter((c) => c !== column),

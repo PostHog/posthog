@@ -29,12 +29,12 @@ import { webAnalyticsLogic } from './webAnalyticsLogic'
 export const WEB_ANALYTICS_PROPERTY_ALLOW_LIST = WEB_ANALYTICS_PRE_AGGREGATED_PROPERTY_ALLOW_LIST
 
 export const getWebAnalyticsTaxonomicGroupTypes = (
-    preAggregatedEnabled: boolean,
+    restrictedUiEnabled: boolean,
     cohortFilterEnabled: boolean = false
 ): TaxonomicFilterGroupType[] => [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.SessionProperties,
-    ...(!preAggregatedEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
+    ...(!restrictedUiEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
     ...(cohortFilterEnabled ? [TaxonomicFilterGroupType.Cohorts] : []),
 ]
 
@@ -50,7 +50,7 @@ export const WebPropertyFilters = ({
     // Always call hooks unconditionally (React Rules of Hooks)
     const {
         rawWebAnalyticsFilters = [],
-        preAggregatedEnabled = false,
+        restrictedUiEnabled = false,
         hasIncompatibleFilters = false,
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters: logicSetFilters } = useActions(webAnalyticsLogic)
@@ -65,11 +65,11 @@ export const WebPropertyFilters = ({
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.SessionProperties,
-        ...(!preAggregatedEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
+        ...(!restrictedUiEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
         ...(cohortFilterEnabled ? [TaxonomicFilterGroupType.Cohorts] : []),
     ]
 
-    const webAnalyticsPropertyAllowList = preAggregatedEnabled
+    const webAnalyticsPropertyAllowList = restrictedUiEnabled
         ? (WEB_ANALYTICS_PRE_AGGREGATED_PROPERTY_ALLOW_LIST as unknown as {
               [key: string]: string[]
           })

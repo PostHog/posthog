@@ -30,6 +30,11 @@ class TestGroupKeyFiltering(APIBaseTest):
     def _events_from_sql(self) -> str:
         return "events_json AS events" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
 
+    def _group_column(self, index: int) -> str:
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            return f"events.properties.`$group_{index}`"
+        return f"events.`$group_{index}`"
+
     def _create_mapping_and_rebuild(self, **kwargs):
         """Create a GroupTypeMapping, invalidate cache, and rebuild database."""
         create_group_type_mapping(**kwargs)
@@ -65,7 +70,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         self.assertIn(
-            f"SELECT if(less(toTimeZone(events.timestamp, %(hogql_val_0)s), {expected_cutoff}), %(hogql_val_1)s, events.`$group_0`) AS `$group_0` FROM {self._events_from_sql()} WHERE equals(events.team_id,",
+            f"SELECT if(less(toTimeZone(events.timestamp, %(hogql_val_0)s), {expected_cutoff}), %(hogql_val_1)s, {self._group_column(0)}) AS `$group_0` FROM {self._events_from_sql()} WHERE equals(events.team_id,",
             sql,
         )
 
@@ -79,7 +84,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         # Should return an empty string constant (parameterized)
-        self.assertIn(f"SELECT events.`$group_0` AS `$group_0` FROM {self._events_from_sql()}", sql)
+        self.assertIn(f"SELECT {self._group_column(0)} AS `$group_0` FROM {self._events_from_sql()}", sql)
 
     def test_multiple_group_fields(self):
         """Test filtering with multiple group type mappings"""
@@ -108,9 +113,9 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         # Should have conditional logic for groups 0 and 1, empty string for group 2
         self.assertIn("if(less(toTimeZone(events.timestamp,", sql)
-        self.assertIn("events.`$group_0`) AS `$group_0`", sql)
-        self.assertIn("events.`$group_1`) AS `$group_1`", sql)
-        self.assertIn("events.`$group_2` AS `$group_2`", sql)
+        self.assertIn(f"{self._group_column(0)}) AS `$group_0`", sql)
+        self.assertIn(f"{self._group_column(1)}) AS `$group_1`", sql)
+        self.assertIn(f"{self._group_column(2)} AS `$group_2`", sql)
 
     def test_group_field_in_where_clause(self):
         """Test that group filtering works in WHERE clauses"""
@@ -130,7 +135,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         # Should use the conditional logic in WHERE clause
         self.assertIn("equals(if(less(toTimeZone(events.timestamp,", sql)
-        self.assertIn("events.`$group_0`), %(hogql_val_", sql)
+        self.assertIn(f"{self._group_column(0)}), %(hogql_val_", sql)
 
     def test_group_join_with_filtering(self):
         """Test that group_1.properties access includes filtering for $group_1"""
@@ -149,7 +154,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         self.assertIn("ON equals(if(less(toTimeZone(events.timestamp,", sql)
-        self.assertIn("events.`$group_1`), events__group_1.key)", sql)
+        self.assertIn(f"{self._group_column(1)}), events__group_1.key)", sql)
 
     def test_multiple_group_joins_with_mixed_mappings(self):
         """Test joins to multiple groups with some having filtering and others not"""
@@ -170,8 +175,8 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         self.assertIn("ON equals(if(less(toTimeZone(events.timestamp,", sql)
-        self.assertIn("events.`$group_0`), events__group_0.key)", sql)
-        self.assertIn("ON equals(events.`$group_1`, events__group_1.key)", sql)
+        self.assertIn(f"{self._group_column(0)}), events__group_0.key)", sql)
+        self.assertIn(f"ON equals({self._group_column(1)}, events__group_1.key)", sql)
 
     def test_non_clickhouse_dialect_no_filtering(self):
         """Test that non-ClickHouse dialects don't get filtering"""
@@ -208,7 +213,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         self.assertIn(
-            "ON equals(if(less(toTimeZone(events.timestamp, %(hogql_val_2)s), toDateTime64('2023-01-15 12:00:00.000000', 6, 'UTC')), %(hogql_val_3)s, events.`$group_0`), events__group_0.key)",
+            f"ON equals(if(less(toTimeZone(events.timestamp, %(hogql_val_2)s), toDateTime64('2023-01-15 12:00:00.000000', 6, 'UTC')), %(hogql_val_3)s, {self._group_column(0)}), events__group_0.key)",
             sql,
         )
 
@@ -230,6 +235,6 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         self.assertIn("ON equals(if(less(toTimeZone(events.timestamp,", sql)
         self.assertIn(
-            "toDateTime64('2023-01-15 12:00:00.000000', 6, 'UTC')), %(hogql_val_3)s, events.`$group_0`), events__group_0.key)",
+            f"toDateTime64('2023-01-15 12:00:00.000000', 6, 'UTC')), %(hogql_val_3)s, {self._group_column(0)}), events__group_0.key)",
             sql,
         )

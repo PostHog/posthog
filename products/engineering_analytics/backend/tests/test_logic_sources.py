@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -9,27 +10,37 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.sources import (
+    DEPOT_JOB_ATTEMPTS_SCHEMA,
+    ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
+    TEAM_MEMBERS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
     JobSourceTables,
+    TeamMembershipTable,
     list_github_sources,
+    resolve_ci_data_freshness,
     resolve_github_tables,
     resolve_job_source_tables,
+    resolve_team_membership_table,
 )
+from products.engineering_analytics.backend.logic.views.depot_ci import DepotJobAttempts
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    create_depot_source,
     create_warehouse_table_row,
     link_schema,
 )
 from products.engineering_analytics.backend.tests._logic_helpers import _ago, _WarehouseMixin
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+_SYNCED_AT = datetime(2026, 3, 2, 12, tzinfo=UTC)
 
 
 class TestResolveGitHubTables(BaseTest):
@@ -43,6 +54,7 @@ class TestResolveGitHubTables(BaseTest):
         schemas: list[tuple[str, bool, bool]],
         source_type: ExternalDataSourceType = ExternalDataSourceType.GITHUB,
         team: Team | None = None,
+        repository: str = "",
     ) -> ExternalDataSource:
         # schemas: (endpoint name, should_sync, has a backing table)
         team = team or self.team
@@ -53,6 +65,7 @@ class TestResolveGitHubTables(BaseTest):
             status=ExternalDataSource.Status.COMPLETED,
             source_type=source_type,
             prefix=prefix,
+            job_inputs={"repository": repository} if repository else None,
         )
         for name, should_sync, has_table in schemas:
             table = (
@@ -64,11 +77,90 @@ class TestResolveGitHubTables(BaseTest):
     _BOTH_SYNCED = [(PULL_REQUESTS_SCHEMA, True, True), (WORKFLOW_RUNS_SCHEMA, True, True)]
 
     def test_resolves_non_default_prefix_tables(self) -> None:
-        self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        source = self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
         tables = resolve_github_tables(team=self.team)
         assert tables == GitHubTables(
-            pull_requests="myprefixgithub_pull_requests", workflow_runs="myprefixgithub_workflow_runs"
+            pull_requests="myprefixgithub_pull_requests",
+            workflow_runs="myprefixgithub_workflow_runs",
+            source_id=str(source.id),
         )
+
+    @parameterized.expand([("with_team_requests", ["event", "requested_team"], True), ("without", ["event"], False)])
+    def test_flags_issue_events_that_hold_team_review_requests(
+        self, _name: str, columns: list[str], expected: bool
+    ) -> None:
+        source = self._connect(prefix="flag", schemas=self._BOTH_SYNCED)
+        table = create_warehouse_table_row(self.team, name="flaggithub_issue_events", source=source)
+        table.columns = {
+            column: {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"} for column in columns
+        }
+        table.save()
+        link_schema(self.team, source, name=ISSUE_EVENTS_SCHEMA, table=table, should_sync=True)
+
+        tables = resolve_github_tables(team=self.team)
+
+        assert (tables.issue_events, tables.issue_events_team_requests) == ("flaggithub_issue_events", expected)
+
+    @parameterized.expand(
+        [
+            ("github_only", None, False, _SYNCED_AT),
+            ("depot_synced_earlier", _SYNCED_AT - timedelta(hours=2), True, _SYNCED_AT - timedelta(hours=2)),
+            ("depot_synced_later", _SYNCED_AT + timedelta(hours=2), True, _SYNCED_AT),
+            ("depot_never_synced", None, True, None),
+        ]
+    )
+    def test_ci_data_freshness_is_the_older_of_the_github_and_depot_syncs(
+        self, _name: str, depot_synced_at: datetime | None, has_depot: bool, expected: datetime | None
+    ) -> None:
+        source = self._connect(
+            prefix="fresh",
+            schemas=[*self._BOTH_SYNCED, (WORKFLOW_JOBS_SCHEMA, True, True)],
+            repository="PostHog/posthog",
+        )
+        ExternalDataSchema.objects.filter(source=source).update(last_synced_at=_SYNCED_AT)
+        if has_depot:
+            depot = create_depot_source(self.team, prefix="ci", repository="posthog/PostHog")
+            schema = link_schema(
+                self.team,
+                depot,
+                name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+                table=create_warehouse_table_row(self.team, name="cidepot_job_attempts", source=depot),
+            )
+            ExternalDataSchema.objects.filter(id=schema.id).update(last_synced_at=depot_synced_at)
+
+        freshness = resolve_ci_data_freshness(team=self.team, tables=resolve_github_tables(team=self.team))
+
+        assert (freshness.runs_synced_at, freshness.jobs_synced_at) == (expected, expected)
+
+    @parameterized.expand(
+        [
+            # GitHub's documented member object omits role, so probing keeps the roster read off a
+            # column a snapshot may not have.
+            ("with_roles", ["login", "team_slug", "role"], True),
+            ("without_roles", ["login", "team_slug"], False),
+        ]
+    )
+    def test_resolves_membership_snapshot_without_the_pull_request_endpoints(
+        self, _name: str, columns: list[str], expected_roles: bool
+    ) -> None:
+        # Membership syncs on its own, so routing must not depend on pull_requests + workflow_runs.
+        source = self._connect(prefix="roster", schemas=[])
+        table = create_warehouse_table_row(self.team, name="rostergithub_team_members", source=source)
+        table.columns = {
+            column: {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"} for column in columns
+        }
+        table.save()
+        link_schema(self.team, source, name=TEAM_MEMBERS_SCHEMA, table=table, should_sync=True)
+
+        assert resolve_team_membership_table(team=self.team) == TeamMembershipTable(
+            table="rostergithub_team_members", has_role=expected_roles
+        )
+
+    def test_resolves_no_membership_snapshot_when_the_endpoint_is_unsynced(self) -> None:
+        # The endpoint is off by default, so a connected source without it reports "not synced"
+        # rather than resolving some other table.
+        self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        assert resolve_team_membership_table(team=self.team) is None
 
     def test_repo_scoped_resolution_survives_non_dict_job_inputs(self) -> None:
         # job_inputs is an EncryptedJSONField that can hold any JSON value; the repo-first ordering
@@ -114,10 +206,12 @@ class TestResolveGitHubTables(BaseTest):
     def test_skips_incomplete_source_for_a_complete_one(self) -> None:
         # The oldest source is missing an endpoint; resolution falls through to the complete one.
         self._connect(prefix="incomplete", schemas=[(PULL_REQUESTS_SCHEMA, True, True)])
-        self._connect(prefix="complete", schemas=self._BOTH_SYNCED)
+        complete = self._connect(prefix="complete", schemas=self._BOTH_SYNCED)
         tables = resolve_github_tables(team=self.team)
         assert tables == GitHubTables(
-            pull_requests="completegithub_pull_requests", workflow_runs="completegithub_workflow_runs"
+            pull_requests="completegithub_pull_requests",
+            workflow_runs="completegithub_workflow_runs",
+            source_id=str(complete.id),
         )
 
     def test_ignores_soft_deleted_source(self) -> None:
@@ -131,7 +225,9 @@ class TestResolveGitHubTables(BaseTest):
         newer = self._connect(prefix="newer", schemas=self._BOTH_SYNCED)
         tables = resolve_github_tables(team=self.team, source_id=str(newer.id))
         assert tables == GitHubTables(
-            pull_requests="newergithub_pull_requests", workflow_runs="newergithub_workflow_runs"
+            pull_requests="newergithub_pull_requests",
+            workflow_runs="newergithub_workflow_runs",
+            source_id=str(newer.id),
         )
 
     def test_unknown_source_id_raises(self) -> None:
@@ -287,7 +383,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
     def test_new_source_single_qualified_repo_resolves(self) -> None:
         # A source created via the multi-repo `repositories` field has no legacy `repository`, so its
         # one repo is qualified from day one. Bare-name matching would 400 this — the onboarding break.
-        self._multi_repo_source(
+        source = self._multi_repo_source(
             prefix="fresh",
             repos={"PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)]},
         )
@@ -296,6 +392,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
             pull_requests="freshgithub_posthog_posthog_pull_requests",
             workflow_runs="freshgithub_posthog_posthog_workflow_runs",
             repository="posthog/posthog",
+            source_id=str(source.id),
         )
 
     @parameterized.expand(
@@ -420,7 +517,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
     def test_cost_pairs_include_every_repo_in_a_source(self) -> None:
         # The cost view unions (jobs, runs) across repos. A multi-repo source must contribute one
         # pair per fully-synced repo — collapsing it to one repo silently under-counts the view.
-        self._multi_repo_source(
+        source = self._multi_repo_source(
             prefix="cost",
             legacy_repository="PostHog/posthog",
             repos={
@@ -430,18 +527,48 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 "posthog/other": [(WORKFLOW_RUNS_SCHEMA, True)],
             },
         )
+        # A later source syncs PostHog/posthog again, with the PR snapshot.
+        with_prs = self._multi_repo_source(
+            prefix="prs",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [
+                    (WORKFLOW_RUNS_SCHEMA, True),
+                    (WORKFLOW_JOBS_SCHEMA, True),
+                    (PULL_REQUESTS_SCHEMA, True),
+                ]
+            },
+        )
+        # A Depot source joins only the repository it syncs, matched case-insensitively, and only one
+        # entry for it: the one with the PR snapshot, which the friction view reads.
+        depot = create_depot_source(self.team, prefix="ci", repository="posthog/PostHog")
+        link_schema(
+            self.team,
+            depot,
+            name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+            table=create_warehouse_table_row(self.team, name="cidepot_job_attempts", source=depot),
+        )
         # pull_requests stays None here: these views qualify on jobs + runs, so a repo reaches them
         # with no PR snapshot and the run builder's PR attribution degrades to the message suffix.
         assert set(resolve_job_source_tables(self.team)) == {
             JobSourceTables(
-                workflow_jobs="costgithub_posthog_posthog_workflow_jobs",
-                workflow_runs="costgithub_posthog_posthog_workflow_runs",
+                github_workflow_jobs="costgithub_posthog_posthog_workflow_jobs",
+                github_workflow_runs="costgithub_posthog_posthog_workflow_runs",
                 pull_requests=None,
+                source_id=str(source.id),
             ),
             JobSourceTables(
-                workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",
-                workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
+                github_workflow_jobs="prsgithub_posthog_posthog_workflow_jobs",
+                github_workflow_runs="prsgithub_posthog_posthog_workflow_runs",
+                pull_requests="prsgithub_posthog_posthog_pull_requests",
+                source_id=str(with_prs.id),
+                depot_job_attempts=DepotJobAttempts(table="cidepot_job_attempts", repository="posthog/posthog"),
+            ),
+            JobSourceTables(
+                github_workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",
+                github_workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
                 pull_requests=None,
+                source_id=str(source.id),
             ),
         }
 

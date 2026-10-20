@@ -184,6 +184,14 @@ export const PropertyMatchingVersionEnumApi = {
     Number2: 2,
 } as const
 
+export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
+
+export const FlagEvaluationsModeEnumApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+} as const
+
 export interface StaffTeamConfigApi {
     /** Team id. */
     team_id: number
@@ -201,6 +209,12 @@ export interface StaffTeamConfigApi {
     max_feature_flags_override: number | null
     /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
     effective_max_feature_flags: number
+    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
     feature_flag_count: number
 }
@@ -227,6 +241,65 @@ export interface StaffTeamConfigMutationApi {
      * @nullable
      */
     max_feature_flags_override?: number | null
+}
+
+export interface StaffFlagEvaluationsModeMutationApi {
+    /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /**
+     * Teams whose organizations to move (max 50). The mode belongs to the organization, so the write moves every team of each organization that owns one of these teams.
+     * @minItems 1
+     * @maxItems 50
+     */
+    team_ids: number[]
+    /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2. */
+    allow_downgrade?: boolean
+    /** Report what the write would change, and write nothing. */
+    dry_run?: boolean
+}
+
+export interface StaffOrganizationModeChangeApi {
+    /** The organization's mode before the write.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    current_mode: FlagEvaluationsModeEnumApi
+    /** The target mode.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    target_mode: FlagEvaluationsModeEnumApi
+    /** Organization id. */
+    organization_id: string
+    /** Organization name. */
+    organization_name: string
+    /** Teams of the organization. They all read the organization's mode. */
+    team_count: number
+    /** Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures. */
+    running_experiments_on_feature_flag_called: number
+    /** True when the write moved the organization to the target mode, or would on a dry run. */
+    changed: boolean
+    /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
+    left_above_mode: boolean
+}
+
+export interface StaffFlagEvaluationsModeResponseApi {
+    /** The target mode of the request.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** True when the request wrote nothing. */
+    dry_run: boolean
+    /** One entry per organization the request covers, oldest organization first. */
+    organizations: StaffOrganizationModeChangeApi[]
 }
 
 export interface StaffTeamResultApi {
@@ -560,7 +633,7 @@ export interface FeatureFlagApi {
     /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
     archived?: boolean
     readonly created_by: UserBasicApi
-    created_at?: string
+    readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
     version?: number
@@ -575,7 +648,7 @@ export interface FeatureFlagApi {
     tags?: unknown[]
     evaluation_contexts?: unknown[]
     /**
-     * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
+     * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.
      * @nullable
      */
     readonly usage_dashboard: number | null
@@ -600,6 +673,7 @@ export interface FeatureFlagApi {
     is_remote_configuration?: boolean | null
     /** @nullable */
     has_encrypted_payloads?: boolean | null
+    /** Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness. */
     readonly status: string
     /** Specifies where this feature flag should be evaluated
      *
@@ -616,7 +690,7 @@ export interface FeatureFlagApi {
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
      */
-    last_called_at?: string | null
+    readonly last_called_at: string | null
     _create_in_folder?: string
     /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
     readonly is_used_in_replay_settings: boolean
@@ -1206,6 +1280,366 @@ export interface ActivityLogPaginatedResponseApi {
     total_count: number
 }
 
+/**
+ * The body every DRF exception on these actions renders as.
+ *
+ * `ErrorResponseSerializer` declares a single `error` key, which no response on this viewset
+ * produces: the project exception handler renders this envelope instead. Declaring the wrong
+ * shape reaches the generated clients and the MCP tools, where an agent reads a key that is
+ * never there.
+ */
+export interface FlagActionErrorApi {
+    /** Error class, for example `validation_error`. */
+    type: string
+    /** Machine-readable reason, for example `invalid_input`. */
+    code: string
+    /** Human-readable description of what was refused. */
+    detail: string
+    /**
+     * Request field the error belongs to, or null when it belongs to no single field.
+     * @nullable
+     */
+    attr: string | null
+}
+
+/**
+ * The 400 body a soft-deleted flag produces, which differs from every other error here.
+ *
+ * Built as a plain response rather than raised, so it carries neither the `type` nor the
+ * `attr` the exception handler's envelope has.
+ */
+export interface FlagDeletedRejectionApi {
+    /** Always `false`. */
+    success: boolean
+    /** Human-readable reason, naming the restore the caller has to do before retrying. */
+    error: string
+}
+
+/**
+ * The 400 body a change matching several approval policies produces.
+ *
+ * Raised through the approvals mixin rather than the exception handler, so it carries the
+ * policies that matched instead of the `type`/`attr` envelope.
+ */
+export interface FlagPolicyConflictApi {
+    /** Always `policy_conflict`. */
+    code: string
+    /** Human-readable reason the change could not be gated. */
+    error: string
+    /** The approval policies that matched this change. */
+    conflicting_policies: unknown
+    /** How to split the change so each policy applies on its own. */
+    guidance: string
+}
+
+export type FeatureFlagActionBadRequestApi = FlagActionErrorApi | FlagDeletedRejectionApi | FlagPolicyConflictApi
+
+/**
+ * The 409 body an approval policy produces, which differs from every other error here.
+ *
+ * Raised through the approvals mixin rather than the exception handler, so it carries the
+ * change request it opened instead of the `type`/`attr` envelope.
+ */
+export interface FlagApprovalConflictApi {
+    /** `approval_required` when this call opened the change request, `change_request_pending` when one was already open for the same action. */
+    code: string
+    /** Always `approval_required`. */
+    status: string
+    /** Human-readable description of the policy that gated the change. */
+    detail: string
+    /** Same text as `detail`. */
+    message: string
+    /** Resource the change request targets, `feature_flag` here. */
+    resource_type: string
+    /** Id of the flag the change request targets. */
+    resource_id: string
+    /** Id of the change request that was opened. */
+    change_request_id: string
+    /** The change request that was opened, serialized in full. */
+    change_request: unknown
+    /** Who can approve the change request. */
+    required_approvers: unknown
+}
+
+export type PropertyGroupOperatorEnumApi =
+    (typeof PropertyGroupOperatorEnumApi)[keyof typeof PropertyGroupOperatorEnumApi]
+
+export const PropertyGroupOperatorEnumApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type EventPropFilterTypeEnumApi = (typeof EventPropFilterTypeEnumApi)[keyof typeof EventPropFilterTypeEnumApi]
+
+export const EventPropFilterTypeEnumApi = {
+    Event: 'event',
+    Element: 'element',
+} as const
+
+export interface EventPropFilterApi {
+    type: EventPropFilterTypeEnumApi
+    key: string
+    value: unknown
+    operator?: string | null
+}
+
+export interface HogQLFilterApi {
+    type: 'hogql'
+    key: string
+    value?: unknown
+}
+
+export interface BehavioralFilterApi {
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'behavioral'
+    key: string | number
+    value: string
+    event_type: string
+    time_value?: number | null
+    time_interval?: string | null
+    negation?: boolean
+    operator?: string | null
+    operator_value?: number | null
+    seq_time_interval?: string | null
+    seq_time_value?: number | null
+    seq_event?: string | number | null
+    seq_event_type?: string | null
+    total_periods?: number | null
+    min_periods?: number | null
+    event_filters?: (EventPropFilterApi | HogQLFilterApi)[] | null
+    explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
+}
+
+export interface CohortFilterApi {
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'cohort'
+    key: 'id'
+    value: number
+    negation?: boolean
+}
+
+export interface PersonFilterApi {
+    operator?: string | null
+    value?: unknown
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'person'
+    key: string
+    negation?: boolean
+}
+
+/**
+ * Filter on a top-level persons-table column (e.g. created_at) rather than the
+ * properties JSON. The matching key must be one of PERSON_METADATA_FIELDS.
+ */
+export interface PersonMetadataFilterApi {
+    operator?: string | null
+    value?: unknown
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'person_metadata'
+    key: string
+    negation?: boolean
+}
+
+/**
+ * AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.
+ */
+export interface CohortFilterGroupApi {
+    type: PropertyGroupOperatorEnumApi
+    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | PersonMetadataFilterApi | CohortFilterGroupApi)[]
+}
+
+export interface CohortFiltersApi {
+    properties: CohortFilterGroupApi
+    filterTestAccounts?: boolean | null
+}
+
+/**
+ * * `static` - static
+ * * `person_property` - person_property
+ * * `behavioral` - behavioral
+ * * `realtime` - realtime
+ * * `analytical` - analytical
+ */
+export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
+
+export const CohortTypeEnumApi = {
+    Static: 'static',
+    PersonProperty: 'person_property',
+    Behavioral: 'behavioral',
+    Realtime: 'realtime',
+    Analytical: 'analytical',
+} as const
+
+export interface CohortConditionTypeFlagsApi {
+    /** The filters include a person property or person_metadata condition. */
+    person_properties: boolean
+    /** The filters include a behavioral condition that is not lifecycle-style (e.g. performed_event, performed_event_multiple, performed_event_sequence, or their negations). */
+    behavioral: boolean
+    /** The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event). */
+    lifecycle: boolean
+    /** The filters include a nested reference to another cohort. */
+    cohorts: boolean
+}
+
+/**
+ * * `static` - Static
+ * * `person_properties` - Person properties
+ * * `daily` - Daily
+ * * `building` - Building
+ * * `rebuilding` - Rebuilding
+ * * `ready` - Ready
+ * * `needs_attention` - Needs attention
+ */
+export type CohortRealtimeStateEnumApi = (typeof CohortRealtimeStateEnumApi)[keyof typeof CohortRealtimeStateEnumApi]
+
+export const CohortRealtimeStateEnumApi = {
+    Static: 'static',
+    PersonProperties: 'person_properties',
+    Daily: 'daily',
+    Building: 'building',
+    Rebuilding: 'rebuilding',
+    Ready: 'ready',
+    NeedsAttention: 'needs_attention',
+} as const
+
+/**
+ * * `waiting` - Waiting
+ * * `scanning` - Scanning
+ * * `checking` - Checking
+ */
+export type CohortHistoryBuildPhaseEnumApi =
+    (typeof CohortHistoryBuildPhaseEnumApi)[keyof typeof CohortHistoryBuildPhaseEnumApi]
+
+export const CohortHistoryBuildPhaseEnumApi = {
+    Waiting: 'waiting',
+    Scanning: 'scanning',
+    Checking: 'checking',
+} as const
+
+export interface CohortHistoryBuildApi {
+    /** What the build is doing now: `waiting` to start, `scanning` past events, or `checking` the membership it produced. A build that is queued but has not started reports `waiting` too.
+     *
+     * * `waiting` - Waiting
+     * * `scanning` - Scanning
+     * * `checking` - Checking */
+    phase: CohortHistoryBuildPhaseEnumApi
+    /**
+     * How much of the event history has been scanned, 0 to 100. Null outside the `scanning` phase, and while the scan is still being planned.
+     * @nullable
+     */
+    percent_complete: number | null
+    /**
+     * When this build last made progress. Null while it is still queued.
+     * @nullable
+     */
+    updated_at: string | null
+}
+
+export interface CohortRealtimeReadinessApi {
+    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+     *
+     * * `static` - Static
+     * * `person_properties` - Person properties
+     * * `daily` - Daily
+     * * `building` - Building
+     * * `rebuilding` - Rebuilding
+     * * `ready` - Ready
+     * * `needs_attention` - Needs attention */
+    state: CohortRealtimeStateEnumApi
+    /**
+     * When the cohort became targetable by feature flags. Null unless the state is `ready`.
+     * @nullable
+     */
+    ready_at: string | null
+    /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
+    build: CohortHistoryBuildApi | null
+}
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
+export interface CohortApi {
+    readonly id: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 1000 */
+    description?: string
+    groups?: unknown
+    deleted?: boolean
+    filters?: CohortFiltersApi | null
+    query?: unknown
+    /** @nullable */
+    readonly version: number | null
+    /** @nullable */
+    readonly pending_version: number | null
+    readonly is_calculating: boolean
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    readonly last_calculation: string | null
+    /** @nullable */
+    readonly last_backfill_person_properties_at: string | null
+    readonly errors_calculating: number
+    /** @nullable */
+    readonly last_error_message: string | null
+    /** @nullable */
+    readonly count: number | null
+    /**
+     * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+     * @nullable
+     */
+    readonly last_import_total_count: number | null
+    /**
+     * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+     * @nullable
+     */
+    readonly last_import_unmatched_count: number | null
+    is_static?: boolean
+    /** Type of cohort based on filter complexity
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
+    /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+    readonly condition_type: CohortConditionTypeFlagsApi | null
+    /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
+    readonly realtime: CohortRealtimeReadinessApi | null
+    readonly experiment_set: readonly number[]
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
+    _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
+    _create_static_person_ids?: string[]
+}
+
+export interface CreateStaticCohortForFlagResponseApi {
+    /** The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response. */
+    readonly cohort: CohortApi
+}
+
 export interface DependentFlagApi {
     /** Feature flag ID */
     id: number
@@ -1215,8 +1649,44 @@ export interface DependentFlagApi {
     name: string
 }
 
+export interface FeatureFlagRollOutToEveryoneRequestApi {
+    /**
+     * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
+     * @minimum 0
+     * @nullable
+     */
+    version: number | null
+    /**
+     * The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.
+     * @nullable
+     */
+    variant_key?: string | null
+}
+
+export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
+
+export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
+    /**
+     * Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.
+     * @minimum 0
+     */
+    condition_index: number
+    /**
+     * Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage: number
+    /**
+     * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
+     * @minimum 0
+     * @nullable
+     */
+    version: number | null
+}
+
 export interface FeatureFlagRolloutSummaryApi {
-    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters, or there are no release conditions. For multivariate flags it means every release condition a user can reach, up to the first one at 100% with no property filters, serves the same variant. In a flag of either type that mixes person and group aggregation, only a person-level condition counts as that 100% condition. This is the signal for 'fully rolled out' / GA, unlike `status`, which only reflects recent evaluation. */
     effectively_full_rollout: boolean
     /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list. */
     has_targeting_conditions: boolean
@@ -1230,7 +1700,7 @@ export interface FeatureFlagRolloutSummaryApi {
 }
 
 export interface FeatureFlagStatusResponseApi {
-    /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+    /** Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving state, and this response carries no serving-state field: read the `active` field of the flag itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted reports 'active', because disabled flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
@@ -1290,7 +1760,7 @@ export interface FeatureFlagConditionAnalysisApi {
     /** Whether this condition matched properties but was excluded due to rollout */
     rollout_excluded: boolean
     /**
-     * Variant associated with this condition
+     * Variant associated with this condition. Empty or null when the condition has no variant override.
      * @nullable
      */
     variant: string | null
@@ -1418,7 +1888,7 @@ export const BulkDeleteFiltersTypeEnumApi = {
  * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
  */
 export interface BulkDeleteFiltersApi {
-    /** Filter by active state.
+    /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
      *
      * * `true` - true
      * * `false` - false
@@ -1426,7 +1896,7 @@ export interface BulkDeleteFiltersApi {
     active?: ActiveEnumApi
     /** Filter to flags created by a specific user ID. */
     created_by_id?: number
-    /** Search by feature flag key or name (case-insensitive). */
+    /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. */
     search?: string
     /** Filter by flag type.
      *
@@ -1878,7 +2348,7 @@ export type FeatureFlagsStaffTeamsListParams = {
      */
     limit?: number
     /**
-     * Search string matched against team id (exact), api_token (exact), team name (partial), or organization name (partial). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
+     * Search string matched against team id (exact), api_token (exact), team name (partial), organization name (partial), or organization id (exact). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
      * @minLength 1
      */
     search: string
@@ -1905,7 +2375,9 @@ export type OrgFeatureFlagsKeysParams = {
 
 export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
-     * Name of the evaluation context to restore to suggestions.
+     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+     * @minLength 1
+     * @maxLength 255
      */
     context_name: string
 }
@@ -1938,6 +2410,9 @@ export const FeatureFlagRequestUsageListTimeInterval = {
 } as const
 
 export type FeatureFlagsListParams = {
+    /**
+     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+     */
     active?: FeatureFlagsListActive
     /**
      * Filter by archived state. When omitted, archived flags are excluded.
@@ -1980,7 +2455,7 @@ export type FeatureFlagsListParams = {
      */
     offset?: number
     /**
-     * Search by feature flag key or name. Case insensitive.
+     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.
      */
     search?: string
     /**

@@ -115,6 +115,9 @@ database "posthog" {
     column "dmat_string_9" {
       type = "Nullable(String)"
     }
+    column "captured_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
     engine "kafka" {
       collection           = "msk_cluster"
       topic_list           = "clickhouse_events_json"
@@ -126,47 +129,65 @@ database "posthog" {
 
   materialized_view "events_json_table_mv" {
     to_table = "posthog.writable_events_json"
-    query    = <<SQL
+    query = <<SQL
 SELECT
-  uuid,
-  event,
-  ifNull(
-    accurateCastOrNull(properties, 'JSON'),
-    CAST(concat('{"$unparseable_properties":', toJSONString(properties), '}'), 'JSON')
-  ) AS properties,
-  timestamp,
-  team_id,
-  distinct_id,
-  elements_chain,
-  created_at,
-  person_id,
-  person_created_at,
-  ifNull(
-    accurateCastOrNull(person_properties, 'JSON'),
-    CAST(concat('{"$unparseable_properties":', toJSONString(person_properties), '}'), 'JSON')
-  ) AS person_properties,
-  group0_properties,
-  group1_properties,
-  group2_properties,
-  group3_properties,
-  group4_properties,
-  group0_created_at,
-  group1_created_at,
-  group2_created_at,
-  group3_created_at,
-  group4_created_at,
-  person_mode,
-  historical_migration,
-  _timestamp,
-  _offset,
-  arrayMap(
+*,
+accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+(
+SELECT
+uuid,
+event,
+cleaned.properties AS properties,
+cleaned.temporary_properties AS temporary_properties,
+cleaned.properties_null_keys AS properties_null_keys,
+cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
+now64() AS inserted_at,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+person_id,
+cleaned.person_properties AS person_properties,
+cleaned.person_properties_null_keys AS person_properties_null_keys,
+person_created_at,
+group0_properties,
+group1_properties,
+group2_properties,
+group3_properties,
+group4_properties,
+group0_created_at,
+group1_created_at,
+group2_created_at,
+group3_created_at,
+group4_created_at,
+person_mode,
+historical_migration,
+coalesce(captured_at, created_at) AS captured_at,
+_timestamp,
+_offset,
+_partition,
+consumer_breadcrumbs
+FROM
+(
+SELECT
+*,
+_timestamp,
+_offset,
+_partition,
+arrayMap(
     i -> (_headers.value[i]),
     arrayFilter(
-      i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
-      arrayEnumerate(_headers.name)
+        i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+        arrayEnumerate(_headers.name)
     )
-  ) AS consumer_breadcrumbs
+) AS consumer_breadcrumbs,
+JSONCleanPostHogEvent(properties, person_properties) AS cleaned
 FROM posthog.kafka_events_json_native_json
+) AS source
+)
+SETTINGS input_format_try_infer_dates = 0, input_format_try_infer_datetimes = 0
 SQL
 
     column "uuid" {
@@ -176,7 +197,13 @@ SQL
       type = "String"
     }
     column "properties" {
-      type = "JSON"
+      type = "String"
+    }
+    column "temporary_properties" {
+      type = "String"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3)"
     }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
@@ -196,11 +223,11 @@ SQL
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type = "String"
+    }
     column "person_created_at" {
       type = "DateTime64(3)"
-    }
-    column "person_properties" {
-      type = "JSON"
     }
     column "group0_properties" {
       type = "String"
@@ -238,14 +265,23 @@ SQL
     column "historical_migration" {
       type = "Bool"
     }
+    column "captured_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
     column "_timestamp" {
       type = "Nullable(DateTime)"
     }
     column "_offset" {
       type = "UInt64"
     }
+    column "_partition" {
+      type = "UInt64"
+    }
     column "consumer_breadcrumbs" {
       type = "Array(String)"
+    }
+    column "total_event_size" {
+      type = "UInt32"
     }
   }
 

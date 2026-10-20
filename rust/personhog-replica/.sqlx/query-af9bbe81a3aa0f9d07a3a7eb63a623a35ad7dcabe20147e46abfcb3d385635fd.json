@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE posthog_persondistinctid\n        SET is_deleted = true, version = COALESCE(version, 0) + 1\n        WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false\n        RETURNING person_id as \"person_id!\", distinct_id as \"distinct_id!\", version as \"version!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "version!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "af9bbe81a3aa0f9d07a3a7eb63a623a35ad7dcabe20147e46abfcb3d385635fd"
+}

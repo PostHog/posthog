@@ -9,14 +9,14 @@ import { urls } from 'scenes/urls'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { compareScoutsByName, SCOUT_GROUP_LABEL, SCOUT_GROUP_ORDER, ScoutRosterRow } from '../../../utils/scoutGroups'
 import { showsScoutOwnership } from '../../../utils/scoutOwners'
-import { SCOUT_ROSTER_WINDOW_DAYS } from '../../../utils/scoutRunsWindow'
+import { runStripEmptyLabel, SCOUT_ROSTER_WINDOW_DAYS } from '../../../utils/scoutRunsWindow'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { scoutCostColumns } from './ScoutCostCell'
 import { ScoutNameCell } from './ScoutNameCell'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutOwnersCell } from './ScoutOwnersCell'
-import { ScoutRunBoxes } from './ScoutRunBoxes'
+import { ScoutRosterRunBoxes } from './ScoutRosterRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
 
 /**
@@ -32,15 +32,8 @@ import { ScoutStatusDot } from './ScoutStatusDot'
  * nothing to say about a canonical one.
  */
 export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Element {
-    const {
-        rosterScouts,
-        rollups,
-        updatingScoutIds,
-        scoutRunsLoadedOnce,
-        scoutRunCosts,
-        scoutCostRollups,
-        expensiveRunCostThreshold,
-    } = useValues(scoutFleetLogic)
+    const { rosterScouts, rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunsCoverFleet, scoutCostRollups } =
+        useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
 
     if (rosterScouts.length === 0) {
@@ -156,20 +149,18 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                     render: (_, row: ScoutRosterRow) => {
                         const runs = rollups.get(row.config.skill_name)?.runs ?? []
                         if (runs.length) {
-                            return (
-                                <ScoutRunBoxes
-                                    runs={runs}
-                                    costs={scoutRunCosts}
-                                    costThreshold={expensiveRunCostThreshold}
-                                />
-                            )
+                            return <ScoutRosterRunBoxes skillName={row.config.skill_name} runs={runs} />
                         }
                         // Until the runs request has landed once, an empty rollup means "not
-                        // loaded", not "never ran"; the poll retries a failed load on its own.
-                        return scoutRunsLoadedOnce ? (
-                            <span className="text-xs text-muted">No runs yet</span>
-                        ) : (
-                            <span className="text-xs text-muted">…</span>
+                        // loaded", not "never ran"; the poll retries a failed load on its own. Past
+                        // the fleet the response covers it means neither, so the row says so.
+                        return (
+                            <span className="text-xs text-muted">
+                                {runStripEmptyLabel({
+                                    loadedOnce: scoutRunsLoadedOnce,
+                                    coversFleet: scoutRunsCoverFleet,
+                                })}
+                            </span>
                         )
                     },
                 },

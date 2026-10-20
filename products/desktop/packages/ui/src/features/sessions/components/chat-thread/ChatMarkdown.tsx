@@ -10,6 +10,8 @@ import {
   TableRow,
   Text,
 } from "@posthog/quill";
+import { buildImageDataUrl } from "@posthog/shared";
+import { useWorkspaceFileAsBase64 } from "@posthog/ui/features/code-editor/hooks/useFileContent";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
@@ -19,12 +21,15 @@ import {
   parseOpenFence,
   splitMarkdownBlocks,
 } from "@posthog/ui/features/editor/components/splitMarkdownBlocks";
+import { useObjectTagRemarkPlugins } from "@posthog/ui/features/editor/usePostHogLinkContext";
 import {
   BareFileLink,
   hasDirectoryPath,
   InlineFileLink,
   looksLikeBareFilename,
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
+import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
+import { useCwd } from "@posthog/ui/features/sidebar/useCwd";
 import { useThrottledValue } from "@posthog/ui/hooks/useThrottledValue";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { MermaidDiagram } from "@posthog/ui/primitives/MermaidDiagram";
@@ -37,9 +42,11 @@ import {
   isGeneratedChartBlock,
   parseChartBlock,
 } from "@posthog/ui/utils/chartBlocks";
-import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
+import {
+  OBJECT_LINK_HREF,
+  parseEvidenceLink,
+} from "@posthog/ui/utils/evidenceLinks";
 import { MERMAID_LANGUAGE } from "@posthog/ui/utils/mermaidBlocks";
-import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { IconButton } from "@radix-ui/themes";
 import { memo, type ReactNode, useEffect, useMemo, useRef } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
@@ -48,6 +55,108 @@ import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
 
 const PENDING_LINK_DESTINATION = "#posthog-streaming-link";
+
+const LOCAL_IMAGE_MIME_TYPES: Record<string, string> = {
+  avif: "image/avif",
+  gif: "image/gif",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+};
+
+function normalizeLocalPath(value: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+  const normalized = decoded.replaceAll("\\\\", "/");
+  const prefix = normalized.match(/^(?:[A-Za-z]:|\/)/)?.[0];
+  if (!prefix) return null;
+
+  const parts: string[] = [];
+  for (const part of normalized.slice(prefix.length).split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!parts.pop()) return null;
+    } else {
+      parts.push(part);
+    }
+  }
+  return `${prefix}${prefix === "/" ? "" : "/"}${parts.join("/")}`;
+}
+
+export function resolveLocalImage(
+  source: string | undefined,
+  cwd: string | undefined,
+): { path: string; mimeType: string } | null {
+  if (!source || !cwd) return null;
+  if (
+    /^[A-Za-z][A-Za-z0-9+.-]*:/.test(source) &&
+    !/^[A-Za-z]:[\\/]/.test(source)
+  ) {
+    return null;
+  }
+  const normalizedCwd = normalizeLocalPath(cwd);
+  if (!normalizedCwd) return null;
+  const sourceWithRoot = /^(?:[A-Za-z]:[\\/]|\/)/.test(source)
+    ? source
+    : `${normalizedCwd}/${source}`;
+  const path = normalizeLocalPath(sourceWithRoot);
+  if (
+    !path ||
+    (path !== normalizedCwd && !path.startsWith(`${normalizedCwd}/`))
+  ) {
+    return null;
+  }
+  const extension = path.match(/\.([A-Za-z0-9]+)$/)?.[1]?.toLowerCase();
+  const mimeType = extension ? LOCAL_IMAGE_MIME_TYPES[extension] : undefined;
+  return mimeType ? { path, mimeType } : null;
+}
+
+function LocalMarkdownImage({
+  src,
+  alt,
+}: {
+  src: string | undefined;
+  alt: string | undefined;
+}) {
+  const taskId = useSessionTaskId();
+  const cwd = useCwd(taskId ?? "");
+  const localImage = resolveLocalImage(src, cwd);
+  const image = useWorkspaceFileAsBase64(
+    cwd ?? "",
+    localImage?.path ?? "",
+    Boolean(taskId && localImage),
+  );
+
+  if (!localImage) {
+    return (
+      <Text className="text-muted-foreground text-sm">
+        Remote image blocked{alt ? `: ${alt}` : ""}
+      </Text>
+    );
+  }
+  if (image.isPending) {
+    return <Spinner size="sm" aria-label={alt || "Loading image"} />;
+  }
+  if (!image.data) {
+    return (
+      <Text className="text-muted-foreground text-sm">
+        Failed to load image{alt ? `: ${alt}` : ""}
+      </Text>
+    );
+  }
+  return (
+    <img
+      src={buildImageDataUrl(localImage.mimeType, image.data)}
+      alt={alt ?? ""}
+      className="max-h-[32rem] max-w-full rounded-md border border-border object-contain"
+    />
+  );
+}
 
 function ChatCodeBlock({
   code,
@@ -87,7 +196,7 @@ const components: Components = {
   p: ({ children }) => (
     <Text className="text-sm leading-[1.5]">{children}</Text>
   ),
-  a: ({ children, href }) => {
+  a: ({ children, href, node }) => {
     if (href === PENDING_LINK_DESTINATION) {
       return (
         <output
@@ -99,7 +208,7 @@ const components: Components = {
         </output>
       );
     }
-    const evidenceTarget = parseEvidenceLink(href);
+    const evidenceTarget = parseEvidenceLink(href, node?.properties);
     if (evidenceTarget) {
       return (
         <EvidenceRefChip target={evidenceTarget}>{children}</EvidenceRefChip>
@@ -125,11 +234,7 @@ const components: Components = {
       </ArtifactRefChip>
     );
   },
-  img: ({ alt }) => (
-    <Text className="text-muted-foreground text-sm">
-      Remote image blocked{alt ? `: ${alt}` : ""}
-    </Text>
-  ),
+  img: ({ alt, src }) => <LocalMarkdownImage src={src} alt={alt} />,
   ul: ({ children }) => (
     <ul className="list-disc space-y-0.5 ps-4">{children}</ul>
   ),
@@ -229,7 +334,6 @@ function chatUrlTransform(value: string, key: string): string {
 }
 
 const remarkPlugins: PluggableList = [remarkGfm];
-const objectTagRemarkPlugins: PluggableList = [remarkGfm, remarkObjectTags];
 // The default sanitize schema, plus what remarkObjectTags emits: the internal
 // `evidence:` reference links (they never reach the DOM as hrefs; the `a`
 // component renders them as chips) and the private marker on generated chart
@@ -242,6 +346,7 @@ const rehypePlugins: PluggableList = [
       attributes: {
         ...defaultSchema.attributes,
         code: [...(defaultSchema.attributes?.code ?? []), CHART_BLOCK_MARKER],
+        a: [...(defaultSchema.attributes?.a ?? []), OBJECT_LINK_HREF],
       },
       protocols: {
         ...defaultSchema.protocols,
@@ -262,6 +367,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   content,
   renderObjectTags = false,
 }: ChatMarkdownProps) {
+  const objectTagRemarkPlugins = useObjectTagRemarkPlugins();
   return (
     <div className="flex flex-col gap-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
       <Markdown

@@ -70,6 +70,7 @@ describe('the activity log logic', () => {
             const text = render(<>{actual[0].description}</>).container.textContent
             expect(text).toContain(expected)
             expect(text).not.toContain('rollout')
+            expect(render(<>{actual[0].summary?.action}</>).container.textContent?.toLowerCase()).toBe(expected)
         })
 
         it('can handle change of key', async () => {

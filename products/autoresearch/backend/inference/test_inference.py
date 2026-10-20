@@ -7,13 +7,36 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
-from posthog.api.capture import CaptureInternalResult
+from posthog.hogql.errors import QueryError
 
-from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME
-from products.autoresearch.backend.inference import scoring
-from products.autoresearch.backend.inference.sandbox import _MATERIALIZE_ROW_LIMIT, SandboxScoreResult
+from posthog.api.capture import CaptureInternalResult
+from posthog.dataclasses import frozen
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
+from posthog.storage.object_storage import ObjectStorageError
+
+from products.autoresearch.backend import query as autoresearch_query
+from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME, ROLLING_SCORE_LIMIT
+from products.autoresearch.backend.inference import (
+    sandbox as sandbox_inference,
+    scoring,
+)
+from products.autoresearch.backend.inference.failures import find_unscorable_champion
+from products.autoresearch.backend.inference.sandbox import (
+    _MATERIALIZE_ROW_LIMIT,
+    InferenceRows,
+    MaterializedFeatures,
+    ModelLoadError,
+    SandboxScoreResult,
+    features_sql_digest,
+)
 from products.autoresearch.backend.inference.scoring import (
     InferenceRunError,
     ScoredPopulation,
@@ -27,10 +50,12 @@ from products.autoresearch.backend.inference.scoring import (
     _score_rows,
     run_inference_for_pipeline,
     score_population,
+    score_shadow_set_for_run,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
-from products.autoresearch.backend.query import HogQLResult
+from products.autoresearch.backend.query import BATCH_QUERY, SCORING_QUERY, HogQLResult
 from products.autoresearch.backend.testing import TeamScopedTestMixin
+from products.autoresearch.backend.training.artifacts import ArtifactBundle
 
 _STUB_RECIPE = {
     "feature_sql": "SELECT person_id AS distinct_id, count() AS events_total_30d FROM events GROUP BY person_id",
@@ -46,10 +71,17 @@ _ANCHORS_RECIPE = {
     "model_class": "sklearn.linear_model.LogisticRegression",
     "model_params": {},
 }
+_STUB_CUTOFF_TS = 1_757_548_800
+
 _STUB_ROWS = [
     {"distinct_id": "user-1", "events_total_30d": 50, "days_since_last_seen": 2},
     {"distinct_id": "user-2", "events_total_30d": 10, "days_since_last_seen": 15},
 ]
+_REFUSED_CONNECTION_ERROR = (
+    "HTTPConnectionPool(host='capture.example.com', port=8010): Max retries exceeded with url: "
+    "/i/v1/analytics/events (Caused by NewConnectionError('<urllib3.connection.HTTPConnection "
+    "object at 0x7f0000000000>: Failed to establish a new connection: [Errno 111] Connection refused'))"
+)
 
 
 def _accepted(events: list[dict]) -> CaptureInternalResult:
@@ -115,16 +147,33 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         )
         return pipeline, model
 
-    def _run_live(self, pipeline, model, capture: MagicMock, rows=_STUB_ROWS, resolved=None) -> AutoresearchRun:
+    def _run_live(
+        self, pipeline, model, capture: MagicMock, rows=_STUB_ROWS, resolved=None, eligible: int | None = None
+    ) -> AutoresearchRun:
+        stub_rows = InferenceRows(rows=rows, eligible=len(rows) if eligible is None else eligible)
         with (
-            patch.object(scoring, "_fetch_stub_feature_rows", return_value=rows),
+            patch.object(scoring, "_fetch_stub_feature_rows", return_value=stub_rows),
             patch.object(scoring, "_resolve_distinct_ids", return_value=resolved or {}),
             patch.object(scoring, "capture_batch_internal", capture),
         ):
             return run_inference_for_pipeline(pipeline=pipeline, model=model)
 
-    def test_run_inference_emits_one_batch_and_records_the_run(self):
-        pipeline, model = self._make_pipeline_and_model()
+    @parameterized.expand(
+        [
+            ("writes_the_property", True, True, False),
+            ("leaves_persons_alone_when_off", False, False, False),
+            ("rechecks_the_setting_before_sending", True, False, False),
+            ("archived_before_sending", True, True, True),
+        ]
+    )
+    def test_run_inference_emits_one_batch_and_records_the_run(
+        self, _name: str, write_at_start: bool, write_at_send: bool, archived_at_send: bool
+    ):
+        pipeline, model = self._make_pipeline_and_model(write_person_property=write_at_start)
+        if write_at_send != write_at_start:
+            AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(write_person_property=write_at_send)
+        if archived_at_send:
+            AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(status=AutoresearchPipeline.Status.ARCHIVED)
         capture = _capture_accepting_everything()
 
         run = self._run_live(pipeline, model, capture, resolved={"user-1": "real-distinct-id"})
@@ -140,18 +189,128 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         assert kwargs["process_person_profile"] is True
         assert [e["event"] for e in events] == [PREDICTION_EVENT_NAME, PREDICTION_EVENT_NAME]
         by_person = {e["properties"]["$autoresearch_person_id"]: e for e in events}
-        # A resolved person is attached to their real distinct_id and gets the output property;
-        # an unresolved one stays person-less so a UUID never becomes a person.
+        assert {e["properties"]["$autoresearch_prediction_date"] for e in events} == {run.metrics["prediction_date"]}
+        assert {e["properties"]["$autoresearch_run_id"] for e in events} == {str(run.pk)}
+        # A resolved person is attached to their real distinct_id, and gets the output property only
+        # while the pipeline opts in; an unresolved one stays person-less so a UUID never becomes a person.
         assert by_person["user-1"]["distinct_id"] == "real-distinct-id"
         assert by_person["user-1"]["options"] == {"process_person_profile": True}
-        assert by_person["user-1"]["properties"]["$set"] == {
-            "predicted_p_pageview": by_person["user-1"]["properties"]["$autoresearch_p_y"]
-        }
+        if write_at_send and not archived_at_send:
+            assert by_person["user-1"]["properties"]["$set"] == {
+                "predicted_p_pageview": by_person["user-1"]["properties"]["$autoresearch_p_y"]
+            }
+        else:
+            assert "$set" not in by_person["user-1"]["properties"]
         assert by_person["user-2"]["distinct_id"] == "user-2"
         assert by_person["user-2"]["options"] == {"process_person_profile": False}
         assert "$set" not in by_person["user-2"]["properties"]
         pipeline.refresh_from_db()
         assert pipeline.last_scored_at is not None
+
+    def test_a_sampled_model_emits_prior_corrected_scores_with_the_raw_score_and_rate(self):
+        pipeline, model = self._make_pipeline_and_model(write_person_property=True)
+        model.artifact_prefix = "tasks/autoresearch/team_1/pipeline_x/run_y"
+        model.negative_sample_rate = 0.25
+        model.save(update_fields=["artifact_prefix", "negative_sample_rate"])
+        sandbox_result = SandboxScoreResult(
+            scored_rows=[{"distinct_id": "user-1", "events_total": 3, "p_y": 0.5}],
+            holdout_auc=0.7,
+            n_train=10,
+            n_features=1,
+            rows_eligible=1,
+        )
+        capture = _capture_accepting_everything()
+        with (
+            patch.object(scoring, "score_via_sandbox", return_value=sandbox_result),
+            patch.object(scoring, "_resolve_distinct_ids", return_value={"user-1": "real-distinct-id"}),
+            patch.object(scoring, "capture_batch_internal", capture),
+        ):
+            run = run_inference_for_pipeline(pipeline=pipeline, model=model)
+
+        props = capture.call_args.kwargs["events"][0]["properties"]
+        assert props["$autoresearch_p_y"] == 0.2
+        assert props["$autoresearch_p_y_raw"] == 0.5
+        assert props["$autoresearch_negative_sample_rate"] == 0.25
+        assert props["$set"] == {"predicted_p_pageview": 0.2}
+        run.refresh_from_db()
+        assert run.negative_sample_rate == 0.25
+
+    @parameterized.expand(
+        [
+            ("fixed_cut_point", 0, 0, {"likely_count": 2, "likely_threshold": 0.6}),
+            ("base_rate_cut_point", 10, 0, {"likely_count": 3, "likely_threshold": 0.3}),
+            ("backfill_records_nothing", 0, 30, {}),
+        ]
+    )
+    def test_a_live_run_records_its_likely_count(self, _name, checked_positives, days_back, expected):
+        pipeline, model = self._make_pipeline_and_model()
+        model.artifact_prefix = "tasks/autoresearch/team_1/pipeline_x/run_y"
+        model.save(update_fields=["artifact_prefix"])
+        if checked_positives:
+            AutoresearchRun.objects.create(
+                pipeline=pipeline,
+                run_type=AutoresearchRun.RunType.VALIDATION,
+                status=AutoresearchRun.Status.COMPLETED,
+                metrics={
+                    "prediction_date": "2026-09-01",
+                    "horizon_days": 7,
+                    "per_model": {
+                        str(model.pk): {"emitted_role": "champion", "n_scored": 100, "n_positive": checked_positives}
+                    },
+                },
+            )
+        sandbox_result = SandboxScoreResult(
+            scored_rows=[{"distinct_id": f"user-{p_y}", "p_y": p_y} for p_y in (0.7, 0.6, 0.3, 0.1)],
+            holdout_auc=0.7,
+            n_train=10,
+            n_features=1,
+            rows_eligible=4,
+        )
+        with (
+            patch.object(scoring, "score_via_sandbox", return_value=sandbox_result),
+            patch.object(scoring, "_resolve_distinct_ids", return_value={}),
+            patch.object(scoring, "capture_batch_internal", _capture_accepting_everything()),
+            patch.object(scoring, "measure_prediction_coverage", return_value={}),
+        ):
+            run = run_inference_for_pipeline(
+                pipeline=pipeline,
+                model=model,
+                prediction_date=date.today() - timedelta(days=days_back) if days_back else None,
+            )
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert {k: run.metrics[k] for k in ("likely_count", "likely_threshold") if k in run.metrics} == expected
+
+    def test_a_rolling_run_records_the_eligible_total_next_to_the_rows_scored(self):
+        pipeline, model = self._make_pipeline_and_model()
+
+        run = self._run_live(pipeline, model, _capture_accepting_everything(), eligible=250_000)
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert run.rows_scored == 2
+        assert run.metrics["rows_eligible"] == 250_000
+
+    @parameterized.expand(
+        [
+            (
+                "measured",
+                {"return_value": {"population": 250_000, "with_score": 1}},
+                {"population": 250_000, "with_score": 1},
+            ),
+            ("query_failed", {"side_effect": RuntimeError("clickhouse down")}, None),
+        ]
+    )
+    def test_a_live_run_stores_coverage_and_completes_when_the_measure_fails(self, _name, measure, expected):
+        pipeline, model = self._make_pipeline_and_model()
+
+        with patch.object(scoring, "measure_prediction_coverage", **measure) as coverage:
+            run = self._run_live(pipeline, model, _capture_accepting_everything(), eligible=250_000)
+
+        run.refresh_from_db()
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert run.metrics.get("coverage") == expected
+        assert coverage.call_args.kwargs["eligible"] == 250_000
+        assert coverage.call_args.kwargs["cutoff_ts"] == ScoringWindow.for_date().cutoff_ts
 
     def test_run_inference_zero_rows_completes_without_emitting(self):
         pipeline, model = self._make_pipeline_and_model()
@@ -163,13 +322,26 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("transport_failure", Exception("capture unavailable"), None),
+            ("transport_failure", Exception("capture unavailable"), None, "capture unavailable"),
+            (
+                "transport_error_result",
+                None,
+                lambda events: CaptureInternalResult(
+                    status_code=0,
+                    error={"error": "transport_error", "error_description": _REFUSED_CONNECTION_ERROR},
+                    unaccounted=[event["event_uuid"] for event in events],
+                ),
+                "transport_error: HTTPConnectionPool(host='capture.example.com', port=8010): Max retries exceeded "
+                "with url: /i/v1/an... object at 0x7f0000000000>: Failed to establish a new connection: "
+                "[Errno 111] Connection refused')))",
+            ),
             (
                 "one_event_dropped",
                 None,
                 lambda events: CaptureInternalResult(
                     status_code=200, ok=[events[0]["event_uuid"]], dropped=[events[1]["event_uuid"]]
                 ),
+                "1 dropped",
             ),
             (
                 "one_event_stored_with_a_warning",
@@ -180,20 +352,22 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
                     warnings=[events[1]["event_uuid"]],
                     results={events[1]["event_uuid"]: {"result": "warning", "message": "person processing disabled"}},
                 ),
+                "person processing disabled",
             ),
         ]
     )
-    def test_any_emit_failure_fails_the_run(self, _name, side_effect, result_for):
+    def test_any_emit_failure_fails_the_run(self, _name, side_effect, result_for, expected_message):
         # Completing with a partial batch advanced last_scored_at past the people who never
         # received their prediction; the deterministic UUIDs make a full replay safe instead.
         pipeline, model = self._make_pipeline_and_model()
         capture = MagicMock(side_effect=side_effect or (lambda **kwargs: result_for(kwargs["events"])))
 
-        with self.assertRaises(InferenceRunError):
+        with self.assertRaisesMessage(InferenceRunError, expected_message):
             self._run_live(pipeline, model, capture)
 
         run = AutoresearchRun.objects.filter(pipeline=pipeline).latest("created_at")
         assert run.status == AutoresearchRun.Status.FAILED
+        assert expected_message in run.error
         pipeline.refresh_from_db()
         assert pipeline.last_scored_at is None
 
@@ -204,7 +378,7 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
 
         def archive_then_return_rows(**_kwargs):
             AutoresearchModel.objects.filter(pk=model.pk).update(role=AutoresearchModel.Role.ARCHIVED)
-            return _STUB_ROWS
+            return InferenceRows(rows=_STUB_ROWS, eligible=len(_STUB_ROWS))
 
         with (
             patch.object(scoring, "_fetch_stub_feature_rows", side_effect=archive_then_return_rows),
@@ -310,17 +484,23 @@ class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
         model.artifact_prefix = "tasks/autoresearch/team_1/pipeline_x/run_y"
         model.save(update_fields=["artifact_prefix"])
         sandbox_result = SandboxScoreResult(
-            scored_rows=[{"distinct_id": str(uuid4()), "p_y": 0.4}], holdout_auc=0.6, n_train=1, n_features=1
+            scored_rows=[{"distinct_id": str(uuid4()), "p_y": 0.4}],
+            holdout_auc=0.6,
+            n_train=1,
+            n_features=1,
+            rows_eligible=1,
         )
         with (
             patch.object(scoring, "score_via_sandbox", return_value=sandbox_result) as sandbox,
             patch.object(scoring, "capture_batch_internal", _capture_accepting_everything()) as capture,
+            patch.object(scoring, "measure_prediction_coverage") as coverage,
         ):
             run = run_inference_for_pipeline(
                 pipeline=pipeline, model=model, prediction_date=date.today() - timedelta(days=30)
             )
 
         assert run.status == AutoresearchRun.Status.COMPLETED
+        coverage.assert_not_called()
         assert capture.call_args.kwargs["process_person_profile"] is False
         assert isinstance(sandbox.call_args.kwargs["cutoff_ts"], int)
         pipeline.refresh_from_db()
@@ -381,10 +561,16 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
         scored = ScoredPopulation(rows=[{"distinct_id": "p1", "p_y": 0.5}], holdout_auc=0.66)
         with patch.object(scoring, "_score_via_anchors", return_value=scored) as anchored:
             result = score_population(
-                team=self.team, pipeline=pipeline, model=model, window=ScoringWindow.for_date(), user=self.user
+                team=self.team,
+                pipeline=pipeline,
+                model=model,
+                window=ScoringWindow.for_date(),
+                user=self.user,
+                query_context=BATCH_QUERY,
             )
-        assert result == scored
+        assert result == ScoredPopulation(rows=[{"distinct_id": "p1", "p_y": 0.5, "p_y_raw": 0.5}], holdout_auc=0.66)
         anchored.assert_called_once()
+        assert anchored.call_args.kwargs["query_context"] == BATCH_QUERY
 
     @parameterized.expand([("bundle", "score_via_sandbox"), ("recipe", "_score_via_anchors")])
     def test_live_run_binds_every_query_to_the_start_of_the_day(self, _name, scorer):
@@ -428,8 +614,8 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
             {"distinct_id": "quiet", "events_total": 1, "plan": None},
         ]
         with (
-            patch.object(scoring, "_fetch_training_rows", return_value=training_rows),
-            patch.object(scoring, "_fetch_inference_rows", return_value=inference_rows),
+            patch.object(scoring, "_fetch_training_rows", return_value=(training_rows, 1.0)),
+            patch.object(scoring, "_fetch_inference_rows", return_value=InferenceRows(rows=inference_rows, eligible=2)),
             patch.object(scoring, "_resolve_distinct_ids", return_value={}),
             patch.object(scoring, "capture_batch_internal", _capture_accepting_everything()),
         ):
@@ -441,12 +627,34 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
         assert dist["max"] > dist["min"]
 
 
+def _per_query_memory_limit() -> Exception:
+    exc = ClickHouseQueryMemoryLimitExceeded()
+    exc.__cause__ = ServerException("Query memory limit exceeded", code=241)
+    return exc
+
+
+def _cluster_memory_pressure() -> Exception:
+    exc = ClickHouseClusterMemoryLimitExceeded()
+    exc.__cause__ = ServerException("Memory limit (total) exceeded", code=241)
+    return exc
+
+
 class TestQueryFailuresFailTheRun(TeamScopedTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("unknown_error", lambda: Exception("connection reset"), "other"),
+            ("per_query_memory_limit", _per_query_memory_limit, "limit_exceeded"),
+            ("timeout", ClickHouseQueryTimeOut, "limit_exceeded"),
+            # The raw cause carries the same code as a per-query limit, but the next run can pass.
+            ("cluster_memory_pressure", _cluster_memory_pressure, "other"),
+            ("invalid_query", lambda: QueryError("Unknown table"), "query_failed"),
+        ]
+    )
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_feature_query_failure_fails_the_run(self, mock_run_hogql: MagicMock):
+    def test_feature_query_failure_fails_the_run(self, _name, make_error, failure_kind, mock_run_hogql: MagicMock):
         # Returning no rows on a transient failure completed the run as an empty population
         # and advanced the cadence, so the day's scoring was skipped with nothing retried.
-        mock_run_hogql.side_effect = Exception("clickhouse timeout")
+        mock_run_hogql.side_effect = make_error()
         pipeline = AutoresearchPipeline.objects.create(
             team=self.team, created_by=self.user, name="Failing", target_event="$pageview", horizon_days=7
         )
@@ -459,6 +667,7 @@ class TestQueryFailuresFailTheRun(TeamScopedTestMixin, BaseTest):
 
         run = AutoresearchRun.objects.filter(pipeline=pipeline).latest("created_at")
         assert run.status == AutoresearchRun.Status.FAILED
+        assert run.metrics["failure_kind"] == failure_kind
         pipeline.refresh_from_db()
         assert pipeline.last_scored_at is None
 
@@ -475,12 +684,12 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         )
 
     def _sent(self, mock_run: MagicMock) -> tuple[str, dict]:
-        query = mock_run.call_args_list[0].kwargs["query"]
+        query = mock_run.call_args_list[1].kwargs["query"]
         return query.query, query.values
 
     @staticmethod
-    def _feature_then_count(rows: list[list], count: int) -> list[HogQLResult]:
-        return [HogQLResult(columns=["distinct_id"], rows=rows), HogQLResult(columns=["count()"], rows=[[count]])]
+    def _count_then_feature(rows: list[list], count: int) -> list[HogQLResult]:
+        return [HogQLResult(columns=["count()"], rows=[[count]]), HogQLResult(columns=["distinct_id"], rows=rows)]
 
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
     def test_population_is_applied_inside_the_bounded_query(self, mock_run: MagicMock):
@@ -489,18 +698,26 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         pipeline = self._make_pipeline(
             {"properties": [{"key": "plan", "type": "person", "operator": "exact", "value": "pro"}]}
         )
-        mock_run.side_effect = self._feature_then_count([["user-1"], ["user-3"]], count=2)
+        mock_run.side_effect = self._count_then_feature([["user-1"], ["user-3"]], count=2)
 
-        rows = _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+        stub_rows = _fetch_stub_feature_rows(
+            team=self.team,
+            pipeline=pipeline,
+            recipe=_STUB_RECIPE,
+            cutoff_ts=_STUB_CUTOFF_TS,
+            user=self.user,
+            query_context=BATCH_QUERY,
+        )
 
-        assert {r["distinct_id"] for r in rows} == {"user-1", "user-3"}
+        assert {r["distinct_id"] for r in stub_rows.rows} == {"user-1", "user-3"}
+        assert [call.kwargs["query_context"] for call in mock_run.call_args_list] == [BATCH_QUERY, BATCH_QUERY]
         sql, values = self._sent(mock_run)
-        assert "f.distinct_id IN (SELECT DISTINCT person_id FROM events WHERE" in sql
-        assert "person.properties[{pop_k_0}] = {pop_0}" in sql
+        assert "f.distinct_id IN (SELECT person_id FROM (SELECT id AS person_id" in sql
+        assert "argMax(ifNull((properties[{pop_k_0}] = {pop_0}), 0), version) = 1" in sql
         assert values["pop_0"] == "pro"
         assert sql.rstrip().endswith(f"LIMIT {_MATERIALIZE_ROW_LIMIT}")
-        count_query = mock_run.call_args_list[1].kwargs["query"]
-        assert count_query.query.startswith("SELECT count() FROM (SELECT DISTINCT person_id FROM events WHERE")
+        count_query = mock_run.call_args_list[0].kwargs["query"]
+        assert count_query.query.startswith("SELECT count() FROM (SELECT person_id FROM (SELECT id AS person_id")
         assert count_query.values["pop_0"] == "pro"
         assert all(call.kwargs["user"] == self.user for call in mock_run.call_args_list)
 
@@ -509,14 +726,17 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         # v1 scores identified users only; the scan must skip the product's own event, or a
         # scored person stays eligible forever, and a future-dated event must not count.
         pipeline = self._make_pipeline({})
-        mock_run.side_effect = self._feature_then_count([["user-1"]], count=1)
+        mock_run.side_effect = self._count_then_feature([["user-1"]], count=1)
 
-        _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+        _fetch_stub_feature_rows(
+            team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+        )
 
         sql, values = self._sent(mock_run)
-        assert "person.is_identified" in sql
+        assert "argMax(is_identified, version) = 1" in sql
         assert f"event != '{PREDICTION_EVENT_NAME}'" in sql
-        assert "timestamp < now()" in sql
+        assert "timestamp < fromUnixTimestamp({cutoff_ts})" in sql
+        assert values["cutoff_ts"] == _STUB_CUTOFF_TS
         assert values["lookback"] == 30
 
     @parameterized.expand(
@@ -545,9 +765,11 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         # Template populations carry semantic kind specs; the stub path must compile them or
         # a template pipeline silently scores all identified users.
         pipeline = self._make_pipeline(population, target_event="downloaded_file")
-        mock_run.side_effect = self._feature_then_count([["user-1"]], count=1)
+        mock_run.side_effect = self._count_then_feature([["user-1"]], count=1)
 
-        _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+        _fetch_stub_feature_rows(
+            team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+        )
 
         sql, _values = self._sent(mock_run)
         for fragment in expected_fragments:
@@ -558,7 +780,9 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         # Widening to "all identified users" is the failure mode being prevented.
         pipeline = self._make_pipeline({"kind": "ever_performed_event"})
         with self.assertRaises(ValueError):
-            _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+            _fetch_stub_feature_rows(
+                team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+            )
         mock_run.assert_not_called()
 
     @parameterized.expand(
@@ -574,9 +798,11 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         # twice; either way the run completed and reported a row count nobody received. Stub
         # SQL that drops a member leaves valid rows behind, so only the population count notices.
         pipeline = self._make_pipeline({})
-        mock_run.side_effect = self._feature_then_count(rows, count=population_count)
+        mock_run.side_effect = self._count_then_feature(rows, count=population_count)
         with self.assertRaises(InferenceRunError):
-            _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+            _fetch_stub_feature_rows(
+                team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+            )
 
     @parameterized.expand([("full_page", False), ("has_more", True)])
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
@@ -585,11 +811,32 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         # certainly truncated; scoring the partial set would skip users while the cadence advanced.
         pipeline = self._make_pipeline({})
         n = 1 if has_more else _MATERIALIZE_ROW_LIMIT
-        mock_run.return_value = HogQLResult(
-            columns=["distinct_id"], rows=[[f"person-{i}"] for i in range(n)], has_more=has_more
-        )
+        mock_run.side_effect = [
+            HogQLResult(columns=["count()"], rows=[[n]]),
+            HogQLResult(columns=["distinct_id"], rows=[[f"person-{i}"] for i in range(n)], has_more=has_more),
+        ]
         with self.assertRaises(InferenceRunError):
-            _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+            _fetch_stub_feature_rows(
+                team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+            )
+
+    @patch("products.autoresearch.backend.inference.scoring.run_hogql")
+    def test_a_population_at_the_cap_scores_a_rolling_subset(self, mock_run: MagicMock):
+        pipeline = self._make_pipeline({})
+        mock_run.side_effect = self._count_then_feature(
+            [[f"person-{i}"] for i in range(ROLLING_SCORE_LIMIT)], count=_MATERIALIZE_ROW_LIMIT * 5
+        )
+
+        stub_rows = _fetch_stub_feature_rows(
+            team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+        )
+
+        assert len(stub_rows.rows) == ROLLING_SCORE_LIMIT
+        assert stub_rows.eligible == _MATERIALIZE_ROW_LIMIT * 5
+        sql, values = self._sent(mock_run)
+        assert f"LIMIT {ROLLING_SCORE_LIMIT}" in sql
+        assert values["rolling_pipeline_id"] == str(pipeline.pk)
+        assert values["cutoff_ts"] == _STUB_CUTOFF_TS
 
 
 class TestResolveDistinctIds(TeamScopedTestMixin, BaseTest):
@@ -609,7 +856,7 @@ class TestResolveDistinctIds(TeamScopedTestMixin, BaseTest):
         ]
 
         mapping = _resolve_distinct_ids(
-            team=self.team, pipeline=self._pipeline(), person_ids=[with_id, without_id, not_a_uuid], user=self.user
+            team=self.team, pipeline_id=str(self._pipeline().pk), person_ids=[with_id, without_id, not_a_uuid]
         )
 
         assert mapping == {with_id: "real-id"}
@@ -621,7 +868,7 @@ class TestResolveDistinctIds(TeamScopedTestMixin, BaseTest):
         # Emitting every prediction person-less would leave the output property unset for the
         # whole population while the run reported success.
         with self.assertRaises(InferenceRunError):
-            _resolve_distinct_ids(team=self.team, pipeline=self._pipeline(), person_ids=[str(uuid4())], user=self.user)
+            _resolve_distinct_ids(team=self.team, pipeline_id=str(self._pipeline().pk), person_ids=[str(uuid4())])
 
 
 class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
@@ -688,9 +935,38 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
                 feature_sql=_ANCHORS_FEATURE_SQL,
                 cutoff_ts=1_700_000_000,
                 user=self.user,
+                query_context=BATCH_QUERY,
             )
         assert mock_run_hogql.call_args.kwargs["query"].values["cutoff_ts"] == 1_700_000_000
         assert count.call_args.kwargs["cutoff_ts"] == 1_700_000_000
+        assert (
+            mock_run_hogql.call_args.kwargs["query_context"] == count.call_args.kwargs["query_context"] == BATCH_QUERY
+        )
+
+    def test_training_rows_and_anchor_count_bind_one_instant(self):
+        pipeline = self._make_pipeline()
+        with (
+            patch.object(scoring, "run_hogql", return_value=HogQLResult(columns=[], rows=[])) as features_run,
+            patch.object(
+                sandbox_inference,
+                "run_hogql",
+                return_value=HogQLResult(columns=["eligible", "positives"], rows=[[0, 0]]),
+            ) as count_run,
+        ):
+            _fetch_training_rows(
+                team=self.team,
+                pipeline=pipeline,
+                feature_sql=_ANCHORS_FEATURE_SQL,
+                user=self.user,
+                query_context=BATCH_QUERY,
+            )
+        features_query, count_query = features_run.call_args.kwargs["query"], count_run.call_args.kwargs["query"]
+        sent_contexts = [
+            call.kwargs["query_context"] for call in features_run.call_args_list + count_run.call_args_list
+        ]
+        assert sent_contexts == [BATCH_QUERY] * 3
+        assert "now()" not in features_query.query and "now()" not in count_query.query
+        assert features_query.values["anchor_ts"] == count_query.values["anchor_ts"]
 
     @parameterized.expand(
         [
@@ -765,6 +1041,7 @@ class TestRecipeFit(SimpleTestCase):
         [
             ("seeded_from_the_pipeline", {}, 1234),
             ("recipe_seed_wins", {"random_state": 7}, 7),
+            ("null_seed_falls_back_to_the_pipeline", {"random_state": None}, 1234),
         ]
     )
     def test_stochastic_estimator_gets_a_stable_seed(self, _name, params, expected):
@@ -809,3 +1086,279 @@ class TestRecipeFit(SimpleTestCase):
                 _fit_on_training_predict_on_inference(
                     training_rows=rows, inference_rows=rows[:2], recipe=_ANCHORS_RECIPE, pipeline_id="p"
                 )
+
+
+_SHADOW_ROWS = [
+    {"distinct_id": "user-1", "events_total": 3},
+    {"distinct_id": "user-2", "events_total": 1},
+]
+_OTHER_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS n FROM {anchors} a GROUP BY a.person_id"
+
+
+@frozen
+class _Cadence:
+    run: AutoresearchRun
+    capture: MagicMock
+    materialize: MagicMock
+    stored_persons: dict[str, list[str]]
+
+
+@time_machine.travel("2026-09-11T12:00:00Z", tick=False)
+class TestShadowScoring(TeamScopedTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.pipeline = AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test",
+            target_event="$pageview",
+            horizon_days=7,
+            output_person_property="predicted_p_pageview",
+            write_person_property=True,
+        )
+        self.sql_by_prefix: dict[str, str] = {}
+        self.champion = self._model("champion", _ANCHORS_FEATURE_SQL, role=AutoresearchModel.Role.CHAMPION)
+
+    def _model(self, name: str, features_sql: str, role: str = AutoresearchModel.Role.CHALLENGER) -> AutoresearchModel:
+        prefix = f"tasks/autoresearch/{name}"
+        self.sql_by_prefix[prefix] = features_sql
+        return AutoresearchModel.objects.create(
+            pipeline=self.pipeline,
+            role=role,
+            artifact_prefix=prefix,
+            model_recipe={"feature_sql": features_sql},
+            recipe_hash=name,
+            holdout_score=0.7,
+            metrics={"model_fitted": True},
+        )
+
+    def _run(
+        self,
+        *,
+        failing: dict[str, Exception] | None = None,
+        shadow_rows=_SHADOW_ROWS,
+        deferred: bool = False,
+        store_fails: bool = False,
+    ) -> _Cadence:
+        failing = failing or {}
+        materialize = MagicMock(return_value=InferenceRows(rows=shadow_rows, eligible=len(shadow_rows)))
+
+        def fake_sandbox(**kwargs):
+            model = kwargs["model"]
+            if str(model.pk) in failing:
+                raise failing[str(model.pk)]
+            # The champion scores a rolling part of a larger population, so its eligible count exceeds its rows.
+            data = kwargs.get("score_data") or InferenceRows(rows=_SHADOW_ROWS, eligible=50)
+            features_sql = self.sql_by_prefix[model.artifact_prefix]
+            return SandboxScoreResult(
+                scored_rows=[{**row, "p_y": 0.4} for row in data.rows],
+                holdout_auc=0.7,
+                n_train=10,
+                n_features=1,
+                rows_eligible=data.eligible,
+                features=MaterializedFeatures(sql_digest=features_sql_digest(features_sql), data=data),
+            )
+
+        capture = _capture_accepting_everything()
+        stored_persons: dict[str, list[str]] = {}
+
+        def write_scored_persons(key: str, ids: list[str]) -> None:
+            if store_fails:
+                raise ObjectStorageError("storage unavailable")
+            stored_persons[key] = sorted(ids)
+
+        with (
+            patch.object(scoring, "write_scored_persons", side_effect=write_scored_persons),
+            patch.object(scoring, "read_scored_persons", side_effect=stored_persons.get),
+            patch.object(scoring, "delete_scored_persons", side_effect=lambda key: stored_persons.pop(key, None)),
+            patch.object(
+                scoring,
+                "read_bundle",
+                side_effect=lambda prefix: ArtifactBundle(
+                    train_py="# train", predict_py="# predict", features_sql=self.sql_by_prefix[prefix]
+                ),
+            ),
+            patch.object(scoring, "score_via_sandbox", side_effect=fake_sandbox),
+            patch.object(scoring, "_materialize_score_data", materialize),
+            patch.object(scoring, "_resolve_distinct_ids", return_value={"user-1": "real-1", "user-2": "real-2"}),
+            patch.object(scoring, "capture_batch_internal", capture),
+        ):
+            run = run_inference_for_pipeline(pipeline=self.pipeline, model=self.champion, defer_shadows=deferred)
+            if deferred:
+                assert capture.call_count == 1
+                score_shadow_set_for_run(AutoresearchRun.objects.get(pk=run.pk))
+                run.refresh_from_db()
+        return _Cadence(run=run, capture=capture, materialize=materialize, stored_persons=stored_persons)
+
+    def _shadow_runs(self, model: AutoresearchModel) -> list[AutoresearchRun]:
+        return list(AutoresearchRun.objects.filter(model=model, run_type=AutoresearchRun.RunType.INFERENCE))
+
+    # In process, the champion's rows serve the model with its SQL. A deferred phase queries that SQL
+    # again. Either way the two models with the other SQL share one query, although the shadow set
+    # scores same_sql between them.
+    @parameterized.expand(
+        [
+            ("in_process", False, False, [_OTHER_FEATURE_SQL]),
+            ("deferred", True, False, [_ANCHORS_FEATURE_SQL, _OTHER_FEATURE_SQL]),
+            ("deferred_without_stored_people", True, True, [_ANCHORS_FEATURE_SQL, _OTHER_FEATURE_SQL]),
+        ]
+    )
+    def test_each_shadow_model_scores_the_champions_people_person_less(
+        self, _name, deferred, store_fails, expected_queries
+    ):
+        other_a = self._model("other_a", _OTHER_FEATURE_SQL)
+        same_sql = self._model("same_sql", _ANCHORS_FEATURE_SQL)
+        other_b = self._model("other_b", _OTHER_FEATURE_SQL)
+
+        cadence = self._run(deferred=deferred, store_fails=store_fails)
+        run, capture, materialize = cadence.run, cadence.capture, cadence.materialize
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert sorted(c.kwargs["feature_sql"] for c in materialize.call_args_list) == sorted(expected_queries)
+        # A deferred phase anchors on the people the champion scored, not on a second population query.
+        # A failed store leaves the champion's run complete, and the phase selects the population again.
+        champion_people = (
+            sorted(str(row["distinct_id"]) for row in _SHADOW_ROWS) if deferred and not store_fails else None
+        )
+        assert [c.kwargs.get("anchor_person_ids") for c in materialize.call_args_list] == [champion_people] * len(
+            expected_queries
+        )
+        assert cadence.stored_persons == {}
+        assert sorted(run.metrics["shadow_models"]["completed"]) == sorted(
+            str(m.pk) for m in (same_sql, other_a, other_b)
+        )
+        for model in (same_sql, other_a, other_b):
+            [shadow_run] = self._shadow_runs(model)
+            assert shadow_run.status == AutoresearchRun.Status.COMPLETED
+            assert shadow_run.rows_scored == run.rows_scored
+            assert shadow_run.scheduled is False
+            assert shadow_run.metrics["prediction_date"] == run.metrics["prediction_date"]
+            assert shadow_run.metrics["horizon_days"] == run.metrics["horizon_days"]
+            assert shadow_run.metrics["rows_eligible"] == run.metrics["rows_eligible"] == 50
+
+        champion_call, *shadow_calls = capture.call_args_list
+        for event in champion_call.kwargs["events"]:
+            assert event["properties"]["$autoresearch_model_role"] == AutoresearchModel.Role.CHAMPION
+            assert "$set" in event["properties"]
+        assert len(shadow_calls) == 3
+        for call in shadow_calls:
+            assert call.kwargs["process_person_profile"] is False
+            for event in call.kwargs["events"]:
+                assert event["properties"]["$autoresearch_model_role"] == "shadow"
+                assert "$set" not in event["properties"]
+                assert event["options"] == {"process_person_profile": False}
+        # Ingestion deduplicates on (timestamp, distinct_id, event), so no two predictions may share that key.
+        all_events = [event for call in capture.call_args_list for event in call.kwargs["events"]]
+        dedup_keys = {(e["timestamp"], e["distinct_id"], e["event"]) for e in all_events}
+        assert len(dedup_keys) == len(all_events)
+
+    @parameterized.expand(
+        [
+            ("model_load_failure", ModelLoadError("predict.py failed"), _SHADOW_ROWS, "model_load_failed", False),
+            ("unpaired_rows", None, _SHADOW_ROWS[:1], "other", False),
+            (
+                "deferred_model_load_failure",
+                ModelLoadError("predict.py failed"),
+                _SHADOW_ROWS,
+                "model_load_failed",
+                True,
+            ),
+            # With fixed anchors, rows that key someone the champion did not score cannot pair.
+            (
+                "deferred_unpaired_rows",
+                None,
+                [_SHADOW_ROWS[0], {"distinct_id": "stranger", "events_total": 1}],
+                "other",
+                True,
+            ),
+        ]
+    )
+    def test_a_failing_shadow_model_never_touches_the_champion(self, _name, error, shadow_rows, failure_kind, deferred):
+        challenger = self._model("challenger", _OTHER_FEATURE_SQL)
+        failing = {str(challenger.pk): error} if error else {}
+
+        for day in ("2026-09-11T12:00:00Z", "2026-09-12T12:00:00Z"):
+            with time_machine.travel(day, tick=False):
+                run = self._run(failing=failing, shadow_rows=shadow_rows, deferred=deferred).run
+            assert run.status == AutoresearchRun.Status.COMPLETED
+            assert run.metrics["shadow_models"]["failed"] == [str(challenger.pk)]
+
+        shadow_runs = self._shadow_runs(challenger)
+        assert [r.status for r in shadow_runs] == [AutoresearchRun.Status.FAILED] * 2
+        assert {r.metrics["failure_kind"] for r in shadow_runs} == {failure_kind}
+        self.pipeline.refresh_from_db()
+        assert self.pipeline.last_scored_at is not None
+        # Two failed days of shadow runs must not make the model read as unscorable once it is promoted.
+        AutoresearchModel.objects.filter(pk=self.champion.pk).update(role=AutoresearchModel.Role.ARCHIVED)
+        AutoresearchModel.objects.filter(pk=challenger.pk).update(role=AutoresearchModel.Role.CHAMPION)
+        challenger.refresh_from_db()
+        assert find_unscorable_champion(challenger) is None
+
+    def test_shadow_models_past_the_time_budget_are_skipped_and_recorded(self):
+        challenger = self._model("challenger", _OTHER_FEATURE_SQL)
+
+        with patch.object(scoring, "SHADOW_TIME_BUDGET_S", 0):
+            cadence = self._run()
+        run, capture = cadence.run, cadence.capture
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert run.metrics["shadow_models"] == {"completed": [], "failed": [], "skipped": [str(challenger.pk)]}
+        assert self._shadow_runs(challenger) == []
+        assert capture.call_count == 1
+
+
+class TestQueryCapacityBackoff(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("capacity_error_retries_then_succeeds", SCORING_QUERY, ClickHouseAtCapacity, 2, True),
+            (
+                "cluster_memory_pressure_retries_then_succeeds",
+                SCORING_QUERY,
+                ClickHouseClusterMemoryLimitExceeded,
+                2,
+                True,
+            ),
+            ("other_error_does_not_retry", SCORING_QUERY, ClickHouseQueryTimeOut, 1, False),
+            ("context_without_backoff_does_not_retry", BATCH_QUERY, ClickHouseAtCapacity, 1, False),
+        ]
+    )
+    def test_query_backs_off_on_capacity_errors_only(self, _name, query_context, error, expected_calls, succeeds):
+        response = MagicMock(columns=["distinct_id"], results=[["person-1"]], hasMore=False)
+        with (
+            patch.object(autoresearch_query, "HogQLQueryRunner") as runner,
+            patch.object(autoresearch_query, "sleep") as sleep,
+        ):
+            runner.return_value.run.side_effect = [error(), response]
+            if succeeds:
+                result = scoring._query(
+                    team=MagicMock(), sql="SELECT 1", values={}, user=None, what="Feature", query_context=query_context
+                )
+                assert result.rows == [["person-1"]]
+            else:
+                with self.assertRaises(InferenceRunError):
+                    scoring._query(
+                        team=MagicMock(),
+                        sql="SELECT 1",
+                        values={},
+                        user=None,
+                        what="Feature",
+                        query_context=query_context,
+                    )
+        assert runner.return_value.run.call_count == expected_calls
+        assert sleep.call_count == expected_calls - 1
+        if sleep.called:
+            assert 24 <= sleep.call_args.args[0] <= 36
+
+    def test_query_fails_once_the_backoff_runs_out(self):
+        with (
+            patch.object(autoresearch_query, "HogQLQueryRunner") as runner,
+            patch.object(autoresearch_query, "sleep") as sleep,
+        ):
+            runner.return_value.run.side_effect = ClickHouseAtCapacity()
+            with self.assertRaises(InferenceRunError):
+                scoring._query(
+                    team=MagicMock(), sql="SELECT 1", values={}, user=None, what="Feature", query_context=SCORING_QUERY
+                )
+        assert runner.return_value.run.call_count == 4
+        waits = [c.args[0] for c in sleep.call_args_list]
+        assert [0.8 * step <= wait <= 1.2 * step for wait, step in zip(waits, (30, 60, 120), strict=True)] == [True] * 3

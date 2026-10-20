@@ -18,6 +18,7 @@ import { listExperimentsAPIResponse } from './__mocks__/list-web-experiments-res
 import { listWebVitalsAPIResponse } from './__mocks__/list-web-vitals-response'
 import { MenuState, toolbarLogic } from './bar/toolbarLogic'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
+import { toolbarPosthogJS } from './toolbarPosthogJS'
 import { TOOLBAR_ID } from './utils'
 
 function useToolbarStyles(): void {
@@ -58,6 +59,8 @@ type StoryArgs = {
     minimized?: boolean
     unauthenticated?: boolean
     theme?: 'light' | 'dark'
+    heatmapLocked?: boolean
+    entitlementsState?: 'loading' | 'error'
 }
 
 const meta: Meta<StoryArgs> = {
@@ -67,7 +70,7 @@ const meta: Meta<StoryArgs> = {
         layout: 'fullscreen',
         viewMode: 'story',
     },
-    render: (props) => {
+    render: (props, { parameters }) => {
         const toolbarParams: ToolbarParams = {
             accessToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
             actionId: undefined,
@@ -92,6 +95,7 @@ const meta: Meta<StoryArgs> = {
                     featureFlags: {
                         'web-vitals': true,
                         'web-vitals-toolbar': true,
+                        'toolbar-paid-heatmaps': props.heatmapLocked ?? false,
                     },
                     sessionRecording: {
                         endpoint: '/s/',
@@ -99,6 +103,15 @@ const meta: Meta<StoryArgs> = {
                 },
                 '/api/element/stats/': listHeatmapStatsAPIResponse,
                 '/api/heatmap/': { results: [] },
+                '/api/user/toolbar_entitlements': () => {
+                    if (props.entitlementsState === 'loading') {
+                        return new Promise(() => {})
+                    }
+                    if (props.entitlementsState === 'error') {
+                        return [500, {}]
+                    }
+                    return { entitlements: { toolbar_heatmaps: !props.heatmapLocked } }
+                },
                 '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
                 '/api/projects/@current/actions/': listActionsAPIResponse,
                 '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,
@@ -113,10 +126,13 @@ const meta: Meta<StoryArgs> = {
         const { setVisibleMenu, setDragPosition, toggleMinimized, toggleTheme } = useActions(theToolbarLogic)
 
         useEffect(() => {
+            // The toolbar uses its own SDK instance, so the app's Storybook flag overrides do not reach it.
+            toolbarPosthogJS.featureFlags.overrideFeatureFlags({ flags: parameters.featureFlags ?? {} })
             setDragPosition(50, 50)
             setVisibleMenu(props.menu || 'none')
             toggleMinimized(props.minimized ?? false)
             toggleTheme(props.theme || 'light')
+            return () => toolbarPosthogJS.featureFlags.overrideFeatureFlags(false)
         }, [Object.values(props)]) // oxlint-disable-line react-hooks/exhaustive-deps
 
         return (
@@ -144,6 +160,27 @@ export const Minimized: Story = {
 
 export const Heatmap: Story = {
     args: { menu: 'heatmap' },
+}
+
+export const HeatmapLocked: Story = {
+    parameters: { featureFlags: { 'toolbar-paid-heatmaps': true } },
+    args: { menu: 'heatmap', heatmapLocked: true },
+}
+
+export const HeatmapEntitlementsLoading: Story = {
+    parameters: {
+        featureFlags: { 'toolbar-paid-heatmaps': true },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: 'text=Checking plan access…',
+        },
+    },
+    args: { menu: 'heatmap', heatmapLocked: true, entitlementsState: 'loading' },
+}
+
+export const HeatmapEntitlementsError: Story = {
+    parameters: { featureFlags: { 'toolbar-paid-heatmaps': true } },
+    args: { menu: 'heatmap', heatmapLocked: true, entitlementsState: 'error' },
 }
 
 export const Inspect: Story = {

@@ -1,4 +1,5 @@
 import asyncio
+import collections.abc
 
 import aiohttp.client_exceptions
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
@@ -70,21 +71,37 @@ async def create_clickhouse_tables_and_views(clickhouse_client):
     return
 
 
+EVENTS_TABLES = (
+    "sharded_events",
+    "sharded_events_json",
+    "distributed_events_recent",
+    "events_recent",
+    "sharded_events_recent",
+)
+PERSONS_TABLES = ("person_distinct_id2", "person")
+SESSIONS_TABLES = ("sharded_raw_sessions", "raw_sessions")
+
+
+async def truncate_tables(clickhouse_client, tables: collections.abc.Iterable[str]) -> None:
+    async with asyncio.TaskGroup() as tg:
+        for table in tables:
+            tg.create_task(execute_query(clickhouse_client, f"TRUNCATE TABLE IF EXISTS {table}"))
+
+
 async def truncate_events(clickhouse_client):
-    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS sharded_events")
-    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS distributed_events_recent")
-    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS events_recent")
-    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS sharded_events_recent")
+    await truncate_tables(clickhouse_client, EVENTS_TABLES)
 
 
 async def truncate_persons(clickhouse_client):
-    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS person_distinct_id2")
-    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS person")
+    await truncate_tables(clickhouse_client, PERSONS_TABLES)
 
 
 async def truncate_sessions(clickhouse_client):
-    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS sharded_raw_sessions")
-    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS raw_sessions")
+    await truncate_tables(clickhouse_client, SESSIONS_TABLES)
+
+
+async def truncate_all(clickhouse_client):
+    await truncate_tables(clickhouse_client, EVENTS_TABLES + PERSONS_TABLES + SESSIONS_TABLES)
 
 
 class FlakyClickHouseClient(ClickHouseClient):

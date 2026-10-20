@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import asyncio
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 
 from django.conf import settings as django_settings
@@ -36,6 +36,7 @@ from products.signals.backend.scout_harness.suggestions import (
     parse_suggestion_settings,
     plan_suggestion_runs,
     read_suggestion_settings,
+    select_teams_to_scan,
     stamp_requested,
 )
 
@@ -48,6 +49,9 @@ SUGGESTIONS_COORDINATOR_INTERVAL_MINUTES = 30
 SUGGESTIONS_ACTIVITY_QUEUE_WAIT = timedelta(minutes=SUGGESTIONS_COORDINATOR_INTERVAL_MINUTES)
 SUGGESTIONS_COORDINATOR_WORKFLOW_NAME = "run-signals-scout-suggestions-coordinator"
 SUGGESTIONS_COORDINATOR_SCHEDULE_ID = "signals-scout-suggestions-coordinator-schedule"
+# How far past the per-tick cap the planner selects, so a tick still fills when the activity
+# check drops several of the picked candidates.
+SUGGESTIONS_OVERSELECT_FACTOR = 2
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,13 @@ class PlanSuggestionsOutput:
     # The settings snapshot the plan was made under, passed to every child so one tick uses one
     # max-runtime / model posture even if the flag changes mid-fan-out.
     settings_json: str
+    # Candidates the activity check stamped `low_activity`. Nothing is dispatched for them, but
+    # they are stamped with the run so the planner leaves them alone for a refresh window.
+    # Defaulted so a plan serialized before the check existed still deserializes across a deploy.
+    skipped_team_ids: list[int] = field(default_factory=list)
+    activity_reads_answered: int = 0
+    activity_reads_capped: int = 0
+    activity_reads_failed: int = 0
 
 
 @dataclass(frozen=True)
@@ -84,6 +95,10 @@ class SuggestionsCoordinatorOutput:
     planned_count: int
     started_count: int
     skipped_count: int
+    low_activity_count: int = 0
+    activity_reads_answered: int = 0
+    activity_reads_capped: int = 0
+    activity_reads_failed: int = 0
 
 
 @dataclass(frozen=True)
@@ -124,16 +139,42 @@ def _settings_from_json(raw: str | None) -> SuggestionSettings:
 
 @activity.defn
 async def plan_scout_suggestion_runs_activity(_input: PlanSuggestionsInput) -> PlanSuggestionsOutput:
-    """Select the teams to refresh this tick, best first, capped by the flag payload."""
+    """Select the teams to refresh this tick, best first, capped by the flag payload.
+
+    The plan is overselected and then filtered by the dispatch-time activity check, which is one
+    bounded ClickHouse read per picked candidate.
+    """
     async with Heartbeater():
         # Flag read off the DB thread pool, like the scout coordinator: the SDK call can block on
         # a cold cache and the DB pool is sized for DB-bound work.
         settings = await asyncio.to_thread(read_suggestion_settings)
-        planned = await database_sync_to_async(plan_suggestion_runs, thread_sensitive=False)(settings)
-    logger.info("scout_suggestions coordinator: planned", count=len(planned), enabled=settings.enabled)
+        cap = settings.max_children_per_tick
+        planned = await database_sync_to_async(plan_suggestion_runs, thread_sensitive=False)(
+            settings, limit=cap * SUGGESTIONS_OVERSELECT_FACTOR
+        )
+        selection = await database_sync_to_async(select_teams_to_scan, thread_sensitive=False)(
+            planned, settings, limit=cap
+        )
+    reads = selection.reads_answered + selection.reads_capped + selection.reads_failed
+    # A capped read counts as active, so a guard that trips on most reads turns the check off
+    # without an error.
+    log = logger.warning if reads and selection.reads_capped * 2 > reads else logger.info
+    log(
+        "scout_suggestions coordinator: planned",
+        count=len(selection.dispatch),
+        low_activity=len(selection.skipped_team_ids),
+        activity_reads_answered=selection.reads_answered,
+        activity_reads_capped=selection.reads_capped,
+        activity_reads_failed=selection.reads_failed,
+        enabled=settings.enabled,
+    )
     return PlanSuggestionsOutput(
-        planned=[PlannedSuggestion(team_id=run.team_id, tier=run.tier) for run in planned],
+        planned=[PlannedSuggestion(team_id=run.team_id, tier=run.tier) for run in selection.dispatch],
+        skipped_team_ids=list(selection.skipped_team_ids),
         settings_json=_settings_to_json(settings),
+        activity_reads_answered=selection.reads_answered,
+        activity_reads_capped=selection.reads_capped,
+        activity_reads_failed=selection.reads_failed,
     )
 
 
@@ -243,10 +284,12 @@ class ScoutSuggestionsCoordinatorWorkflow:
         plan = await workflow.execute_activity(
             plan_scout_suggestion_runs_activity,
             PlanSuggestionsInput(),
-            start_to_close_timeout=timedelta(minutes=2),
+            # The activity check reads ClickHouse once per picked candidate, so this runs longer
+            # than a pure Postgres plan did.
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        if not plan.planned:
+        if not plan.planned and not plan.skipped_team_ids:
             return SuggestionsCoordinatorOutput(0, 0, 0)
 
         # `workflow_id` is per tick (the schedule appends the scheduled time) and stable across a
@@ -254,7 +297,9 @@ class ScoutSuggestionsCoordinatorWorkflow:
         tick_id = workflow.info().workflow_id
         started = 0
         skipped = 0
-        dispatched: list[int] = []
+        # A skipped project is stamped too: it was reached this tick, and without the stamp the
+        # planner would re-pick it on the very next one and pay for the read again.
+        dispatched: list[int] = list(plan.skipped_team_ids)
         for idx, planned in enumerate(plan.planned):
             child_id = f"scout-suggestions-run-{planned.team_id}-{tick_id}-{idx}"
             try:
@@ -279,7 +324,13 @@ class ScoutSuggestionsCoordinatorWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=5),
         )
         return SuggestionsCoordinatorOutput(
-            planned_count=len(plan.planned), started_count=started, skipped_count=skipped
+            planned_count=len(plan.planned),
+            started_count=started,
+            skipped_count=skipped,
+            low_activity_count=len(plan.skipped_team_ids),
+            activity_reads_answered=plan.activity_reads_answered,
+            activity_reads_capped=plan.activity_reads_capped,
+            activity_reads_failed=plan.activity_reads_failed,
         )
 
 
@@ -289,7 +340,9 @@ def manual_suggestions_workflow_id(team_id: int) -> str:
 
 
 @async_to_sync
-async def start_manual_scout_suggestions_run(client: Client, *, team_id: int, acting_user_id: int | None = None) -> str:
+async def start_manual_scout_suggestions_run(
+    client: Client, *, team_id: int, acting_user_id: int | None = None, onboarding: bool = False
+) -> str:
     """Dispatch one on-demand suggestion scan for a team, bypassing the planner and its cap.
 
     Single-flight at the Temporal server: `ALLOW_DUPLICATE` lets the stable id be reused once the
@@ -298,21 +351,27 @@ async def start_manual_scout_suggestions_run(client: Client, *, team_id: int, ac
     planner state, so the coordinator treats it as this window's refresh instead of dispatching a
     second scan for the same team on its next tick.
     """
-    workflow_id = manual_suggestions_workflow_id(team_id)
+    workflow_id = f"scout-suggestions-onboarding-{team_id}" if onboarding else manual_suggestions_workflow_id(team_id)
     settings = read_suggestion_settings()
-    await client.start_workflow(
-        RunScoutSuggestionsWorkflow.run,
-        RunScoutSuggestionsInput(
-            team_id=team_id,
-            settings_json=_settings_to_json(settings),
-            triggered_by="manual",
-            acting_user_id=acting_user_id,
-        ),
-        id=workflow_id,
-        task_queue=django_settings.VIDEO_EXPORT_TASK_QUEUE,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-        id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
-    )
+    try:
+        await client.start_workflow(
+            RunScoutSuggestionsWorkflow.run,
+            RunScoutSuggestionsInput(
+                team_id=team_id,
+                settings_json=_settings_to_json(settings),
+                triggered_by="manual",
+                acting_user_id=acting_user_id,
+            ),
+            id=workflow_id,
+            task_queue=django_settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE
+            if onboarding
+            else WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING if onboarding else WorkflowIDConflictPolicy.FAIL,
+        )
+    except WorkflowAlreadyStartedError:
+        if not onboarding:
+            raise
     try:
         await database_sync_to_async(stamp_requested, thread_sensitive=False)([team_id])
     except Exception:

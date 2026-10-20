@@ -1,0 +1,19 @@
+{
+    "name": "@posthog/products-ml-inference",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    },
+    "dependencies": {
+        "@posthog/icons": "catalog:",
+        "kea": "catalog:",
+        "kea-loaders": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:"
+    },
+    "peerDependencies": {
+        "@types/react": "*",
+        "react": "*"
+    }
+}

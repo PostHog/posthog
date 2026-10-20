@@ -65,12 +65,12 @@ class SkillBundleSustainedThrottle(_SkillUserThrottle):
 
 class SkillSearchBurstThrottle(_SkillUserThrottle):
     scope = "skills_search_burst"
-    rate = BurstRateThrottle.rate
+    rate = "60/minute"
 
 
 class SkillSearchSustainedThrottle(_SkillUserThrottle):
     scope = "skills_search_sustained"
-    rate = SustainedRateThrottle.rate
+    rate = "600/hour"
 
 
 class SkillListBurstThrottle(_SkillUserThrottle):

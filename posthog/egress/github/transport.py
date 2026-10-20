@@ -96,6 +96,23 @@ class GitHubClient(EgressClient):
     instance serves every caller; wire it through :func:`github_request`."""
 
     observability = github_egress
+    egress_domain = "github"
+    span_name = "github.http.request"
+
+    def _span_attributes(
+        self,
+        method: str,
+        url: str,
+        *,
+        source: str,
+        scope: str | None,
+        priority: Priority,
+        endpoint: str | None,
+    ) -> dict[str, str | bool]:
+        return {
+            **super()._span_attributes(method, url, source=source, scope=scope, priority=priority, endpoint=endpoint),
+            "github.resource": classify_github_resource(url).value,
+        }
 
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}
@@ -106,7 +123,9 @@ class GitHubClient(EgressClient):
         )
 
     def _budget_exhausted_error(self, scope: str) -> GitHubEgressBudgetExhausted:
-        return GitHubEgressBudgetExhausted(f"GitHub egress budget exhausted for installation {scope}; deferring")
+        return GitHubEgressBudgetExhausted(
+            f"GitHub egress budget exhausted for installation {scope}; deferring", scope=scope
+        )
 
 
 # Stateless — one shared instance for the whole process.
@@ -120,7 +139,7 @@ def github_request(
     source: str,
     headers: dict[str, str] | None = None,
     installation_id: str | None = None,
-    priority: Priority = Priority.CRITICAL,
+    priority: Priority,
     endpoint: str | None = None,
     timeout: float | tuple[float, float] | None = None,
     session: requests.Session | None = None,

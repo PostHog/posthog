@@ -235,7 +235,12 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
                         // At this width the illustration still leaves the copy 32rem, about what
                         // an `above` empty state gives it. Below it the column drops the wide
                         // illustration and falls back to the small one above the product name.
-                        <Hedgehog className="hidden w-72 shrink-0 @min-[52rem]/product-empty-state-copy:block" />
+                        // `beside` renders this pair, and the container query puts exactly one of
+                        // the two in `display: none`, so both must load eagerly.
+                        <Hedgehog
+                            className="hidden w-72 shrink-0 @min-[52rem]/product-empty-state-copy:block"
+                            loading="eager"
+                        />
                     ) : null}
                     <div className="flex min-w-0 max-w-[36rem] flex-col justify-center gap-4">
                         <div className="flex flex-col items-start gap-3">
@@ -247,6 +252,7 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
                                         // more width than an `above` hedgehog to stay legible here.
                                         hedgehogBeside ? 'w-48 @min-[52rem]/product-empty-state-copy:hidden' : 'w-32'
                                     )}
+                                    loading={hedgehogBeside ? 'eager' : 'lazy'}
                                 />
                             ) : null}
                             <div className="inline-flex items-center gap-2.5 text-4xl font-bold [&_svg]:text-[2.25rem]">
@@ -313,7 +319,10 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
                     // Previews read `--empty-state-accent` only, so in dark mode point that at the dark
                     // token here rather than asking every preview to branch on the theme itself.
                     // Tighter padding while stacked, where the width goes to the preview itself.
-                    className="flex min-w-0 flex-col justify-center gap-3 p-6 @min-[64rem]/product-empty-state:p-10 rounded-md border border-primary dark:[--empty-state-accent:var(--empty-state-accent-dark)]"
+                    className={cn(
+                        'flex min-w-0 flex-col justify-center gap-3 p-6 @min-[64rem]/product-empty-state:p-10 rounded-md border border-primary dark:[--empty-state-accent:var(--empty-state-accent-dark)]',
+                        config.previewClassName
+                    )}
                     style={{
                         backgroundImage:
                             'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',

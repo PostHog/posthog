@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from typing import Any, Optional
 
 import structlog
-from requests import Response
+from requests import HTTPError, Response
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import (
     ETSY_ENDPOINTS,
     LISTING_STATES,
+    EtsyBatchLookup,
     EtsyEndpointConfig,
 )
 
@@ -37,9 +38,44 @@ NO_SHOP_ERROR = (
 )
 INVALID_SHOP_ID_ERROR = "The Etsy shop ID must be a positive number. Leave it blank to use the token's own shop."
 
+# Etsy meters each app's own API key, as a per-second allowance and then a sliding 24-hour quota.
+# When a refusal carries this header, a zero says the day's quota is gone rather than a burst.
+REMAINING_TODAY_HEADER = "x-remaining-today"
+
+# Stable sentinels the source classifies on. Keep them in step with `EtsySource`.
+DAILY_QUOTA_EXHAUSTED_ERROR = "Etsy daily request quota exhausted"
+RATE_LIMITED_ERROR = "Etsy rate limit reached"
+
+DAILY_QUOTA_EXHAUSTED_MESSAGE = (
+    "Your Etsy app has used its whole 24 hour request quota, so this sync stopped early. The quota frees up again "
+    "over the next 24 hours and the next sync carries on from here. If it keeps happening, ask Etsy to raise your "
+    "app's daily limit or sync this source less often."
+)
+RATE_LIMITED_MESSAGE = (
+    "Etsy is rate limiting your app's requests, so this sync stopped early. The next sync carries on from here. "
+    "If it keeps happening, ask Etsy to raise your app's rate limit."
+)
+RATE_LIMITED_VALIDATION_MESSAGE = (
+    "Etsy is rate limiting your app, so we could not check these credentials. Try again in a few minutes."
+)
+
 
 class EtsyAPIError(Exception):
     """An Etsy request failed in a way the caller cannot recover from."""
+
+
+class EtsyRateLimitError(EtsyAPIError):
+    """Etsy refused the request because the app is out of requests."""
+
+
+def _remaining_today(response: Response) -> Optional[int]:
+    raw = response.headers.get(REMAINING_TODAY_HEADER)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def _validate_shop_id(shop_id: str) -> str:
@@ -78,6 +114,8 @@ class EtsyClient:
         self._refresh_token = refresh_token
         self._logger = logger
         self._access_token: Optional[str] = None
+        self._shop_opened_at: Optional[int] = None
+        self._shop_opened_at_resolved = False
         self._session = make_tracked_session(
             headers={"x-api-key": f"{api_key}:{shared_secret}", "Accept": "application/json"},
             redact_values=(api_key, shared_secret, refresh_token),
@@ -119,6 +157,14 @@ class EtsyClient:
             self._access_token = self._mint_token()
             response = self._send(path, params)
 
+        if response.status_code == 429:
+            # The tracked session already retried this while honoring Etsy's retry-after, so what
+            # reaches here is a limit no backoff inside the run can clear. Raising now also stops
+            # the walk from spending the rest of the quota on requests that can only be refused.
+            raise EtsyRateLimitError(
+                DAILY_QUOTA_EXHAUSTED_ERROR if _remaining_today(response) == 0 else RATE_LIMITED_ERROR
+            )
+
         if response.status_code >= 300:
             self._logger.error(
                 f"Etsy API error: status={response.status_code}, path={path}, body={response.text[:500]}"
@@ -142,6 +188,23 @@ class EtsyClient:
             raise EtsyAPIError(NO_SHOP_ERROR)
         return str(shop_id)
 
+    def shop_opened_at(self, shop_id: str) -> Optional[int]:
+        """Epoch second the shop opened, or None when Etsy reports no usable value.
+
+        Nothing a shop owns predates the shop, so a walk with no cursor starts here rather than at
+        Etsy's launch year. Every window in between can only come back empty, and each one spends a
+        request against the app's daily quota, which is what a sync runs out of before it finishes.
+        """
+        if not self._shop_opened_at_resolved:
+            # getShop needs no OAuth scope, so this stays readable for any token the source accepts.
+            opened_at = self.request(f"/shops/{shop_id}").get("created_timestamp")
+            try:
+                self._shop_opened_at = int(opened_at) if opened_at is not None else None
+            except (TypeError, ValueError):
+                self._shop_opened_at = None
+            self._shop_opened_at_resolved = True
+        return self._shop_opened_at
+
 
 def validate_credentials(
     api_key: str, shared_secret: str, refresh_token: str, shop_id: Optional[str]
@@ -161,6 +224,8 @@ def validate_credentials(
         # No job logger exists on the create-time probe path, so use the module logger.
         client = EtsyClient(api_key, shared_secret, refresh_token, structlog.get_logger(__name__))
         identity = client.request("/users/me")
+    except EtsyRateLimitError:
+        return False, RATE_LIMITED_VALIDATION_MESSAGE
     except Exception:
         return False, "Could not authenticate with Etsy. Check your API keystring, shared secret and refresh token."
 
@@ -169,8 +234,21 @@ def validate_credentials(
     return True, None
 
 
+def _flatten_tree(nodes: list[Any], children_key: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    stack = [node for node in reversed(nodes) if isinstance(node, dict)]
+    while stack:
+        node = stack.pop()
+        children = node.get(children_key) or []
+        rows.append({key: value for key, value in node.items() if key != children_key})
+        stack.extend(child for child in reversed(children) if isinstance(child, dict))
+    return rows
+
+
 def _rows_from_results(results: list[Any], config: EtsyEndpointConfig) -> list[dict[str, Any]]:
     """Flatten a page of results, expanding the nested child list when the endpoint is derived."""
+    if config.flatten_key is not None:
+        return _flatten_tree(results, config.flatten_key)
     if config.expand_key is None:
         return [row for row in results if isinstance(row, dict)]
 
@@ -203,7 +281,7 @@ def _windowed_pages(
     window_param: str,
     start: int,
     end: int,
-    manager: ResumableSourceManager[EtsyResumeConfig],
+    manager: Optional[ResumableSourceManager[EtsyResumeConfig]],
     resume: Optional[EtsyResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -256,7 +334,8 @@ def _windowed_pages(
             offset += page_size
             # Saved after the yield so a crash replays the last page (merge dedupes) instead of
             # skipping it.
-            manager.save_state(EtsyResumeConfig(offset=offset, window_start=window_start, window_end=window_end))
+            if manager is not None:
+                manager.save_state(EtsyResumeConfig(offset=offset, window_start=window_start, window_end=window_end))
 
             if page_size == 0 or page_size < PAGE_SIZE or offset >= total:
                 offset = 0
@@ -274,7 +353,7 @@ def _offset_pages(
     client: EtsyClient,
     path: str,
     config: EtsyEndpointConfig,
-    manager: ResumableSourceManager[EtsyResumeConfig],
+    manager: Optional[ResumableSourceManager[EtsyResumeConfig]],
     resume: Optional[EtsyResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -300,7 +379,8 @@ def _offset_pages(
             if rows:
                 yield rows
             offset += page_size
-            manager.save_state(EtsyResumeConfig(offset=offset, listing_state=state))
+            if manager is not None:
+                manager.save_state(EtsyResumeConfig(offset=offset, listing_state=state))
 
             if page_size == 0 or page_size < PAGE_SIZE or offset >= total:
                 break
@@ -310,6 +390,100 @@ def _offset_pages(
                     f"{total - offset} rows were not read"
                 )
                 break
+
+
+def _inventory_product_rows(listings: list[Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for listing in listings:
+        if not isinstance(listing, dict):
+            continue
+        inventory = listing.get("inventory") or {}
+        # The *_on_property lists say which variation properties drive price, quantity and SKU, so
+        # each product row keeps them to stay readable on its own.
+        inventory_fields = {key: value for key, value in inventory.items() if key != "products"}
+        for product in inventory.get("products") or []:
+            if isinstance(product, dict):
+                rows.append({**product, **inventory_fields, "listing_id": listing.get("listing_id")})
+    return rows
+
+
+def _lookup_batch(client: EtsyClient, path: str, lookup: EtsyBatchLookup, ids: list[str]) -> list[Any]:
+    try:
+        return client.request(path, {lookup.ids_param: ",".join(ids)}).get("results") or []
+    except HTTPError as error:
+        # Etsy fails the whole batch with a 404 when any one id is gone, e.g. a listing deleted
+        # after the parent page was read. Split the batch to keep every id that still resolves.
+        if error.response is None or error.response.status_code != 404:
+            raise
+        if len(ids) == 1:
+            return []
+        midpoint = len(ids) // 2
+        return _lookup_batch(client, path, lookup, ids[:midpoint]) + _lookup_batch(client, path, lookup, ids[midpoint:])
+
+
+def _batch_lookup_pages(
+    client: EtsyClient,
+    lookup: EtsyBatchLookup,
+    shop_id: str,
+    parent_pages: Iterator[list[dict[str, Any]]],
+    manager: ResumableSourceManager[EtsyResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    path = lookup.path.format(shop_id=shop_id)
+    seen: set[Any] = set()
+
+    for parent_rows in parent_pages:
+        ids = [str(row[lookup.id_field]) for row in parent_rows if row.get(lookup.id_field) is not None]
+        results = _lookup_batch(client, path, lookup, ids) if ids else []
+        if lookup.inventory_products:
+            rows = _inventory_product_rows(results)
+        else:
+            rows = [row for row in results if isinstance(row, dict)]
+
+        if lookup.dedupe_key is not None:
+            fresh: list[dict[str, Any]] = []
+            for row in rows:
+                key = row.get(lookup.dedupe_key)
+                if key not in seen:
+                    seen.add(key)
+                    fresh.append(row)
+            rows = fresh
+
+        if rows:
+            yield rows
+        else:
+            # Many parent pages can resolve to nothing, e.g. ledger entries for fees or payouts.
+            manager.safe_point()
+
+
+def _paged_rows(
+    client: EtsyClient,
+    shop_id: str,
+    path: str,
+    config: EtsyEndpointConfig,
+    manager: Optional[ResumableSourceManager[EtsyResumeConfig]],
+    resume: Optional[EtsyResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    incremental_field: Optional[str],
+) -> Iterator[list[dict[str, Any]]]:
+    window_param = _resolve_window_param(config, should_use_incremental_field, incremental_field)
+    if window_param is None:
+        yield from _offset_pages(client, path, config, manager, resume, logger)
+        return
+
+    end = int(time.time())
+    start = _window_start(should_use_incremental_field, db_incremental_field_last_value)
+    # A resumed walk carries on from its saved window, so `start` is unused and looking the
+    # shop up would only spend a request.
+    resuming_window = resume is not None and resume.window_start is not None
+    if start == ETSY_HISTORY_START and not resuming_window:
+        opened_at = client.shop_opened_at(shop_id)
+        # A missing or clock-skewed opening date falls back to the full range, so a bad
+        # value can never shorten the walk.
+        if opened_at is not None and ETSY_HISTORY_START < opened_at <= end:
+            start = opened_at
+    yield from _windowed_pages(client, path, config, window_param, start, end, manager, resume, logger)
 
 
 def get_rows(
@@ -326,9 +500,16 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = ETSY_ENDPOINTS[endpoint]
     client = EtsyClient(api_key, shared_secret, refresh_token, logger)
-    path = f"/shops/{client.resolve_shop_id(shop_id)}{config.path}"
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if config.shop_scoped:
+        resolved_shop_id = client.resolve_shop_id(shop_id)
+        path = f"/shops/{resolved_shop_id}{config.path}"
+    else:
+        # Etsy-wide reference data, so there is no shop to look up.
+        resolved_shop_id = ""
+        path = config.path
 
     if config.single_object:
         yield [client.request(path)]
@@ -336,23 +517,40 @@ def get_rows(
         rows = _rows_from_results(client.request(path).get("results") or [], config)
         if rows:
             yield rows
+    elif config.batch_lookup is not None:
+        parent = ETSY_ENDPOINTS[config.batch_lookup.parent]
+        # The set of rows already yielded does not survive to a resumed attempt, and a resumed full
+        # refresh appends, so a deduplicated lookup saves no cursor. A restarted attempt is then a
+        # fresh run, which replaces what earlier attempts wrote.
+        resumes = config.batch_lookup.dedupe_key is None
+        parent_pages = _paged_rows(
+            client,
+            resolved_shop_id,
+            f"/shops/{resolved_shop_id}{parent.path}",
+            parent,
+            resumable_source_manager if resumes else None,
+            resume if resumes else None,
+            logger,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        yield from _batch_lookup_pages(
+            client, config.batch_lookup, resolved_shop_id, parent_pages, resumable_source_manager
+        )
     else:
-        window_param = _resolve_window_param(config, should_use_incremental_field, incremental_field)
-        if window_param is None:
-            yield from _offset_pages(client, path, config, resumable_source_manager, resume, logger)
-        else:
-            start = _window_start(should_use_incremental_field, db_incremental_field_last_value)
-            yield from _windowed_pages(
-                client,
-                path,
-                config,
-                window_param,
-                start,
-                int(time.time()),
-                resumable_source_manager,
-                resume,
-                logger,
-            )
+        yield from _paged_rows(
+            client,
+            resolved_shop_id,
+            path,
+            config,
+            resumable_source_manager,
+            resume,
+            logger,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
+        )
 
     # The walk finished, so a later attempt must start clean rather than resume mid-stream.
     resumable_source_manager.clear_state()

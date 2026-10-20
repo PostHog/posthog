@@ -1,0 +1,117 @@
+from unittest.mock import MagicMock, patch
+
+from django.db import OperationalError
+from django.test import TestCase
+
+from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
+
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
+from posthog.models.user import User
+
+from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.services.slack_messages import RunFooter
+from products.slack_app.backend.slack_thread import SlackThreadHandler
+from products.tasks.backend.logic.services.slack_pr_cards import post_pr_closed_slack_update
+from products.tasks.backend.models import SLACK_NOTIFIED_PR_URL_STATE_KEY, Task, TaskRun
+
+PR_URL = "https://github.com/posthog/posthog/pull/1"
+OTHER_PR_URL = "https://github.com/posthog/posthog/pull/2"
+
+
+class TestPostPrClosedSlackUpdate(TestCase):
+    def setUp(self):
+        organization = Organization.objects.create(name="Org")
+        self.team = Team.objects.create(organization=organization, name="Team")
+        user = User.objects.create(email="pr-closed@example.com", distinct_id="pr-closed-user")
+        self.task = Task.objects.create(
+            team=self.team,
+            created_by=user,
+            title="Task",
+            description="",
+            origin_product=Task.OriginProduct.SLACK,
+            state={SLACK_NOTIFIED_PR_URL_STATE_KEY: PR_URL},
+        )
+        self.task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"slack_actor_slack_user_id": "U_ACTOR"},
+        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.mapping_kwargs = {
+            "team": self.team,
+            "integration": integration,
+            "slack_workspace_id": "T_SLACK",
+            "channel": "C001",
+            "thread_ts": "1234.5678",
+            "task": self.task,
+            "task_run": self.task_run,
+            "mentioning_slack_user_id": "U_MENTIONER",
+        }
+        footer_patcher = patch(
+            "products.slack_app.backend.slack_thread.load_run_footer",
+            return_value=RunFooter(task_url="http://localhost:8000/project/1/tasks/1"),
+        )
+        footer_patcher.start()
+        self.addCleanup(footer_patcher.stop)
+
+    @parameterized.expand(
+        [
+            ("announced_pr", PR_URL, True, [1, 0]),
+            ("pr_the_thread_never_announced", OTHER_PR_URL, True, [0, 0]),
+            ("task_without_slack_thread", PR_URL, False, [0, 0]),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "post_pr_closed", return_value=True)
+    def test_posts_once_per_announced_pr(self, _name, closed_pr_url, has_mapping, expected_posts, mock_post):
+        if has_mapping:
+            SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
+
+        posts = []
+        for _ in range(2):
+            mock_post.reset_mock()
+            post_pr_closed_slack_update(str(self.task_run.id), closed_pr_url)
+            posts.append(mock_post.call_count)
+
+        assert posts == expected_posts
+
+    @patch.object(SlackThreadHandler, "post_pr_closed", return_value=True)
+    def test_merge_after_reopen_still_posts(self, mock_post):
+        SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
+
+        sent = [
+            post_pr_closed_slack_update(str(self.task_run.id), PR_URL, merged=False),
+            post_pr_closed_slack_update(str(self.task_run.id), PR_URL, merged=True),
+        ]
+
+        assert sent == [True, True]
+        assert [c.kwargs["merged"] for c in mock_post.call_args_list] == [False, True]
+
+    @patch.object(SlackThreadHandler, "post_pr_closed", return_value=True)
+    def test_tags_the_run_actor_and_passes_the_outcome(self, mock_post):
+        SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
+
+        post_pr_closed_slack_update(str(self.task_run.id), PR_URL, merged=True)
+
+        mock_post.assert_called_once_with(
+            PR_URL, "http://localhost:8000/project/1/tasks/1", reply_target_slack_user_id="U_ACTOR", merged=True
+        )
+
+    @parameterized.expand([("slack_rejects_the_post",), ("slack_integration_is_gone",), ("database_error",)])
+    def test_failures_return_false_without_raising(self, failure):
+        SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
+        broken_client = MagicMock()
+        broken_client.chat_postMessage.side_effect = SlackApiError("boom", {"ok": False, "error": "not_in_channel"})
+        failing_patch = {
+            "slack_rejects_the_post": patch.object(SlackThreadHandler, "_get_client", return_value=broken_client),
+            "slack_integration_is_gone": patch.object(
+                SlackThreadHandler, "_get_client", side_effect=RuntimeError("gone")
+            ),
+            "database_error": patch.object(Task, "claim_slack_pr_closed_notification", side_effect=OperationalError()),
+        }[failure]
+
+        with failing_patch, patch("products.slack_app.backend.slack_thread.slack_message_exists", return_value=True):
+            assert post_pr_closed_slack_update(str(self.task_run.id), PR_URL) is False

@@ -35,6 +35,7 @@ from products.notebooks.backend.facade.widgets import reusable_widget_catalog_co
 
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.context.notebook.prompts import ROOT_NOTEBOOKS_CONTEXT_PROMPT, cell_guidance_prompt
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
@@ -376,25 +377,20 @@ class AssistantContextManager(AssistantContextMixin):
             # Flag lookups read `user.organization`; keep them off the event loop and skip them
             # when no notebook needs inline authoring guidance.
             sql_v2_enabled = False
-            widgets_enabled = False
-            if any(nb.markdown_with_insertion_placeholder for nb in ui_context.notebooks):
+            has_inline_notebook = any(nb.markdown_with_insertion_placeholder for nb in ui_context.notebooks)
+            if has_inline_notebook:
                 sql_v2_enabled = await database_sync_to_async(notebooks_facade.is_sql_v2_enabled)(self._user)
-                widgets_enabled = await database_sync_to_async(notebooks_facade.is_notebook_widget_enabled)(self._user)
             notebook_texts = []
             reusable_catalog = (
                 await database_sync_to_async(reusable_widget_catalog_context)(team_id=self._team.id, user=self._user)
-                if widgets_enabled
+                if has_inline_notebook
                 else ""
             )
             if reusable_catalog:
                 notebook_texts.append(reusable_catalog)
             for nb in ui_context.notebooks:
                 if nb.markdown_with_insertion_placeholder:
-                    notebook_texts.append(
-                        self._format_markdown_notebook_context(
-                            nb, sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled
-                        )
-                    )
+                    notebook_texts.append(self._format_markdown_notebook_context(nb, sql_v2_enabled=sql_v2_enabled))
                     continue
 
                 ctx = await NotebookContext.from_short_id(self._team, nb.id)
@@ -452,9 +448,7 @@ class AssistantContextManager(AssistantContextMixin):
             )
         return None
 
-    def _format_markdown_notebook_context(
-        self, notebook: MaxNotebookContext, *, sql_v2_enabled: bool, widgets_enabled: bool
-    ) -> str:
+    def _format_markdown_notebook_context(self, notebook: MaxNotebookContext, *, sql_v2_enabled: bool) -> str:
         title = _sanitize_inline_prompt_value(notebook.name or f"Notebook {notebook.id}")
         inline_request_id = _sanitize_inline_prompt_value(notebook.insertion_placeholder_block_id or "unknown")
         response_marker = _sanitize_inline_prompt_value(notebook.insertion_placeholder_marker or "Thinking...")
@@ -491,6 +485,10 @@ class AssistantContextManager(AssistantContextMixin):
                     "notebook, use create_notebook with content containing the complete final notebook markdown."
                 ),
                 (
+                    "- The editor applies that artifact to this notebook and preserves the user's prompt when "
+                    "requested. Do not save a second notebook or repeat the edit with another notebook tool."
+                ),
+                (
                     f"- Full-notebook replacement content must omit `{response_marker}`, empty Prompt tags, and the "
                     "user's inline prompt unless the user explicitly asks to keep them."
                 ),
@@ -498,7 +496,7 @@ class AssistantContextManager(AssistantContextMixin):
                     "- The user may ask you to change selected text, nearby content, or the entire notebook. "
                     "Preserve unrelated content only when the request's scope is local."
                 ),
-                cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled),
+                cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled),
                 (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "
@@ -539,6 +537,7 @@ class AssistantContextManager(AssistantContextMixin):
             variables_override = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
 
         return InsightContext(
+            max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
             team=self._team,
             user=self._user,
             event_source=self.event_source,

@@ -12,9 +12,11 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
-import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 
+import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
+
+import { RelationshipProposalModal } from '../components/RelationshipProposalModal'
 import { RelationshipRow, RelationshipStatusFilter, relationshipsLogic } from '../relationshipsLogic'
 
 const STATUS_FILTER_OPTIONS: { value: RelationshipStatusFilter; label: string }[] = [
@@ -46,7 +48,7 @@ function TableRefCell({ table, refKey }: { table: string; refKey: string }): JSX
 export function RelationshipsTab(): JSX.Element {
     const { filteredRows, proposalsLoading, joinsLoading, filters, actionsInFlight, joinsById } =
         useValues(relationshipsLogic)
-    const { setFilters, acceptProposal, rejectProposal, loadProposals, loadJoins, deleteJoin } =
+    const { setFilters, acceptProposal, rejectProposal, loadProposals, loadJoins, deleteJoin, openProposal } =
         useActions(relationshipsLogic)
     const { toggleNewJoinModal, toggleEditJoinModal } = useActions(viewLinkLogic)
 
@@ -159,6 +161,7 @@ export function RelationshipsTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            <RelationshipProposalModal />
             <div className="flex justify-between gap-2 flex-wrap items-center">
                 <LemonInput
                     type="search"
@@ -167,6 +170,9 @@ export function RelationshipsTab(): JSX.Element {
                     onChange={(search) => setFilters({ search })}
                 />
                 <div className="flex items-center gap-2 flex-wrap">
+                    <LemonButton size="small" onClick={() => openProposal()}>
+                        Propose a relationship
+                    </LemonButton>
                     <LemonSegmentedButton
                         value={filters.status}
                         onChange={(status) => setFilters({ status })}

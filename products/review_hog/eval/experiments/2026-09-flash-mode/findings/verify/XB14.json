@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB14",
+    "cluster": 2,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1130-1159 trusts the queued URL to choose a synced enabled team repository, then checks only open/nonempty head and stamps the supplied IDs at 1166-1181. Its facade simply forwards arguments through delay at facade/api.py:149-155. The public caller is reachable: tasks/presentation/views/api.py:1101-1118 lets a task controller set output, facade/api.py:1770-1788,2149-2154 permits replacing pr_url, and review_hog/receivers.py:92-138 attaches the real non-internal signal task and opted-in reviewer IDs to that replacement URL. Non-internal same-team signal tasks remain supported by tasks serializers.py:435-460,611-614. The resulting marker enables self_driving_review at stamphog/temporal/activities.py:451, skips bot/draft refusal in review_local.py:321-330 and review_pr.py:590, and can reach approval at activities.py:723-745 for an unrelated human draft.",
+            "refutation": "I first checked whether the current caller supplies only trusted immutable identifiers and whether normal bot creation closes the gap. The receiver supplies genuine task/report/reviewer IDs, but pr_url is explicitly mutable; an attacker need not forge those IDs or reach Celery directly. Forced bot authorship at tasks/process_task/utils.py:1067-1079 only describes PRs actually created by the task. No initial-path check binds the fetched PR back to that creation, and the webhook's native-head/bot guards at stamphog/tasks.py:169-178 are not called. The synced repository gate limits scope but does not prove implementation origin."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1130-1159 selects the repository entirely from pr_url; :1166-1181 verifies only open/head then copies the supplied report/run/user into inbox_review. It never reloads the task or compares its repository/head. The actual caller is ReviewHog receivers.py:92-138, which supplies authentic task IDs and an opted-in reviewer but accepts mutable task output. Tasks presentation/views/api.py:1082-1087 and :1101-1118 expose output writes; facade/api.py:2038-2044 merges the caller's output, with only pr_merged protected by :1770-1788. A supported manual signal task (tests/test_api.py:1307-1333) can therefore target an unrelated human/fork PR in any enabled synced repository of the same team; activities.py:451 enables the exception and :745 may approve it.",
+            "refutation": "First checked whether task control, config isolation, or the fetched GitHub response gives the missing provenance. The API restricts writes to accessible tasks and the receiver genuinely resolves the reviewer, so no arbitrary cross-team ID forging is necessary or established. Those controls do not bind output.pr_url to the implementation branch. The separate webhook's bot/native-head/linkage checks at tasks.py:169-207 are absent here. Initial-path tests/test_tasks.py:891-905 pass fake run/report IDs without a task lookup; :947-959 tests only configuration rejection. Thus the trusted caller supplies real IDs but an unverified target, leaving a reachable approval bypass inside the authorized repository scope."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The queued task chooses a connected repo solely from parsed pr_url at products/stamphog/backend/tasks/tasks.py:1130-1146, fetches it at 1159, then checks open/head and stamps inbox provenance at 1166-1181. It never loads task_run_id or compares the task repository, author, or head repository. The receiver obtains pr_url from writable task output and forwards it after signal/assignee checks (review_hog/backend/receivers.py:92-114,126-138). tasks/backend/facade/api.py:2149-2154 accepts replacement URLs, and 1770-1788 attests only pr_merged. A production manual Inbox implementation task is non-internal and signal-linked (frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96), so a task writer can direct this marker-generating path at an unrelated open PR in the team's configured repository.",
+            "refutation": "I first checked whether all queued IDs were attacker-supplied as the claim implies. They are actually derived by the receiver from the real task/team/reviewer, so arbitrary Celery arguments alone are not the exploit. The URL remains independently writable, however, and a real task plus an unrelated URL passes all the source-side guards. The normal webhook's bot/native/task checks (stamphog/backend/tasks/tasks.py:169-205) are not reused here. The marker enables the bot/draft exception (temporal/activities.py:448-451; review_local.py:321-326), and publication only checks head/supersession before approval (activities.py:673-745). The unbound PR target, rather than arbitrary provenance IDs by themselves, proves the defect."
+        }
+    ]
+}

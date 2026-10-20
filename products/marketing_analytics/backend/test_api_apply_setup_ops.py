@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -24,6 +25,7 @@ class TestApplySetupOps(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/apply_setup_ops"
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
         # Applying writes the same admin-gated config fields the team PATCH protects.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -350,6 +352,7 @@ class TestRevenueGoalConsistencyViaOps(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/apply_setup_ops"
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
         # Applying writes the same admin-gated config fields the team PATCH protects.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -413,13 +416,20 @@ class TestApplySetupOpsFeatureFlag(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/apply_setup_ops"
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
 
-    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
-    def test_setup_availability(self, setup: bool, dashboard: bool) -> None:
+    @parameterized.expand(
+        [(False, False, False), (False, False, True), (False, True, False), (True, False, False), (True, True, True)]
+    )
+    def test_setup_availability(self, setup: bool, dashboard: bool, mcp: bool) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        flags = {"marketing-analytics-setup": setup, "new-marketing-analytics-dashboard": dashboard}
+        flags = {
+            "marketing-analytics-setup": setup,
+            "new-marketing-analytics-dashboard": dashboard,
+            "marketing-analytics-setup-plan-mcp": mcp,
+        }
         with patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flags[flag]):
             response = self.client.post(
                 self.url,
@@ -442,6 +452,7 @@ class TestApplySetupOpsRequiresProjectAdmin(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/apply_setup_ops"
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
         flag = patch(_FLAG_TARGET, return_value=True)
         flag.start()

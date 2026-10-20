@@ -12,6 +12,8 @@ from django.utils import timezone
 import structlog
 from temporalio import activity
 
+from posthog.dataclasses import frozen
+
 from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
@@ -28,6 +30,14 @@ logger = structlog.get_logger(__name__)
 
 _DELETE_REQUEST_BATCH_SIZE = 1000
 _DELETE_REQUEST_PACING_SECONDS = 0.1
+
+
+@frozen
+class _CleanupTotals:
+    processed: int = 0
+    deleted: int = 0
+    db_failed: int = 0
+    storage_failed: int = 0
 
 
 def _cleanup_read_database() -> str:
@@ -126,6 +136,112 @@ def _delete_symbol_set_contents_with_pacing(storage_ptrs: list[str]) -> list[str
     return failed_storage_ptrs
 
 
+def _delete_storage_contents(storage_ptrs: list[str]) -> int:
+    if not storage_ptrs:
+        return 0
+
+    try:
+        failed_storage_ptrs = _delete_symbol_set_contents_with_pacing(storage_ptrs)
+    except Exception as exc:
+        failed_storage_ptrs = storage_ptrs
+        logger.exception(
+            "error_tracking.symbol_set_cleanup.s3_batch_delete_failed",
+            storage_objects_failed=len(failed_storage_ptrs),
+            error=str(exc),
+        )
+
+    if failed_storage_ptrs:
+        logger.warning(
+            "error_tracking.symbol_set_cleanup.s3_delete_failures",
+            storage_objects_failed=len(failed_storage_ptrs),
+        )
+    return len(failed_storage_ptrs)
+
+
+def _delete_bucket_branch(
+    *,
+    inputs: SymbolSetCleanupInputs,
+    query_filter: Q,
+    bucket: int,
+    totals: _CleanupTotals,
+) -> _CleanupTotals:
+    cursor: tuple[datetime.datetime | None, datetime.datetime, UUID] | None = None
+    while totals.processed < inputs.total_per_run:
+        chunk_size = min(inputs.batch_size, inputs.total_per_run - totals.processed)
+        queryset = _cleanup_queryset(query_filter=query_filter, bucket=bucket, cursor=cursor)
+        symbol_sets = list(queryset.values_list("id", "storage_ptr", "last_used", "created_at")[:chunk_size])
+
+        if not symbol_sets:
+            break
+
+        cursor = (symbol_sets[-1][2], symbol_sets[-1][3], symbol_sets[-1][0])
+        symbol_set_ids = [str(symbol_set_id) for symbol_set_id, _, _, _ in symbol_sets]
+        deleted_count, batch_failed_ids = _delete_symbol_set_batch(symbol_set_ids)
+        deleted_storage_ptrs = [
+            storage_ptr
+            for symbol_set_id, storage_ptr, _, _ in symbol_sets
+            if storage_ptr and str(symbol_set_id) not in batch_failed_ids
+        ]
+        storage_failed_count = _delete_storage_contents(deleted_storage_ptrs)
+
+        totals = _CleanupTotals(
+            processed=totals.processed + len(symbol_sets),
+            deleted=totals.deleted + deleted_count,
+            db_failed=totals.db_failed + len(batch_failed_ids),
+            storage_failed=totals.storage_failed + storage_failed_count,
+        )
+        logger.info(
+            "error_tracking.symbol_set_cleanup.progress",
+            cleanup_bucket=bucket,
+            objects_processed=totals.processed,
+            objects_deleted=totals.deleted,
+            objects_failed=totals.db_failed,
+            storage_objects_failed=totals.storage_failed,
+        )
+
+        if len(symbol_sets) < chunk_size:
+            break
+
+    return totals
+
+
+def _dry_run_result(inputs: SymbolSetCleanupInputs, cleanup_branches: list[Q]) -> SymbolSetCleanupResult:
+    branch_querysets = [
+        _bucket_queryset(query_filter=query_filter, bucket=bucket)
+        for bucket in _assigned_buckets(inputs)
+        for query_filter in cleanup_branches
+    ]
+    eligible_count = sum(queryset.count() for queryset in branch_querysets)
+    # Dry runs only log a bounded sample; never log more rows than the real run would process.
+    sample_size = min(inputs.batch_size, inputs.total_per_run, eligible_count)
+
+    candidates: list[ErrorTrackingSymbolSet] = []
+    for queryset in branch_querysets:
+        candidates.extend(queryset[: sample_size - len(candidates)])
+        if len(candidates) == sample_size:
+            break
+
+    for symbol_set in candidates:
+        logger.info(
+            "error_tracking.symbol_set_cleanup.dry_run_candidate",
+            symbol_set_id=str(symbol_set.id),
+            ref=symbol_set.ref,
+            team_id=symbol_set.team_id,
+            last_used=symbol_set.last_used.isoformat() if symbol_set.last_used else None,
+        )
+    logger.info(
+        "error_tracking.symbol_set_cleanup.dry_run_complete",
+        eligible_count=eligible_count,
+        total_per_run=inputs.total_per_run,
+    )
+    return SymbolSetCleanupResult(
+        objects_processed=0,
+        objects_deleted=0,
+        objects_failed=0,
+        eligible_count=eligible_count,
+    )
+
+
 @activity.defn
 def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCleanupResult:
     """Delete stale symbol sets in bounded batches, preserving model delete behavior."""
@@ -134,122 +250,33 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
     cleanup_branches = _cleanup_branches(inputs)
 
     if inputs.dry_run:
-        buckets = _assigned_buckets(inputs)
-        branch_querysets = [
-            _bucket_queryset(query_filter=query_filter, bucket=bucket)
-            for bucket in buckets
-            for query_filter in cleanup_branches
-        ]
-        eligible_count = sum(queryset.count() for queryset in branch_querysets)
-        # Dry runs only log a bounded sample; never log more rows than the real run would process.
-        sample_size = min(inputs.batch_size, inputs.total_per_run, eligible_count)
-        candidates: list[ErrorTrackingSymbolSet] = []
-        for queryset in branch_querysets:
-            candidates.extend(queryset[: sample_size - len(candidates)])
-            if len(candidates) == sample_size:
-                break
-        for symbol_set in candidates:
-            logger.info(
-                "error_tracking.symbol_set_cleanup.dry_run_candidate",
-                symbol_set_id=str(symbol_set.id),
-                ref=symbol_set.ref,
-                team_id=symbol_set.team_id,
-                last_used=symbol_set.last_used.isoformat() if symbol_set.last_used else None,
-            )
-        logger.info(
-            "error_tracking.symbol_set_cleanup.dry_run_complete",
-            eligible_count=eligible_count,
-            total_per_run=inputs.total_per_run,
-        )
-        return SymbolSetCleanupResult(
-            objects_processed=0,
-            objects_deleted=0,
-            objects_failed=0,
-            eligible_count=eligible_count,
-        )
+        return _dry_run_result(inputs, cleanup_branches)
 
-    total_processed = 0
-    total_deleted = 0
-    total_db_failed = 0
-    total_storage_failed = 0
-
+    totals = _CleanupTotals()
     for bucket in _assigned_buckets(inputs):
         for query_filter in cleanup_branches:
-            cursor: tuple[datetime.datetime | None, datetime.datetime, UUID] | None = None
-            while total_processed < inputs.total_per_run:
-                remaining = inputs.total_per_run - total_processed
-                chunk_size = min(inputs.batch_size, remaining)
-                queryset = _cleanup_queryset(
-                    query_filter=query_filter,
-                    bucket=bucket,
-                    cursor=cursor,
-                )
-                symbol_sets = list(queryset.values_list("id", "storage_ptr", "last_used", "created_at")[:chunk_size])
-
-                if not symbol_sets:
-                    break
-
-                cursor = (symbol_sets[-1][2], symbol_sets[-1][3], symbol_sets[-1][0])
-                symbol_set_ids = [str(symbol_set_id) for symbol_set_id, _, _, _ in symbol_sets]
-                storage_ptrs_by_id = {
-                    str(symbol_set_id): storage_ptr for symbol_set_id, storage_ptr, _, _ in symbol_sets
-                }
-                deleted_count, batch_failed_ids = _delete_symbol_set_batch(symbol_set_ids)
-
-                total_deleted += deleted_count
-                total_db_failed += len(batch_failed_ids)
-
-                deleted_storage_ptrs = [
-                    storage_ptr
-                    for symbol_set_id, storage_ptr in storage_ptrs_by_id.items()
-                    if storage_ptr and symbol_set_id not in batch_failed_ids
-                ]
-                if deleted_storage_ptrs:
-                    try:
-                        failed_storage_ptrs = _delete_symbol_set_contents_with_pacing(deleted_storage_ptrs)
-                    except Exception as exc:
-                        failed_storage_ptrs = deleted_storage_ptrs
-                        logger.exception(
-                            "error_tracking.symbol_set_cleanup.s3_batch_delete_failed",
-                            storage_objects_failed=len(failed_storage_ptrs),
-                            error=str(exc),
-                        )
-                    if failed_storage_ptrs:
-                        total_storage_failed += len(failed_storage_ptrs)
-                        logger.warning(
-                            "error_tracking.symbol_set_cleanup.s3_delete_failures",
-                            storage_objects_failed=len(failed_storage_ptrs),
-                        )
-
-                total_processed += len(symbol_sets)
-                logger.info(
-                    "error_tracking.symbol_set_cleanup.progress",
-                    cleanup_bucket=bucket,
-                    objects_processed=total_processed,
-                    objects_deleted=total_deleted,
-                    objects_failed=total_db_failed,
-                    storage_objects_failed=total_storage_failed,
-                )
-
-                if len(symbol_sets) < chunk_size:
-                    break
-
-            if total_processed >= inputs.total_per_run:
+            totals = _delete_bucket_branch(
+                inputs=inputs,
+                query_filter=query_filter,
+                bucket=bucket,
+                totals=totals,
+            )
+            if totals.processed >= inputs.total_per_run:
                 break
-        if total_processed >= inputs.total_per_run:
+        if totals.processed >= inputs.total_per_run:
             break
 
-    if total_db_failed > 0 or total_storage_failed > 0:
+    if totals.db_failed > 0 or totals.storage_failed > 0:
         logger.warning(
             "error_tracking.symbol_set_cleanup.failures",
-            objects_processed=total_processed,
-            objects_failed=total_db_failed,
-            storage_objects_failed=total_storage_failed,
+            objects_processed=totals.processed,
+            objects_failed=totals.db_failed,
+            storage_objects_failed=totals.storage_failed,
         )
 
     return SymbolSetCleanupResult(
-        objects_processed=total_processed,
-        objects_deleted=total_deleted,
-        objects_failed=total_db_failed,
-        storage_objects_failed=total_storage_failed,
+        objects_processed=totals.processed,
+        objects_deleted=totals.deleted,
+        objects_failed=totals.db_failed,
+        storage_objects_failed=totals.storage_failed,
     )

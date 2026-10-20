@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +38,30 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^PLAUSIBLE_", "^NUXT_PUBLIC_PLAUSIBLE_"),
+        script_hosts=("plausible.io",),
+        npm=(
+            "plausible-tracker",
+            "@plausible-analytics/tracker",
+            "next-plausible",
+            "@nuxtjs/plausible",
+            "vue-plausible",
+            "v-plausible",
+            "gatsby-plugin-plausible",
+            "vuepress-plugin-plausible",
+            "gridsome-plugin-plausible-analytics",
+        ),
+        pypi=("django-plausible", "django-plausible-proxy", "sphinx-plausible"),
+        composer=("vincentbean/laravel-plausible", "njoguamos/laravel-plausible"),
+        go=("github.com/andrerfcsantos/go-plausible",),
+        hex=("plausible",),
+        pub=("plausible_analytics", "plausible"),
+        rubygems=("plausible_api", "bridgetown-plausible"),
+        swiftpm=("github.com/nickoneill/plausibleswift", "github.com/brightdigit/aviaryinsights"),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://plausible.io/docs/stats-api"
@@ -52,6 +79,10 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
         return {
             "401 Client Error": "Your Plausible API key is invalid or has been revoked. Create a new key in your Plausible account settings, then reconnect.",
             "403 Client Error": "Your Plausible API key is missing the stats read scope needed to sync this data. Grant it in your Plausible account settings, then reconnect.",
+            # Plausible answers 402 when the site's subscription has lapsed or its plan doesn't
+            # include the stats API. The billing state is fixed until the customer changes it, so
+            # every retry replays the same rejection. Match the status text, not the self-hosted URL.
+            "402 Client Error": "Your Plausible plan doesn't include API access, or its subscription has lapsed. Update the subscription in your Plausible account, then reconnect.",
             # Plausible rejects the query as malformed for this site (a permanent 400 — auth and
             # missing-site cases are 401/403/404 and handled above). Retrying resends the same
             # request, so stop. Match the status text, not the self-hosted URL, which varies.

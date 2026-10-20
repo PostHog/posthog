@@ -6,15 +6,22 @@ The title shows the change type and scope. The metadata row shows the time and l
 Priority and reviewer scope remain in the report list. Evidence counts remain in the Evidence section, which starts expanded.
 
 Chat opens the report conversation beside the document, including an existing implementation session when one is available.
+The opening question uses a separate, best-effort scout-note forwarding path. Ask AI only offers to save new feedback learned after the opening turn.
+When a later discussion turn reveals a correction, preference, missing context, or verified fact worth keeping, Ask AI offers to save a short scout note or report work-log entry.
+When both destinations are available and the chat token has the required scopes, the agent offers both choices.
+The agent asks for agreement on the text and selected destination before writing. If a scout note is unavailable or refused, it offers a work-log entry and asks again.
+Pure Q&A needs no save offer. Saving feedback does not resolve or dismiss the report.
 Select text in either report view to ask about that passage.
 Reports with a PR show Open in GitHub as the first header button, followed by Chat.
 Copy-link options are in the More report actions menu. Report actions do not offer canvas creation.
 
 A draft pull request shows the approval and merge controls, a draft note, and a secondary Ready for review button.
+Use Run skill on an open pull request to search team skills. Skills you choose often appear first, including before the store loads. If your team has no skills, the menu links to the skills store. The new cloud task opens with the skill, pull request URL, and repository set; review the prompt before you send it.
 Marking a draft ready does not approve or merge it. Existing merge checks still apply.
 Eligible pull requests show Refund in the header. The existing feature flag, billing checks, and confirmation dialog still apply.
 
 The report ends with feedback after its evidence, reviewers, and other supporting sections.
+The suggested reviewer views show each reviewer source and reason. Each reason appears above its indented reviewer or reviewers, without a separate box. The remove control stays visible, and Add Reviewer appears as a button at the bottom of the section.
 The recommendation keeps its boxed layout and its Ask about it and Dismiss controls.
 
 Informational recommendations, including Likely already fixed, use a blue callout. Decisions use an amber callout.
@@ -35,12 +42,26 @@ Older servers that omit either field use cached task details instead. The cache 
 The triage count includes only loaded reports that need a decision. Load more reports to check the next page.
 A callback error after task startup does not change a successful start into a failed start. Older servers without task assignments keep their existing queue behavior.
 Triage hides the sidebar. Exiting triage or opening a report restores it without changing its saved width or open setting.
+Select Self-driving in the navigation rail during triage to return to the report list and open its sidebar.
+From an open report, the same control opens the sidebar and focuses its search without closing the report.
 Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
 
 To filter reports for a user, open Filter reports, then hover over Scope.
 Hover opens the user list without moving keyboard focus. Click the search field to type, or use the keyboard to open Scope and focus the search field.
 The search starts empty and shows up to 20 options, including For you and Entire project.
 Search by name or email across all users. The search field stays visible above the results.
+
+## Mobile report tasks
+
+Discuss starts a discussion task and forwards the question to the report's scout.
+Create PR starts an implementation task. Both actions use the report's repository and team GitHub integration, resolved by the server.
+The mobile report composer does not require a personal GitHub connection or offer a repository picker.
+If cloud startup fails after task creation, retrying in the same composer or triage view starts the existing task instead of creating another task.
+Triage resets the swiped card if configuration is not ready or task startup fails.
+An ordinary new task still requires a repository from the user's GitHub integration.
+
+The report detail and triage views use the same implementation prompt. The agent fetches the report and checks for an existing PR before starting new work.
+Triage advances only after the cloud run starts. A failed submission keeps the report available and shows the error.
 
 ## Storybook previews
 

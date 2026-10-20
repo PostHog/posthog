@@ -1,5 +1,6 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { UUIDT } from '~/common/utils/utils'
 
@@ -11,11 +12,22 @@ import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    InvocationBuildFailure,
     LogEntry,
     MinimalAppMetric,
 } from '../types'
 import { HogFunctionType } from '../types'
+import { getConfiguredSensitiveValues, logEntry, sanitizeLogMessage } from '../utils'
+import { currentRuntimeContractHash } from './filter-runtime'
+import { bytecodeContractOf, classifyHogError } from './hog-error-classification'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from './hog-function-filtering'
+
+/** The inputs step of the dead-letter pipeline. Read next to cdp_hog_function_filter_error. */
+const hogFunctionInputsErrors = new Counter({
+    name: 'cdp_hog_function_inputs_error',
+    help: 'Building the inputs for an invocation threw, so no invocation was created',
+    labelNames: ['type', 'class'],
+})
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobalsWithInputs,
@@ -38,7 +50,8 @@ export function createInvocation(
 
 /**
  * Matches a batch of hog functions against one event's globals and builds an invocation per match,
- * resolving each one's inputs. Filter metrics/logs come back alongside for the caller to queue.
+ * resolving each one's inputs. Filter metrics/logs come back alongside for the caller to queue, as
+ * do the functions that matched but produced no invocation, which the caller dead-letters.
  */
 export async function buildHogFunctionInvocations(
     hogInputsService: HogInputsService,
@@ -48,10 +61,12 @@ export async function buildHogFunctionInvocations(
     invocations: CyclotronJobInvocationHogFunction[]
     metrics: MinimalAppMetric[]
     logs: LogEntry[]
+    buildFailures: InvocationBuildFailure[]
 }> {
     const metrics: MinimalAppMetric[] = []
     const logs: LogEntry[] = []
     const invocations: CyclotronJobInvocationHogFunction[] = []
+    const buildFailures: InvocationBuildFailure[] = []
 
     // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
     const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
@@ -62,6 +77,7 @@ export async function buildHogFunctionInvocations(
         filterGlobals: HogFunctionFilterGlobals
     ): Promise<boolean> => {
         const filterResults = await filterFunctionInstrumented({
+            caller: 'build_hog_function_invocations',
             fn: hogFunction,
             filters,
             filterGlobals,
@@ -70,6 +86,18 @@ export async function buildHogFunctionInvocations(
         // Add any generated metrics and logs to our collections
         metrics.push(...filterResults.metrics)
         logs.push(...filterResults.logs)
+
+        // Checked against undefined, not for truthiness: a thrown error whose message is empty is
+        // still a failure, and treating it as success drops the event with no record of it.
+        if (filterResults.error !== undefined) {
+            buildFailures.push({
+                sourceId: hogFunction.id,
+                sourceKind: 'hog_function',
+                step: 'filter',
+                error: String(filterResults.error),
+                errorClass: filterResults.errorClass,
+            })
+        }
 
         return filterResults.match
     }
@@ -82,6 +110,7 @@ export async function buildHogFunctionInvocations(
             const globalsWithSource = {
                 ...triggerGlobals,
                 source: {
+                    id: hogFunction.id,
                     name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
                     url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
                 },
@@ -95,15 +124,43 @@ export async function buildHogFunctionInvocations(
 
             return createInvocation(globalsWithInputs, hogFunction)
         } catch (error) {
+            // A dependency outage, such as Postgres refusing an integration lookup, is not this
+            // function's fault. Rethrowing fails the batch, so the offsets stay put and it retries.
+            if (error?.isRetriable === true) {
+                throw error
+            }
+            const errorClass = classifyHogError(error, {
+                bytecodeContract: bytecodeContractOf(error),
+                runtimeContract: currentRuntimeContractHash(),
+            })
+
+            buildFailures.push({
+                sourceId: hogFunction.id,
+                sourceKind: 'hog_function',
+                step: 'inputs',
+                // The VM quotes the argument it choked on, and an argument can be a secret input.
+                // This message leaves the process as a header on the parked record.
+                error: sanitizeLogMessage([error.message], getConfiguredSensitiveValues(hogFunction)),
+                errorClass,
+            })
+
             logs.push({
                 team_id: hogFunction.team_id,
                 log_source: 'hog_function',
                 log_source_id: hogFunction.id,
                 instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
-                timestamp: DateTime.now(),
-                level: 'error',
-                message: `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`,
+                // logEntry truncates: the message carries the VM's text, which can quote a value.
+                // The VM can quote an argument, and an argument can be a secret input.
+                ...logEntry(
+                    'error',
+                    sanitizeLogMessage(
+                        [`Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`],
+                        getConfiguredSensitiveValues(hogFunction)
+                    )
+                ),
             })
+
+            hogFunctionInputsErrors.inc({ type: hogFunction.type, class: errorClass })
 
             metrics.push({
                 team_id: hogFunction.team_id,
@@ -156,6 +213,7 @@ export async function buildHogFunctionInvocations(
         invocations,
         metrics,
         logs,
+        buildFailures,
     }
 }
 
@@ -185,6 +243,26 @@ export function cloneInvocation<T extends CyclotronJobInvocation>(
         queuePriority: params.queuePriority ?? 0,
         queueParameters: params.queueParameters ?? undefined,
     }
+}
+
+export function createInputsFailureResult(
+    hogFunction: HogFunctionType,
+    globals: HogFunctionInvocationGlobals,
+    error: Error,
+    invocationId?: string
+): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+    const invocation = createInvocation({ ...globals, inputs: {} }, hogFunction)
+    if (invocationId) {
+        invocation.id = invocationId
+    }
+    return createInvocationResult<CyclotronJobInvocationHogFunction>(
+        invocation,
+        {},
+        {
+            error: error.message,
+            logs: [{ level: 'error', timestamp: DateTime.now(), message: `Error building inputs: ${error.message}` }],
+        }
+    )
 }
 
 /**

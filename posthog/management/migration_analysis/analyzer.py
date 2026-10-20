@@ -16,6 +16,8 @@ from posthog.management.migration_analysis.operations import (
     CreateIndexConcurrentlyAnalyzer,
     CreateModelAnalyzer,
     DeleteModelAnalyzer,
+    DropColumnConstraintsAnalyzer,
+    DropFieldIndexesConcurrentlyAnalyzer,
     DropForeignKeyAnalyzer,
     DropIndexConcurrentlyAnalyzer,
     ExtensionAnalyzer,
@@ -103,11 +105,13 @@ class RiskAnalyzer:
         # PostHog migration helpers (posthog/migration_helpers/concurrent_index.py)
         "CreateIndexConcurrently": CreateIndexConcurrentlyAnalyzer(),
         "DropIndexConcurrently": DropIndexConcurrentlyAnalyzer(),
+        "DropFieldIndexesConcurrently": DropFieldIndexesConcurrentlyAnalyzer(),
         "SafeAddIndexConcurrently": SafeAddIndexConcurrentlyAnalyzer(),
         "SafeRemoveIndexConcurrently": SafeRemoveIndexConcurrentlyAnalyzer(),
         "AddConstraintNotValid": AddConstraintNotValidAnalyzer(),
         "ValidateConstraint": ValidateConstraintAnalyzer(),
         "DropForeignKey": DropForeignKeyAnalyzer(),
+        "DropColumnConstraints": DropColumnConstraintsAnalyzer(),
         "SafeDropTable": SafeDropTableAnalyzer(),
         "SeparateDatabaseAndState": SeparateDatabaseAndStateAnalyzer(),
         # Postgres extension installs are safe under live load. Sharing one

@@ -500,6 +500,31 @@ class TestTable(BaseTest):
                 }
             }
 
+    @parameterized.expand(
+        [
+            # A JSON file's object keys vary per row, so the described key list is only a sample.
+            ("json", DataWarehouseTable.TableFormat.JSON, "JSON", "StringJSONDatabaseField"),
+            # A Parquet file declares its struct fields, so the Tuple is accurate.
+            ("parquet", DataWarehouseTable.TableFormat.Parquet, None, "StringJSONDatabaseField"),
+        ]
+    )
+    def test_get_columns_stores_a_json_object_as_the_json_type(
+        self, _name: str, table_format: str, expected_clickhouse: str | None, expected_hogql: str
+    ):
+        described = "Tuple(inputContentType Nullable(String), inputTokenCount Nullable(Int64))"
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format=table_format, team=self.team
+        )
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["input", described]]
+            columns = table.get_columns()
+
+        assert columns == {
+            "input": {"clickhouse": expected_clickhouse or described, "hogql": expected_hogql, "valid": True}
+        }
+
     def test_get_columns_with_hyphened_names(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         table = DataWarehouseTable.objects.create(
@@ -931,7 +956,33 @@ class TestTable(BaseTest):
             with pytest.raises(Exception, match=expected):
                 table._validate_csv_double_quotes_setting()
 
-    def test_validate_csv_double_quotes_reraises_a_non_parse_error(self):
+    @parameterized.expand(
+        [
+            ("rfc_4180_parses", [None], True),
+            ("literal_quotes_parses", ["parse_error", None], False),
+            ("neither_parses", ["parse_error", "parse_error"], None),
+        ]
+    )
+    def test_detect_csv_double_quotes_setting(self, _name, outcomes, expected):
+        from clickhouse_driver.errors import ServerException
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+        side_effect = [
+            ServerException("Expected end of line", code=117) if outcome == "parse_error" else outcome
+            for outcome in outcomes
+        ]
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute", side_effect=side_effect):
+            assert table.detect_csv_double_quotes_setting() is expected
+
+    def test_validate_csv_double_quotes_hides_the_raw_error_for_a_non_parse_failure(self):
         from clickhouse_driver.errors import ServerException
 
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -946,10 +997,18 @@ class TestTable(BaseTest):
 
         with patch(
             "products.warehouse_sources.backend.models.table.sync_execute",
-            side_effect=ServerException("Access Denied", code=499),
+            side_effect=ServerException(
+                "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                "HTTP response code: 403: while reading 'exports/test.csv')",
+                code=499,
+            ),
         ):
-            with pytest.raises(ServerException):
+            with pytest.raises(Exception) as exc_info:
                 table._validate_csv_double_quotes_setting()
+
+        assert not isinstance(exc_info.value, ServerException)
+        assert "s3:GetObject" in str(exc_info.value)
+        assert "exports/test.csv" not in str(exc_info.value)
 
     @parameterized.expand(
         [
@@ -1024,7 +1083,7 @@ class TestTable(BaseTest):
         assert definition.top_level_settings is not None
         assert definition.top_level_settings.format_csv_allow_double_quotes is True
 
-    def test_hogql_definition_sets_false_for_csv_with_none(self):
+    def test_hogql_definition_sends_no_quote_setting_for_csv_with_none(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         with patch("products.warehouse_sources.backend.models.table.sync_execute", return_value=[]):
             table = DataWarehouseTable.objects.create(
@@ -1035,13 +1094,26 @@ class TestTable(BaseTest):
                 columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
                 credential=credential,
             )
-        # Simulate detection having returned None (both failed)
         table.options.pop("csv_allow_double_quotes", None)
         table.save_base(raw=True)
 
         definition = table.hogql_definition()
-        assert definition.top_level_settings is not None
-        assert definition.top_level_settings.format_csv_allow_double_quotes is False
+        assert definition.top_level_settings is None
+
+    def test_hogql_definition_reads_a_json_column_as_the_json_type(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="runs",
+            url_pattern="https://example.com/runs/*.json",
+            format=DataWarehouseTable.TableFormat.JSON,
+            team=self.team,
+            columns={"usage": {"clickhouse": "JSON", "hogql": "StringJSONDatabaseField"}},
+            credential=credential,
+        )
+
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.structure == "`usage` JSON"
 
     def test_hogql_definition_no_raw_settings_for_parquet(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

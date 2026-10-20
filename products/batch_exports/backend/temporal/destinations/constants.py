@@ -14,3 +14,16 @@ AZURE_BLOB_SUPPORTED_COMPRESSIONS: dict[str, list[str]] = {
     "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
     "JSONLines": ["gzip", "brotli"],
 }
+
+FILE_FORMAT_EXTENSIONS: dict[str, str] = {
+    "Parquet": "parquet",
+    "JSONLines": "jsonl",
+}
+
+COMPRESSION_EXTENSIONS: dict[str, str] = {
+    "gzip": "gz",
+    "snappy": "sz",
+    "brotli": "br",
+    "zstd": "zst",
+    "lz4": "lz4",
+}

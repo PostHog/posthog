@@ -15,6 +15,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "project_slug": "The project slug (vcs/org/repo) the workflow belongs to, as configured on the source.",
         },
     },
+    "workflow_summary": {
+        "description": "Summary metrics for each workflow in a project, with the trend for each metric against the previous window. Complements workflow_metrics, which carries the raw aggregates without trends.",
+        "docs_url": "https://circleci.com/docs/api/v2/index.html#operation/getProjectWorkflowsPageData",
+        "columns": {
+            "workflow_name": "The name of the workflow the summary describes.",
+            "project_slug": "The project slug (vcs/org/repo) the workflow belongs to, as configured on the source.",
+            "metrics": "Metrics for the workflow over the summary window: total/successful/failed/completed runs, success rate, duration percentiles (min, mean, median, p95, max, standard deviation), total credits used, MTTR, throughput, and the window bounds.",
+            "trends": "The change in each metric against the previous window, as a ratio: total runs, failed runs, success rate, p95 and median duration, total credits used, MTTR, and throughput.",
+        },
+    },
     "workflow_runs": {
         "description": "Individual recent runs of each workflow, with duration, status, branch, and credits consumed. CircleCI retains run-level Insights data for roughly 90 days.",
         "docs_url": "https://circleci.com/docs/api/v2/index.html#operation/getProjectWorkflowRuns",
@@ -43,6 +53,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "project_slug": "The project slug (vcs/org/repo) the job belongs to, as configured on the source.",
         },
     },
+    "job_timeseries": {
+        "description": "Daily timeseries of metrics for each job in a workflow, giving point-in-time job trends rather than a single window aggregate. Daily buckets are retained for roughly 90 days. The endpoint has no all-branches option, so these rows cover the project's default branch even when the source is set to all branches.",
+        "docs_url": "https://circleci.com/docs/api/v2/index.html#operation/getJobTimeseries",
+        "columns": {
+            "name": "The name of the job the bucket describes.",
+            "timestamp": "The start of the interval the metrics were aggregated over.",
+            "min_started_at": "The start time of the earliest job run in the interval.",
+            "max_ended_at": "The end time of the latest job run in the interval.",
+            "metrics": "Metrics for the job over the interval: total/successful/failed runs, throughput, median and total credits used, and duration metrics (min, median, max, p95, total).",
+            "workflow_name": "The name of the workflow the job belongs to.",
+            "project_slug": "The project slug (vcs/org/repo) the job belongs to, as configured on the source.",
+        },
+    },
     "flaky_tests": {
         "description": "Tests CircleCI has detected as flaky in a project: tests that pass and fail across runs with no code change, with where they flake and how often.",
         "docs_url": "https://circleci.com/docs/api/v2/index.html#operation/getFlakyTests",
@@ -60,6 +83,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "time_wasted": "The time wasted on the test's flakiness, in seconds.",
             "source": "The source of the flaky-test detection.",
             "project_slug": "The project slug (vcs/org/repo) the flaky test belongs to, as configured on the source.",
+        },
+    },
+    "workflow_test_metrics": {
+        "description": "Per-test duration and failure metrics for a workflow, covering the tests CircleCI reports as most failed and slowest. Calculated from the workflow's 10 most recent runs, so this is a snapshot rather than a history.",
+        "docs_url": "https://circleci.com/docs/api/v2/index.html#operation/getProjectWorkflowTestMetrics",
+        "columns": {
+            "test_name": "The name of the test.",
+            "classname": "The class or suite the test belongs to.",
+            "file": "The source file of the test, when reported.",
+            "source": "The source of the test result, as reported by the test runner.",
+            "job_name": "The name of the job the test runs in.",
+            "total_runs": "How many times the test ran across the runs the metrics cover.",
+            "failed_runs": "How many of those runs the test failed in.",
+            "p95_duration": "The 95th percentile duration of the test, in seconds.",
+            "flaky": "Whether CircleCI has detected the test as flaky.",
+            "workflow_name": "The name of the workflow the test runs in.",
+            "project_slug": "The project slug (vcs/org/repo) the test belongs to, as configured on the source.",
+        },
+    },
+    "branches": {
+        "description": "The branches Insights holds data for in a project, as a dimension for slicing the other Insights tables by branch. The API returns at most 5,000 branches per project.",
+        "docs_url": "https://circleci.com/docs/api/v2/index.html#operation/getAllInsightsBranches",
+        "columns": {
+            "branch": "The name of the VCS branch.",
+            "org_id": "The unique ID of the organization the project belongs to.",
+            "project_id": "The unique ID of the project the branch belongs to.",
+            "project_slug": "The project slug (vcs/org/repo) the branch belongs to, as configured on the source.",
         },
     },
     "org_summary_metrics": {
