@@ -26,7 +26,6 @@ from products.batch_exports.backend.presentation.views.utils import BIG_INTEGER_
 
 logger = structlog.get_logger(__name__)
 
-BATCH_EXPORT_NOT_FOUND = "BatchExport not found."
 
 # The viewset declares no queryset, so drf-spectacular cannot read the type of the ids from a model.
 BACKFILL_ID_PARAMETER = OpenApiParameter(
@@ -152,7 +151,7 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMix
 
     def create(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Create a new backfill for a BatchExport."""
-        export_id = self._get_export_id(BATCH_EXPORT_NOT_FOUND)
+        export_id = self._get_export_id("BatchExport not found.")
         start_at = request.data.get("start_at")
         end_at = request.data.get("end_at")
 
@@ -161,7 +160,7 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMix
                 self.team_id, export_id, start_at=start_at, end_at=end_at
             )
         except contracts.BatchExportNotFoundError as e:
-            raise NotFound(BATCH_EXPORT_NOT_FOUND) from e
+            raise NotFound("BatchExport not found.") from e
         except contracts.InvalidBackfillRequestError as e:
             raise ValidationError(str(e)) from e
         except contracts.TooManyConcurrentBackfillsError as e:

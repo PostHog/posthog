@@ -14,6 +14,8 @@ from posthog.models import Team
 from products.batch_exports.backend.facade.api import drop_unknown_hogql_modifiers
 
 # The bounds of the integer columns, which a model serializer reads off the model.
+# TODO: Nothing here is specific to batch exports, and other products hard-code the same numbers.
+# Move these to core, for example derived from django.db.connection.ops.integer_field_range.
 INTEGER_MIN, INTEGER_MAX = -(2**31), 2**31 - 1
 BIG_INTEGER_MIN, BIG_INTEGER_MAX = -(2**63), 2**63 - 1
 
@@ -27,6 +29,8 @@ HOGQL_MODIFIERS_HELP_TEXT = (
 )
 
 
+# TODO: Nothing here is specific to batch exports. Move it to posthog/api/utils.py and replace the
+# copies in cross_project_dashboards, review_hog, visual_review and the web_analytics heatmaps views.
 def parse_path_uuid(value: object, detail: str | None = None) -> uuid.UUID:
     """Return a UUID path parameter. A value that is not a UUID cannot name anything, so it is a 404."""
     try:
