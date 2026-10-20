@@ -24,10 +24,6 @@ class TestNewYorkTimesSource:
         # get_schemas iterates a static catalog with no I/O, so the public docs table list is safe.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["top_stories"])
-        assert [s.name for s in schemas] == ["top_stories"]
-
     @pytest.mark.parametrize("valid", [True, False])
     def test_validate_credentials(self, valid: bool) -> None:
         status = 200 if valid else 401

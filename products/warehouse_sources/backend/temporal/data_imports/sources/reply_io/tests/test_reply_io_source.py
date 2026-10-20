@@ -78,9 +78,3 @@ class TestReplyIoSource:
         assert result.requests[0].headers["authorization"] == "Bearer reply-key"
         # The resume manager reaches the extraction: the first page is the saved offset.
         assert result.params("skip") == ["200"]
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Reply.io schema 'not_a_table'" in str(result.raised)

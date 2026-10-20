@@ -26,7 +26,8 @@ from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, 
 # Not a person: one fixed id for the whole dag, and no person profile is created for it. Local dev
 # runs get their own id so they never blend into the prod series.
 DISTINCT_ID = "inbox_ranking_training"
-LOCAL_DISTINCT_ID = "inbox_ranking_training_local"
+LOCAL_SUFFIX = "_local"
+LOCAL_DISTINCT_ID = f"{DISTINCT_ID}{LOCAL_SUFFIX}"
 LOCAL_ENVIRONMENT = "local"
 CANDIDATE_TRAINED_EVENT = "inbox_ranking_candidate_trained"
 EXAMPLES_BUILT_EVENT = "inbox_ranking_examples_built"
@@ -48,6 +49,7 @@ _CANDIDATE_CONTEXT_KEYS = (
     "feature_schema_version",
     "lookback_days",
     "holdout_days",
+    "recipe_hash",
 )
 # Object names inside the models prefix; meaningless on a chart.
 _HEAD_FILE_KEYS = ("file", "holdout_file")
@@ -151,12 +153,15 @@ def promotion_event(
     incumbent_champion_version: str,
     champion_aucs: Mapping[str, float],
     champion_eces: Mapping[str, float],
+    recipe_hash: str | None = None,
+    incumbent_recipe_hash: str | None = None,
 ) -> TrainingEvent:
     """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout.
     The incumbent is the served model when it has `model_name`, else `none`.
 
     Training never moves the served pointer, so `promoted` is always false. A person promotes
-    through `inbox_ranking_promote_job`, which captures `MODEL_PROMOTED_EVENT`."""
+    through `inbox_ranking_promote_job`, which captures `MODEL_PROMOTED_EVENT`.
+    The two recipe hashes are None for a version written before the hash existed."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
         properties={
@@ -170,6 +175,8 @@ def promotion_event(
             "skipped_heads": list(decision.skipped_heads),
             "champion_version": incumbent_champion_version,
             "incumbent_champion_version": incumbent_champion_version,
+            "recipe_hash": recipe_hash,
+            "incumbent_recipe_hash": incumbent_recipe_hash,
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},
             **{f"champion_{head}_ece_on_this_holdout": ece for head, ece in champion_eces.items()},
         },
@@ -194,10 +201,12 @@ def serving_manifest_event(
     present_keys: Sequence[str] = (),
     bytes_copied: int = 0,
     mirror_published: bool | None = None,
+    recipe_hashes: Mapping[str, str | None] | None = None,
 ) -> TrainingEvent:
     """What the day's manifest published. A run that wrote nothing still reports, with `reason`:
     the manifest is what makes the sweep serve anything, so a silent gap in this series would read
-    the same as a day of ordinary publishing."""
+    the same as a day of ordinary publishing. `recipe_hashes` maps a model key to the `recipe_hash`
+    of its `metadata.json`."""
     properties: dict[str, object] = {
         "model_version": partition_key,
         "run_id": run_id,
@@ -214,6 +223,7 @@ def serving_manifest_event(
             "served_key": manifest.served.key,
             "model_keys": [entry.key for entry in manifest.models],
             "model_roles": {entry.key: entry.roles for entry in manifest.models},
+            "model_recipe_hashes": {entry.key: (recipe_hashes or {}).get(entry.key) for entry in manifest.models},
         }
     if mirror_published is not None:
         properties["mirror_published"] = mirror_published
@@ -316,15 +326,18 @@ def capture_training_events(
     events: list[TrainingEvent],
     *,
     timestamp: datetime.datetime | None = None,
+    distinct_id: str = DISTINCT_ID,
 ) -> None:
     """Best-effort: a failed capture is logged, never raised, so telemetry cannot fail a training
     run. Local runs are marked twice, by `environment` and by their own distinct id, so a chart
     that forgets to filter still shows them as a separate series. `timestamp` defaults to the
-    partition's midday; an event about a person's action passes the moment it happened."""
+    partition's midday; an event about a person's action passes the moment it happened. Another
+    pipeline of this dag passes its own fixed `distinct_id`."""
     if not capture_allowed():
         return
     environment = settings.CLOUD_DEPLOYMENT or LOCAL_ENVIRONMENT
-    distinct_id = DISTINCT_ID if environment != LOCAL_ENVIRONMENT else LOCAL_DISTINCT_ID
+    if environment == LOCAL_ENVIRONMENT:
+        distinct_id = f"{distinct_id}{LOCAL_SUFFIX}"
     timestamp = timestamp or event_timestamp(partition_key)
     base = {"$process_person_profile": False, "partition": partition_key, "environment": environment}
     # A fresh client per call, flushed on shutdown, for the same reason `ph_scoped_capture` builds

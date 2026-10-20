@@ -197,6 +197,7 @@ def build_check_run_note(check: SignalReportCheck, config: AgentCheckConfig) -> 
         "`passed` (the evidence meets the bar and the expectation holds), `failed` (it meets the bar "
         "and the expectation does not hold), `inconclusive` with a `reason` (the evidence cannot settle "
         "it), or `errored` (a tool or model call failed). That call is the only thing that closes the check.",
+        "Before you record `failed`, do what your instructions say about a failed check on a resolved report.",
     ]
     return "\n".join(lines)
 

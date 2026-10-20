@@ -64,7 +64,7 @@ class AftershipSource(ResumableSource[AftershipSourceConfig, AftershipResumeConf
             name=ExternalDataSourceType.AFTERSHIP,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="AfterShip",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your AfterShip API key to pull your shipment tracking data into the PostHog Data warehouse.
 
 You can create a key in the AfterShip admin under **Settings → API keys**.

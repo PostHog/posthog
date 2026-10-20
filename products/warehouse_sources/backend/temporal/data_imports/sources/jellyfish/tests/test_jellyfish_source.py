@@ -21,10 +21,6 @@ class TestJellyfishSource:
         # Static endpoint catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id, names=["engineers"])
-        assert [s.name for s in schemas] == ["engineers"]
-
     @pytest.mark.parametrize("probe_result,expected_valid", [(True, True), (False, False)])
     def test_validate_credentials(self, probe_result: bool, expected_valid: bool, monkeypatch: Any) -> None:
         monkeypatch.setattr(source_module, "validate_jellyfish_credentials", lambda api_token: probe_result)

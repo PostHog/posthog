@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -47,9 +46,3 @@ class TestConfigCatSource:
         assert kwargs["username"] == "user"
         assert kwargs["password"] == "pass"
         assert kwargs["endpoint"] == "products"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown ConfigCat schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, inputs)

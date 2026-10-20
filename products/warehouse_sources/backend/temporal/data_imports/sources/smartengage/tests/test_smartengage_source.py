@@ -20,7 +20,7 @@ class TestSmartEngageSource:
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
         # The source must stay visible: unreleasedSource hides it from every user.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/smartengage"
 
     def test_get_schemas_are_full_refresh_only(self) -> None:

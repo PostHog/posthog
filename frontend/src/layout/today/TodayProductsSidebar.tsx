@@ -16,9 +16,9 @@ import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-ge
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
-import { matchesPaneQuery, viewTypesForPaneSearch } from './todayPaneSearch'
+import { analyticsTypesForPaneSearch, matchesPaneQuery } from './todayPaneSearch'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
-import { TodayProductsViewsHint } from './TodayProductsViewsHint'
+import { TodayProductsAnalyticsHint } from './TodayProductsAnalyticsHint'
 import { todayToolsLogic } from './todayToolsLogic'
 
 /** The Products sub-nav: recently viewed tools, every saved object type, then the tools by category. */
@@ -36,7 +36,7 @@ export function TodayProductsSidebar(): JSX.Element {
         [type.pluralLabel, ...libraryRowProductLabels(type.value)].some((label) => matchesPaneQuery(label, search))
     )
     const showLibrary = showAllObjects || libraryTypes.length > 0
-    const searchedViewTypes = viewTypesForPaneSearch(search)
+    const searchedAnalyticsTypes = analyticsTypesForPaneSearch(search)
     const recentSection = recentTools.length ? { key: 'recent', label: 'Recently viewed', tools: recentTools } : null
     const categorySections = toolGroups.map((group) => ({
         key: group.category,
@@ -75,7 +75,7 @@ export function TodayProductsSidebar(): JSX.Element {
                 searchLabel="Search products"
                 dataAttr="today-products-search"
             >
-                {!hasProducts && !searchedViewTypes.length && (
+                {!hasProducts && !searchedAnalyticsTypes.length && (
                     <Text size="xs" variant="muted" className="block px-2 py-1">
                         No products match that search.
                     </Text>
@@ -114,7 +114,9 @@ export function TodayProductsSidebar(): JSX.Element {
                 {categorySections.map((section, index) =>
                     renderToolSection(section, !recentSection && !showLibrary && index === 0)
                 )}
-                {searchedViewTypes.length > 0 && <TodayProductsViewsHint viewTypes={searchedViewTypes} />}
+                {searchedAnalyticsTypes.length > 0 && (
+                    <TodayProductsAnalyticsHint analyticsTypes={searchedAnalyticsTypes} />
+                )}
             </TodayPaneSearchList>
         </div>
     )

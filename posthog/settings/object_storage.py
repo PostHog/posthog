@@ -115,6 +115,11 @@ INBOX_RANKING_LABELS_REFRESH_MAX_RUNS = get_from_env("INBOX_RANKING_LABELS_REFRE
 # no mirror.
 INBOX_RANKING_SERVING_MIRROR_BUCKET = os.getenv("INBOX_RANKING_SERVING_MIRROR_BUCKET", "")
 INBOX_RANKING_SERVING_MIRROR_REGION = os.getenv("INBOX_RANKING_SERVING_MIRROR_REGION", "")
+# Serving manifest (products/signals/dags/inbox_ranking/training/serving.py): how many of the served
+# family's newest versions the sweep also scores, read from the last 2N days. Each one costs the
+# sweep one more model per pass. The served entry, these versions and one challenger per other family
+# share the manifest's 5 entries, so a higher N leaves less room for the challengers.
+INBOX_RANKING_SERVING_RECENT_VERSIONS = get_from_env("INBOX_RANKING_SERVING_RECENT_VERSIONS", 2, type_cast=int)
 # Scorer (products/signals/backend/ranking/scorer.py): report ids per ClickHouse vector read. A
 # larger call is paged at this size. The sweep also gives one scorer call at most this many ids, which
 # bounds the vectors and matrices one call holds.

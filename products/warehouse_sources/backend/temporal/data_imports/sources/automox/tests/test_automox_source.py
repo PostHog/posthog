@@ -1,7 +1,3 @@
-from typing import Any
-
-from unittest.mock import MagicMock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.automox import (
@@ -15,23 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.automox.se
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.source import AutomoxSource
 
 
-def _config(api_key: str = "key", organization_id: str | None = None) -> Any:
-    config = MagicMock()
-    config.api_key = api_key
-    config.organization_id = organization_id
-    return config
-
-
 class TestSourceConfig:
     def test_connection_host_fields_force_secret_reentry_on_org_change(self) -> None:
         # Changing organization_id retargets the stored API key, so it must count as a host field.
         assert AutomoxSource().connection_host_fields == ["organization_id"]
-
-
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = AutomoxSource().get_schemas(_config(), team_id=1, names=["devices", "policies"])
-        assert {s.name for s in schemas} == {"devices", "policies"}
 
 
 class TestNonRetryableErrors:

@@ -20,6 +20,8 @@ import { OnlinePerformanceTab } from './pipeline/OnlinePerformanceTab'
 import { PipelineActions } from './pipeline/PipelineActions'
 import { PipelineSummary } from './pipeline/PipelineSummary'
 import { PredictionsTab } from './pipeline/PredictionsTab'
+import { QuillPipelineActions } from './pipeline/QuillPipelineActions'
+import { QuillScoreNowButton } from './pipeline/QuillScoreNowButton'
 import { ScoreNowButton } from './pipeline/ScoreNowButton'
 import { SetupTab } from './pipeline/SetupTab'
 import { pipelineQuestion, pipelineSubtitle } from './pipelineQuestion'
@@ -34,6 +36,7 @@ export function AutoresearchPipelineScene(): JSX.Element {
     const { pipeline, pipelineLoading, pipelineError, activeTab, lifecycleSteps } = useValues(autoresearchPipelineLogic)
     const { setActiveTab, loadDetail } = useActions(autoresearchPipelineLogic)
     const isEnabled = useFeatureFlag('AUTORESEARCH')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const tabs: LemonTab<AutoresearchPipelineTab>[] = [
         { key: 'predictions', label: 'Predictions', content: <PredictionsTab /> },
@@ -55,10 +58,17 @@ export function AutoresearchPipelineScene(): JSX.Element {
                 description={pipeline ? pipelineSubtitle(pipeline) : null}
                 resourceType={{ type: 'experiment' }}
                 actions={
-                    <>
-                        <ScoreNowButton />
-                        <PipelineActions />
-                    </>
+                    todayRailNav ? (
+                        <>
+                            <QuillScoreNowButton />
+                            <QuillPipelineActions />
+                        </>
+                    ) : (
+                        <>
+                            <ScoreNowButton />
+                            <PipelineActions />
+                        </>
+                    )
                 }
             />
 

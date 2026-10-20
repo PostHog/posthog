@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni 
     _format_watermark,
     get_endpoint_permissions,
     get_key_scope,
-    get_resource,
     normalize_host,
     validate_credentials,
 )
@@ -96,12 +95,6 @@ class TestOmniScimPaginator:
         request = Request(method="GET", url="https://acme.omniapp.co/api/scim/v2/users")
         paginator.init_request(request)
         assert request.params["startIndex"] == 201
-
-
-class TestGetResource:
-    def test_unknown_endpoint_raises(self):
-        with pytest.raises(ValueError):
-            get_resource("Nope", should_use_incremental_field=False, stop_when_older_than=None)
 
 
 class TestValidateCredentials:

@@ -12,7 +12,7 @@ import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { isFileSystemEntryTypeEnabled, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
@@ -428,7 +428,9 @@ export const searchLogic = kea<searchLogicType>([
                             signal: cache.searchAbortController?.signal,
                         })
                         breakpoint()
-                        return response.results.slice(0, RECENTS_LIMIT)
+                        return response.results
+                            .filter((entry) => isFileSystemEntryTypeEnabled(entry, values.featureFlags))
+                            .slice(0, RECENTS_LIMIT)
                     } catch (error) {
                         return rethrowSearchError(error, breakpoint)
                     }

@@ -22,7 +22,11 @@ from sklearn.metrics import roc_auc_score
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import REPORT_EMBEDDINGS_FEATURE_SET, FeatureSet
+from products.signals.backend.ranking.features import (
+    REPORT_EMBEDDINGS_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    FeatureSet,
+)
 from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.training.calibration import (
     CalibrationBucket,
@@ -55,8 +59,11 @@ CANDIDATE_ROLE = "candidate"
 
 # The model family: which features and which learner, as against `model_version`, the partition day
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
-REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
-NN_MODEL_NAME = "nn"
+# A recipe change takes a new name (`training/recipe.py`). The versions of an earlier name stay
+# servable by key, and their online grades keep their own series.
+REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings_v2"
+NN_MODEL_NAME = "nn_v2"
+NN_WITH_PRIO_MODEL_NAME = "nn_with_prio"
 # The Dagster code locations that train a family: `signals` on the main image, and `signals_ml` on
 # the image that carries torch.
 MAIN_LOCATION = "signals"
@@ -114,13 +121,21 @@ class ModelFamily:
 # `nn` is one multi-head network over the report vector and the team's project vectors. It needs
 # torch, so the `signals_ml` location trains it and the main location never fits it. It declares
 # the report embeddings set, because that set builds its report input in training and at serving.
+# `nn_with_prio` is the same network with the report's priority levels as extra report inputs.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
     ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
     ModelFamily(
         name=NN_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET, learner=ONNX_MODEL_KIND, location=ML_LOCATION
     ),
+    ModelFamily(
+        name=NN_WITH_PRIO_MODEL_NAME,
+        feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+        learner=ONNX_MODEL_KIND,
+        location=ML_LOCATION,
+    ),
 )
 NN_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_MODEL_NAME)
+NN_WITH_PRIO_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_MODEL_NAME)
 
 
 def families_trained_in(location: str) -> tuple[ModelFamily, ...]:

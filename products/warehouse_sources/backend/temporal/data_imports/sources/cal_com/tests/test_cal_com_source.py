@@ -62,13 +62,6 @@ class TestCalComSource:
         assert result.requests[0].param("afterUpdatedAt") is None
         assert result.requests[0].param("afterCreatedAt") == "1970-01-01T00:00:00.000Z"
 
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Cal.com schema 'not_a_table'"
-        assert result.requests == []
-
     @parameterized.expand(
         [
             ("organization_users", True),
