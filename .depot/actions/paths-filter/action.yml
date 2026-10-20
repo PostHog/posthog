@@ -22,9 +22,45 @@ inputs:
         required: false
     filters:
         description: 'Path to the configuration file or YAML string with filters definition'
-        required: true
+        required: false
     shared-image-policy:
-        description: 'Canonical shared-image policy projected into legacy filters; channel destinations require publisher integration'
+        description: 'Canonical shared-image policy projected into legacy filters'
+        required: false
+    shared-image-operation:
+        description: 'Inspect configured channels or publish eligible shared-image releases: inspect or publish'
+        required: false
+    shared-image-force:
+        description: 'JSON array of explicit configured image/channel keys for an authorized manual release'
+        required: false
+    shared-image-bootstrap:
+        description: 'JSON object with one configured channel key, approved seed revision and digest'
+        required: false
+    shared-image-build-result:
+        description: 'Successful build job result required for publication'
+        required: false
+    shared-image-digest:
+        description: 'Exact digest from the successful shared build'
+        required: false
+    shared-image-alias:
+        description: 'Verified ordered alias for the executing revision'
+        required: false
+    shared-image-repository:
+        description: 'Common build repository from workflow configuration'
+        required: false
+    shared-image-registry:
+        description: 'Approved common image replica registry from ECR login'
+        required: false
+    shared-image-destination-registry:
+        description: 'Approved destination registry from ECR login'
+        required: false
+    shared-image-destinations:
+        description: 'Infrastructure-approved JSON array of owner, repository, registry and replicas, independent of source policy'
+        required: false
+    shared-image-budgets:
+        description: 'Numeric fetch, comparison, registry, copy, readback, fan-out and total budgets from the workflow'
+        required: false
+    shared-image-regctl:
+        description: 'Path to the checksum-verified copy client'
         required: false
     list-files:
         description: |

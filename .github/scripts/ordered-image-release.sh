@@ -73,12 +73,17 @@ publish_alias() {
     local source_image="${SOURCE_REGISTRY:-$ECR_REGISTRY}/${SOURCE_REPO:-$ECR_REPO}@${EXPECTED_DIGEST}"
     local target_image="${ECR_REGISTRY}/${ECR_REPO}:${ORDERED_ALIAS}"
     local publication_status=0 readback_status=0 resolved_digest result
-    timeout --kill-after=5s 40s "$REGCTL" image copy \
+    local copy_seconds="${COPY_TIMEOUT_SECONDS:-40}" readback_seconds="${READBACK_TIMEOUT_SECONDS:-40}"
+    if ! [[ "$copy_seconds" =~ ^[1-9][0-9]{0,2}$ ]] || ! [[ "$readback_seconds" =~ ^[1-9][0-9]{0,2}$ ]]; then
+        echo 'Invalid ordered image publication timeout' >&2
+        return 1
+    fi
+    timeout --kill-after=5s "${copy_seconds}s" "$REGCTL" image copy \
         "$source_image" "$target_image" || publication_status=$?
     if [ "$publication_status" -ne 0 ]; then
         echo "::warning::Ordered alias publication exited with status $publication_status"
     fi
-    resolved_digest="$(timeout --kill-after=5s 40s aws ecr batch-get-image \
+    resolved_digest="$(timeout --kill-after=5s "${readback_seconds}s" aws ecr batch-get-image \
         --registry-id "${ECR_REGISTRY%%.*}" \
         --repository-name "$ECR_REPO" \
         --image-ids imageTag="$ORDERED_ALIAS" \

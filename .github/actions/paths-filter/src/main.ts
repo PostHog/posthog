@@ -11,6 +11,7 @@ import * as git from './git'
 import * as shadow from './shadow'
 import {backslashEscape, shellEscape} from './list-format/shell-escape'
 import {csvEscape} from './list-format/csv-escape'
+import {approvedImages, channelKeys, publishChannels, PublisherBudgets, validateRequests} from './shared-image-publisher'
 
 type ExportFormat = 'none' | 'csv' | 'json' | 'shell' | 'escape'
 
@@ -19,6 +20,12 @@ async function run(): Promise<void> {
     const workingDirectory = core.getInput('working-directory', {required: false})
     if (workingDirectory) {
       process.chdir(workingDirectory)
+    }
+
+    const operation = core.getInput('shared-image-operation')
+    if (operation) {
+      await runPublisher(operation)
+      return
     }
 
     const token = core.getInput('token', {required: false})
@@ -50,6 +57,40 @@ async function run(): Promise<void> {
   } catch (error) {
     core.setFailed(getErrorMessage(error))
   }
+}
+
+async function runPublisher(operation: string): Promise<void> {
+  if (operation === 'publish' && github.context.ref !== `refs/heads/${github.context.payload.repository?.default_branch}`) {
+    throw new Error('Shared-image publication requires the default branch')
+  }
+  const policy = loadPolicy(getConfigFileContent('.github/shared-image-releases.yaml'))
+  const force: unknown = JSON.parse(core.getInput('shared-image-force') || '[]')
+  const bootstrapText = core.getInput('shared-image-bootstrap')
+  const requests = validateRequests(policy, force, bootstrapText ? JSON.parse(bootstrapText) : undefined)
+  if ((requests.force.length || requests.bootstrap) && github.context.eventName !== 'workflow_dispatch') {
+    throw new Error('Force and bootstrap require an authorized manual default-branch invocation')
+  }
+  if (operation === 'inspect') {
+    core.setOutput('channels', channelKeys(policy).length > 0 ? 'true' : 'false')
+    return
+  }
+  if (operation !== 'publish') throw new Error(`Unknown shared-image operation: ${operation}`)
+  const results = await publishChannels({
+    cwd: process.cwd(), revision: github.context.sha,
+    digest: core.getInput('shared-image-digest'), alias: core.getInput('shared-image-alias'),
+    buildSucceeded: core.getInput('shared-image-build-result') === 'success',
+    approved: approvedImages(core.getInput('shared-image-repository'), core.getInput('shared-image-registry'),
+      core.getInput('shared-image-destination-registry'), core.getInput('shared-image-destinations')),
+    ...requests, budgets: JSON.parse(core.getInput('shared-image-budgets')) as PublisherBudgets,
+    regctl: core.getInput('shared-image-regctl'), helper: pathFromRoot('.github/scripts/ordered-image-release.sh'),
+    evidence: pathFromRoot('shared-image-releases')
+  })
+  core.setOutput('publication-results', JSON.stringify(results))
+  if (results.some(result => result.decision === 'blocked')) core.setFailed('One or more shared-image channels are blocked; inspect publication evidence')
+}
+
+function pathFromRoot(relative: string): string {
+  return `${process.cwd()}/${relative}`
 }
 
 function isPathInput(text: string): boolean {
