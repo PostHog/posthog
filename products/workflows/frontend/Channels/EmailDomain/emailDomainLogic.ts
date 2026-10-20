@@ -1,5 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -40,9 +39,6 @@ interface PhaseInput {
     returnedFromAutoConfigure: boolean
     setupEvidenceFound: boolean
 }
-
-// Suggestions take up to a minute to write, so they load while the person waits for DNS and are ready on the last step.
-const PHASES_WITH_SUGGESTIONS: EmailDomainPhase[] = ['verifying', 'ready']
 
 const STATUSES_IN_PROGRESS: EmailDomainStatusApi['status'][] = ['records_found', 'temporary_failure', 'failed']
 
@@ -162,6 +158,16 @@ export interface emailDomainLogicActions {
     recheck: () => {
         value: true
     } // emailDomainStatusLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
+    preloadDataSuggestions: () => {
+        value: true
+    }
     retry: () => {
         value: true
     }
@@ -192,7 +198,7 @@ export interface emailDomainLogicMeta {
         ) => VerificationStep[]
         breadcrumbs: (domain: string | null, integrationId: any) => Breadcrumb[]
         offersDataSuggestions: (featureFlags: FeatureFlagsSet) => boolean
-        preloadsDataSuggestions: (offersDataSuggestions: boolean, phase: EmailDomainPhase) => boolean
+        preloadsDataSuggestions: (offersDataSuggestions: boolean, integrationId: number | null) => boolean
     }
 }
 
@@ -230,10 +236,18 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [emailDomainSenderLogic(props), ['loadSender'], emailDomainStatusLogic(props), ['recheck']],
+        actions: [
+            emailDomainSenderLogic(props),
+            ['loadSender'],
+            emailDomainStatusLogic(props),
+            ['recheck'],
+            featureFlagLogic,
+            ['setFeatureFlags'],
+        ],
     })),
     actions({
         retry: true,
+        preloadDataSuggestions: true,
     }),
     selectors({
         phase: [
@@ -285,10 +299,11 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS],
         ],
+        // Suggestions take up to a minute to write, so they start once the domain is picked and are ready by the last step.
         preloadsDataSuggestions: [
-            (s) => [s.offersDataSuggestions, s.phase],
-            (offersDataSuggestions: boolean, phase: EmailDomainPhase): boolean =>
-                offersDataSuggestions && PHASES_WITH_SUGGESTIONS.includes(phase),
+            (s) => [s.offersDataSuggestions, s.integrationId],
+            (offersDataSuggestions: boolean, integrationId: number | null): boolean =>
+                offersDataSuggestions && integrationId !== null,
         ],
         breadcrumbs: [
             (s) => [s.domain, s.integrationId],
@@ -303,20 +318,10 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values }) => ({
-        retry: () => {
-            if (values.senderFailed) {
-                actions.loadSender()
-            }
-            if (values.statusUnavailable) {
-                actions.recheck()
-            }
-        },
-    })),
-    // The phase is composed from four logics, so no single action announces that it changed.
-    subscriptions(({ cache }) => ({
-        preloadsDataSuggestions: (preloads: boolean) => {
-            if (!preloads || cache.dataSuggestionsPreloaded) {
+    listeners(({ actions, values, cache }) => ({
+        setFeatureFlags: () => actions.preloadDataSuggestions(),
+        preloadDataSuggestions: () => {
+            if (!values.preloadsDataSuggestions || cache.dataSuggestionsPreloaded) {
                 return
             }
             cache.dataSuggestionsPreloaded = true
@@ -327,5 +332,16 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 { pauseOnPageHidden: false }
             )
         },
+        retry: () => {
+            if (values.senderFailed) {
+                actions.loadSender()
+            }
+            if (values.statusUnavailable) {
+                actions.recheck()
+            }
+        },
     })),
+    afterMount(({ actions }) => {
+        actions.preloadDataSuggestions()
+    }),
 ])
