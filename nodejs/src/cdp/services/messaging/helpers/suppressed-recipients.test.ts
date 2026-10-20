@@ -25,6 +25,11 @@ describe('removeSuppressedRecipients', () => {
             },
         ],
         [
+            'removes a suppressed bracketed address that has text after it',
+            { to: { email: 'a@example.com' }, cc: '"Gone" <bounced@example.com> (old), b@example.com' },
+            { skip: false, cc: 'b@example.com', bcc: '', removed: ['bounced@example.com'] },
+        ],
+        [
             'promotes the first deliverable cc address when to is suppressed',
             {
                 to: { email: 'bounced@example.com' },

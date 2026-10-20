@@ -16,7 +16,8 @@ export type SuppressedRecipientsResult = {
 
 // One entry of a comma-separated address list, in plain `email` or RFC-822 `"Name" <email>` form.
 const parseAddressEntry = (entry: string): { email: string; name?: string } => {
-    const bracketed = entry.match(/^(.*)<([^>]+)>\s*$/)
+    // SES delivers to the bracketed address even with text after it, so match it anywhere in the entry.
+    const bracketed = entry.match(/^(.*?)<([^>]+)>/)
     if (!bracketed) {
         return { email: entry.trim() }
     }
