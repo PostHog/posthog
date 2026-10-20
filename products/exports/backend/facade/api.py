@@ -1,14 +1,16 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
-from collections.abc import Collection
+import io
 from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.db.models import Q
 from django.http.response import HttpResponseBase
+from django.utils.timezone import now
 
 import structlog
 from asgiref.sync import async_to_sync
+from PIL import Image, UnidentifiedImageError
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.hogql.constants import LimitContext
@@ -24,9 +26,9 @@ from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
     get_content_response,
+    save_content as _save_content,
     save_content_from_file as _save_content_from_file,
 )
-from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext as InvalidExportContext,
     RetryableExportError as RetryableExportError,
@@ -40,6 +42,8 @@ JSONL_EXPORT_FORMAT = ExportedAsset.ExportFormat.JSONL
 # Caps the whole workflow including retries; callers block on this, so it must stay
 # well under the web tier's request timeout.
 RENDER_TIMEOUT = timedelta(seconds=90)
+_MAX_IMAGE_PIXELS = 25_000_000
+_PNG_MODES = frozenset({"1", "L", "LA", "I", "I;16", "P", "RGB", "RGBA"})
 EXPORT_WORKFLOW_TIMEOUT = timedelta(minutes=35)
 
 
@@ -117,41 +121,6 @@ def save_export_asset_content_from_file(
     _save_content_from_file(asset, file_path, max_database_bytes=max_database_bytes)
 
 
-def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
-    for subscription in Subscription.objects.filter(team__project_id=project_id, insight_id__in=insight_ids):
-        subscription.delete()
-
-
-def insight_ids_with_subscriptions(insight_ids: Collection[int]) -> set[int]:
-    """Which of the given insights have a subscription that has not been deleted.
-
-    Paused subscriptions (enabled=False) count: disabling delivery does not withdraw the intent
-    to deliver this insight again.
-    """
-    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
-    # ids to ids and returns no row data.
-    # nosemgrep: idor-lookup-without-team
-    return set(
-        Subscription.objects.filter(insight_id__in=insight_ids, deleted=False).values_list("insight_id", flat=True)
-    )
-
-
-def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]:
-    """Which of the given dashboards have a subscription that has not been deleted.
-
-    Paused subscriptions (enabled=False) count: disabling delivery does not withdraw the intent
-    to deliver this dashboard again.
-    """
-    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
-    # ids to ids and returns no row data.
-    # nosemgrep: idor-lookup-without-team
-    return set(
-        Subscription.objects.filter(dashboard_id__in=dashboard_ids, deleted=False).values_list(
-            "dashboard_id", flat=True
-        )
-    )
-
-
 # The limit contexts an export writer can pin, keyed by the string it stores in export_context.
 # The API rejects this key from clients, so only PostHog's own writers reach this map.
 _PINNABLE_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
@@ -206,6 +175,47 @@ def get_delivery_image_url(
     if asset is None:
         return None
     return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
+
+
+def create_png_delivery_url(
+    *, team_id: int, created_by_id: int, content: bytes, filename: str, url_ttl: timedelta, asset_ttl: timedelta
+) -> str | None:
+    """Store image bytes as a PNG export and mint a delivery url for it. None when the bytes are not an image.
+
+    The url opens without a login, so the caller must check that the user may see the image.
+    """
+    png = _as_png(content)
+    if png is None:
+        return None
+    asset = ExportedAsset.objects.create(
+        team_id=team_id,
+        created_by_id=created_by_id,
+        export_format=ExportedAsset.ExportFormat.PNG,
+        export_context={"filename": filename},
+        expires_after=now() + asset_ttl,
+    )
+    _save_content(asset, png)
+    return asset.get_subscription_delivery_content_url(expiry_delta=url_ttl)
+
+
+def _as_png(content: bytes) -> bytes | None:
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            # A small compressed file can decode to a very large bitmap.
+            if image.width * image.height > _MAX_IMAGE_PIXELS:
+                return None
+            if image.format == "PNG":
+                image.verify()
+                return content
+            image.load()
+            png_ready: Image.Image = image
+            if image.mode not in _PNG_MODES:
+                png_ready = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+            output = io.BytesIO()
+            png_ready.save(output, format="PNG")
+            return output.getvalue()
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
+        return None
 
 
 def _create_png_export_asset(

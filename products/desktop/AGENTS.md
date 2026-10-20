@@ -74,7 +74,7 @@ Enforced by Biome `noRestrictedImports`.
 - `api-client` and `workspace-client` may import `shared` and relevant `platform` contracts. No UI or Node host syscalls.
 - `workspace-server` may import `shared`, `platform` contracts, Node modules, and workspace-server code. Never `core` or `ui`.
 - `core` may import `shared`, `platform`, `workspace-client`, `api-client`, and other core code. Never `ui`, `workspace-server`, `electron`, `node:*`, `trpcClient`, or host-router runtime.
-- `ui` may import `core`, `platform`, `shared`, `@posthog/quill`, and UI feature public files. Never `workspace-server`, `electron`, `node:*`, or `trpcClient`.
+- `ui` may import `core`, `api-client`, `workspace-client`, `platform`, `shared`, `@posthog/quill`, `@posthog/quill-charts`, and UI feature public files. Never `workspace-server`, `electron`, `node:*`, or `trpcClient`.
 - `apps/<host>` may import any package and its own host adapters.
 
 ## Core Eligibility

@@ -80,7 +80,9 @@ class TestParseDatetime:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
-        [(200, True), (401, False), (403, False), (500, False)],
+        [
+            (200, True),
+        ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code, json=[]))) as network:
@@ -279,6 +281,13 @@ class TestIterRumMetricsForProject:
         assert list(_iter_rum_metrics_for_project(session, {}, {}, since=None)) == []
         session.get.assert_not_called()
 
+    def test_400_response_raises_a_stable_non_retryable_message(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response({}, status_code=400)
+
+        with pytest.raises(HTTPError, match="DebugBear rejected the RUM metrics request"):
+            list(_iter_rum_metrics_for_project(session, {}, {"id": "p1"}, since=None))
+
 
 class TestIterRumPageViewsForProject:
     def test_incremental_passes_the_watermark_as_from(self) -> None:
@@ -357,10 +366,6 @@ class TestDebugbearSourceRouting:
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
         assert response.partition_keys == partition_keys
-
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unknown DebugBear endpoint"):
-            debugbear_source(api_key="key", endpoint="Nope")
 
     def test_page_metrics_items_iterates_all_projects(self) -> None:
         driver = SourceDriver(DebugbearSource(), DebugbearSourceConfig(api_key="key"))

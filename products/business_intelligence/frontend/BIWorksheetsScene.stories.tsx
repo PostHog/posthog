@@ -17,6 +17,29 @@ const meta: Meta = {
         msw: {
             mocks: {
                 get: {
+                    '/api/projects/:team_id/data_catalog/metrics/': {
+                        results: [
+                            {
+                                id: 'metric-example',
+                                name: 'weekly_revenue',
+                                display_name: 'Weekly revenue',
+                                description: 'Revenue from completed purchases.',
+                                definition_kind: 'HogQLQuery',
+                                status: 'approved',
+                                is_drifted: false,
+                            },
+                        ],
+                    },
+                    '/api/projects/:team_id/data_catalog/certifications/': {
+                        results: [
+                            {
+                                id: 'certification-example',
+                                target_name: 'events',
+                                status: 'certified',
+                                notes: 'Product activity',
+                            },
+                        ],
+                    },
                     '/api/projects/:team_id/insights/': {
                         count: 2,
                         results: [

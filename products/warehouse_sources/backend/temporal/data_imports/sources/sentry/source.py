@@ -290,7 +290,7 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             "github.com/getsentry/sentry-apple-swiftybeaver",
             "github.com/getsentry/sentry-apple-pulse",
         ),
-        competes_with=(ProductKey.ERROR_TRACKING,),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
     )
 
     supported_versions = ("0",)

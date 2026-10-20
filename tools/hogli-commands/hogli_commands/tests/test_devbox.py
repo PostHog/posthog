@@ -27,6 +27,11 @@ from hogli_commands.devbox import (
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(devbox_cli, "wait_for_agent_ready", lambda name: "ready")
+
+
 @pytest.fixture
 def devbox_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config_path = tmp_path / "hogli_devbox.json"
@@ -1096,6 +1101,7 @@ class TestWorkspaceCreation:
         # prompt interactively for a preset, which `--yes` does not bypass.
         assert _flag_value(args, "--preset") == expected_preset
         assert "--use-parameter-defaults" in args
+        assert _flag_value(args, "--automatic-updates") == "always"
         assert "--yes" in args
         # Security invariant: the Claude OAuth token is a Coder user secret
         # (env-injected at workspace start); it must never be forwarded as a
@@ -1103,6 +1109,39 @@ class TestWorkspaceCreation:
         params = _parse_parameter_flags(args)
         assert "claude_oauth_token" not in params
         assert params == expected_params
+
+    @pytest.mark.parametrize("build_status, fails", [("running", False), ("failed", True)], ids=["built", "failed"])
+    def test_update_workspace_fails_when_its_build_fails(
+        self, monkeypatch: pytest.MonkeyPatch, build_status: str, fails: bool
+    ) -> None:
+        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing({}))
+        monkeypatch.setattr(
+            coder, "get_workspace", lambda name: {"name": name, "latest_build": {"status": build_status}}
+        )
+
+        if fails:
+            with pytest.raises(SystemExit):
+                coder.update_workspace("devbox-test-user")
+        else:
+            coder.update_workspace("devbox-test-user")
+
+    def test_clone_workspace_forwards_source_and_creation_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
+
+        coder.clone_workspace("devbox-test-user-copy", source_instance_id="i-0abc", disk_size=200, region="us-east-1")
+
+        args = captured["args"]
+        assert args[:3] == ["coder", "create", "devbox-test-user-copy"]
+        assert _flag_value(args, "--preset") == "none"
+        assert "--use-parameter-defaults" in args
+        assert _flag_value(args, "--automatic-updates") == "always"
+        assert "--yes" in args
+        assert _parse_parameter_flags(args) == {
+            "clone_source_instance_id": "i-0abc",
+            "disk_size": "200",
+            "workspace_region": "us-east-1",
+        }
 
     @pytest.mark.parametrize(
         "start_app, expected",
@@ -1279,53 +1318,55 @@ class TestTemplatePresetResolution:
             assert "Warning" not in output
 
 
-class TestWorkspaceUpdate:
-    """Test that `coder update` paths share the same retry behavior as create.
+def _running_build(agent: dict[str, str]) -> dict[str, object]:
+    return {"status": "running", "resources": [{"agents": [agent]}]}
 
-    Without this, a stale `dotfiles_uri` (or any param the new template
-    doesn't declare) saved in the user's hogli config would abort the
-    pre-start parameter sync the next time they switch templates.
-    """
 
+class TestWaitForAgentReady:
     @pytest.mark.parametrize(
-        "call",
+        "builds, expected",
         [
-            lambda: coder.update_workspace(
-                "devbox-test-user",
-                parameters={"dotfiles_uri": _DOTFILES, "git_name": "PostHog Engineer"},
+            ([_running_build({"lifecycle_state": "starting"}), _running_build({"lifecycle_state": "ready"})], "ready"),
+            (
+                [_running_build({"lifecycle_state": "starting"}), _running_build({"lifecycle_state": "start_error"})],
+                "start_error",
             ),
-            lambda: coder.update_workspace_parameters(
-                "devbox-test-user",
-                {"dotfiles_uri": _DOTFILES, "git_name": "PostHog Engineer"},
+            (
+                [_running_build({"lifecycle_state": "created"}), _running_build({"lifecycle_state": "start_timeout"})],
+                "start_timeout",
             ),
+            ([_running_build({"lifecycle_state": "starting"}), {"status": "stopped", "resources": []}], "stopped"),
+            ([{"status": "failed", "resources": []}], "build_failed"),
+            ([_running_build({"lifecycle_state": "created", "status": "timeout"})], "agent_timeout"),
+            ([_running_build({"lifecycle_state": "starting"}), None], "unavailable"),
+            ([_running_build({"lifecycle_state": "starting"})] * 10, "wait_timeout"),
         ],
-        ids=["update_workspace", "update_workspace_parameters"],
+        ids=[
+            "ready",
+            "script-failed",
+            "script-timed-out",
+            "stopped",
+            "build-failed",
+            "agent-never-connected",
+            "box-gone",
+            "never-ready",
+        ],
     )
-    def test_update_paths_drop_unknown_params_and_retry(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        call: Callable[[], None],
+    def test_returns_when_startup_scripts_settle(
+        self, monkeypatch: pytest.MonkeyPatch, builds: list[dict[str, object] | None], expected: str
     ) -> None:
-        calls: list[list[str]] = []
+        polls = iter(builds)
+        clock = iter(range(0, 1000, 5))
 
-        def fake_run_build(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
-            calls.append(args)
-            if len(calls) == 1:
-                return subprocess.CompletedProcess(
-                    args, 1, 'parameter "dotfiles_uri" is not present in the template\n', ""
-                )
-            return subprocess.CompletedProcess(args, 0, "", "")
+        def list_workspaces(*, timeout: float | None = None) -> list[dict[str, object]]:
+            build = next(polls)
+            return [] if build is None else [{"name": "devbox-test-user", "latest_build": build}]
 
-        monkeypatch.setattr(coder, "_run_build", fake_run_build)
+        monkeypatch.setattr(coder, "_list_workspaces", list_workspaces)
+        monkeypatch.setattr(coder.time, "monotonic", lambda: next(clock))
+        monkeypatch.setattr(coder.time, "sleep", lambda seconds: None)
 
-        call()
-
-        assert len(calls) == 2
-        first = _parse_parameter_flags(calls[0])
-        retried = _parse_parameter_flags(calls[1])
-        assert "dotfiles_uri" in first and "git_name" in first
-        assert "dotfiles_uri" not in retried
-        assert retried["git_name"] == "PostHog Engineer"
+        assert coder.wait_for_agent_ready("devbox-test-user", timeout=50) == expected
 
 
 class TestResolveWorkspaceName:
@@ -1942,11 +1983,10 @@ class TestDevboxCommands:
             lambda name, workspaces=None: {"name": name, "outdated": True, "latest_build": {"status": "running"}},
         )
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-        monkeypatch.setattr(devbox_cli, "load_config", lambda: {"dotfiles_uri": "https://github.com/user/dotfiles"})
         monkeypatch.setattr(
             devbox_cli,
             "update_workspace",
-            lambda name, parameters=None, verbose=False: captured.update({"name": name, "parameters": parameters}),
+            lambda name, verbose=False: captured.update({"name": name}),
         )
 
         result = runner.invoke(cli, ["devbox:update"])
@@ -1954,7 +1994,6 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert "Updating" in result.output
         assert captured["name"] == "devbox-test-user"
-        assert captured["parameters"] == {"dotfiles_uri": "https://github.com/user/dotfiles"}
 
     def test_devbox_update_skips_when_up_to_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -2157,35 +2196,18 @@ class TestDevboxConfigCommands:
         assert "https://github.com/user/dotfiles" in result.output
         assert "Git signing" in result.output
 
-    def test_rm_dotfiles_clears_config_and_pushes_empty_param_to_existing_workspaces(
+    def test_rm_dotfiles_clears_config(
         self,
-        monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
         stub_config_runtime: None,
     ) -> None:
         devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
-        monkeypatch.setattr(
-            devbox_cli,
-            "list_user_workspaces",
-            lambda: [{"name": "devbox-test-user"}, {"name": "devbox-test-user-mobile"}],
-        )
-        param_pushes: list[tuple[str, dict[str, str]]] = []
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: param_pushes.append((name, params)),
-        )
 
         result = runner.invoke(cli, ["devbox:config:rm", "dotfiles"])
 
         assert result.exit_code == 0, result.output
         assert devbox_config.load_config() == {}
-        assert param_pushes == [
-            ("devbox-test-user", {coder.DOTFILES_URI_PARAMETER: ""}),
-            ("devbox-test-user-mobile", {coder.DOTFILES_URI_PARAMETER: ""}),
-        ]
         assert "Cleared saved dotfiles repo" in result.output
-        assert "Restart any running devbox" in result.output
 
     def test_rm_git_identity_clears_only_identity_keys(
         self,
@@ -2399,174 +2421,31 @@ class TestDevboxSetupGate:
 
 
 class TestStartExistingWorkspace:
-    """Test workspace parameter sync when starting an existing workspace."""
-
-    def test_syncs_workspace_parameters_before_starting_stopped_workspace(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        calls: list[str] = []
-        captured_params: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
-        monkeypatch.setattr(
-            devbox_cli,
-            "load_config",
-            lambda: {
-                "git_name": "PostHog Engineer",
-                "git_email": "test-user@example.com",
-                "dotfiles_uri": "https://github.com/user/dotfiles",
-            },
-        )
-
-        def fake_update(name: str, params: dict[str, str]) -> None:
-            calls.append("update_params")
-            captured_params.update({"name": name, "params": params})
-
-        monkeypatch.setattr(devbox_cli, "update_workspace_parameters", fake_update)
-        monkeypatch.setattr(
-            devbox_cli,
-            "start_workspace",
-            lambda name, verbose=False: calls.append("start"),
-        )
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-
-        devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
-
-        assert calls == ["update_params", "start"]
-        assert captured_params == {
-            "name": "devbox-test-user",
-            "params": {
-                "git_name": "PostHog Engineer",
-                "git_email": "test-user@example.com",
-                "dotfiles_uri": "https://github.com/user/dotfiles",
-            },
-        }
-
-    def test_skips_sync_when_no_git_identity_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        calls: list[str] = []
-
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
-        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: calls.append("update_params"),
-        )
-        monkeypatch.setattr(
-            devbox_cli,
-            "start_workspace",
-            lambda name, verbose=False: calls.append("start"),
-        )
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-
-        devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
-
-        assert calls == ["start"]
-
     @pytest.mark.parametrize(
-        "start_app, expected",
-        [(True, "true"), (False, "false"), (None, None)],
-        ids=["enable", "disable", "omit"],
+        "outdated, expected", [(False, ["start"]), (True, ["update"])], ids=["current", "outdated"]
     )
-    def test_pushes_start_app_param_before_starting(
-        self, monkeypatch: pytest.MonkeyPatch, start_app: bool | None, expected: str | None
+    def test_stopped_workspace_updates_only_when_outdated(
+        self, monkeypatch: pytest.MonkeyPatch, outdated: bool, expected: list[str]
     ) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
-        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: captured.update(params),
-        )
-        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-
-        devbox_cli._start_existing_workspace(
-            "devbox-test-user",
-            {"latest_build": {"status": "stopped"}},
-            start_app=start_app,
-            verbose=False,
-        )
-
-        if expected is None:
-            assert coder.AUTO_START_APP_PARAMETER not in captured
-        else:
-            assert captured == {coder.AUTO_START_APP_PARAMETER: expected}
-
-    @pytest.mark.parametrize("status", ["running", "starting", "stopping"])
-    def test_start_app_flag_never_pushed_unless_stopped(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], status: str
-    ) -> None:
-        """`coder update` stops a running workspace, so the flag must only note, never push."""
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: status)
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: pytest.fail("update_workspace_parameters must not run unless stopped"),
-        )
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-
-        devbox_cli._start_existing_workspace(
-            "devbox-test-user", {"latest_build": {"status": status}}, start_app=True, verbose=False
-        )
-
-        assert "was not applied" in capsys.readouterr().out
-
-    def test_sync_never_forwards_immutable_workspace_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The pre-start sync must omit `workspace_region`.
-
-        It is immutable; Coder carries it forward on its own and rejects any
-        explicit value on `coder update` with "parameter is immutable and
-        cannot be updated", which would break every resume of a region-aware
-        box. Even for an eu-central-1 workspace, the region must not appear.
-        """
-        captured: dict[str, object] = {}
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
-        monkeypatch.setattr(
-            devbox_cli,
-            "load_config",
-            lambda: {"dotfiles_uri": "https://github.com/user/dotfiles"},
-        )
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: captured.update({"name": name, "params": params}),
-        )
-        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-
-        workspace = {
-            "latest_build": {
-                "status": "stopped",
-                "resources": [{"metadata": [{"key": coder.REGION_METADATA_KEY, "value": "eu-central-1"}]}],
-            },
-        }
-        devbox_cli._start_existing_workspace("devbox-test-user", workspace, verbose=False)
-
-        assert captured["params"] == {"dotfiles_uri": "https://github.com/user/dotfiles"}
-        assert coder.WORKSPACE_REGION_PARAMETER not in captured["params"]
-
-    def test_skips_sync_for_running_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
-
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "running")
-        monkeypatch.setattr(
-            devbox_cli,
-            "load_config",
-            lambda: {"git_name": "PostHog Engineer", "git_email": "test-user@example.com"},
-        )
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: calls.append("update_params"),
-        )
+        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: calls.append("start"))
+        monkeypatch.setattr(devbox_cli, "update_workspace", lambda name, verbose=False: calls.append("update"))
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
 
-        devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "running"}}, verbose=False)
+        devbox_cli._start_existing_workspace(
+            "devbox-test-user", {"latest_build": {"status": "stopped"}, "outdated": outdated}, verbose=False
+        )
 
-        assert calls == []
+        assert calls == expected
+
+    def test_start_app_flag_is_rejected_before_any_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for build in ("start_workspace", "update_workspace"):
+            monkeypatch.setattr(devbox_cli, build, lambda name, verbose=False: pytest.fail("no build expected"))
+
+        with pytest.raises(SystemExit):
+            devbox_cli._start_existing_workspace(
+                "devbox-test-user", {"latest_build": {"status": "stopped"}}, start_app=True, verbose=False
+            )
 
 
 class TestDevboxList:

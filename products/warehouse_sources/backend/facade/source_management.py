@@ -58,6 +58,7 @@ _LAZY = {
     "libpq_tls_kwargs": "sources.common.tls",
     "tls_options": "sources.common.tls",
     "SourceSchema": "sources.common.schema",
+    "discover_trino_catalog": "sources.trino.trino",
     "build_default_schemas": "sources.common.schema",
     "build_default_sync_settings": "sources.common.schema",
     "RowFilterValidationError": "sources.common.sql",

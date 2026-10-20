@@ -101,7 +101,6 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
     def setUp(self) -> None:
         super().setUp()
         self.gates = {
-            "rollout": patch(f"{_VIEW}.desktop_rollout_enabled", return_value=True),
             "access": patch(f"{_VIEW}.get_desktop_access_decision", return_value=DesktopAccessDecision.ALLOWED),
             "credit": patch(f"{_VIEW}.team_credit_refusal", return_value=None),
             "blocked": patch(f"{_VIEW}.wizard_identity_blocked", return_value=False),
@@ -190,12 +189,12 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         assert response.json()["reason"] == "unauthorized"
         post.assert_not_called()
 
-    def test_blocklisted_identity_is_refused_before_the_flag(self) -> None:
+    def test_blocklisted_identity_is_refused_before_access(self) -> None:
         self.mocks["blocked"].return_value = True
         response, post = self._mint()
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["reason"] == "blocked"
-        self.mocks["rollout"].assert_not_called()
+        self.mocks["access"].assert_not_called()
         post.assert_not_called()
         self.mocks["blocked"].assert_called_once_with(
             distinct_id=str(self.user.distinct_id),
@@ -206,7 +205,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             surface="desktop_gateway_token",
         )
 
-    def test_an_access_rule_refusal_is_refused_before_the_rollout(self) -> None:
+    def test_an_access_rule_refusal_is_refused_before_access(self) -> None:
         self.mocks["rules"].return_value = True
         response, post = self._mint()
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -215,7 +214,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             "reason": "blocked",
             "detail": "This account cannot use the AI gateway.",
         }
-        self.mocks["rollout"].assert_not_called()
+        self.mocks["access"].assert_not_called()
         post.assert_not_called()
         subject, surface = self.mocks["rules"].call_args.args
         assert surface.value == "ai_gateway"
@@ -227,28 +226,8 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         response, post = self._mint()
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"enabled": False, "reason": "unconfigured"}
-        self.mocks["rollout"].assert_not_called()
-        post.assert_not_called()
-
-    def test_flag_off_is_not_rolled_out_before_access_and_billing(self) -> None:
-        self.mocks["rollout"].return_value = False
-        self.mocks["credit"].return_value = "posthog_code_credits_exhausted"
-        response, post = self._mint()
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"enabled": False, "reason": "not_rolled_out"}
         self.mocks["access"].assert_not_called()
-        self.mocks["credit"].assert_not_called()
         post.assert_not_called()
-
-    def test_flag_is_evaluated_for_the_org_and_user(self) -> None:
-        self._mint()
-        organization, team, distinct_id, email = self.mocks["rollout"].call_args.args
-        assert (organization.id, team.id, distinct_id, email) == (
-            self.organization.id,
-            self.team.id,
-            self.user.distinct_id,
-            self.user.email,
-        )
 
     def test_blocked_desktop_access_is_refused_before_billing(self) -> None:
         self.mocks["access"].return_value = DesktopAccessDecision.STARTUP_PLAN
@@ -293,6 +272,29 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         assert response["X-PostHog-Denial"] == "credit_bucket_exhausted:posthog_code_credits"
         self.mocks["credit"].assert_called_once_with(self.team.id, "posthog_code_credits")
         post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("reason_field", "credit", "posthog_code_credits_exhausted", "credit_bucket_exhausted"),
+            ("code_field", "credit", "org_deactivated", "organization_deactivated"),
+            ("minted", "credit", None, None),
+        ]
+    )
+    def test_a_refusal_is_counted_by_the_code_the_app_reads(self, _name, gate, value, expected_reason) -> None:
+        self.mocks[gate].return_value = value
+        with patch(
+            "products.tasks.backend.logic.services.desktop_gateway_token.posthoganalytics.default_client"
+        ) as client:
+            self._mint()
+        count = client.metrics.count
+        if expected_reason is None:
+            count.assert_not_called()
+        else:
+            count.assert_called_once_with(
+                "tasks.gateway_token.refused",
+                1,
+                attributes={"surface": "desktop", "ai_product": "posthog_code", "reason": expected_reason},
+            )
 
     def test_unknown_credit_state_is_disabled(self) -> None:
         self.mocks["credit"].side_effect = RuntimeError("redis down")
@@ -495,7 +497,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         assert refused.status_code == status.HTTP_402_PAYMENT_REQUIRED
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         # The throttled request reached no gate past the credential shape check.
-        for gate in (email_pending, authorized, self.mocks["blocked"], self.mocks["rollout"]):
+        for gate in (email_pending, authorized, self.mocks["blocked"], self.mocks["access"]):
             assert gate.call_count == 1
         post.assert_not_called()
 

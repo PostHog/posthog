@@ -370,7 +370,11 @@ def build_exposure_event_conditions(
     ]
 
 
+def aggregates_by_group(group_type_index: object) -> bool:
+    return isinstance(group_type_index, int)
+
+
 def get_entity_key(group_type_index: Optional[int]) -> str:
-    if isinstance(group_type_index, int):
+    if aggregates_by_group(group_type_index):
         return f"$group_{group_type_index}"
     return "person_id"

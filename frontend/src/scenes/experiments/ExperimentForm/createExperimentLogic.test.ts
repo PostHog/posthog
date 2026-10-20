@@ -252,9 +252,47 @@ describe('createExperimentLogic', () => {
             button.action()
             // The retry must reopen the experiment scanner wizard on this experiment, not the generic
             // template list, or the person starts over without the experiment.
-            expect(routerPushSpy).toHaveBeenLastCalledWith('/replay-vision/new/template?experiment=123')
+            expect(routerPushSpy).toHaveBeenLastCalledWith('/replay-vision/new/details?experiment=123')
             expect(captureExceptionSpy).toHaveBeenCalledTimes(shouldCapture ? 1 : 0)
             captureExceptionSpy.mockRestore()
+        })
+
+        it('skips the scanner when the experiment flag aggregates by group', async () => {
+            useMocks({
+                post: {
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async ({ request }) => {
+                        const body = (await request.json()) as Experiment
+                        return [
+                            200,
+                            {
+                                ...body,
+                                id: 123,
+                                feature_flag: {
+                                    id: 456,
+                                    key: body.feature_flag_key,
+                                    filters: { groups: [], aggregation_group_type_index: 0 },
+                                },
+                            },
+                        ]
+                    },
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.setCreateReplayVisionScanner(true)
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Org-level experiment',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'org-level-experiment',
+                })
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess', 'saveExperimentSuccess'])
+                .toFinishAllListeners()
+
+            expect(scannerCreateSpy).not.toHaveBeenCalled()
+            expect(lemonToast.error).not.toHaveBeenCalled()
+            expect(lemonToast.success).toHaveBeenCalledWith('Experiment created successfully!')
         })
 
         it('refreshes tree items for experiment and feature flag after creation', async () => {

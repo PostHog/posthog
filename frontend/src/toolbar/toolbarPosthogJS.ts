@@ -19,6 +19,10 @@ const initResult = posthog.init(
         bootstrap: {
             featureFlags: {},
         },
+        // The web app imports toolbar modules, which creates this instance on every app page load.
+        // Only a mounted toolbar reads these flags, so the toolbar loads them and starts the refresh when it mounts.
+        advanced_disable_feature_flags_on_first_load: true,
+        remote_config_refresh_interval_ms: 0,
         autocapture: false,
         // The toolbar runs on customer pages and must not install global exception handlers.
         capture_exceptions: false,

@@ -138,11 +138,8 @@ describe('useGroupList', () => {
             // The exact count is deterministic: fetches fire synchronously from act-flushed
             // effects, so both hooks' requests (or cache hits) precede waitFor's first poll.
             await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(expectedFetches))
-            if (expectedFetches === 2) {
-                // The differing params must actually reach the request, not just the cache key.
-                const [firstUrl, secondUrl] = apiGet.mock.calls.map(([url]) => url)
-                expect(firstUrl).not.toEqual(secondUrl)
-            }
+            // The differing params must actually reach the request, not just the cache key.
+            expect(new Set(apiGet.mock.calls.map(([url]) => url)).size).toBe(expectedFetches)
         })
 
         it('respects minSearchQueryLength gating', () => {
@@ -154,6 +151,23 @@ describe('useGroupList', () => {
             expect(result.current.needsMoreSearchCharacters).toBe(true)
             expect(result.current.isLoading).toBe(false)
             expect(apiGet).not.toHaveBeenCalled()
+        })
+
+        it('clears remote rows without fetching when the query no longer passes the group predicate', async () => {
+            apiGet.mockResolvedValue({ results: [{ name: 'sample@example.com' }], count: 1 })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.EmailAddresses,
+                endpoint: 'api/projects/1/persons/values',
+                shouldSearch: (query: string): boolean => query.includes('@'),
+            })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: 'sample@' },
+            })
+            await waitFor(() => expect(result.current.items).toEqual([{ name: 'sample@example.com' }]))
+            rerender({ q: 'sample' })
+            expect(result.current.items).toEqual([])
+            expect(result.current.isLoading).toBe(false)
+            expect(apiGet).toHaveBeenCalledTimes(1)
         })
 
         it('drops the previous page when the query falls below the minimum length', async () => {
@@ -172,7 +186,7 @@ describe('useGroupList', () => {
             expect(result.current.needsMoreSearchCharacters).toBe(true)
         })
 
-        it('drops the previous page when the request for the current query fails', async () => {
+        it('drops the previous page and surfaces an error when the request for the current query fails', async () => {
             apiGet
                 .mockResolvedValueOnce({ results: [{ name: 'alpha' }], count: 1 })
                 .mockRejectedValueOnce(new Error('search unavailable'))
@@ -186,6 +200,17 @@ describe('useGroupList', () => {
 
             await waitFor(() => expect(result.current.items).toEqual([]))
             expect(result.current.isLoading).toBe(false)
+            // Surfaced so the UI can tell "failed" apart from "genuinely empty".
+            expect(result.current.error).toBeInstanceOf(Error)
+            expect(result.current.showErrorState).toBe(true)
+            expect(result.current.showEmptyState).toBe(false)
+
+            apiGet.mockResolvedValueOnce({ results: [{ name: 'beta-result' }], count: 1 })
+            await act(async () => {
+                await result.current.refetch()
+            })
+            expect(result.current.items).toEqual([{ name: 'beta-result' }])
+            expect(result.current.showErrorState).toBe(false)
         })
 
         it('refires when searchQuery changes', async () => {
@@ -322,6 +347,46 @@ describe('useGroupList', () => {
             // "Needle cohort" is not in the first page — only a server search finds it.
             rerender({ q: 'needle' })
             await waitFor(() => expect(result.current.items.map((i: any) => i.name)).toEqual(['Needle cohort']))
+        })
+
+        it('surfaces an error (not an empty result) when the server search fails, and refetch retries only it', async () => {
+            const firstPage = Array.from({ length: 100 }, (_, i) => ({ name: `Cohort ${i + 1}` }))
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('search=needle')) {
+                    return Promise.reject(new Error('search unavailable'))
+                }
+                // Empty-query first page: 100 of 150 total.
+                return Promise.resolve({ results: firstPage, count: 150 })
+            })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.Cohorts,
+                endpoint: 'api/projects/1/cohorts/',
+                clientFilterFirstPage: true,
+            })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: '' },
+            })
+            await waitFor(() => expect(result.current.totalResultCount).toBe(150))
+            // "needle" matches nothing in the cached first page, so only the (failing)
+            // server search could tell us whether it exists elsewhere in the other 50 rows.
+            rerender({ q: 'needle' })
+            await waitFor(() => expect(result.current.showErrorState).toBe(true))
+            expect(result.current.error).toBeInstanceOf(Error)
+            expect(result.current.showEmptyState).toBe(false)
+            expect(result.current.items).toEqual([])
+
+            // The cached first page is healthy, so a retry must not re-request it: if that
+            // request failed, it would hide the recovered search behind a new error.
+            apiGet.mockImplementation((url: string) =>
+                url.includes('search=needle')
+                    ? Promise.resolve({ results: [{ name: 'Needle cohort' }], count: 1 })
+                    : Promise.reject(new Error('first page unavailable'))
+            )
+            await act(async () => {
+                await result.current.refetch()
+            })
+            expect(result.current.items.map((i: any) => i.name)).toEqual(['Needle cohort'])
+            expect(result.current.showErrorState).toBe(false)
         })
     })
 

@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -35,6 +35,8 @@ class DopplerResumeConfig:
     # Second-level fan-out bookmark: name of the config currently being processed. Only set for
     # config-scoped endpoints.
     config: str | None = None
+    # Fan-out bookmark: slug of the group currently being processed. Only set for group-scoped endpoints.
+    group: str | None = None
 
 
 def _headers(api_token: str) -> dict[str, str]:
@@ -77,7 +79,7 @@ def _coerce_watermark(value: Any) -> datetime | None:
     wait=wait_exponential_jitter(initial=2, max=60),
     reraise=True,
 )
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
+def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
     response = session.get(url, headers=headers, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -88,6 +90,22 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         response.raise_for_status()
 
     return response.json()
+
+
+def _extract_items(data: Any, config: DopplerEndpointConfig) -> list[Any]:
+    if isinstance(data, list):
+        items: Any = data
+    else:
+        items = data
+        for key in config.data_key.split("."):
+            items = items.get(key) if isinstance(items, dict) else None
+    if isinstance(items, dict):
+        items = [items]
+    if not isinstance(items, list):
+        return []
+    if config.scalar_item_key is not None:
+        return [{config.scalar_item_key: item} for item in items if item is not None]
+    return items
 
 
 def _redact_secret_values(item: dict[str, Any]) -> dict[str, Any]:
@@ -119,16 +137,30 @@ def _redact_secret_values(item: dict[str, Any]) -> dict[str, Any]:
 
 @dataclasses.dataclass(frozen=True)
 class _FanOutParent:
-    """A project — and for config-scoped endpoints, a config within it — to issue one request-set for."""
+    """A project (and for config-scoped endpoints, a config within it) or a group to issue one request-set for."""
 
-    project: str
+    project: str | None = None
     config: str | None = None
+    group: str | None = None
 
     @property
     def params(self) -> dict[str, str]:
-        if self.config is None:
-            return {"project": self.project}
-        return {"project": self.project, "config": self.config}
+        params: dict[str, str] = {}
+        if self.project is not None:
+            params["project"] = self.project
+        if self.config is not None:
+            params["config"] = self.config
+        return params
+
+    @property
+    def row_fields(self) -> dict[str, str]:
+        # `group` is a SQL keyword, so the group slug lands in `group_slug`.
+        return {**self.params, **({"group_slug": self.group} if self.group is not None else {})}
+
+    def path(self, template: str) -> str:
+        if self.group is None:
+            return template
+        return template.replace("{slug}", quote(self.group, safe=""))
 
 
 def _iter_project_slugs(
@@ -165,12 +197,34 @@ def _iter_config_names(
         page += 1
 
 
+def _iter_group_slugs(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
+) -> Iterator[str]:
+    page = 1
+    while True:
+        url = _build_url("/workplace/groups", {"page": page, "per_page": DEFAULT_PER_PAGE})
+        groups = _fetch_page(session, url, headers, logger).get("groups") or []
+        for group in groups:
+            slug = group.get("slug")
+            if slug:
+                yield slug
+
+        if len(groups) < DEFAULT_PER_PAGE:
+            break
+        page += 1
+
+
 def _iter_fan_out_parents(
     session: requests.Session,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     endpoint_config: DopplerEndpointConfig,
 ) -> Iterator[_FanOutParent]:
+    if endpoint_config.fan_out_over_groups:
+        for group_slug in _iter_group_slugs(session, headers, logger):
+            yield _FanOutParent(group=group_slug)
+        return
+
     for project_slug in _iter_project_slugs(session, headers, logger):
         if not endpoint_config.fan_out_over_configs:
             yield _FanOutParent(project=project_slug)
@@ -180,7 +234,7 @@ def _iter_fan_out_parents(
 
 
 def _resume_at(parent: _FanOutParent, next_page: int) -> DopplerResumeConfig:
-    return DopplerResumeConfig(next_page=next_page, project=parent.project, config=parent.config)
+    return DopplerResumeConfig(next_page=next_page, project=parent.project, config=parent.config, group=parent.group)
 
 
 def _get_fan_out_rows(
@@ -191,10 +245,10 @@ def _get_fan_out_rows(
     endpoint_config: DopplerEndpointConfig,
     resume: DopplerResumeConfig | None,
 ) -> Iterator[Any]:
-    """Fan out over every project, and for config-scoped endpoints every config within it.
+    """Fan out over every project (and for config-scoped endpoints every config within it), or every group.
 
     Most of Doppler's project-scoped responses echo `project` back on each row, so the composite
-    primary keys need no parent injection; `inject_project` covers the ones that don't.
+    primary keys need no parent injection; `inject_parent` covers the ones that don't.
     """
     parents = list(_iter_fan_out_parents(session, headers, logger, endpoint_config))
 
@@ -203,8 +257,8 @@ def _get_fan_out_rows(
     # dedupes the re-pulled rows on the primary key.
     remaining = parents
     resume_page = 1
-    if resume is not None and resume.project is not None:
-        bookmark = _FanOutParent(project=resume.project, config=resume.config)
+    if resume is not None and (resume.project is not None or resume.group is not None):
+        bookmark = _FanOutParent(project=resume.project, config=resume.config, group=resume.group)
         if bookmark in parents:
             remaining = parents[parents.index(bookmark) :]
             resume_page = resume.next_page or 1
@@ -215,16 +269,16 @@ def _get_fan_out_rows(
         resume_page = 1  # only the resumed-into parent starts mid-way; the rest start at page 1
 
         while True:
-            params: dict[str, Any] = dict(parent.params)
+            params: dict[str, Any] = {**parent.params, **endpoint_config.extra_params}
             if endpoint_config.paginated:
                 params["page"] = page
                 if endpoint_config.per_page is not None:
                     params["per_page"] = endpoint_config.per_page
 
-            data = _fetch_page(session, _build_url(endpoint_config.path, params), headers, logger)
-            items = data.get(endpoint_config.data_key) or []
-            if endpoint_config.inject_project:
-                items = [{**item, "project": parent.project} for item in items]
+            data = _fetch_page(session, _build_url(parent.path(endpoint_config.path), params), headers, logger)
+            items = _extract_items(data, endpoint_config)
+            if endpoint_config.inject_parent:
+                items = [{**item, **parent.row_fields} for item in items]
             if endpoint_config.carries_secret_values:
                 items = [_redact_secret_values(item) for item in items]
             if items:
@@ -263,7 +317,7 @@ def get_rows(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if config.fan_out_over_projects or config.fan_out_over_configs:
+    if config.fan_out_over_projects or config.fan_out_over_configs or config.fan_out_over_groups:
         yield from _get_fan_out_rows(session, headers, logger, resumable_source_manager, config, resume)
         return
 
@@ -278,14 +332,14 @@ def get_rows(
         logger.debug(f"Doppler: resuming {endpoint} from page {page}")
 
     while True:
-        params: dict[str, Any] = {}
+        params: dict[str, Any] = dict(config.extra_params)
         if config.paginated:
             params["page"] = page
             if config.per_page is not None:
                 params["per_page"] = config.per_page
 
         data = _fetch_page(session, _build_url(config.path, params), headers, logger)
-        items = data.get(config.data_key) or []
+        items = _extract_items(data, config)
         if not items:
             break
 

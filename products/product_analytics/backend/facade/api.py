@@ -24,7 +24,12 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedInsightDefinition
+from products.product_analytics.backend.facade.contracts import (
+    InsightDashboardContext,
+    InsightSeries,
+    InsightVariableDefinition,
+    SavedInsightDefinition,
+)
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -228,3 +233,21 @@ def save_saved_insight_query(
         insight.last_modified_by = user
         insight.save(update_fields=["query", "saved", "last_modified_by", "updated_at"])
     return None
+
+
+def get_insight_series(
+    *, team: Team, user: User, short_id: str, dashboard: InsightDashboardContext | None = None
+) -> InsightSeries | None:
+    insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
+    if insight is None:
+        return None
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    if not access_control.check_access_level_for_object(insight, "viewer"):
+        return None
+    from products.product_analytics.backend import (  # noqa: PLC0415 -- insight_series imports the query runner, which imports this facade
+        insight_series,
+    )
+
+    return insight_series.insight_series(
+        team, user, short_id=insight.short_id, name=insight.name, query=insight.query or {}, dashboard=dashboard
+    )

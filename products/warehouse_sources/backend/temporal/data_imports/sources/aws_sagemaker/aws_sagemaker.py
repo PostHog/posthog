@@ -16,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagema
     ENDPOINTS,
     MAX_RESULTS,
     TARGET_PREFIXES,
+    SageMakerEndpoint,
+    SageMakerParent,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -52,6 +54,12 @@ _TIMESTAMP_FIELDS = {
     "TrainingEndTime",
     "ProcessingStartTime",
     "ProcessingEndTime",
+    "HyperParameterTuningEndTime",
+    "EndTime",
+    "StartTime",
+    "ScheduledTime",
+    "TransformStartTime",
+    "TransformEndTime",
 }
 
 
@@ -60,6 +68,7 @@ class AwsSagemakerResumeConfig:
     next_token: str | None = None
     watermark: float | None = None
     complete: bool = False
+    parent_name: str | None = None
 
 
 class AwsSagemakerError(Exception):
@@ -165,6 +174,83 @@ def timestamp(value: dt.datetime | str | int | float | None) -> float | None:
     return (parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.UTC)).timestamp()
 
 
+def parent_names(
+    client: AwsSagemakerClient,
+    parent: SageMakerParent,
+    manager: ResumableSourceManager[AwsSagemakerResumeConfig],
+) -> list[str]:
+    names: list[str] = []
+    token: str | None = None
+    while True:
+        payload: dict[str, Any] = {"MaxResults": MAX_RESULTS, "SortBy": "Name", "SortOrder": "Ascending"}
+        if token:
+            payload["NextToken"] = token
+        page = client.request(parent.list_operation, payload)
+        names.extend(item[parent.name_field] for item in page[parent.result_key])
+        manager.safe_point()
+        next_token = page.get("NextToken") or None
+        if next_token is None:
+            break
+        if next_token == token:
+            raise ValueError("AWS SageMaker returned a repeated pagination token.")
+        token = next_token
+    # Sorting here keeps the resume order independent of how AWS collates names.
+    return sorted(set(names))
+
+
+def list_pages(
+    client: AwsSagemakerClient,
+    settings: SageMakerEndpoint,
+    manager: ResumableSourceManager[AwsSagemakerResumeConfig],
+    watermark: float | None,
+    incremental: bool,
+    token: str | None,
+    parent_name: str | None = None,
+    following_parent: str | None = None,
+) -> Iterator[list[dict[str, Any]]]:
+    while True:
+        payload: dict[str, Any] = {
+            "MaxResults": MAX_RESULTS,
+            "SortBy": "CreationTime",
+            "SortOrder": "Ascending",
+            **dict(settings.list_filters),
+        }
+        if settings.parent and parent_name:
+            payload[settings.parent.name_field] = parent_name
+        if watermark is not None and incremental and settings.incremental:
+            payload["CreationTimeAfter"] = watermark
+        if token:
+            payload["NextToken"] = token
+        page = client.request(settings.list_operation, payload)
+        next_token = page.get("NextToken") or None
+        if next_token == token and next_token is not None:
+            raise ValueError("AWS SageMaker returned a repeated pagination token.")
+        describe_operation = settings.describe_operation
+        rows = [
+            normalize_row(
+                client.request(describe_operation, settings.describe_payload(item)) if describe_operation else item
+            )
+            for item in page[settings.result_key]
+        ]
+        for row in rows:
+            if any(not row.get(key) for key in settings.primary_keys):
+                raise ValueError("AWS SageMaker returned a resource without its identifier.")
+        manager.save_state(
+            AwsSagemakerResumeConfig(
+                next_token=next_token,
+                watermark=watermark,
+                complete=next_token is None and following_parent is None,
+                parent_name=parent_name if next_token else following_parent,
+            )
+        )
+        if rows:
+            yield rows
+        manager.safe_point()
+        if next_token is None:
+            break
+        token = next_token
+
+
 def get_rows(
     config: AwsSagemakerSourceConfig,
     endpoint: str,
@@ -181,34 +267,32 @@ def get_rows(
     token = state.next_token if state else None
     client = AwsSagemakerClient(config, api_version)
     try:
-        while True:
-            payload: dict[str, Any] = {"MaxResults": MAX_RESULTS, "SortBy": "CreationTime", "SortOrder": "Ascending"}
-            if watermark is not None and incremental and settings.incremental:
-                payload["CreationTimeAfter"] = watermark
-            if token:
-                payload["NextToken"] = token
-            page = client.request(settings.list_operation, payload)
-            next_token = page.get("NextToken") or None
-            if next_token == token and next_token is not None:
-                raise ValueError("AWS SageMaker returned a repeated pagination token.")
-            rows = [
-                normalize_row(
-                    client.request(settings.describe_operation, {settings.name_field: item[settings.name_field]})
+        if settings.parent is None:
+            yield from list_pages(client, settings, manager, watermark, incremental, token)
+            return
+        start = state.parent_name if state else None
+        parents = [name for name in parent_names(client, settings.parent, manager) if start is None or name >= start]
+        for index, name in enumerate(parents):
+            following = parents[index + 1] if index + 1 < len(parents) else None
+            try:
+                yield from list_pages(
+                    client,
+                    settings,
+                    manager,
+                    watermark,
+                    incremental,
+                    token if name == start else None,
+                    parent_name=name,
+                    following_parent=following,
                 )
-                for item in page[settings.result_key]
-            ]
-            for row in rows:
-                if not row.get(settings.primary_key):
-                    raise ValueError("AWS SageMaker returned a resource without its ARN.")
-            manager.save_state(
-                AwsSagemakerResumeConfig(next_token=next_token, watermark=watermark, complete=next_token is None)
-            )
-            if rows:
-                yield rows
-            manager.safe_point()
-            if next_token is None:
-                break
-            token = next_token
+            except AwsSagemakerError as error:
+                # A parent deleted during the walk must not stop the walk over the remaining parents.
+                if error.code != "ResourceNotFound":
+                    raise
+                manager.save_state(
+                    AwsSagemakerResumeConfig(watermark=watermark, complete=following is None, parent_name=following)
+                )
+                manager.safe_point()
     finally:
         client.close()
 
@@ -224,18 +308,26 @@ def validate_credentials(
     except ValueError as error:
         return False, str(error)
     try:
-        page = client.request(settings.list_operation, {"MaxResults": 1})
-        if schema_name and page.get(settings.result_key):
-            item = page[settings.result_key][0]
-            client.request(settings.describe_operation, {settings.name_field: item[settings.name_field]})
+        filters = dict(settings.list_filters)
+        if settings.parent:
+            parents = client.request(settings.parent.list_operation, {"MaxResults": 1})[settings.parent.result_key]
+            if not parents:
+                return True, None
+            filters[settings.parent.name_field] = parents[0][settings.parent.name_field]
+        page = client.request(settings.list_operation, {"MaxResults": 1, **filters})
+        if schema_name and settings.describe_operation and page.get(settings.result_key):
+            client.request(settings.describe_operation, settings.describe_payload(page[settings.result_key][0]))
     except AwsSagemakerError as error:
         if error.code in {"AccessDenied", "AccessDeniedException"}:
             if schema_name is None:
                 return True, None
-            return (
-                False,
-                f"Grant sagemaker:{settings.list_operation} and sagemaker:{settings.describe_operation} for this table.",
-            )
+            operations = [
+                settings.parent.list_operation if settings.parent else None,
+                settings.list_operation,
+                settings.describe_operation,
+            ]
+            permissions = ", ".join(f"sagemaker:{operation}" for operation in operations if operation)
+            return False, f"Grant these permissions for this table: {permissions}."
         for code, message in ERROR_MESSAGES.items():
             if error.code.startswith(code):
                 return False, message
@@ -259,7 +351,7 @@ def aws_sagemaker_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(config, endpoint, api_version, manager, incremental, last_value),
-        primary_keys=[settings.primary_key],
+        primary_keys=list(settings.primary_keys),
         partition_keys=["creation_time"],
         partition_mode="datetime",
         partition_format="month",

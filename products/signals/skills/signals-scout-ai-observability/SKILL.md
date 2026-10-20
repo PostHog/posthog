@@ -43,10 +43,10 @@ If a history reader is unavailable or access is denied, stop using that reader f
 
 A scheduled run can start with a `<precheck_result>` block. Each row counts one AI event that arrived in the last 7 days, so AI observability is in use. When the block is present, skip this check.
 
-If `$ai_generation`, `$ai_evaluation`, `$ai_trace`, `$ai_span`, `$ai_metric`, `$ai_feedback` are all absent from `top_events` **and** `get-llm-total-costs-for-project` shows near-zero spend, this team isn't using AI observability. Write one scratchpad entry:
+If the profile's `surfaces["signals-scout-ai-observability"]` entry reads `in_use: false` (no `$ai_*` event in 7 days) **and** `get-llm-total-costs-for-project` shows near-zero spend, this team isn't using AI observability. Absence from `top_events` does not prove that, because it keeps only the top events by volume. When the entry reads `in_use: null`, count the `$ai_*` events over 7 days with `execute-sql` instead. Write one scratchpad entry:
 
 - key: `not-in-use:llm_analytics:team{team_id}`
-- content: brief note ("checked at {timestamp}, no LLM events in top_events, $0 cost")
+- content: brief note ("checked at {timestamp}, no LLM events in 7d, $0 cost")
 
 Close out empty. Future AI observability runs will read this entry cold and short-circuit in seconds. Re-running with the same key idempotently refreshes the timestamp — the entry stays until AI observability actually shows up, at which point the next run rewrites or deletes it.
 

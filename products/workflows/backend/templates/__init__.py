@@ -18,6 +18,9 @@ TEMPLATE_FILES = [
     "ai-support-first-responder.json",
     "ai-scheduled-report.json",
     "ai-slack-alert-responder.json",
+    "replay-vision-survey-context.json",
+    "replay-vision-support-ticket-context.json",
+    "replay-vision-onboarding-friction.json",
 ]
 
 _TEMPLATE_CACHE: Optional[list[dict]] = None

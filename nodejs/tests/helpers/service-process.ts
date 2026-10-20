@@ -99,7 +99,8 @@ export class ServiceProcess {
         return { ...result, output: this.getOutput() }
     }
 
-    async stop(): Promise<void> {
+    /** SIGTERM, then SIGKILL once `graceMs` passes without an exit. */
+    async stop(graceMs = 10_000): Promise<void> {
         if (this.stopping || this.hasExited) {
             return
         }
@@ -107,7 +108,7 @@ export class ServiceProcess {
         this.stopping = true
         this.kill('SIGTERM')
 
-        const stopped = await Promise.race([this.exited.then(() => true), delay(10_000).then(() => false)])
+        const stopped = await Promise.race([this.exited.then(() => true), delay(graceMs).then(() => false)])
         if (!stopped) {
             this.kill('SIGKILL')
             await this.exited
@@ -116,6 +117,11 @@ export class ServiceProcess {
 
     getOutput(): string {
         return this.output
+    }
+
+    /** The exit, once the process has exited; null while it runs. */
+    exitInfo(): ProcessExit | null {
+        return this.exitResult ? { ...this.exitResult, output: this.getOutput() } : null
     }
 
     private capture(stream: 'stdout' | 'stderr', chunk: Buffer): void {

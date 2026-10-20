@@ -55,11 +55,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
 
-import depot_scheduled_runs
+import depot_backend_runs
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
@@ -284,7 +285,7 @@ def watermark(repo: str, token: str, *, lookback_hours: float, now: datetime, op
 def scan_runs(repo: str, token: str, since: datetime, *, opener: Any = None) -> list[dict]:
     """Completed master runs whose completion lands at or after `since`, newest first.
 
-    GitHub supplies master pushes; scheduled Backend CI runs are read from Depot separately.
+    GitHub supplies master pushes; Backend CI runs are read from Depot separately.
 
     The API can only filter on `created`, so widen the window by a day and narrow
     on `updated_at` — which for a completed run is when it finished.
@@ -527,7 +528,7 @@ def parse_depot_run(shown: DepotShownWorkflow) -> WorkflowRun | None:
             "id": job["job_id"],
             "name": job.get("job_display_name") or job["job_key"],
             "status": "completed",
-            "conclusion": depot_scheduled_runs.GATE_CONCLUSIONS.get(job["status"], job["status"]),
+            "conclusion": depot_backend_runs.GATE_CONCLUSIONS.get(job["status"], job["status"]),
             "html_url": f"{url}?job={job['job_id']}",
             "created_at": job.get("started_at"),
             "started_at": job.get("started_at"),
@@ -546,7 +547,7 @@ def parse_depot_run(shown: DepotShownWorkflow) -> WorkflowRun | None:
             "workflow_id": workflow["workflow_id"],
             "event": context["trigger"],
             "status": "completed",
-            "conclusion": depot_scheduled_runs.GATE_CONCLUSIONS[workflow["status"]],
+            "conclusion": depot_backend_runs.GATE_CONCLUSIONS[workflow["status"]],
             "head_sha": context["sha"],
             "head_branch": "master",
             "repository": {"full_name": context["repo"]},
@@ -565,33 +566,77 @@ def parse_depot_run(shown: DepotShownWorkflow) -> WorkflowRun | None:
     return replace(run, provider="depot", end=max(run.end, finished))
 
 
-def collect_depot_runs(repo: str, since: datetime) -> Collection:
-    runs: list[WorkflowRun] = []
-    complete = True
-    created_floor = since - timedelta(days=1)
-    listed = depot_scheduled_runs.scheduled_workflows(sorted(depot_scheduled_runs.ENDED), 200, repo=repo)
+# How far behind `since` a listing walks. A run created before this bound is not listed, so a push
+# run created more than 3 hours before `since` that finishes after it gets no trace. Across 1,000
+# Backend CI master push runs on GitHub Actions from 2026-10-12 to 2026-10-15, the slowest went
+# from creation to completion in 2,264 seconds. The hourly listing keeps the one-day slack the
+# GitHub scan uses. The Depot CLI lists at most 200 workflows, and a master push burst can exceed
+# that inside a long window, which marks every tick incomplete, so the push bound stays short.
+DEPOT_LISTING_SLACK = {"push": timedelta(hours=3), "schedule": timedelta(days=1)}
+
+
+def _depot_workflows_since(
+    repo: str, trigger: str, created_floor: datetime
+) -> tuple[list[depot_backend_runs.ListedWorkflow], bool]:
+    """The workflows created since the floor, and whether the listing reached the floor at all."""
+    kept: list[depot_backend_runs.ListedWorkflow] = []
+    # The cap check needs the listing before branch runs are dropped from it.
+    listed = depot_backend_runs.listed_workflows(
+        sorted(depot_backend_runs.ENDED), depot_backend_runs.MAX_LISTED, repo=repo, trigger=trigger
+    )
+    reached_floor = len(listed) < depot_backend_runs.MAX_LISTED
     for workflow in listed:
         created = parse_iso_utc(workflow["created_at"])
         if created is not None and created < created_floor:
+            reached_floor = True
             break
+        kept.append(workflow)
+    # The CLI caps a listing, so a window that fills it may continue past what was listed.
+    return depot_backend_runs.master_only(kept, trigger=trigger, repo=repo), reached_floor
+
+
+def _read_depot_run(workflow: depot_backend_runs.ListedWorkflow, since: datetime) -> WorkflowRun | None:
+    shown = cast(
+        DepotShownWorkflow,
+        json.loads(depot_backend_runs.depot("workflow", "show", workflow["workflow_id"], "--output", "json")),
+    )
+    finished = parse_iso_utc(shown["workflow"]["finished_at"])
+    if finished is None:
+        raise ValueError("Completed Depot workflow has no finish timestamp")
+    if finished < since:
+        return None
+    run = parse_depot_run(shown)
+    if run is None:
+        raise ValueError("Completed Depot workflow has no start timestamp")
+    return run
+
+
+def collect_depot_runs(repo: str, since: datetime) -> Collection:
+    # Each listing is newest first, so the floor ends one trigger's walk without hiding the other's.
+    listed: list[depot_backend_runs.ListedWorkflow] = []
+    complete = True
+    for trigger, slack in DEPOT_LISTING_SLACK.items():
         try:
-            shown = cast(
-                DepotShownWorkflow,
-                json.loads(depot_scheduled_runs.depot("workflow", "show", workflow["workflow_id"], "--output", "json")),
-            )
-            finished = parse_iso_utc(shown["workflow"]["finished_at"])
-            if finished is None:
-                raise ValueError("Completed Depot workflow has no finish timestamp")
-            if finished < since:
-                continue
-            run = parse_depot_run(shown)
-            if run is None:
-                raise ValueError("Completed Depot workflow has no start timestamp")
-            runs.append(run)
+            workflows, reached_floor = _depot_workflows_since(repo, trigger, since - slack)
+        except Exception:
+            # One unreadable trigger holds the watermark; the other's runs still get their traces.
+            logger.exception("could not list Depot %s workflows", trigger)
+            complete = False
+            continue
+        listed += workflows
+        complete = complete and reached_floor
+
+    def read(workflow: depot_backend_runs.ListedWorkflow) -> tuple[WorkflowRun | None, bool]:
+        try:
+            return _read_depot_run(workflow, since), True
         except Exception:
             logger.exception("could not read Depot workflow %s", workflow["workflow_id"])
-            complete = False
-    return Collection(runs=tuple(runs), complete=complete)
+            return None, False
+
+    with ThreadPoolExecutor(max_workers=depot_backend_runs.PARALLEL_CLI_CALLS) as pool:
+        results = list(pool.map(read, listed))
+    runs = tuple(run for run, _ in results if run is not None)
+    return Collection(runs=runs, complete=complete and all(ok for _, ok in results))
 
 
 # ---------- OTLP export ----------

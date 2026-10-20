@@ -45,6 +45,9 @@ const config: SignalScoutConfigApi = {
     precheck_disabled: false,
     effective_precheck_query: null,
     precheck_query_source: 'off',
+    last_precheck_at: null,
+    last_precheck_outcome: null,
+    last_precheck_row_count: null,
     tags: [],
     source_product: null,
     source_id: null,
@@ -218,6 +221,7 @@ describe('ScoutConfigForm', () => {
         ['Claude Opus 5.5', 'claude-opus-5-5'],
         ['GPT-6 Luna', 'gpt-6-luna'],
         ['GPT-5.6 Luna', 'gpt-5.6-luna'],
+        ['GPT-6.1 Sol', 'gpt-6.1-sol'],
         ['GPT-6 Sol', 'gpt-6-sol'],
         ['GPT-6 Astra', 'gpt-6-astra'],
     ])('pins %s from the dropdown and clears the pin via Default', (label, modelId) => {

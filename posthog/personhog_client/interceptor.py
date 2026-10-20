@@ -175,8 +175,8 @@ def _is_retryable(code: grpc.StatusCode | None, details: str | None, codes: Coll
     return code == grpc.StatusCode.INTERNAL and details == _DESERIALIZATION_FAILURE_DETAILS
 
 
-def _is_db_timeout(exc: grpc.RpcError) -> bool:
-    return any(key == _DB_TIMEOUT_METADATA_KEY for key, _ in exc.trailing_metadata() or ())
+def _is_db_timeout(call: grpc.Call) -> bool:
+    return any(key == _DB_TIMEOUT_METADATA_KEY for key, _ in call.trailing_metadata() or ())
 
 
 def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode] = _RETRYABLE_CODES) -> bool:
@@ -214,6 +214,10 @@ class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
     DB-level conditions, timeouts included, must not be hammered with a fast in-process retry.
 
     Sits outside MetricsInterceptor so each attempt gets its own per-call metrics.
+
+    grpcio's continuation returns a failed call as an ``RpcError`` instead of raising it. The
+    interceptor reads the status from that returned object. It returns a terminal error unchanged.
+    The grpcio channel then raises that error from ``.result()``.
     """
 
     def __init__(
@@ -235,32 +239,31 @@ class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
         delay_ms = self._initial_backoff_ms
 
         while True:
-            try:
-                return continuation(client_call_details, request)
-            except grpc.RpcError as exc:
-                code = exc.code()
-                details_fn = getattr(exc, "details", None)
-                details = details_fn() if callable(details_fn) else None
-                error_type = _grpc_error_type(code) if code else "Unknown"
-                retryable = _is_retryable(code, details, _RETRYABLE_CODES) and not _is_db_timeout(exc)
+            outcome = continuation(client_call_details, request)
+            code = outcome.code()
+            if code == grpc.StatusCode.OK:
+                return outcome
 
-                if not retryable or attempt == self._max_retries:
-                    PERSONHOG_TERMINAL_ERRORS_TOTAL.labels(
-                        method=method, client=self._client_name, error_type=error_type
-                    ).inc()
-                    raise
+            error_type = _grpc_error_type(code)
+            retryable = _is_retryable(code, outcome.details(), _RETRYABLE_CODES) and not _is_db_timeout(outcome)
 
-                PERSONHOG_RETRIES_TOTAL.labels(method=method, client=self._client_name, error_type=error_type).inc()
+            if not retryable or attempt == self._max_retries:
+                PERSONHOG_TERMINAL_ERRORS_TOTAL.labels(
+                    method=method, client=self._client_name, error_type=error_type
+                ).inc()
+                return outcome
 
-                logger.warning(
-                    "personhog_grpc_retry",
-                    method=method,
-                    attempt=attempt + 1,
-                    max_retries=self._max_retries,
-                    error_type=error_type,
-                )
+            PERSONHOG_RETRIES_TOTAL.labels(method=method, client=self._client_name, error_type=error_type).inc()
 
-                base = delay_ms / 2
-                time.sleep((base + random.uniform(0, base)) / 1000)
-                delay_ms = min(delay_ms * 2, self._max_backoff_ms)
-                attempt += 1
+            logger.warning(
+                "personhog_grpc_retry",
+                method=method,
+                attempt=attempt + 1,
+                max_retries=self._max_retries,
+                error_type=error_type,
+            )
+
+            base = delay_ms / 2
+            time.sleep((base + random.uniform(0, base)) / 1000)
+            delay_ms = min(delay_ms * 2, self._max_backoff_ms)
+            attempt += 1
