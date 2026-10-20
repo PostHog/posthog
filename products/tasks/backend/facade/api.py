@@ -2880,8 +2880,6 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "sandbox_environment_id",
-        "self_driving_funding",
-        "sandbox_provisioning_started",
         # Worker-interpreted trial markers must never be caller-writable.
         "scout_trial",
         "scout_trial_judge",

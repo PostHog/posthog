@@ -272,3 +272,5 @@ Free-trial organizations retain the legacy meter, where no PR means no charge. S
 A Self-driving trial grant follows its canonical project and environments when the project moves to another organization. Its remaining allowance, reserved reports, and exhausted state stay in effect. The lifetime claim continues to count against the organization that issued it, so moving a project does not return a trial slot.
 
 Trial task receipts include raw token costs and compute across each sandbox's full recorded lifetime, including time before user attribution. Customer compute charges continue to use the user-attributed window.
+
+Paid continuation after trial exhaustion checks billing with a three-second connection timeout and a five-second read timeout, including product-catalog fallback requests. If billing times out, admission remains blocked until paid authorization can be confirmed.

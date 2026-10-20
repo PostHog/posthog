@@ -3,13 +3,52 @@ from unittest.mock import Mock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from requests.exceptions import ConnectTimeout, ReadTimeout
 
-from posthog.models import Organization
+from posthog.models import Organization, Team
 
-from products.signals.backend.trial.billing import TrialBilling, TrialBillingStatus, TrialContinuation
+from products.signals.backend.trial.billing import (
+    TrialBilling,
+    TrialBillingStatus,
+    TrialContinuation,
+    paid_trial_continuation_authorized,
+)
+
+from ee.models import License
 
 
 class TestTrialBilling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (failure, licensed, billing_response)
+            for failure in (ConnectTimeout, ReadTimeout)
+            for licensed, billing_response in (
+                (True, None),
+                (False, None),
+                (True, {"customer": None}),
+                (True, {"customer": {"products": []}}),
+                (True, {"customer": {"products": [], "customer_trust_scores": {"inbox": 1}}}),
+            )
+        ]
+    )
+    def test_billing_timeouts_deny_paid_continuation(
+        self, failure: type[Exception], licensed: bool, billing_response: dict[str, object] | None
+    ) -> None:
+        organization = Organization(name="Trial billing test", customer_id="cus_example", never_drop_data=None)
+        team = Team(organization=organization)
+        license = License(key="trial-test::synthetic-billing-secret-for-tests") if licensed else None
+        responses: list[Mock | type[Exception]] = (
+            [failure] if billing_response is None else [Mock(status_code=200, json=lambda: billing_response), failure]
+        )
+        with (
+            patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=license),
+            patch("ee.billing.billing_manager.get_cached_instance_license", return_value=license),
+            patch("ee.billing.billing_manager.http_session.get", side_effect=responses) as get,
+        ):
+            assert not paid_trial_continuation_authorized(team)
+        assert get.call_count == len(responses)
+        assert all(call.kwargs["timeout"] == (3, 5) for call in get.call_args_list)
+
     @parameterized.expand(
         [
             (False, False, 0, "0", 0, 0, 0, True, TrialContinuation.PAYMENT),

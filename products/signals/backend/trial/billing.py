@@ -75,7 +75,7 @@ class TrialBilling:
         customer = cast(
             CustomerInfo,
             BillingManager(get_cached_instance_license()).get_billing(
-                self.organization, query_params={"include_forecasting": "false"}
+                self.organization, query_params={"include_forecasting": "false"}, timeout=(3, 5)
             ),
         )
         product = next((p for p in customer.get("products") or [] if p.get("type") == "inbox"), None)
