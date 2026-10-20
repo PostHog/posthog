@@ -98,6 +98,8 @@ class GainsightCsResumeConfig:
     # Row index of the next page to request. The Read API pages with limit/offset in the POST body,
     # so an offset is all that's needed to pick a sync back up.
     offset: int = 0
+    # cta_task only: the first task page to request for the CTA at `offset`.
+    task_page: int = 1
 
 
 @frozen
@@ -443,16 +445,17 @@ def gainsight_cs_cta_task_source(
     order_by = _gsid_order_by(describe_object(session, domain, access_key, CTA_OBJECT_NAME))
     query_url = f"{_base_url(domain)}{QUERY_PATH.format(object_name=CTA_OBJECT_NAME)}"
 
-    def cta_task_pages(cta_gsid: str, next_offset: int) -> Iterator[list[dict[str, Any]]]:
+    def cta_task_pages(cta_gsid: str, cta_offset: int, first_page: int) -> Iterator[list[dict[str, Any]]]:
         url = f"{_base_url(domain)}{TASK_LIST_PATH.format(cta_gsid=cta_gsid)}"
-        for page_number in range(1, MAX_TASK_PAGES_PER_CTA + 1):
+        for page_number in range(first_page, first_page + MAX_TASK_PAGES_PER_CTA):
             params = {"pn": page_number, "ps": TASK_PAGE_SIZE}
             rows = _rows_from_body(_get_json(session, url, access_key, params), CTA_TASK)
             last_page = len(rows) < TASK_PAGE_SIZE
             if last_page:
-                # Staged only with the CTA's last page, so a resume re-reads a CTA that was cut off
-                # mid-way instead of skipping its remaining tasks.
-                resumable_source_manager.save_state(GainsightCsResumeConfig(offset=next_offset))
+                next_state = GainsightCsResumeConfig(offset=cta_offset + 1)
+            else:
+                next_state = GainsightCsResumeConfig(offset=cta_offset, task_page=page_number + 1)
+            resumable_source_manager.save_state(next_state)
             if rows:
                 yield [{**row, TASK_CTA_ID: cta_gsid} for row in rows]
             else:
@@ -460,19 +463,23 @@ def gainsight_cs_cta_task_source(
             if last_page:
                 return
 
+        # The staged cursor points at the next task page, so the next attempt continues this CTA.
+        resumable_source_manager.safe_point()
         raise GainsightCsPageBudgetExhaustedError(
-            f"Stopped after {MAX_TASK_PAGES_PER_CTA} task pages of CTA '{cta_gsid}'."
+            f"Stopped after {MAX_TASK_PAGES_PER_CTA} task pages of CTA '{cta_gsid}'; the next attempt resumes at page {page_number + 1}."
         )
 
     def items() -> Iterator[list[dict[str, Any]]]:
         _require_allowed_host(domain, team_id)
 
-        # The offset counts CTAs, not tasks: it is the index of the next CTA whose tasks to fetch.
+        # The offset counts CTAs, not tasks: it is the index of the CTA whose tasks to fetch next.
         offset = 0
+        first_task_page = 1
         if resumable_source_manager.can_resume():
             resume = resumable_source_manager.load_state()
             if resume is not None:
                 offset = max(resume.offset, 0)
+                first_task_page = max(resume.task_page, 1)
 
         for _ in range(MAX_PAGES_PER_ATTEMPT):
             body: dict[str, Any] = {"select": [GSID], "limit": MAX_PAGE_SIZE, "offset": offset}
@@ -481,14 +488,14 @@ def gainsight_cs_cta_task_source(
 
             ctas = _rows_from_body(_post_json(session, query_url, access_key, body), CTA_OBJECT_NAME)
             for cta in ctas:
-                offset += 1
                 cta_gsid = cta.get(GSID)
                 # The Gsid lands in the request path, so only an id-shaped value is sent.
                 if isinstance(cta_gsid, str) and _OBJECT_NAME_RE.match(cta_gsid):
-                    yield from cta_task_pages(cta_gsid, offset)
+                    yield from cta_task_pages(cta_gsid, offset, first_task_page)
+                offset += 1
+                first_task_page = 1
 
             if len(ctas) < MAX_PAGE_SIZE:
-                resumable_source_manager.clear_state()
                 return
 
         resumable_source_manager.safe_point()
@@ -500,6 +507,9 @@ def gainsight_cs_cta_task_source(
         name=CTA_TASK,
         items=items,
         primary_keys=COCKPIT_PRIMARY_KEYS[CTA_TASK],
+        # Cleared only once the pipeline has written every batch, so a failed final write resumes
+        # near the end of the fan-out instead of starting it again.
+        on_complete=resumable_source_manager.clear_state,
     )
 
 

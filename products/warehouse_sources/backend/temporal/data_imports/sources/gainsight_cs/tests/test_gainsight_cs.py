@@ -270,26 +270,52 @@ class TestCtaTasks:
             {"Gsid": "t4", "CtaId": "ctaC"},
         ]
         assert result.saved_states == [
+            GainsightCsResumeConfig(offset=0, task_page=2),
             GainsightCsResumeConfig(offset=1),
             GainsightCsResumeConfig(offset=3),
             GainsightCsResumeConfig(offset=4),
         ]
-        assert result.final_state is None
+        assert result.final_state == GainsightCsResumeConfig(offset=4)
+        assert result.completed_state is None
 
-    def test_resumes_at_the_saved_cta(self) -> None:
-        result = self._driver().run(
-            "cta_task",
-            [
-                ScriptedResponse(json=_describe_body([_field("Gsid")], "call_to_action")),
-                self._page([{"Gsid": "ctaD"}]),
-                self._page([{"Gsid": "t9"}]),
-            ],
-            resume_state=GainsightCsResumeConfig(offset=7),
-        )
+    def test_resumes_mid_way_through_a_ctas_tasks(self) -> None:
+        with mock.patch(f"{GAINSIGHT_MODULE}.TASK_PAGE_SIZE", 2):
+            result = self._driver().run(
+                "cta_task",
+                [
+                    ScriptedResponse(json=_describe_body([_field("Gsid")], "call_to_action")),
+                    self._page([{"Gsid": "ctaD"}, {"Gsid": "ctaE"}]),
+                    self._page([{"Gsid": "t9"}]),
+                    self._page([{"Gsid": "t10"}]),
+                ],
+                resume_state=GainsightCsResumeConfig(offset=7, task_page=3),
+            )
 
         assert result.raised is None
         assert result.requests[1].json()["offset"] == 7
-        assert result.rows == [{"Gsid": "t9", "CtaId": "ctaD"}]
+        assert result.params("pn") == [None, None, "3", "1"]
+        assert result.rows == [{"Gsid": "t9", "CtaId": "ctaD"}, {"Gsid": "t10", "CtaId": "ctaE"}]
+
+    def test_checkpoints_the_next_task_page_when_a_cta_exhausts_its_budget(self) -> None:
+        full_page = self._page([{"Gsid": "t1"}, {"Gsid": "t2"}])
+        with (
+            mock.patch(f"{GAINSIGHT_MODULE}.TASK_PAGE_SIZE", 2),
+            mock.patch(f"{GAINSIGHT_MODULE}.MAX_TASK_PAGES_PER_CTA", 2),
+        ):
+            result = self._driver().run(
+                "cta_task",
+                [
+                    ScriptedResponse(json=_describe_body([_field("Gsid")], "call_to_action")),
+                    self._page([{"Gsid": "ctaA"}]),
+                    full_page,
+                    full_page,
+                ],
+                resume_state=GainsightCsResumeConfig(offset=5, task_page=4),
+            )
+
+        assert isinstance(result.raised, GainsightCsPageBudgetExhaustedError)
+        assert result.params("pn") == [None, None, "4", "5"]
+        assert result.final_state == GainsightCsResumeConfig(offset=5, task_page=6)
 
 
 class TestCappedResponses:
