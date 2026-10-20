@@ -51,6 +51,9 @@ class TestWidgetOpenApiEnumOverrides:
                 "Add e.g. "
                 f'"{widget_type.replace("_", " ").title().replace(" ", "")}WidgetTypeEnum": ["{widget_type}"],'
             )
+        assert enum_overrides.get("DashboardWidgetTypeEnum") == sorted(EXPECTED_WIDGET_TYPES), (
+            "DashboardWidgetTypeEnum in ENUM_NAME_OVERRIDES must list every registered widget type, sorted."
+        )
 
     def test_dashboard_widget_openapi_has_no_unresolved_widget_type_enum_collisions(self) -> None:
         schema = SchemaGenerator().get_schema(request=None, public=True)
