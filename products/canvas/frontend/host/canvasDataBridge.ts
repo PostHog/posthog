@@ -335,6 +335,8 @@ export class CanvasDataBridge {
             throw new Error('Unknown canvas action')
         }
         const payload = (input.payload as Record<string, unknown> | undefined) ?? {}
+        // Every verb is a write the canvas chose, so the viewer confirms each one. A user gesture alone
+        // is not consent: an unrelated click on the host page also counts as user activation.
         if (!(await this.prompts.confirmAction({ action, payload }))) {
             throw new Error('Canvas action canceled')
         }

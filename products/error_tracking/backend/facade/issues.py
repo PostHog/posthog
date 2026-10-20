@@ -8,7 +8,10 @@ django.setup() path of the read-oriented main facade.
 from typing import Any
 from uuid import UUID
 
+from posthog.models.team.team import Team
 from posthog.models.user import User
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ..logic import issue_mutations as _mutations
 from . import api, contracts
@@ -16,6 +19,11 @@ from . import api, contracts
 CohortNotFoundError = _mutations.CohortNotFoundError
 AssigneeValidationError = _mutations.AssigneeValidationError
 InvalidIssueStatusError = _mutations.InvalidIssueStatusError
+
+
+def user_can_mutate_issues(*, team: Team, user: User) -> bool:
+    """Whether ``user`` may change issues in this team — the editor check the issue API enforces."""
+    return UserAccessControl(user=user, team=team).check_access_level_for_resource("error_tracking", "editor")
 
 
 def update_issue(
