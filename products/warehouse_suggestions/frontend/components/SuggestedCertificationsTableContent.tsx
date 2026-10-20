@@ -3,14 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { certificationSummaryText } from '../suggestionCopy'
+import { certificationSummaryText, countOf } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { CertificationSuggestionRow } from './CertificationSuggestionRow'
-import { SuggestionsSection } from './SuggestionsSection'
+import { SuggestionsBanner } from './SuggestionsBanner'
+import { SuggestionsReviewModal } from './SuggestionsReviewModal'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
 
 export function SuggestedCertificationsTableContent(): JSX.Element | null {
-    const { stripState, visibleSuggestions, surfaceSuggestions, status } = useValues(warehouseSuggestionsLogic)
+    const { stripState, listedSuggestions, surfaceSuggestions, status } = useValues(warehouseSuggestionsLogic)
     const { reload } = useActions(warehouseSuggestionsLogic)
     const windowDays = status?.window_days ?? 0
 
@@ -32,10 +33,31 @@ export function SuggestedCertificationsTableContent(): JSX.Element | null {
     }
 
     return (
-        <SuggestionsSection title="Certification suggestions" summary={certificationSummaryText(surfaceSuggestions)}>
-            {visibleSuggestions.map((suggestion) => (
-                <CertificationSuggestionRow key={suggestion.id} suggestion={suggestion} windowDays={windowDays} />
-            ))}
-        </SuggestionsSection>
+        <>
+            {stripState === 'active' && (
+                <SuggestionsBanner
+                    message={
+                        <>
+                            <strong translate="no">
+                                {countOf(
+                                    surfaceSuggestions.length,
+                                    'certification suggestion',
+                                    'certification suggestions'
+                                )}
+                            </strong>
+                            <span translate="no">{`: ${certificationSummaryText(surfaceSuggestions)}`}</span>
+                        </>
+                    }
+                />
+            )}
+            <SuggestionsReviewModal
+                title="Certification suggestions"
+                summary={certificationSummaryText(surfaceSuggestions)}
+            >
+                {listedSuggestions.map((suggestion) => (
+                    <CertificationSuggestionRow key={suggestion.id} suggestion={suggestion} windowDays={windowDays} />
+                ))}
+            </SuggestionsReviewModal>
+        </>
     )
 }

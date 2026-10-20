@@ -5,15 +5,16 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
-import { savingsSummaryText } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { MaterializeSuggestionModal } from './MaterializeSuggestionModal'
 import { MaterializeSuggestionRow } from './MaterializeSuggestionRow'
-import { SuggestionsSection } from './SuggestionsSection'
+import { SavingsBannerMessage } from './SavingsBannerMessage'
+import { SuggestionsBanner } from './SuggestionsBanner'
+import { SuggestionsReviewModal } from './SuggestionsReviewModal'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
 
 export function SuggestedModelsStripContent(): JSX.Element | null {
-    const { stripState, visibleSuggestions, savingsSummary, status } = useValues(warehouseSuggestionsLogic)
+    const { stripState, listedSuggestions, savingsSummary, status } = useValues(warehouseSuggestionsLogic)
     const { reload } = useActions(warehouseSuggestionsLogic)
     const windowDays = status?.window_days ?? 0
 
@@ -61,11 +62,17 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
 
     return (
         <>
-            <SuggestionsSection title="Suggested models" summary={savingsSummaryText(savingsSummary)}>
-                {visibleSuggestions.map((suggestion) => (
+            {stripState === 'active' && (
+                <SuggestionsBanner message={<SavingsBannerMessage summary={savingsSummary} />} />
+            )}
+            <SuggestionsReviewModal
+                title="Suggested models"
+                summary={<SavingsBannerMessage summary={savingsSummary} />}
+            >
+                {listedSuggestions.map((suggestion) => (
                     <MaterializeSuggestionRow key={suggestion.id} suggestion={suggestion} windowDays={windowDays} />
                 ))}
-            </SuggestionsSection>
+            </SuggestionsReviewModal>
             <MaterializeSuggestionModal />
         </>
     )

@@ -1,8 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
+import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { SuggestedCertificationsTable } from './SuggestedCertificationsTable'
 
 const LIST_URL = '/api/projects/:team_id/warehouse_suggestions/'
@@ -58,15 +61,23 @@ function suggestion(
 interface TableStoryProps {
     results: WarehouseSuggestionApi[]
     width?: 'normal' | 'narrow'
+    reviewOpen?: boolean
 }
 
-function TableStory({ results, width }: TableStoryProps): JSX.Element {
+function TableStory({ results, width, reviewOpen = false }: TableStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
             [LIST_URL]: { count: results.length, results },
             [STATUS_URL]: status,
         },
     })
+    const logic = warehouseSuggestionsLogic({ surface: 'catalog' })
+    const { stripState } = useValues(logic)
+    useEffect(() => {
+        if (reviewOpen && stripState === 'active') {
+            logic.actions.openReview()
+        }
+    }, [reviewOpen, stripState, logic])
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
             <SuggestedCertificationsTable />
@@ -83,7 +94,7 @@ export default meta
 
 type Story = StoryObj<typeof TableStory>
 
-export const CertifyAndDeprecate: Story = {
+export const Banner: Story = {
     args: {
         results: [
             suggestion('1', 'certify', 'saved_query', 'customer_monthly_revenue'),
@@ -93,9 +104,21 @@ export const CertifyAndDeprecate: Story = {
     },
 }
 
-export const Narrow: Story = {
+export const ReviewDialog: Story = {
+    args: {
+        reviewOpen: true,
+        results: [
+            suggestion('1', 'certify', 'saved_query', 'customer_monthly_revenue'),
+            suggestion('2', 'certify', 'table', 'stripe_charges'),
+            suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup', false),
+        ],
+    },
+}
+
+export const ReviewDialogNarrow: Story = {
     args: {
         width: 'narrow',
+        reviewOpen: true,
         results: [
             suggestion('1', 'certify', 'saved_query', 'customer_monthly_revenue_by_region_and_plan'),
             suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup'),

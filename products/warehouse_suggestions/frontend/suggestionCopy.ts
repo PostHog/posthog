@@ -1,5 +1,4 @@
 import { humanizeBytes } from 'lib/utils/numbers'
-import { CADENCE_LABELS } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 
 import type {
     WarehouseSuggestionApi,
@@ -7,7 +6,6 @@ import type {
     WarehouseSuggestionEvidenceApi,
     WarehouseSuggestionMaterializePayloadApi,
 } from './generated/api.schemas'
-import { intervalForSeconds } from './refreshIntervals'
 
 const MIN_SECONDS_WORTH_NAMING = 60
 const SPOKEN_UNITS: [string, number][] = [
@@ -85,23 +83,6 @@ export function savingSentence(payload: WarehouseSuggestionMaterializePayloadApi
     return `Saves about ${humanizeBytes(payload.saves_bytes_per_month)} of scanning a month`
 }
 
-export function savingsSummaryText(summary: SavingsSummary): string {
-    const timePart =
-        summary.timeViews > 0
-            ? `${countOf(summary.timeViews, 'view', 'views')} could save about ${spokenDuration(summary.savedSeconds, 1)} of query time a month`
-            : null
-    if (timePart && summary.bytesViews > 0) {
-        return `${timePart}, and ${humanizeBytes(summary.savedBytes)} less scanning`
-    }
-    if (timePart) {
-        return timePart
-    }
-    if (summary.bytesViews > 0) {
-        return `${countOf(summary.bytesViews, 'view', 'views')} could save ${humanizeBytes(summary.savedBytes)} of scanning a month`
-    }
-    return ''
-}
-
 export function certificationSummaryText(suggestions: WarehouseSuggestionApi[]): string {
     const certify = suggestions.filter((suggestion) => suggestion.kind === 'certify').length
     const deprecate = suggestions.filter((suggestion) => suggestion.kind === 'deprecate').length
@@ -127,11 +108,6 @@ export function refreshCostLabel(payload: WarehouseSuggestionDeprecatePayloadApi
         return `Refreshes use about ${spokenDuration(payload.refresh_seconds_per_month, MAX_SPOKEN_UNITS)} a month`
     }
     return `Refreshes scan about ${humanizeBytes(payload.refresh_bytes_per_month)} a month`
-}
-
-export function refreshLabel(intervalSeconds: number): string {
-    const interval = intervalForSeconds(intervalSeconds)
-    return `Refreshes every ${interval ? CADENCE_LABELS[interval] : spokenDuration(intervalSeconds, 1)}`
 }
 
 function dataAgeAfterSeconds(payload: WarehouseSuggestionMaterializePayloadApi, intervalSeconds: number): number {
@@ -182,6 +158,6 @@ export function spokenDuration(seconds: number, maxUnits: number): string {
     return parts.length > 0 ? parts.join(' and ') : 'under a minute'
 }
 
-function countOf(count: number, singular: string, plural: string): string {
+export function countOf(count: number, singular: string, plural: string): string {
     return `${count} ${count === 1 ? singular : plural}`
 }

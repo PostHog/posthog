@@ -210,18 +210,6 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual(expectedOrder)
     })
 
-    it('shows five suggestions until someone asks for the rest', async () => {
-        mockList.mockResolvedValue(page(Array.from({ length: 7 }, (_, index) => materialize(`s${index}`, 600))))
-        await mountLogic()
-
-        expect(logic.values.visibleSuggestions).toHaveLength(5)
-        expect(logic.values.moreSuggestionsCount).toEqual(2)
-
-        logic.actions.showAllSuggestions()
-
-        expect(logic.values.visibleSuggestions).toHaveLength(7)
-    })
-
     it('counts time and bytes savings separately', async () => {
         mockList.mockResolvedValue(page([materialize('a', 1800), materialize('b', 1200), materialize('c', 0, 3e12)]))
 
@@ -246,11 +234,11 @@ describe('warehouseSuggestionsLogic', () => {
             await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
             expect(logic.values.savingsSummary.savedSeconds).toEqual(1200)
-            expect(logic.values.visibleSuggestions.map((suggestion) => suggestion.id)).toEqual(['a', 'b'])
+            expect(logic.values.listedSuggestions.map((suggestion) => suggestion.id)).toEqual(['a', 'b'])
 
             jest.advanceTimersByTime(ROW_LEAVE_MS)
 
-            expect(logic.values.visibleSuggestions.map((suggestion) => suggestion.id)).toEqual(['b'])
+            expect(logic.values.listedSuggestions.map((suggestion) => suggestion.id)).toEqual(['b'])
         } finally {
             jest.useRealTimers()
         }
@@ -353,6 +341,7 @@ describe('warehouseSuggestionsLogic', () => {
         mockList.mockResolvedValue(page([accepted]))
         mockAccept.mockResolvedValue({ ...accepted, status: 'accepted' })
         await mountLogic(surface, onViewAccepted)
+        logic.actions.openReview()
         logic.actions.acceptSuggestion(accepted.id)
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
         const [, options] = (lemonToast.success as jest.Mock).mock.calls[0]
@@ -374,6 +363,7 @@ describe('warehouseSuggestionsLogic', () => {
         await acceptAndClickView('catalog', accepted, onViewAccepted)
 
         expect(onViewAccepted).toHaveBeenCalledWith(expect.objectContaining({ id: accepted.id }))
+        expect(logic.values.reviewOpen).toBe(false)
     })
 
     it.each<[string, number, boolean]>([

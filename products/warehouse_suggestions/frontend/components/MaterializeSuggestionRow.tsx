@@ -7,7 +7,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
-import { dataAgeLabel, isMaterializePayload, readSummary, refreshLabel, savingHighlight } from '../suggestionCopy'
+import { dataAgeLabel, isMaterializePayload, readSummary, savingHighlight } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DataAgeMeta } from './DataAgeMeta'
 import { DismissSuggestionMenu } from './DismissSuggestionMenu'
@@ -57,7 +57,6 @@ export function MaterializeSuggestionRow({
                     windowDays={windowDays}
                     label={readSummary(suggestion.evidence)}
                 />,
-                <span key="refresh">{refreshLabel(payload.refresh_interval_seconds)}</span>,
                 <DataAgeMeta key="age" age={dataAgeLabel(payload, payload.refresh_interval_seconds)} />,
             ]}
             highlight={savingHighlight(payload)}

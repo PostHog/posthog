@@ -82,7 +82,7 @@ const manySuggestions = Array.from({ length: 7 }, (_, index) =>
 interface StripStoryProps {
     results?: WarehouseSuggestionApi[]
     statusOverrides?: Partial<WarehouseSuggestionStatusApi>
-    expanded?: boolean
+    reviewOpen?: boolean
     failing?: boolean
     width?: 'normal' | 'narrow'
     openDialogWithInterval?: DataModelingSyncInterval
@@ -91,7 +91,7 @@ interface StripStoryProps {
 function StripStory({
     results = suggestions,
     statusOverrides,
-    expanded = true,
+    reviewOpen = false,
     failing,
     width,
     openDialogWithInterval,
@@ -105,15 +105,18 @@ function StripStory({
     const logic = warehouseSuggestionsLogic({ surface: 'models' })
     const { stripState } = useValues(logic)
     useEffect(() => {
-        logic.actions.setCollapsed(!expanded)
-    }, [expanded, logic])
-    useEffect(() => {
-        if (!openDialogWithInterval || stripState !== 'active') {
+        if (stripState !== 'active') {
+            return
+        }
+        if (reviewOpen || openDialogWithInterval) {
+            logic.actions.openReview()
+        }
+        if (!openDialogWithInterval) {
             return
         }
         logic.actions.openMaterializeModal(results[0].id)
         logic.actions.setMaterializeInterval(openDialogWithInterval)
-    }, [openDialogWithInterval, stripState, logic, results])
+    }, [reviewOpen, openDialogWithInterval, stripState, logic, results])
 
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
@@ -131,14 +134,14 @@ export default meta
 
 type Story = StoryObj<typeof StripStory>
 
-export const Expanded: Story = {}
+export const Banner: Story = {}
 
-export const Collapsed: Story = { args: { expanded: false } }
+export const BannerNarrow: Story = { args: { width: 'narrow' } }
 
-export const ExpandedNarrow: Story = { args: { width: 'narrow' } }
+export const ReviewDialog: Story = { args: { reviewOpen: true } }
 
-export const ViewerWithoutEditAccess: Story = {
-    args: { results: [materialize('1', 'customer_monthly_revenue', 1080, { canAct: false })] },
+export const ReviewDialogViewerWithoutEditAccess: Story = {
+    args: { reviewOpen: true, results: [materialize('1', 'customer_monthly_revenue', 1080, { canAct: false })] },
 }
 
 export const WarmingUp: Story = { args: { results: [], statusOverrides: { days_with_data: 12 } } }
@@ -147,7 +150,7 @@ export const NotEligible: Story = { args: { results: [], statusOverrides: { elig
 
 export const LoadFailed: Story = { args: { failing: true } }
 
-export const ManySuggestions: Story = { args: { results: manySuggestions } }
+export const ReviewDialogManySuggestions: Story = { args: { reviewOpen: true, results: manySuggestions } }
 
 export const MaterializeDialogLongerScheduleUnknownSources: Story = {
     args: {
