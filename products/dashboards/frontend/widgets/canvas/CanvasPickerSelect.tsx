@@ -3,11 +3,10 @@ import { useEffect, useMemo } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect, type LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { fullName } from 'lib/utils/strings'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
+import { CanvasOptionLabel } from './CanvasOptionLabel'
 import { canvasPickerLogic } from './canvasPickerLogic'
 
 export type CanvasPickerSelectProps = {
@@ -19,25 +18,6 @@ export type CanvasPickerSelectProps = {
     size?: 'small' | 'medium'
     fullWidth?: boolean
     dataAttr?: string
-}
-
-function CanvasOptionLabel({ canvas }: { canvas: CanvasApi }): JSX.Element {
-    const creator = canvas.created_by
-    const creatorName = creator ? fullName(creator) || creator.email : null
-    return (
-        <span className="flex w-full items-center justify-between gap-2">
-            <span className="min-w-0 flex-1 truncate">{canvas.name}</span>
-            {creator ? (
-                <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted">
-                    <ProfilePicture
-                        user={{ first_name: creator.first_name, last_name: creator.last_name, email: creator.email }}
-                        size="sm"
-                    />
-                    <span className="max-w-32 truncate">{creatorName}</span>
-                </span>
-            ) : null}
-        </span>
-    )
 }
 
 export function CanvasPickerSelect({
