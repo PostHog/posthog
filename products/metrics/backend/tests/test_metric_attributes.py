@@ -120,6 +120,24 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == ["prod"]
 
+    @parameterized.expand(
+        [
+            ("matching_metric", "http_requests", "region", ["us"]),
+            ("other_metric", "queue_depth", "region", []),
+            ("service_name_matching_metric", "http_requests", "service_name", ["checkout", "billing"]),
+            ("service_name_unknown_metric", "missing_metric", "service_name", []),
+        ]
+    )
+    def test_attribute_values_metric_name_limits_values_to_that_metric(
+        self, _name: str, metric_name: str, key: str, expected: list[str]
+    ) -> None:
+        response = self._get(
+            "attribute_values",
+            {"key": key, "metricName": metric_name, "dateFrom": (self.now - dt.timedelta(hours=6)).isoformat()},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [r["name"] for r in response.json()["results"]] == expected
+
     @parameterized.expand([("underscore_spelling", "service_name"), ("dotted_spelling", "service.name")])
     def test_attribute_values_for_service_name_read_the_column(self, _name: str, key: str) -> None:
         response = self._get("attribute_values", {"key": key})

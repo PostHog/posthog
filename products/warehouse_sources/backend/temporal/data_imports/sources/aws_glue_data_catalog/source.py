@@ -129,7 +129,7 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
             ),
             iconPath="/static/services/aws_glue_data_catalog.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-glue-data-catalog",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "glue", "data catalog", "etl"],
             fields=cast(
                 list[FieldType],

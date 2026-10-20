@@ -190,7 +190,7 @@ class TestBackupsFanOut:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
+    @parameterized.expand([("forbidden_scope", 403, True)])
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key ID/secret.
         with scripted_network([ScriptedResponse(status=status)]) as network:

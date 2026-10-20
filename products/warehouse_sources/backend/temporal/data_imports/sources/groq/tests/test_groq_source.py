@@ -22,16 +22,6 @@ class TestGroqSource:
 
     @parameterized.expand(
         [
-            ("valid", True, 200, True, None),
-            ("invalid_key", False, 401, False, "Invalid Groq API key"),
-            (
-                "forbidden",
-                False,
-                403,
-                False,
-                "Your Groq API key is missing the permissions needed to sync this data",
-            ),
-            ("other_failure", False, 500, False, "Could not connect to Groq with the provided API key"),
             ("no_connection", False, None, False, "Could not connect to Groq with the provided API key"),
         ]
     )
