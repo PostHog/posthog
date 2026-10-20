@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -26,6 +28,7 @@ export const scene: SceneExport = {
 
 export function AutoresearchScene(): JSX.Element {
     const isEnabled = useFeatureFlag('AUTORESEARCH')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { pipelines, pipelinesLoading, pipelinesLoadFailed } = useValues(autoresearchLogic)
     const { loadPipelines } = useActions(autoresearchLogic)
 
@@ -42,15 +45,26 @@ export function AutoresearchScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Autoresearch].iconType ?? 'experiment',
                 }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        size="small"
-                        to={urls.autoresearchNew()}
-                        data-attr="autoresearch-new-model"
-                    >
-                        New model
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="primary"
+                            render={<LinkPrimitive to={urls.autoresearchNew()} />}
+                            data-attr="autoresearch-new-model"
+                        >
+                            <IconPlus />
+                            New model
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            size="small"
+                            to={urls.autoresearchNew()}
+                            data-attr="autoresearch-new-model"
+                        >
+                            New model
+                        </LemonButton>
+                    )
                 }
             />
 

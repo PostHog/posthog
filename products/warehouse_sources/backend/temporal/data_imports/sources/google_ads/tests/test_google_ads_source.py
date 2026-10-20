@@ -1524,6 +1524,35 @@ class TestGetOAuthAccountsNetworkErrorHandling:
                 source.get_oauth_accounts(1, 2)
 
 
+class TestGetOAuthAccountsPermissionErrors:
+    @pytest.mark.parametrize(
+        "body, expected",
+        [
+            (
+                '{"error": {"status": "PERMISSION_DENIED", "details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}}',
+                "allow access to your Google Ads data",
+            ),
+            ('{"error": {"status": "PERMISSION_DENIED"}}', "Google rejected the credentials"),
+        ],
+    )
+    def test_forbidden_listing_names_the_fix(self, body, expected):
+        cache.clear()
+        integration = mock.Mock(errors=None, kind="google-ads", sensitive_config={"access_token": "token"})
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(
+                "posthog.models.integration.google_ads.requests.request",
+                return_value=mock.Mock(status_code=403, text=body),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+
+            with pytest.raises(IntegrationAccountListingError, match=expected):
+                GoogleAdsSource().get_oauth_accounts(1, 2)
+
+
 class _DrainClock:
     """A monotonic clock the test drives itself, one second per window drained.
 
