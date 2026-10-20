@@ -522,13 +522,6 @@ export interface inboxTaskKickoffLogicActions {
     discussReportSuccess: () => {
         value: true
     }
-    quickAskFailed: (
-        reportId: string,
-        question: string
-    ) => {
-        question: string
-        reportId: string
-    }
     openReportDiscussion: (
         report: SignalReport,
         reportUrl: string
@@ -546,6 +539,13 @@ export interface inboxTaskKickoffLogicActions {
         runId: string
         streamKey: string | undefined
         taskId: string
+    }
+    quickAskFailed: (
+        reportId: string,
+        question: string
+    ) => {
+        question: string
+        reportId: string
     }
     releaseReportDiscussionWarm: () => {
         value: true
