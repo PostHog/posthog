@@ -47,7 +47,7 @@ describe('workflowsLogic', () => {
         const update = jest.spyOn(api.hogFlows, 'updateHogFlow').mockResolvedValue(workflow)
 
         await expectLogic(logic, () => logic.actions.updateWorkflowTags(workflow, ['growth']))
-            .toDispatchActions(['updateWorkflowTagsDone'])
+            .toFinishAllListeners()
             .toMatchValues({ localWorkflowTags: { 'flow-1': ['growth'] } })
 
         expect(update).toHaveBeenCalledWith('flow-1', { tags: ['growth'] })

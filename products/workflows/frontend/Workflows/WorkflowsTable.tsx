@@ -15,7 +15,6 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -48,6 +47,7 @@ import {
     workflowsLogic,
 } from './workflowsLogic'
 import { WorkflowStepMatches } from './WorkflowStepMatches'
+import { WorkflowTagsCell } from './WorkflowTagsCell'
 import { hasMessagingAction } from './workflowTypeFilters'
 
 const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
@@ -133,7 +133,6 @@ export function WorkflowsTable(): JSX.Element {
         allArchivedSelected,
         selectedArchivedCount,
         localWorkflowTags,
-        savingTagsWorkflowIds,
         tags: allTags,
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
@@ -271,18 +270,13 @@ export function WorkflowsTable(): JSX.Element {
                             item.user_access_level,
                             AccessControlLevel.Editor
                         ))
-                if (!canEdit) {
-                    return <ObjectTags tags={tags} staticOnly onTagClick={filterByTag} />
-                }
                 return (
-                    <ObjectTags
+                    <WorkflowTagsCell
                         tags={tags}
-                        onChange={(newTags) => updateWorkflowTags(item, newTags)}
-                        saving={savingTagsWorkflowIds.has(item.id)}
                         tagsAvailable={allTags.filter((tag) => !tags.includes(tag))}
+                        canEdit={canEdit}
+                        onChange={(newTags) => updateWorkflowTags(item, newTags)}
                         onTagClick={filterByTag}
-                        maxVisibleTags={3}
-                        data-attr="workflow-list-tags"
                     />
                 )
             },
@@ -540,6 +534,7 @@ export function WorkflowsTable(): JSX.Element {
                     dataSource={workflows.results}
                     loading={workflowsLoading}
                     rowKey="id"
+                    rowClassName="group"
                     columns={columns}
                     defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
                     pagination={pagination}
