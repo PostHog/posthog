@@ -13,6 +13,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 
+import { template as nativePushTemplate } from '../../templates/_destinations/push/push.template'
 import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '../../types'
 import { createAddLogFunction } from '../../utils'
 import { EncryptedFields } from '../../utils/encryption-utils'
@@ -21,6 +22,7 @@ import {
     DeviceSubscription,
     getDevicePushSubscriptions,
     pushRecipientOtherThanRunPerson,
+    runDistinctIdMatching,
 } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { PersonsManagerService } from '../managers/persons-manager.service'
@@ -50,6 +52,8 @@ const pushNotificationFailedCounter = new Counter({
     help: 'Push notifications that failed to send, by platform and normalized failure reason.',
     labelNames: ['platform', 'reason'],
 })
+
+const NATIVE_PUSH_TEMPLATE_ID = nativePushTemplate.id
 
 const pushNotificationSkippedCounter = new Counter({
     name: 'push_notification_skipped_total',
@@ -533,10 +537,18 @@ export class PushNotificationService {
         params: CyclotronInvocationQueueParametersSendPushNotificationType
     ): Promise<PushRecipient | null> {
         const { event, person } = invocation.state.globals
-        const distinctId = pushRecipientOtherThanRunPerson(params.distinctId, invocation.state.globals)
+        // Only a workflow push step may name another person: the opt-out and frequency cap checks run there
+        // and nowhere else, so other hog code keeps sending to the run's person.
+        const isWorkflowPushStep =
+            !!invocation.state.actionId && invocation.hogFunction.template_id === NATIVE_PUSH_TEMPLATE_ID
+        const distinctId = isWorkflowPushStep
+            ? pushRecipientOtherThanRunPerson(params.distinctId, invocation.state.globals)
+            : null
         if (!distinctId) {
             return {
-                distinctId: params.distinctId.trim() || event.distinct_id || person?.distinct_id || '',
+                distinctId:
+                    runDistinctIdMatching(params.distinctId, invocation.state.globals) ??
+                    (event.distinct_id || person?.distinct_id || ''),
                 personId: person?.id,
                 properties: person?.properties,
                 isRunPerson: true,

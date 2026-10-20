@@ -21,12 +21,26 @@ export function pushRecipientOtherThanRunPerson(
     distinctIdInput: unknown,
     globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person'>
 ): string | null {
-    const distinctId = typeof distinctIdInput === 'string' ? distinctIdInput.trim() : ''
-    // An empty input (a batch run's event has no distinct_id) keeps the run's person.
-    if (!distinctId || distinctId === globals.event?.distinct_id || distinctId === globals.person?.distinct_id) {
+    const input = typeof distinctIdInput === 'string' ? distinctIdInput : ''
+    // Capture keeps surrounding whitespace in a distinct id, so the run's own id must match exactly first.
+    const runDistinctId = runDistinctIdMatching(input, globals)
+    if (runDistinctId !== undefined) {
         return null
     }
-    return distinctId
+    const distinctId = input.trim()
+    // An empty input (a batch run's event has no distinct_id) keeps the run's person.
+    return distinctId || null
+}
+
+/** The run's own distinct id the input names, exactly or with stray whitespace around a typed id. */
+export function runDistinctIdMatching(
+    input: string,
+    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person'>
+): string | undefined {
+    const runDistinctIds = [globals.event?.distinct_id, globals.person?.distinct_id].filter(
+        (id): id is string => typeof id === 'string' && id !== ''
+    )
+    return runDistinctIds.find((id) => id === input) ?? runDistinctIds.find((id) => id === input.trim())
 }
 
 /** Person property key holding one device's push token. */

@@ -635,6 +635,8 @@ describe('PushNotificationService', () => {
                 [runPersonKey]: encryptedFields.encrypt('run-person-token'),
             })
             ;(invocation.queueParameters as any).distinctId = distinctId
+            invocation.hogFunction.template_id = 'template-native-push'
+            invocation.state.actionId = 'push'
             return invocation
         }
 
@@ -676,17 +678,45 @@ describe('PushNotificationService', () => {
             expect(result.deliveredToRecipient).toBe(true)
         })
 
-        it.each([['test-distinct-id'], ['  test-distinct-id '], ['']])(
-            'reads the run person without a lookup when the input is %j',
-            async (distinctId) => {
+        it.each([
+            ['test-distinct-id', 'test-distinct-id'],
+            ['  test-distinct-id ', 'test-distinct-id'],
+            ['', 'test-distinct-id'],
+            [' user-42 ', ' user-42 '],
+        ])(
+            'reads the run person without a lookup when the input is %j and the run distinct_id is %j',
+            async (distinctId, runDistinctId) => {
                 mockTrackedFetch.mockResolvedValue(ok())
+                const invocation = invocationNaming(distinctId)
+                invocation.state.globals.event.distinct_id = runDistinctId
 
-                await service.executeSendPushNotification(invocationNaming(distinctId))
+                await service.executeSendPushNotification(invocation)
 
                 expect(personsManager.getCyclotronPerson).not.toHaveBeenCalled()
                 expect(sentTokens()).toEqual(['run-person-token'])
             }
         )
+
+        it.each([
+            [
+                'a custom destination',
+                (invocation: CyclotronJobInvocationHogFunction) => delete invocation.state.actionId,
+            ],
+            [
+                'a workflow step built on another template',
+                (invocation: CyclotronJobInvocationHogFunction) =>
+                    (invocation.hogFunction.template_id = 'template-webhook'),
+            ],
+        ])('keeps %s on the run person when it names someone else', async (_, notAPushStep) => {
+            mockTrackedFetch.mockResolvedValue(ok())
+            const invocation = invocationNaming('named-user')
+            notAPushStep(invocation)
+
+            await service.executeSendPushNotification(invocation)
+
+            expect(personsManager.getCyclotronPerson).not.toHaveBeenCalled()
+            expect(sentTokens()).toEqual(['run-person-token'])
+        })
 
         it('skips with a warning naming the input when it matches no person', async () => {
             // Falling back to the run person here would notify someone the step did not name.
