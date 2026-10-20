@@ -23,6 +23,7 @@ describe('oob-domains', () => {
         ['a deep subdomain', 'a.b.interact.sh', 'interact.sh'],
         ['an uppercase host', 'ABC.OAST.ME', 'oast.me'],
         ['an absolute host carrying the DNS root dot', 'abc.oast.me.', 'oast.me'],
+        ['a host carrying more than one trailing dot', 'abc.oast.me..', 'oast.me'],
         ['a fullwidth host that IDNA maps onto a listed one', 'ｏａｓｔ．ｍｅ', 'oast.me'],
         ['a host that only ends in the same letters', 'notoast.me', null],
         ['a listed name used as a prefix', 'oast.me.evil.example', null],

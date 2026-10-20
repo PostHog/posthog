@@ -69,8 +69,14 @@ function canonicalizeHost(host: string): string | null {
     if (!canonical) {
         return null
     }
-    // An absolute FQDN carries the DNS root dot, which the list does not.
-    return canonical.replace(/\.+$/, '')
+    // An absolute FQDN carries the DNS root dot, which the list does not. A loop strips it, because
+    // /\.+$/ backtracks in quadratic time on a long run of dots inside the host, and an email
+    // recipient puts no limit on that run.
+    let end = canonical.length
+    while (end > 0 && canonical[end - 1] === '.') {
+        end--
+    }
+    return canonical.slice(0, end)
 }
 
 /**
