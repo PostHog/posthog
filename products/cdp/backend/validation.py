@@ -1377,9 +1377,11 @@ def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team) -> None:
 
 
 def _only_references_other_cohorts(cohort: Cohort) -> bool:
-    condition_type = Cohort.compute_condition_type(cohort.filters) or {}
-    return bool(condition_type.get("cohorts")) and not any(
-        condition_type.get(kind) for kind in ("person_properties", "behavioral", "lifecycle")
+    condition_type = Cohort.compute_condition_type(cohort.filters)
+    if condition_type is None:
+        return False
+    return condition_type["cohorts"] and not (
+        condition_type["person_properties"] or condition_type["behavioral"] or condition_type["lifecycle"]
     )
 
 
