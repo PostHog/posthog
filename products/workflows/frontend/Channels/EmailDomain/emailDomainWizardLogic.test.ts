@@ -86,6 +86,8 @@ describe('emailDomainWizardLogic', () => {
         ["Jane's Organization", 'shop.acme.co.uk', 'Acme'],
         ['Default', 'acme.com.au', 'Acme'],
         ['', 'acme.io', 'Acme'],
+        ['Müller GmbH', 'mueller.de', 'Mueller'],
+        ['Acme "Labs"', 'acme.com', 'Acme'],
     ])('names the sender for the organization %p on %s as %s', async (organizationName, domain, senderName) => {
         organizationLogic.actions.loadCurrentOrganizationSuccess({
             ...MOCK_DEFAULT_ORGANIZATION,
