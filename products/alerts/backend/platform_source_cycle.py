@@ -37,6 +37,7 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
+from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, slot_of
@@ -124,9 +125,9 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
 
 
 def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
-    """Threshold alerts on a 15-minute or slower cadence. A detector alert makes its own decision,
-    and the LLM detector makes a charged model call, so evaluating either in parallel costs twice."""
-    return not alert.detector_config and alert.calculation_interval in EVALUATED_INTERVALS
+    """Threshold and statistical detector alerts on a 15-minute or slower cadence. The AI detector
+    makes a charged model call, so evaluating it in parallel costs twice."""
+    return not is_llm_detector_config(alert.detector_config) and alert.calculation_interval in EVALUATED_INTERVALS
 
 
 def plan_insight_batch(

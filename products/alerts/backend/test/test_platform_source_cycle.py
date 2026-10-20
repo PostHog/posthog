@@ -147,8 +147,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.deliveries = evaluation.deliveries if evaluation is not None else ()
         return (evaluation.outcomes[0] if evaluation is not None else None), query
 
-    def test_a_breach_fires_on_the_platform_and_leaves_the_production_alert_alone(self) -> None:
-        alert = self._alert()
+    @parameterized.expand([("threshold", {}), ("detector", {"detector_config": {"type": "zscore"}})])
+    def test_a_breach_fires_on_the_platform_and_leaves_the_production_alert_alone(
+        self, _name: str, alert_overrides: dict[str, Any]
+    ) -> None:
+        alert = self._alert(**alert_overrides)
         before = AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id)
         configuration = self._copy(alert)
 
@@ -209,7 +212,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     @parameterized.expand(
         [
             ("real_time", {"calculation_interval": AlertCalculationInterval.REAL_TIME.value}, "not_firing"),
-            ("detector", {"detector_config": {"type": "zscore"}}, "not_firing"),
+            ("ai_detector", {"detector_config": {"type": "llm"}}, "not_firing"),
             ("disabled", {"enabled": False}, "not_firing"),
             ("snoozed", {"snoozed_until": CUTOFF + timedelta(hours=1)}, "snoozed"),
         ]
