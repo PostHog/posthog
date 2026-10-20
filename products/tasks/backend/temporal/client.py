@@ -300,14 +300,10 @@ async def execute_task_processing_workflow_async(
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
     initial_message: PendingFollowup | None = None,
-    durable_dispatch: bool = False,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
     Use this from async contexts (e.g., within Temporal activities).
-
-    ``durable_dispatch`` means an outbox row already covers this run, so a failed start
-    leaves the run QUEUED for the dispatcher to retry instead of terminalizing it.
     """
     logger.info(
         "execute_task_processing_workflow_async_called",
@@ -381,8 +377,6 @@ async def execute_task_processing_workflow_async(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
-        if durable_dispatch:
-            return
         await _terminalize_unstarted_task_run_async(
             run_id,
             f"Failed to start task workflow: {e}",
@@ -403,14 +397,10 @@ def execute_task_processing_workflow(
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
     initial_message: PendingFollowup | None = None,
-    durable_dispatch: bool = False,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
     Use this from sync contexts (e.g., API endpoints).
-
-    ``durable_dispatch`` means an outbox row already covers this run, so a failed start
-    leaves the run QUEUED for the dispatcher to retry instead of terminalizing it.
     """
     # Metrics lookups stay inside the try so a failure here can't bypass terminalization and
     # leave the run orphaned in QUEUED (see the async variant above).
@@ -491,8 +481,6 @@ def execute_task_processing_workflow(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
-        if durable_dispatch:
-            return
         _terminalize_unstarted_task_run(
             run_id,
             f"Failed to start task workflow: {e}",
