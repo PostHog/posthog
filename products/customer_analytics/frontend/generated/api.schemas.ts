@@ -1591,8 +1591,10 @@ export interface CustomBotConditionApi {
     /** The event property this condition reads. */
     key: CustomBotFieldApi
     matcher: CustomBotMatcherApi
-    /** Matched against the property named by `key`. */
-    pattern: string
+    /** Matched against the property named by `key`. Required for every matcher except `cidr`. */
+    pattern?: string | null
+    /** IP ranges for the `cidr` matcher, matched when the IP falls in any of them. Each entry is a CIDR range, a bare address, or a start-end range like `192.0.2.10-192.0.2.40`. */
+    patterns?: string[] | null
 }
 
 export interface CustomBotRuleApi {

@@ -357,6 +357,10 @@ export const WebAnalyticsAchievementsRecordInteractionBody = /* @__PURE__ */ zod
 export const webAnalyticsBotRulesCreateBodyCombinerDefault = `AND`
 export const webAnalyticsBotRulesCreateBodyItemsItemIdMax = 100
 
+export const webAnalyticsBotRulesCreateBodyItemsItemPatternsItemMax = 200
+
+export const webAnalyticsBotRulesCreateBodyItemsItemPatternsMax = 500
+
 export const WebAnalyticsBotRulesCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -391,12 +395,20 @@ export const WebAnalyticsBotRulesCreateBody = /* @__PURE__ */ zod.object({
                 matcher: zod
                     .string()
                     .describe(
-                        "How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property)."
+                        "How the condition matches: 'contains' (case-insensitive substring of `pattern`), 'regex' (RE2 `pattern`), 'exact' (case-sensitive equality with `pattern`), or 'cidr' (the IP falls in any range in `patterns`, only valid with the `$ip` property)."
                     ),
                 pattern: zod
                     .string()
+                    .optional()
                     .describe(
-                        "Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0\/24."
+                        "Value matched against the property named by `key`. Required for every matcher except 'cidr'."
+                    ),
+                patterns: zod
+                    .array(zod.string().max(webAnalyticsBotRulesCreateBodyItemsItemPatternsItemMax))
+                    .max(webAnalyticsBotRulesCreateBodyItemsItemPatternsMax)
+                    .optional()
+                    .describe(
+                        "IP ranges for the 'cidr' matcher. The condition matches when the IP falls in any of them. Each entry is a CIDR range like 192.0.2.0\/24, a netmask range like 192.0.2.0\/255.255.255.0, a bare address, or a start-end range like 192.0.2.10-192.0.2.40. At most 500 entries."
                     ),
             })
         )

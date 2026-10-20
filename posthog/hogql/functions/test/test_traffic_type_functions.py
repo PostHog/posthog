@@ -711,6 +711,9 @@ CHROME_USER_AGENT = (
 )
 
 
+SPOOFED_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
+
+
 def _custom_condition(**kwargs) -> CustomBotCondition:
     return CustomBotCondition(
         **{
@@ -928,6 +931,36 @@ class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
         )
 
         assert (is_bot, name) == (expected, "Headless 800x600" if expected else "")
+
+    @parameterized.expand(
+        [
+            ("the user agent from a listed v4 range", SPOOFED_USER_AGENT, "198.51.100.25", True),
+            ("the user agent from a listed v6 range", SPOOFED_USER_AGENT, "2001:db8::5", True),
+            ("the user agent from outside the ranges", SPOOFED_USER_AGENT, "203.0.113.9", False),
+            ("another user agent from a listed range", CHROME_USER_AGENT, "198.51.100.25", False),
+        ]
+    )
+    def test_a_user_agent_combined_with_a_list_of_ip_ranges(self, _name: str, user_agent: str, ip: str, expected: bool):
+        is_bot, name, _category = self._classify(
+            [
+                _custom_bot(
+                    name="Scraper fleet",
+                    items=[
+                        _custom_condition(id="ua", matcher=CustomBotMatcher.EXACT, pattern=SPOOFED_USER_AGENT),
+                        _custom_condition(
+                            id="ip",
+                            key=CustomBotField.FIELD_IP,
+                            matcher=CustomBotMatcher.CIDR,
+                            pattern=None,
+                            patterns=["192.0.2.0/24", "198.51.100.10-198.51.100.40", "2001:db8::/32"],
+                        ),
+                    ],
+                )
+            ],
+            {"$raw_user_agent": user_agent, "$ip": ip},
+        )
+
+        assert (is_bot, name) == (expected, "Scraper fleet" if expected else "")
 
     def test_an_exact_condition_does_not_match_a_longer_value(self):
         # Equality is the reason the matcher exists: a contains rule on "800" would also flag every

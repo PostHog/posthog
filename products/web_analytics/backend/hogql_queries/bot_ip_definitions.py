@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cache
 from ipaddress import IPv4Network, IPv6Address, IPv6Network, collapse_addresses, ip_network
@@ -129,8 +130,10 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
 # so IPv4 CIDRs become IPv6 CIDRs with the prefix length shifted by 96 bits.
 _IPV4_MAPPED_OFFSET = 96
 
+IpPrefixGroups = tuple[tuple[int, tuple[str, ...]], ...]
 
-def ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, ...]], ...]:
+
+def ipv6_prefix_groups(cidrs: tuple[str, ...]) -> IpPrefixGroups:
     groups: dict[int, list[str]] = {}
     for cidr in cidrs:
         network = ip_network(cidr)
@@ -145,15 +148,21 @@ def ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, ..
 
 
 @cache
-def bot_ip_prefix_groups_by_definition() -> tuple[tuple[str, tuple[tuple[int, tuple[str, ...]], ...]], ...]:
+def bot_ip_prefix_groups_by_definition() -> tuple[tuple[str, IpPrefixGroups], ...]:
     """Per-definition (prefixlen, network addresses) groups, for labeled lookups (bot name etc.)."""
     return tuple((key, ipv6_prefix_groups(definition.networks)) for key, definition in BOT_IP_DEFINITIONS.items())
 
 
-@cache
-def merged_bot_ip_prefix_groups() -> tuple[tuple[int, tuple[str, ...]], ...]:
-    """(prefixlen, network addresses) groups across all definitions, for the boolean is-bot check."""
-    all_networks = [ip_network(cidr) for definition in BOT_IP_DEFINITIONS.values() for cidr in definition.networks]
+def collapsed_ipv6_prefix_groups(networks: Iterable[IPv4Network | IPv6Network]) -> IpPrefixGroups:
+    all_networks = list(networks)
     v4 = collapse_addresses(n for n in all_networks if isinstance(n, IPv4Network))
     v6 = collapse_addresses(n for n in all_networks if isinstance(n, IPv6Network))
     return ipv6_prefix_groups(tuple(str(n) for n in [*v4, *v6]))
+
+
+@cache
+def merged_bot_ip_prefix_groups() -> IpPrefixGroups:
+    """(prefixlen, network addresses) groups across all definitions, for the boolean is-bot check."""
+    return collapsed_ipv6_prefix_groups(
+        ip_network(cidr) for definition in BOT_IP_DEFINITIONS.values() for cidr in definition.networks
+    )
