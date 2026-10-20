@@ -12,6 +12,7 @@ from posthog.slack.channels import clip_text
 
 from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
+    MessageImage,
     SourceDescriber,
     SourceDescription,
     SourceKind,
@@ -25,7 +26,9 @@ MAX_CONTEXT_LINE_CHARS: Final = 300
 # over 3000 characters, so a longer link is dropped rather than costing the message.
 MAX_DATA_LINK_URL_CHARS: Final = 2000
 # Slack refuses an image block whose URL is over 3000 characters, so a longer image is dropped too.
+# Its alt text has a 2000-character limit, which a clip keeps the image inside.
 MAX_IMAGE_URL_CHARS: Final = 3000
+MAX_IMAGE_ALT_TEXT_CHARS: Final = 2000
 
 logger = structlog.get_logger(__name__)
 
@@ -77,6 +80,8 @@ def _bounded(source: SourceKind, description: SourceDescription) -> SourceDescri
     if image is not None and len(image.url) > MAX_IMAGE_URL_CHARS:
         logger.warning("alerts_platform.image_url_too_long", source=source.value, length=len(image.url))
         image = None
+    if image is not None:
+        image = MessageImage(url=image.url, alt_text=clip_text(image.alt_text, MAX_IMAGE_ALT_TEXT_CHARS))
     return SourceDescription(
         details=description.details,
         context=tuple(clip_text(line, MAX_CONTEXT_LINE_CHARS) for line in description.context[:MAX_CONTEXT_LINES]),
