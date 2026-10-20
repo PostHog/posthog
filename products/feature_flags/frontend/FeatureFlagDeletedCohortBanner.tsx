@@ -30,9 +30,7 @@ export function FeatureFlagDeletedCohortBanner(): JSX.Element | null {
     // The flag API refuses to restore, unarchive or enable a flag while a condition targets a deleted cohort.
     let consequence: string
     if (featureFlag.deleted) {
-        consequence = `You can't restore the flag while a release condition targets ${theCohorts}.${
-            restorable ? ` Restore ${them} first.` : ''
-        }`
+        consequence = `You can't restore the flag until you ${fix}.`
     } else if (featureFlag.archived) {
         consequence = `You can't unarchive the flag until you ${fix}.`
     } else if (featureFlag.active) {
@@ -46,7 +44,7 @@ export function FeatureFlagDeletedCohortBanner(): JSX.Element | null {
             <div className="flex flex-col gap-1">
                 <strong>{single ? 'This flag targets a deleted cohort' : 'This flag targets deleted cohorts'}</strong>
                 <span>{`${deleted} ${consequence}`}</span>
-                {featureFlag.can_edit && !featureFlag.deleted && (
+                {featureFlag.can_edit && (
                     <div className="flex flex-wrap gap-2 mt-1">
                         <LemonButton
                             type="secondary"

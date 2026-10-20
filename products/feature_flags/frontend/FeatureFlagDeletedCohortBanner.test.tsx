@@ -115,8 +115,8 @@ describe('FeatureFlagDeletedCohortBanner', () => {
         {
             state: 'a deleted flag',
             flag: buildFlag({ active: true, deleted: true }),
-            says: /You can't restore the flag while a release condition targets the cohort\. Restore it first\.$/,
-            showsEdit: false,
+            says: /You can't restore the flag until you restore the cohort or update the release conditions to remove it\.$/,
+            showsEdit: true,
         },
         {
             state: 'a flag the user cannot edit',
@@ -139,8 +139,8 @@ describe('FeatureFlagDeletedCohortBanner', () => {
         {
             state: 'a deleted flag whose cohort no longer exists',
             flag: buildFlag({ active: true, deleted: true }, { cohort_name: undefined, cohort_missing: true }),
-            says: /You can't restore the flag while a release condition targets the cohort\.$/,
-            showsEdit: false,
+            says: /You can't restore the flag until you update the release conditions to remove it\.$/,
+            showsEdit: true,
         },
         {
             state: 'a flag with two deleted cohorts where one no longer exists',

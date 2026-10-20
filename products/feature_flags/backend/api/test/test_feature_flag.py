@@ -5207,6 +5207,27 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
+    def test_deleted_flag_restores_after_its_missing_cohort_condition_is_removed(self) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="cohort-flag",
+            filters=self._cohort_condition_filters(self._unusable_cohort_id("missing")),
+            active=True,
+            deleted=True,
+        )
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
+
+        edit = self.client.patch(
+            url, {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}}, format="json"
+        )
+        self.assertEqual(edit.status_code, status.HTTP_200_OK, edit.content)
+        restore = self.client.patch(url, {"deleted": False}, format="json")
+        self.assertEqual(restore.status_code, status.HTTP_200_OK, restore.content)
+
+        flag.refresh_from_db()
+        self.assertFalse(flag.deleted)
+
     def test_validation_payloads(self):
         self._create_flag_with_properties(
             "person-flag",
