@@ -21,11 +21,13 @@ const { hoverIndex } = useChartHover()
 
 ## Shipped overlays
 
-- `ReferenceLine`: a horizontal line at a y value or a vertical line at a label. `variant` is `goal` (dashed grey), `alert` (dashed red) or `marker` (solid thin). `label` and `labelPosition` annotate it; `fillSide` tints the half-plane on one side.
+- `ReferenceLine`: a horizontal line at a y value or a vertical line at a label. `variant` is `goal` (dashed grey), `alert` (dashed red) or `marker` (thin). `label` and `labelPosition` annotate it; `fillSide` tints the half-plane on one side.
+  Its color, stroke and width go in `style`, as in `style={{ color: theme.colors[2] }}`. It has no `color` prop.
 - `ReferenceLines lines={[...]}`: several at once.
 - `HighlightedRange start end`: a translucent box over a label or index range, for an incident window or the rows a paired list is showing.
+  It takes `color` directly. Its border marks a selection, so pass `borderOpacity={0}` for a background band such as weekends, or a run of bands reads as boxes.
 
-Both take `color` as a CSS string and do resolve `var(--…)`, unlike series colors.
+Overlay colors are CSS strings and resolve `var(--…)`, unlike series colors.
 
 ## Three examples
 
@@ -67,7 +69,13 @@ export function AnnotatedTrend() {
     <TimeSeriesLineChart theme={theme} series={SERIES} labels={DAYS} config={config}>
       <ReferenceLine value={150} label="Target" variant="goal" fillSide="above" style={{ fillOpacity: 0.06 }} />
       <ReferenceLine value="2026-09-24" orientation="vertical" label="v1.42" variant="marker" />
-      <HighlightedRange start="2026-10-03" end="2026-10-07" color={theme.colors[4]} fillOpacity={0.12} />
+      <HighlightedRange
+        start="2026-10-03"
+        end="2026-10-07"
+        color={theme.colors[4]}
+        fillOpacity={0.12}
+        borderOpacity={0}
+      />
     </TimeSeriesLineChart>
   )
 }
