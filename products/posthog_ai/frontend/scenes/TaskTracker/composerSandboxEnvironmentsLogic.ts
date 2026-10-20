@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -7,11 +7,13 @@ import { cloudEnvironmentsLogic, listAllPages } from 'scenes/settings/environmen
 
 import { sandboxCustomImagesList } from 'products/tasks/frontend/generated/api'
 import {
+    type TasksTaskDefaultsApi,
     type SandboxCustomImageDTOApi,
     type SandboxEnvironmentDTOApi,
     SandboxCustomImagesListOriginProduct,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { taskDefaultsLogic } from '../../logics/taskDefaultsLogic'
 import { cloudTargetKey } from '../../utils/cloudTargets'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
@@ -23,6 +25,9 @@ export interface composerSandboxEnvironmentsLogicValues {
     currentProjectId: number | null
     environments: SandboxEnvironmentDTOApi[] | null
     environmentsFailed: boolean
+    taskDefaults: TasksTaskDefaultsApi | null
+    myConfigLoading: boolean
+    configFailed: boolean
     awaitingCreatedEnvironment: boolean
     images: SandboxCustomImageDTOApi[] | null
     imagesLoading: boolean
@@ -33,6 +38,7 @@ export interface composerSandboxEnvironmentsLogicActions {
     closeDraft: () => { value: true }
     environmentCreated: (environment: SandboxEnvironmentDTOApi) => { environment: SandboxEnvironmentDTOApi }
     loadEnvironments: () => any
+    loadMyConfig: () => any
     loadEnvironmentsSuccess: (
         environments: SandboxEnvironmentDTOApi[] | null,
         payload?: any
@@ -65,8 +71,17 @@ export const composerSandboxEnvironmentsLogic = kea<composerSandboxEnvironmentsL
     props({} as ComposerSandboxEnvironmentsLogicProps),
     key((props) => props.panelId ?? 'scene'),
     connect((props: ComposerSandboxEnvironmentsLogicProps) => ({
-        values: [projectLogic, ['currentProjectId'], cloudEnvironmentsLogic, ['environments', 'environmentsFailed']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            cloudEnvironmentsLogic,
+            ['environments', 'environmentsFailed'],
+            taskDefaultsLogic,
+            ['taskDefaults', 'myConfigLoading'],
+        ],
         actions: [
+            taskDefaultsLogic,
+            ['loadMyConfig'],
             cloudEnvironmentsLogic,
             ['loadEnvironments', 'loadEnvironmentsSuccess', 'environmentCreated', 'closeDraft', 'startNewEnvironment'],
             taskTrackerSceneLogic({ panelId: props.panelId }),
@@ -122,6 +137,13 @@ export const composerSandboxEnvironmentsLogic = kea<composerSandboxEnvironmentsL
             },
         ],
     }),
+    selectors({
+        configFailed: [
+            (s) => [s.taskDefaults, s.myConfigLoading],
+            (taskDefaults: TasksTaskDefaultsApi | null, myConfigLoading: boolean): boolean =>
+                !taskDefaults && !myConfigLoading,
+        ],
+    }),
     listeners(({ actions, values }) => ({
         syncCloudTargets: () => {
             actions.setCloudTargets(values.environments, values.images)
@@ -134,6 +156,9 @@ export const composerSandboxEnvironmentsLogic = kea<composerSandboxEnvironmentsL
             }
             if (values.imagesFailed) {
                 actions.loadImages()
+            }
+            if (values.configFailed) {
+                actions.loadMyConfig()
             }
         },
         createEnvironment: () => {

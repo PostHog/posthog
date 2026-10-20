@@ -102,7 +102,7 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
     const panelId = useMountedLogic(taskTrackerSceneLogic).props.panelId
     const composerEnvironments = composerSandboxEnvironmentsLogic({ panelId })
     const { createEnvironment, retryCloudTargets } = useActions(composerEnvironments)
-    const { imagesFailed, imagesLoading, awaitingCreatedEnvironment } = useValues(composerEnvironments)
+    const { imagesFailed, imagesLoading, configFailed, awaitingCreatedEnvironment } = useValues(composerEnvironments)
     const { environmentsLoading, environmentsFailed, draft } = useValues(cloudEnvironmentsLogic)
     const {
         selectedCloudTarget,
@@ -138,7 +138,7 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
     const selectedName = [...environmentOptions, ...imageOptions].find(
         (option) => option.key === selectedCloudTarget
     )?.name
-    const triggerLabel = ['Cloud', selectedName].filter(Boolean).join(' · ')
+    const triggerLabel = selectedName ?? 'Default'
 
     const pick = (cloudTarget: string | null): void => {
         setOpen(false)
@@ -256,7 +256,7 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
                             <Spinner className="size-3" />
                             Loading environments…
                         </div>
-                    ) : environmentsFailed || imagesFailed ? (
+                    ) : environmentsFailed || imagesFailed || configFailed ? (
                         <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground">
                             <span>Couldn't load all your environments.</span>
                             <Button type="button" size="xs" variant="outline" onClick={retryCloudTargets}>
