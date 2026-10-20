@@ -20,13 +20,14 @@ from posthog.schema import (
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
     TrendsQuery,
-    TrendsQueryResponse,
 )
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import Team, User
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationExecutor,
@@ -45,22 +46,20 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_conf
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
-from products.marketing_analytics.backend.hogql_queries.marketing_cost_trends_query_runner import (
-    MarketingCostTrendsQueryRunner,
+from products.marketing_analytics.backend.hogql_queries.marketing_cost_trends_query_resolver import (
+    MarketingCostTrendsQueryResolver,
 )
 from products.marketing_analytics.dags.marketing_precompute import _ensure_costs_for_team
-from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
-MODULE = "products.marketing_analytics.backend.hogql_queries.marketing_cost_trends_query_runner"
+MODULE = "products.marketing_analytics.backend.hogql_queries.marketing_cost_trends_query_resolver"
 
 
 @time_machine.travel("2025-01-15T12:00:00Z", tick=False)
-class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
+class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.team = Team(id=17, timezone="America/New_York", base_currency="USD")
-        self.user = User(id=3)
         self.live_series = [
             DataWarehouseNode(
                 id=f"source_{source}_stats",
@@ -101,22 +100,37 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
         self.factory.return_value.build_materialization_queries.side_effect = (
             MarketingSourceFactory.build_materialization_queries
         )
-        self.database = self.enterContext(patch("posthog.hogql_queries.query_runner.Database.create_for"))
+        self.database = Mock()
         self.ensure = self.enterContext(patch(f"{MODULE}.ensure_precomputed"))
         self.config = self.enterContext(patch(f"{MODULE}.MarketingAnalyticsConfig.from_team"))
         self.config.return_value = MarketingAnalyticsConfig(costs_precomputation_enabled=True)
-        self.enterContext(
-            patch(
-                "posthog.hogql_queries.query_runner.create_default_modifiers_for_team",
-                return_value=HogQLQueryModifiers(),
-            )
-        )
-        self.enterContext(patch("posthog.hogql_queries.query_runner.get_instance_setting", return_value=True))
 
-    def runner(self) -> MarketingCostTrendsQueryRunner:
-        runner = get_query_runner(self.query.model_dump(mode="json"), team=self.team, user=self.user)
-        assert isinstance(runner, MarketingCostTrendsQueryRunner)
-        return runner
+    def runner(self) -> MarketingCostTrendsQueryResolver:
+        current = QueryDateRange(
+            date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
+        )
+        ranges = [current]
+        if self.query.compareFilter and self.query.compareFilter.compare:
+            previous = (
+                QueryCompareToDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=self.query.interval,
+                    now=datetime.now(),
+                    compare_to=self.query.compareFilter.compare_to,
+                    full_comparison_period=True,
+                )
+                if self.query.compareFilter.compare_to
+                else QueryPreviousPeriodDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=self.query.interval,
+                    now=datetime.now(),
+                    full_comparison_period=True,
+                )
+            )
+            ranges.append(previous)
+        return MarketingCostTrendsQueryResolver(self.query.model_copy(deep=True), self.team, ranges, self.database)
 
     @parameterized.expand(
         [
@@ -153,14 +167,14 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
                 (call.kwargs["time_range_start"], call.kwargs["time_range_end"]) for call in self.ensure.call_args_list
             ]
             assert checked_ranges == [
-                (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
-                (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
-                (runner.query_previous_date_range.date_from(), runner.query_previous_date_range.date_to()),
-                (runner.query_previous_date_range.date_from(), runner.query_previous_date_range.date_to()),
+                (runner.date_ranges[0].date_from(), runner.date_ranges[0].date_to()),
+                (runner.date_ranges[0].date_from(), runner.date_ranges[0].date_to()),
+                (runner.date_ranges[1].date_from(), runner.date_ranges[1].date_to()),
+                (runner.date_ranges[1].date_from(), runner.date_ranges[1].date_to()),
             ]
-            assert runner.query_date_range.date_from() == datetime(2025, 1, 10, 5, tzinfo=UTC)
+            assert runner.date_ranges[0].date_from() == datetime(2025, 1, 10, 5, tzinfo=UTC)
             if _name == "custom_comparison":
-                assert runner.query_previous_date_range.date_from().year == 2024
+                assert runner.date_ranges[1].date_from().year == 2024
         else:
             assert result.series == self.live_series
             assert result.breakdownFilter is None
@@ -187,9 +201,6 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
         result = self.runner().resolve_query()
         assert result.series == self.live_series
         assert result.breakdownFilter is None
-        if case != "inaccessible_source":
-            assert self.database.call_args.kwargs["user"] is self.user
-            assert not self.database.call_args.kwargs.get("bypass_warehouse_access_control", False)
 
     @parameterized.expand([(True,), (False,)])
     def test_only_selected_sources_and_current_period_need_coverage(self, ready: bool) -> None:
@@ -223,24 +234,6 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
         assert result.marketingAnalyticsCostFallback is None
         self.ensure.assert_not_called()
 
-    @parameterized.expand([(True,), (False,)])
-    def test_calculate_executes_the_resolved_series(self, ready: bool) -> None:
-        self.ensure.return_value = LazyComputationResult(ready=ready, job_ids=[])
-
-        def calculate_trend(runner: TrendsQueryRunner) -> TrendsQueryResponse:
-            return TrendsQueryResponse(
-                results=[
-                    {"label": series.table_name}
-                    for series in runner.query.series
-                    if isinstance(series, DataWarehouseNode)
-                ]
-            )
-
-        with patch.object(TrendsQueryRunner, "_calculate", calculate_trend):
-            response = self.runner().calculate()
-        expected = ["marketing_costs_precomputed"] if ready else ["source_a_stats", "source_b_stats"]
-        assert [result["label"] for result in response.results] == expected
-
     def test_coverage_and_warmer_hash_the_same_real_adapter(self) -> None:
         assert self.query.marketingAnalyticsCostFallback is not None
         self.query.marketingAnalyticsCostFallback.sourceIds = ["a"]
@@ -263,6 +256,10 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
         self.ensure.side_effect = ensure_precomputed
         base_module = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner"
         with (
+            patch(
+                "posthog.hogql_queries.query_runner.create_default_modifiers_for_team",
+                return_value=HogQLQueryModifiers(),
+            ),
             patch.object(MarketingSourceFactory, "__init__", initialize_factory),
             patch.object(MarketingSourceFactory, "create_adapters", create_adapters),
             patch(f"{base_module}.MarketingSourceFactory", MarketingSourceFactory),
@@ -279,8 +276,8 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
             warmer = MarketingAnalyticsTableQueryRunner(
                 query=MarketingAnalyticsTableQuery(properties=[]), team=self.team, user=self.user
             )
-            warmer.__dict__["_shared_hogql_database"] = runner.shared_database
-            for date_range in (runner.query_date_range, runner.query_previous_date_range):
+            warmer.__dict__["_shared_hogql_database"] = runner.get_database()
+            for date_range in (runner.date_ranges[0], runner.date_ranges[1]):
                 warmer._build_costs_from_precompute(date_range)
             warmer_hashes = [compute_query_hash(call.args[1]) for call in execute.call_args_list]
             execute.reset_mock()
@@ -289,10 +286,10 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
                 _ensure_costs_for_team(
                     Mock(),
                     self.team,
-                    runner.query_date_range.date_from(),
-                    runner.query_date_range.date_to(),
+                    runner.date_ranges[0].date_from(),
+                    runner.date_ranges[0].date_to(),
                     30,
-                    database=runner.shared_database,
+                    database=runner.get_database(),
                 )
             scheduled_hashes = [compute_query_hash(call.args[1]) for call in execute.call_args_list]
         assert len(trend_hashes) == 2

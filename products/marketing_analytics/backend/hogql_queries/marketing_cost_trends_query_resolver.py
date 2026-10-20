@@ -17,7 +17,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
-from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
 from .adapters.base import QueryContext
 from .adapters.factory import MarketingSourceFactory
@@ -25,16 +24,31 @@ from .marketing_analytics_base_query_runner import costs_precompute_ttl_schedule
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
-    from posthog.schema import TrendsQuery, TrendsQueryResponse
+    from posthog.schema import TrendsQuery
+
+    from posthog.hogql.database.database import Database
 
     from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+    from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
 
-class MarketingCostTrendsQueryRunner(TrendsQueryRunner):
+class MarketingCostTrendsQueryResolver:
+    def __init__(
+        self,
+        query: TrendsQuery,
+        team: Team,
+        date_ranges: Sequence[QueryDateRange],
+        get_database: Callable[[], Database],
+    ) -> None:
+        self.query = query
+        self.team = team
+        self.date_ranges = date_ranges
+        self.get_database = get_database
+
     def _covered_source_ids(self, date_ranges: Sequence[QueryDateRange]) -> list[str] | None:
         fallback = self.query.marketingAnalyticsCostFallback
         assert fallback is not None
@@ -48,7 +62,7 @@ class MarketingCostTrendsQueryRunner(TrendsQueryRunner):
                 team=self.team,
                 base_currency=self.team.base_currency or DEFAULT_CURRENCY,
                 drill_down_level=grain,
-                database=self.shared_database,
+                database=self.get_database(),
             )
         )
         adapters = factory.get_valid_adapters(factory.create_adapters())
@@ -93,10 +107,7 @@ class MarketingCostTrendsQueryRunner(TrendsQueryRunner):
         try:
             if not MarketingAnalyticsConfig.from_team(self.team).costs_precomputation_enabled:
                 return live_query
-            date_ranges = [self.query_date_range]
-            if self.query.compareFilter and self.query.compareFilter.compare:
-                date_ranges.append(self.query_previous_date_range)
-            source_ids = self._covered_source_ids(date_ranges)
+            source_ids = self._covered_source_ids(self.date_ranges)
             if source_ids is None:
                 return live_query
         except Exception:
@@ -114,16 +125,12 @@ class MarketingCostTrendsQueryRunner(TrendsQueryRunner):
         )
         return precomputed_query
 
-    def _calculate(self) -> TrendsQueryResponse:
-        runner = TrendsQueryRunner(
-            query=self.resolve_query(),
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-            user=self.user,
-            workload=self.workload,
-            hogql_settings=self.hogql_settings,
-        )
-        runner._shared_database = self._shared_database
-        return runner.calculate()
+
+def resolve_marketing_cost_trend(
+    *,
+    query: TrendsQuery,
+    team: Team,
+    date_ranges: Sequence[QueryDateRange],
+    get_database: Callable[[], Database],
+) -> TrendsQuery:
+    return MarketingCostTrendsQueryResolver(query, team, date_ranges, get_database).resolve_query()
