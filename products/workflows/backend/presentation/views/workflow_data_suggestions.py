@@ -2,7 +2,6 @@ from typing import Any, cast
 
 from django.db import models
 
-import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -17,7 +16,6 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.workflows.backend.facade.contracts import DataSuggestionNotFound, DataSuggestionsResult
 from products.workflows.backend.facade.data_suggestions import (
-    FEATURE_FLAG_KEY,
     build_caller,
     email_sender_ready,
     get_data_suggestions,
@@ -200,7 +198,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(operation_id="workflow_data_suggestions_current", responses={200: DataSuggestionsResponseSerializer})
     @action(detail=False, methods=["get"])
     def current(self, request: Request, **kwargs: Any) -> Response:
-        self._user_with_feature(request)
+        self._user(request)
         return self._suggestions_response(get_data_suggestions(team=self.team))
 
     @extend_schema(
@@ -210,7 +208,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"])
     def generate(self, request: Request, **kwargs: Any) -> Response:
-        user = self._user_with_feature(request)
+        user = self._user(request)
         payload = DataSuggestionGenerateRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         result = start_data_suggestions(team=self.team, user=user, refresh=payload.validated_data["refresh"])
@@ -228,7 +226,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"])
     def build(self, request: Request, **kwargs: Any) -> Response:
-        user = self._user_with_feature(request)
+        user = self._user(request)
         payload = DataSuggestionBuildRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
@@ -244,17 +242,8 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise NotFound("This suggestion has expired. Refresh the page to get new ones.")
         return Response(DataSuggestionBuildResponseSerializer(built).data)
 
-    def _user_with_feature(self, request: Request) -> User:
+    def _user(self, request: Request) -> User:
         user = request.user
-        if (
-            not isinstance(user, User)
-            or not user.distinct_id
-            or not posthoganalytics.feature_enabled(
-                FEATURE_FLAG_KEY,
-                user.distinct_id,
-                groups={"organization": str(self.organization.id)},
-                group_properties={"organization": {"id": str(self.organization.id)}},
-            )
-        ):
+        if not isinstance(user, User):
             raise PermissionDenied("This feature is not available.")
         return user
