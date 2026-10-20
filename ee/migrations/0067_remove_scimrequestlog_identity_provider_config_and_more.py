@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ee", "0064_split_identity_provider_config_scopes"),
+        ("ee", "0066_remove_dashboardprivilege"),
         ("posthog", "1405_scimprovisioneduser_scimrequestlog"),
     ]
 
