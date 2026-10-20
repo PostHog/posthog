@@ -3311,7 +3311,7 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
         with team_scope(self.team.id):
             copy_id = platform_testing.copy_of(self.alert.id).id
-        condition = {"threshold_count": 100, "threshold_operator": "above"}
+        condition = {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5}
         checks = [
             # Before the cutover the platform only shadowed the logs stack.
             (at(-30), "not_firing", "firing", None, 150.0),

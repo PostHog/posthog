@@ -354,8 +354,9 @@ def history(
     }
 
 
-# Deduplicated as `_HISTORY_SQL` is. The total is a window over every matching check, so one query
-# answers both the page and the count a paginated list needs.
+# Deduplicated as `_HISTORY_SQL` is. The quiet checks are dropped before the deduplication, which
+# is safe because two copies of one check are identical rows. The total is a window over every
+# matching check, so one query answers both the page and the count a paginated list needs.
 _NOTABLE_CHECKS_SQL = f"""
 SELECT occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms,
        error_message, count() OVER () AS total
@@ -367,10 +368,10 @@ FROM (
       AND configuration_id = %(configuration_id)s
       AND grouping_key = ''
       AND occurred_at >= %(since)s
+      AND (previous_state != state OR error_message != '')
     ORDER BY alert_id, occurred_at, evaluation_key
     LIMIT 1 BY alert_id, evaluation_key
 )
-WHERE previous_state != state OR error_message != ''
 ORDER BY occurred_at DESC, evaluation_key DESC
 LIMIT %(limit)s
 """

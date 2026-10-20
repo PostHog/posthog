@@ -7,6 +7,7 @@ shadow evaluation, so it is left out.
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import overload
 from uuid import uuid5
 
@@ -18,6 +19,7 @@ from posthog.exceptions_capture import capture_exception
 from products.alerts_platform.backend.facade.api import notable_checks_by_legacy_id
 from products.alerts_platform.backend.facade.contracts import PlatformCheckEvent
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.logs.backend.alert_source_cycle import LogsAlertCondition
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import logs_state_of_platform
 
@@ -60,9 +62,9 @@ def platform_event_history(
     cutover_at = alert.owner_changed_at
     if not alert.platform_owned or cutover_at is None:
         return events
-    logs_events = events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at)
     if kind is not None and kind != LogsAlertEvent.Kind.CHECK:
-        return logs_events
+        return events
+    logs_events = events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at)
     try:
         page = notable_checks_by_legacy_id(
             team_id=alert.team_id, legacy_configuration_id=alert.id, since=cutover_at, limit=rows_needed
@@ -85,8 +87,8 @@ def _as_logs_event(alert: LogsAlertConfiguration, check: PlatformCheckEvent) -> 
         alert=alert,
         kind=LogsAlertEvent.Kind.CHECK,
         created_at=check.occurred_at,
-        state_before=_logs_state(alert, check, check.previous_state),
-        state_after=_logs_state(alert, check, check.state),
+        state_before=_logs_state(check.previous_state, check.occurred_at),
+        state_after=_logs_state(check.state, check.occurred_at),
         threshold_breached=_breached(check),
         result_count=round(check.value) if check.value is not None else None,
         error_message=check.error_message,
@@ -94,15 +96,17 @@ def _as_logs_event(alert: LogsAlertConfiguration, check: PlatformCheckEvent) -> 
     )
 
 
-def _logs_state(alert: LogsAlertConfiguration, check: PlatformCheckEvent, state: PlatformAlertState) -> str:
-    return logs_state_of_platform(state, logs_state=alert.state, snooze_until=None, at=check.occurred_at).value
+def _logs_state(state: PlatformAlertState, at: datetime) -> str:
+    # With no snooze the alert's own state cannot change the mapping, so none is passed.
+    return logs_state_of_platform(state, logs_state="", snooze_until=None, at=at).value
 
 
 def _breached(check: PlatformCheckEvent) -> bool:
-    """Whether the count crossed the bound the check was measured against, as the logs stack decides it."""
-    threshold = check.condition.get("threshold_count")
-    if check.value is None or not isinstance(threshold, int | float):
+    if check.value is None:
         return False
-    if check.condition.get("threshold_operator") == LogsAlertConfiguration.ThresholdOperator.BELOW:
-        return check.value < threshold
-    return check.value > threshold
+    try:
+        condition = LogsAlertCondition.from_condition(check.condition)
+    except (KeyError, TypeError, ValueError):
+        # A row whose snapshot holds no valid logs bound has nothing to compare against.
+        return False
+    return condition.breached(check.value)
