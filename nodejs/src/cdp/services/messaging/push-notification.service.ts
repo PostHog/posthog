@@ -17,7 +17,11 @@ import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, I
 import { createAddLogFunction } from '../../utils'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { DeviceSubscription, getDevicePushSubscriptions } from '../../utils/push-subscription-utils'
+import {
+    DeviceSubscription,
+    getDevicePushSubscriptions,
+    pushRecipientOtherThanRunPerson,
+} from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { PersonsManagerService } from '../managers/persons-manager.service'
 import { MessageAssetsService } from './message-assets.service'
@@ -352,7 +356,30 @@ export class PushNotificationService {
         // Filled before device failures collapse into one error per channel, so a retry carries every key that works.
         const apnsAcceptedKeys = new Set(metadata.apnsAcceptedKeys ?? [])
         // Resolved once for the send: every channel reads the same person's tokens.
-        const recipient = await this.resolveRecipient(invocation, params)
+        let recipient: PushRecipient | null
+        try {
+            recipient = await this.resolveRecipient(invocation, params)
+        } catch (error) {
+            // The person service is down or slow. Nothing was sent yet, so retry later instead of dropping the push.
+            if (tries >= this.fetchUtils.maxRetries) {
+                throw error
+            }
+            const nextTries = tries + 1
+            result.invocation.queueParameters = invocation.queueParameters
+            result.invocation.queueMetadata = { ...metadata, tries: nextTries }
+            result.invocation.queuePriority = nextTries
+            result.invocation.queueScheduledAt = backoffAt(
+                this.fetchUtils.backoffBaseMs,
+                this.fetchUtils.backoffMaxMs,
+                nextTries
+            )
+            result.finished = false
+            addLog(
+                'warn',
+                `Could not look up the person for distinct_id: ${params.distinctId.trim()}; retrying (attempt ${nextTries}/${this.fetchUtils.maxRetries}).`
+            )
+            return result
+        }
         if (!recipient) {
             addLog('warn', `No person found for distinct_id: ${params.distinctId.trim()}; push notification skipped.`)
             pushNotificationSkippedCounter.labels({ platform: 'unknown', reason: 'no_person' }).inc()
@@ -506,11 +533,10 @@ export class PushNotificationService {
         params: CyclotronInvocationQueueParametersSendPushNotificationType
     ): Promise<PushRecipient | null> {
         const { event, person } = invocation.state.globals
-        const distinctId = params.distinctId.trim()
-        // An empty input (a batch run's event has no distinct_id) keeps the run's person, as before.
-        if (!distinctId || distinctId === event.distinct_id || distinctId === person?.distinct_id) {
+        const distinctId = pushRecipientOtherThanRunPerson(params.distinctId, invocation.state.globals)
+        if (!distinctId) {
             return {
-                distinctId: distinctId || event.distinct_id || person?.distinct_id || '',
+                distinctId: params.distinctId.trim() || event.distinct_id || person?.distinct_id || '',
                 personId: person?.id,
                 properties: person?.properties,
                 isRunPerson: true,

@@ -531,7 +531,11 @@ export function createCdpCoreServices(
         recipientsManager,
         emailSuppressionService,
         deps.frequencyCapValkey
-            ? { teamWorkflowsConfig: teamWorkflowsConfigService, valkey: deps.frequencyCapValkey }
+            ? {
+                  teamWorkflowsConfig: teamWorkflowsConfigService,
+                  valkey: deps.frequencyCapValkey,
+                  persons: personsManager,
+              }
             : undefined
     )
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate

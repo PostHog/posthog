@@ -727,6 +727,23 @@ describe('PushNotificationService', () => {
             // The snapshot belongs to the run person, whose token is still live.
             expect(result.invocation.state.globals.person?.properties).toHaveProperty(runPersonKey)
         })
+
+        it('reschedules when the person lookup fails, and fails once the retries are spent', async () => {
+            personsManager.getCyclotronPerson.mockRejectedValue(new Error('personhog unavailable'))
+            const invocation = invocationNaming('named-user')
+
+            const first = await service.executeSendPushNotification(invocation)
+
+            expect(mockTrackedFetch).not.toHaveBeenCalled()
+            expect(first.finished).toBe(false)
+            expect(first.invocation.queueScheduledAt).toBeDefined()
+            expect(first.invocation.queueParameters).toEqual(invocation.queueParameters)
+            expect(first.invocation.queueMetadata).toEqual(expect.objectContaining({ tries: 1 }))
+            expect(first.metrics).toEqual([])
+
+            invocation.queueMetadata = { tries: 3 } // == maxRetries
+            await expect(service.executeSendPushNotification(invocation)).rejects.toThrow('personhog unavailable')
+        })
     })
 
     describe('APNS path', () => {

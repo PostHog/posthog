@@ -3,7 +3,9 @@ import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
+import { pushRecipientOtherThanRunPerson } from '../../utils/push-subscription-utils'
 import { workflowStepDispatchKeyFromInvocation } from '../../utils/workflow-step-dispatch-key'
+import { PersonsManagerService } from '../managers/persons-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
@@ -48,7 +50,11 @@ export class RecipientPreferencesService {
     constructor(
         private recipientsManager: RecipientsManagerService,
         private emailSuppressionService: EmailSuppressionService,
-        private frequencyCap?: { teamWorkflowsConfig: TeamWorkflowsConfigService; valkey: RedisV2 }
+        private frequencyCap?: {
+            teamWorkflowsConfig: TeamWorkflowsConfigService
+            valkey: RedisV2
+            persons: Pick<PersonsManagerService, 'getCyclotronPerson'>
+        }
     ) {}
 
     /** Returns true when the person is at the cap. Otherwise records this send against the cap and returns false. */
@@ -56,10 +62,8 @@ export class RecipientPreferencesService {
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
     ): Promise<boolean> {
-        const personId = invocation.state.globals.person?.id
         if (
             !this.frequencyCap ||
-            !personId ||
             !this.isSubjectToRecipientPreferences(action) ||
             action.config.message_category_type === 'transactional'
         ) {
@@ -70,6 +74,10 @@ export class RecipientPreferencesService {
                 invocation.teamId
             )
             if (!max_messages || !window_days) {
+                return false
+            }
+            const personId = await this.cappedPersonId(invocation, action, this.frequencyCap.persons)
+            if (!personId) {
                 return false
             }
             const capped = await this.frequencyCap.valkey.useClient(
@@ -92,6 +100,23 @@ export class RecipientPreferencesService {
             logger.error(`Failed to check the frequency cap for team ${invocation.teamId}:`, error)
             return false
         }
+    }
+
+    // A push step can name someone other than the run's person, and the cap belongs to whoever receives the push.
+    private async cappedPersonId(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: MessageAction,
+        persons: Pick<PersonsManagerService, 'getCyclotronPerson'>
+    ): Promise<string | undefined> {
+        const { globals } = invocation.state
+        const named =
+            action.type === 'function_push'
+                ? pushRecipientOtherThanRunPerson(globals.inputs?.distinctId, globals)
+                : null
+        if (!named) {
+            return globals.person?.id
+        }
+        return (await persons.getCyclotronPerson(invocation.teamId, named, 'distinct_id'))?.id
     }
 
     public async shouldSkipAction(
@@ -168,12 +193,14 @@ export class RecipientPreferencesService {
         } else if (action.type === 'function_email') {
             identifier = invocation.state.globals.inputs?.email?.to?.email
         } else if (action.type === 'function_push') {
-            // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
-            // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
-            // not the configurable inputs.distinctId or the triggering event — so the recipient we check
-            // is always the recipient we deliver to. Fall back to the event distinct_id when the person
-            // has no resolved one.
-            identifier = invocation.state.globals.person?.distinct_id ?? invocation.state.globals.event?.distinct_id
+            // Push has no email/phone "to" field. Key the opt-out on the person the push is delivered to:
+            // the person the Distinct ID input names, or the run's person when it names them. Fall back to
+            // the event distinct_id when the run's person has no resolved one.
+            const { globals } = invocation.state
+            identifier =
+                pushRecipientOtherThanRunPerson(globals.inputs?.distinctId, globals) ??
+                globals.person?.distinct_id ??
+                globals.event?.distinct_id
         }
 
         if (!identifier) {

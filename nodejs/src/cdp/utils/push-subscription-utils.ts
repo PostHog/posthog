@@ -1,5 +1,6 @@
 import { createHash } from 'crypto'
 
+import type { HogFunctionInvocationGlobals } from '../types'
 import { EncryptedFields } from './encryption-utils'
 
 export const DEVICE_SUBSCRIPTION_PREFIX = '$device_push_subscription_'
@@ -13,6 +14,22 @@ export interface DeviceSubscription {
      * fail on the next send. */
     propertyKeys: string[]
     token: string
+}
+
+/**
+ * The distinct id a push step's Distinct ID input names, or null when it names the run's own person.
+ * The opt-out check, the frequency cap and delivery all use this, so they act on the same person.
+ */
+export function pushRecipientOtherThanRunPerson(
+    distinctIdInput: unknown,
+    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person'>
+): string | null {
+    const distinctId = typeof distinctIdInput === 'string' ? distinctIdInput.trim() : ''
+    // An empty input (a batch run's event has no distinct_id) keeps the run's person.
+    if (!distinctId || distinctId === globals.event?.distinct_id || distinctId === globals.person?.distinct_id) {
+        return null
+    }
+    return distinctId
 }
 
 /** Person property key holding one device's push token. */
