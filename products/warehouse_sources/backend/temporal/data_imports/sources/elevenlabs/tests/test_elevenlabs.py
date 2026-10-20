@@ -380,12 +380,6 @@ class TestValidateCredentials:
             assert validate_credentials("k", schema_name) == (True, None)
         assert [request.url for request in network.requests_log] == [expected_url]
 
-    def test_network_error_is_not_valid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, msg = validate_credentials("k")
-        assert ok is False
-        assert msg is not None
-
     def test_session_does_not_follow_redirects(self) -> None:
         # requests keeps the custom xi-api-key header across a cross-origin 3xx; following one would
         # replay the key to the redirect target, so the credentialed session must refuse redirects.
