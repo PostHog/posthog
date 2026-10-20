@@ -313,7 +313,7 @@ class ErrorTrackingIssueBasics:
     status: str
     severity: str | None
     # Earliest across all fingerprints, merged ones included.
-    first_seen: datetime | None = None
+    first_seen: datetime | None
 
 
 @dataclass(frozen=True)
