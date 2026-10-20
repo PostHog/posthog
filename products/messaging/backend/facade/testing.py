@@ -13,6 +13,13 @@ def create_recipient_preference_for_test(*, team_id: int, identifier: str, prefe
 
 
 def create_message_template_for_test(
-    *, team_id: int, name: str, content: dict[str, Any], deleted: bool = False
+    *,
+    team_id: int,
+    name: str,
+    content: dict[str, Any],
+    deleted: bool = False,
+    draft_content: dict[str, Any] | None = None,
 ) -> UUID:
-    return MessageTemplate.objects.create(team_id=team_id, name=name, content=content, deleted=deleted).id
+    return MessageTemplate.objects.create(
+        team_id=team_id, name=name, content=content, deleted=deleted, draft_content=draft_content
+    ).id
