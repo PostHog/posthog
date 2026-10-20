@@ -52,6 +52,7 @@ from posthog.tasks.alerts.utils import (
     next_scheduled_check_time,
     record_alert_delivery,
     skip_because_of_weekend,
+    stamp_alert_notified,
 )
 from posthog.temporal.alerts.admission import (
     admit_evaluation_slots,
@@ -639,11 +640,7 @@ def _sends_from_insight_stack(alert: AlertConfiguration, alert_check: AlertCheck
     """
     if not (should_notify and alert.platform_owned):
         return should_notify
-    held_at = datetime.now(UTC)
-    alert_check.notification_sent_at = held_at
-    alert_check.save(update_fields=["notification_sent_at"])
-    alert.last_notified_at = held_at
-    alert.save(update_fields=["last_notified_at"])
+    stamp_alert_notified(alert, alert_check, datetime.now(UTC))
     return False
 
 

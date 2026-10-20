@@ -51,13 +51,13 @@ logger = structlog.get_logger(__name__)
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
-# TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
-# but the URL must stay resolvable while people scroll back to the message; 30 days matches
-# the delivery-URL TTL used for task chart artifacts (products/tasks living_artifacts).
 # How long the insight stack keeps evaluating an alert after the platform takes it over, so the two
 # stacks' checks can be compared. It sends nothing for the alert in that time.
 PLATFORM_SHADOW = timedelta(days=7)
 
+# TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
+# but the URL must stay resolvable while people scroll back to the message; 30 days matches
+# the delivery-URL TTL used for task chart artifacts (products/tasks living_artifacts).
 _INSIGHT_CHART_URL_TTL = timedelta(days=30)
 
 # The stored PNG outlives its delivery URL by one day so the URL can never point at a
@@ -606,11 +606,18 @@ def record_alert_delivery(
         "users": [delivery.target for delivery in deliveries if delivery.channel == "email"],
         "destinations": serialize_deliveries([d for d in deliveries if d.channel != "email"]),
     }
-    alert_check.notification_sent_at = recorded_at
-    alert_check.save(update_fields=["targets_notified", "notification_sent_at"])
-    alert.last_notified_at = recorded_at
-    alert.save(update_fields=["last_notified_at"])
+    stamp_alert_notified(alert, alert_check, recorded_at, extra_check_fields=["targets_notified"])
     return True
+
+
+def stamp_alert_notified(
+    alert: AlertConfiguration, alert_check: AlertCheck, at: datetime, *, extra_check_fields: Collection[str] = ()
+) -> None:
+    """Marks the check as notified and moves the alert's last notification time to `at`."""
+    alert_check.notification_sent_at = at
+    alert_check.save(update_fields=[*extra_check_fields, "notification_sent_at"])
+    alert.last_notified_at = at
+    alert.save(update_fields=["last_notified_at"])
 
 
 def add_alert_check(
