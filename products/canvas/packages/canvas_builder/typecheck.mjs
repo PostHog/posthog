@@ -7,18 +7,8 @@ const MAX_MESSAGE_LENGTH = 1000
 const UNKNOWN_VALUE =
     /^(?:Object is of type 'unknown'|'[^']+' is of type 'unknown'|Property '[^']+' does not exist on type 'unknown'|(?:Argument of type|Type) 'unknown(?:\[\])?' is not assignable)/
 
-// The canvas SDK and asset imports have no published types; leaving them `any` keeps the check on the libraries.
+// An unresolved import is `any`, so the canvas SDK and assets need no declarations, but the `ph` global does.
 const PLATFORM_DECLARATIONS = `
-declare module '@posthog/canvas-sdk'
-declare module '*.css'
-declare module '*.svg'
-declare module '*.png'
-declare module '*.jpg'
-declare module '*.jpeg'
-declare module '*.gif'
-declare module '*.webp'
-declare module '*.txt'
-declare module '*?worker'
 declare const ph: any
 interface Window { ph: any }
 `
@@ -27,6 +17,7 @@ interface Window { ph: any }
 const COMPILER_OPTIONS = {
     jsx: ts.JsxEmit.ReactJSX,
     module: ts.ModuleKind.ESNext,
+    moduleDetection: ts.ModuleDetectionKind.Force,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     target: ts.ScriptTarget.ES2022,
     lib: ['lib.es2022.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
@@ -38,6 +29,38 @@ const COMPILER_OPTIONS = {
     resolveJsonModule: true,
     allowArbitraryExtensions: true,
     allowImportingTsExtensions: true,
+}
+
+function nodeAt(node, position) {
+    return (
+        ts.forEachChild(node, (child) =>
+            child.getStart() <= position && position < child.end ? nodeAt(child, position) : undefined
+        ) ?? node
+    )
+}
+
+// This program only approximates the esbuild environment (workers, assets, DOM globals), so an error counts only
+// when it sits in the arguments or props of a call or element that a library declares.
+function isLibraryMisuse(program, entry) {
+    if (!entry.file || entry.start === undefined) {
+        return false
+    }
+    const start = nodeAt(entry.file, entry.start)
+    for (let node = start; node.parent; node = node.parent) {
+        if (node !== start && ts.isFunctionLike(node)) {
+            return false
+        }
+        const { parent } = node
+        const isCall =
+            (ts.isCallExpression(parent) || ts.isNewExpression(parent)) &&
+            (parent.expression === node || parent.arguments?.includes(node))
+        const isElement = ts.isJsxOpeningLikeElement(parent) && (parent.tagName === node || parent.attributes === node)
+        if (isCall || isElement) {
+            const file = program.getTypeChecker().getResolvedSignature(parent)?.declaration?.getSourceFile()
+            return !!file && program.isSourceFileFromExternalLibrary(file) && !program.isSourceFileDefaultLibrary(file)
+        }
+    }
+    return false
 }
 
 function typeCheck(files, resolveDir) {
@@ -85,7 +108,7 @@ function typeCheck(files, resolveDir) {
             }
             const message = ts.flattenDiagnosticMessageText(entry.messageText, '\n')
             // A value the canvas's own code left as `unknown` is not a library misuse, and dozens of them would bury the ones that are.
-            if (UNKNOWN_VALUE.test(message)) {
+            if (UNKNOWN_VALUE.test(message) || !isLibraryMisuse(program, entry)) {
                 continue
             }
             const line =

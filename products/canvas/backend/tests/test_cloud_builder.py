@@ -286,6 +286,25 @@ class TestCanvasCloudBuilder(SimpleTestCase):
                 {"src/data.json": '{"title": "Board"}\n'},
                 [],
             ),
+            (
+                "a type error in the canvas's own code",
+                'const count: number = "three"\nexport default function Canvas() { return <p>{count}</p> }\n',
+                {},
+                [],
+            ),
+            (
+                "an error inside a callback passed to a library",
+                'import { useMemo } from "react"\n'
+                "export default function Canvas() { return <p>{useMemo(() => (1).missing, [])}</p> }\n",
+                {},
+                [],
+            ),
+            (
+                "a worker that transfers a buffer",
+                "export default function Canvas() { return <p /> }\n",
+                {"src/worker.ts": "const bytes = new ArrayBuffer(8)\nself.postMessage(bytes, [bytes])\n"},
+                [],
+            ),
         ]
     )
     def test_ready_build_reports_type_errors_in_the_canvas_files(

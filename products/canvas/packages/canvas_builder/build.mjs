@@ -342,6 +342,8 @@ function diagnostic(code, message, file, line) {
 
 const typeCheckPath = path.join(builderDirectory, 'typecheck.mjs')
 const TYPE_CHECK_TIMEOUT_MS = 20_000
+// build_service.py kills the builder after 45 seconds; the margin leaves time to write the result.
+const BUILD_DEADLINE_MS = 40_000
 
 // The check gets its own process and heap, so running out of memory or time skips it instead of failing the build.
 function runTypeCheck(files) {
@@ -350,10 +352,15 @@ function runTypeCheck(files) {
             resolve([
                 { severity: 'warning', code: 'type_check_skipped', message: `The type check did not run: ${reason}` },
             ])
+        const timeout = Math.min(TYPE_CHECK_TIMEOUT_MS, BUILD_DEADLINE_MS - performance.now())
+        if (timeout <= 0) {
+            skipped('it ran out of time')
+            return
+        }
         const child = spawn(process.execPath, ['--max-old-space-size=384', typeCheckPath], {
             stdio: ['pipe', 'pipe', 'ignore'],
         })
-        const timer = setTimeout(() => child.kill('SIGKILL'), TYPE_CHECK_TIMEOUT_MS)
+        const timer = setTimeout(() => child.kill('SIGKILL'), timeout)
         let output = ''
         child.stdout.on('data', (chunk) => {
             output += chunk
