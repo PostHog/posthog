@@ -92,7 +92,8 @@ def scout_tool_denial(
                 continue
         if operation.path.startswith("/api/projects/{project_id}/signals/scout/runs/{run_id}/"):
             bound_run_id = (
-                SignalScoutRun.objects.filter(task_run__task_id=sandbox_task_id)
+                SignalScoutRun.objects.for_team(view.team_id)
+                .filter(task_run__task_id=sandbox_task_id)
                 .order_by("-created_at", "-id")
                 .values_list("id", flat=True)
                 .first()

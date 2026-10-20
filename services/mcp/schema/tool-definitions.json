@@ -384,6 +384,7 @@
         "title": "Run notebook",
         "required_scopes": ["notebook:write", "query:read"],
         "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
             "POST /api/projects/{project_id}/notebooks/{short_id}/runs/",
             "GET /api/projects/{project_id}/notebooks/{short_id}/runs/{run_id}/",
             "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
@@ -424,6 +425,7 @@
         "title": "Notebook run status",
         "required_scopes": ["notebook:write", "query:read"],
         "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
             "GET /api/projects/{project_id}/notebooks/{short_id}/runs/{run_id}/",
             "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
         ],

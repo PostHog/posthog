@@ -15,6 +15,7 @@ from rest_framework import status
 from posthog.mcp_tool_definitions import get_mcp_tool_definitions
 from posthog.mcp_tool_operations import request_matches_operation, resolve_api_operation
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.scoping import unscoped
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
@@ -181,7 +182,7 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             ),
         }[target]
 
-        with patch("products.conversations.backend.api.tickets.transaction.on_commit"):
+        with unscoped(), patch("products.conversations.backend.api.tickets.transaction.on_commit"):
             response = getattr(self.client, method)(url, body if method != "get" else None, format="json")
 
         assert response.status_code == expected_status, response.json()
@@ -190,6 +191,18 @@ class TestScoutToolPolicyAPI(APIBaseTest):
 
 
 class TestScoutToolOperations(SimpleTestCase):
+    @parameterized.expand([("notebooks-run",), ("notebooks-run-status",)])
+    def test_notebook_run_tool_covers_result_save(self, tool_name: str) -> None:
+        path = "/api/projects/1/notebooks/example/collab/markdown_save/"
+        callback = cast(Any, resolve(path).func)
+        view = callback.cls()
+        view.action = callback.actions["post"]
+
+        assert any(
+            request_matches_operation(view=view, method="POST", path=path, operation=operation)
+            for operation in get_mcp_tool_definitions()[tool_name].api_operations
+        )
+
     def test_skill_file_delete_matches_nested_path(self) -> None:
         operation = get_mcp_tool_definitions()["skill-file-delete"].api_operations[0]
         path = (
