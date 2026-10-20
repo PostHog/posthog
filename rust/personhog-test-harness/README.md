@@ -17,7 +17,7 @@ For `gate` without `--external-router-url`, build the service binaries first:
 cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness
 ```
 
-The identity crate also builds `personhog-publisher`, which `--publish` spawns.
+The identity crate also builds `personhog-publisher`, which `--publish` spawns; `stack --monitor` needs `cargo build -p personhog-parity-monitor` as well.
 
 ## `gate` — the e2e correctness gate
 
@@ -285,6 +285,15 @@ target/debug/personhog-test-harness stack --publish --ready-file /tmp/personhog-
 Once the stack is up it prints one line, `PERSONHOG_STACK_READY {…}`, and writes the same JSON to `--ready-file` when given: the router and identity addresses as `host:port`, the persons database URL and table set, the changelog topic and the two publish topics, and the log directory.
 A parent process should wait for the file rather than parse stdout, which the logs share.
 A spawned service that exits ends the command with that service's last log lines, so a fixture never stays up over a dead stack.
+
+`--monitor` also spawns `personhog-parity-monitor` (build it too) against the publish topics and the Node path's topics named by `--monitor-node-distinct-ids-topic` and `--monitor-node-merge-events-topic`, which must exist before the stack starts; the ready line carries its metrics address as `monitor_addr`.
+The monitor assigns every partition before the ready line is written and runs with a 15 s grace and no warmup, so a test can read its `/metrics` once its traffic stops and assert that every entry settled as agreement.
+
+```bash
+target/debug/personhog-test-harness stack --publish --ready-file /tmp/personhog-stack.json \
+  --monitor --monitor-node-distinct-ids-topic clickhouse_person_distinct_id_test \
+  --monitor-node-merge-events-topic person_merge_events_test
+```
 
 ## `seed` / `cleanup` — manage traffic targets
 

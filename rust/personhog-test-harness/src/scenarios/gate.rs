@@ -298,6 +298,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                         publishers: args.publishers,
                         rows_per_pass: args.publish_rows_per_pass,
                     }),
+                    monitor: None,
                 })
                 .await?,
             )
