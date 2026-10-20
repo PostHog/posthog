@@ -2305,6 +2305,23 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert response.json()["dispatch_outcome"] == "already_queued"
         assert TaskRun.objects.filter(task=task).count() == 1
 
+    def test_request_fix_replaces_a_run_whose_workflow_is_gone(self):
+        canvas_id, build_id, task = self._authored_canvas()
+        stale_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={})
+
+        with (
+            patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=False),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self._request_fix(canvas_id, build_id)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json()["dispatch_outcome"] == "new_run"
+        stale_run.refresh_from_db()
+        assert stale_run.status == TaskRun.Status.FAILED
+        assert TaskRun.objects.filter(task=task).exclude(id=stale_run.id).get().status == TaskRun.Status.QUEUED
+
     def test_scoped_keys_need_task_write_to_request_a_fix(self):
         # The dispatched fix run executes with the creator's credentials, so a
         # canvas:write-only token must not be able to start or steer it.

@@ -190,6 +190,10 @@ class InvalidTaskOriginError(ValueError):
     pass
 
 
+class TaskRunAlreadyLiveError(RuntimeError):
+    pass
+
+
 class Channel(TeamScopedRootMixin):
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"
@@ -807,6 +811,17 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state["initial_permission_mode"] = permission_mode
         state["ai_defaults_source"] = resolved.source
 
+    def _has_live_cloud_run(self) -> bool:
+        live_run_states = self.runs.filter(
+            team_id=self.team_id,
+            environment=TaskRun.Environment.CLOUD,
+            status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+        ).values_list("state", flat=True)
+        return any(
+            not (state or {}).get("await_user_message") and not (state or {}).get("cancel_requested_at")
+            for state in live_run_states
+        )
+
     def create_run(
         self,
         environment: Optional["TaskRun.Environment"] = None,
@@ -846,6 +861,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             ):
                 raise InvalidTaskOriginError(
                     "This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud."
+                )
+            if (
+                effective_environment == TaskRun.Environment.CLOUD
+                and scheduled_at is None
+                and task._has_live_cloud_run()
+            ):
+                raise TaskRunAlreadyLiveError(
+                    "This task already has a cloud run in progress. Wait for it to finish or cancel it first."
                 )
 
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}

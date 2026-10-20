@@ -123,6 +123,7 @@ class TestAgentProxyCallback(TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_token_run_mismatch_returns_403(self) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.COMPLETED)
         other_run = self.task.create_run()
         response = self._post(self._body(), token=self._token(other_run))
         self.assertEqual(response.status_code, 403)
@@ -310,6 +311,7 @@ class TestAgentProxyCallback(TestCase):
 
     @parameterized.expand([("omitted", None), ("completed", True), ("idle_resume", False)])
     def test_awaiting_input_dispatches_for_interactive_run(self, _name: str, turn_completed: bool | None) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.COMPLETED)
         run = self.task.create_run(mode="interactive")
         body = self._body(kind="awaiting_input", agent_active=False)
         if turn_completed is not None:
@@ -392,6 +394,7 @@ class TestAgentProxyCallback(TestCase):
         ]
     )
     def test_unknown_run_returns_200_not_dispatched(self, kind: str, overrides: dict[str, Any]) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.COMPLETED)
         run = self.task.create_run()
         run_id = str(run.id)
         token = self._token(run)

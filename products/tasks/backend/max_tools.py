@@ -13,7 +13,7 @@ from ee.hogai.tool import MaxTool
 from .facade import api as tasks_facade
 from .facade.access import analytics_context_reader
 from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
-from .models import Task, TaskRun
+from .models import Task, TaskRun, TaskRunAlreadyLiveError
 from .temporal.client import execute_task_processing_workflow_async
 from .visibility import task_control_q, task_visibility_q
 
@@ -169,7 +169,10 @@ Use this tool when the user wants to:
             if task.runtime == Task.Runtime.PI:
                 return {"error": "unsupported_runtime"}
 
-            task_run = task.create_run()
+            try:
+                task_run = task.create_run()
+            except TaskRunAlreadyLiveError as error:
+                return {"error": "run_in_progress", "detail": str(error)}
             enqueue_or_start_workflow(
                 task_run,
                 start_workflow=lambda **kwargs: async_to_sync(execute_task_processing_workflow_async)(**kwargs),
@@ -191,6 +194,8 @@ Use this tool when the user wants to:
             return f"Task with ID {task_id} not found", {"error": "not_found"}
         if result.get("error") == "unsupported_runtime":
             return "Pi tasks cannot be run through the ACP task workflow.", result
+        if result.get("error") == "run_in_progress":
+            return result["detail"], result
 
         return (
             f"Started execution of task '{result['title']}' ({result['slug']}).\n"

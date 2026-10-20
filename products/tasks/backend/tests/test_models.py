@@ -30,6 +30,7 @@ from products.tasks.backend.models import (
     Task,
     TaskOwnershipChangedError,
     TaskRun,
+    TaskRunAlreadyLiveError,
     TaskThreadMessage,
     bump_task_activity,
 )
@@ -375,13 +376,16 @@ class TestTask(TestCase):
             )
         first_run = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"])
         self.assertEqual(first_run.state["sandbox_template"], "autoresearch_base")
+        TaskRun.objects.filter(task=task).update(status=TaskRun.Status.COMPLETED)
 
         with self.captureOnCommitCallbacks(execute=True):
             later_run = task.create_run()
+            TaskRun.objects.filter(task=task).update(status=TaskRun.Status.COMPLETED)
             null_run = task.create_run(extra_state={"sandbox_template": None})
 
         self.assertEqual(later_run.state["sandbox_template"], "autoresearch_base")
         self.assertEqual(null_run.state["sandbox_template"], "autoresearch_base")
+        TaskRun.objects.filter(task=task).update(status=TaskRun.Status.COMPLETED)
 
         with self.assertRaises(ValueError):
             task.create_run(extra_state={"sandbox_template": "vm_base"})
@@ -1119,6 +1123,55 @@ class TestTaskRun(TestCase):
         self.assertEqual(call_args.args[1]["type"], "task_run_state")
         self.assertEqual(call_args.args[1]["status"], TaskRun.Status.QUEUED)
         self.assertEqual(call_args.args[1]["branch"], "main")
+
+    @parameterized.expand(
+        [
+            ("no_runs", [], "cloud", False),
+            (
+                "terminal_cloud_runs",
+                [
+                    (TaskRun.Status.COMPLETED, TaskRun.Environment.CLOUD, {}),
+                    (TaskRun.Status.FAILED, TaskRun.Environment.CLOUD, {}),
+                    (TaskRun.Status.CANCELLED, TaskRun.Environment.CLOUD, {}),
+                ],
+                "cloud",
+                False,
+            ),
+            ("queued_cloud_run", [(TaskRun.Status.QUEUED, TaskRun.Environment.CLOUD, {})], "cloud", True),
+            ("in_progress_cloud_run", [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {})], "cloud", True),
+            (
+                "idle_warm_run",
+                [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {"await_user_message": True})],
+                "cloud",
+                False,
+            ),
+            (
+                "cancelling_run",
+                [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {"cancel_requested_at": "2026-01-01"})],
+                "cloud",
+                False,
+            ),
+            ("scheduled_cloud_run", [(TaskRun.Status.NOT_STARTED, TaskRun.Environment.CLOUD, {})], "cloud", False),
+            ("queued_local_run", [(TaskRun.Status.QUEUED, TaskRun.Environment.LOCAL, {})], "cloud", False),
+            ("new_local_run", [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {})], "local", False),
+            ("new_scheduled_run", [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {})], "scheduled", False),
+        ]
+    )
+    def test_create_run_refuses_a_second_live_cloud_run(
+        self, _name: str, existing_runs: list[tuple[str, str, dict]], new_run: str, refused: bool
+    ) -> None:
+        for status, environment, state in existing_runs:
+            TaskRun.objects.create(task=self.task, team=self.team, status=status, environment=environment, state=state)
+        create_kwargs = {
+            "cloud": {},
+            "local": {"environment": TaskRun.Environment.LOCAL},
+            "scheduled": {"scheduled_at": django_timezone.now() + timedelta(days=1)},
+        }[new_run]
+
+        with self.assertRaises(TaskRunAlreadyLiveError) if refused else nullcontext():
+            self.task.create_run(**create_kwargs)
+
+        self.assertEqual(TaskRun.objects.filter(task=self.task).count(), len(existing_runs) + (0 if refused else 1))
 
     def test_create_run_does_not_inject_permission_mode_by_default(self):
         run = self.task.create_run(mode="interactive")

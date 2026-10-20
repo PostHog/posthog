@@ -2390,6 +2390,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         task = Task.objects.get(id=response.json()["id"])
+        task.runs.update(status=TaskRun.Status.COMPLETED)
         response = client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {"run_source": "agent"},
@@ -2448,6 +2449,7 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_sandbox_oauth_starts_agent_run_for_task_owner(self, path, mock_workflow, _mock_internal_team):
         parent = self.create_task()
         parent.create_run(extra_state={"agent_parent_task_id": str(uuid.uuid4())})
+        parent.runs.update(status=TaskRun.Status.COMPLETED)
         parent_run = parent.create_run(environment=TaskRun.Environment.CLOUD)
         client = self._sandbox_oauth_client(parent.id, internal_scope=True)
         target = self.create_task(title="Existing task")

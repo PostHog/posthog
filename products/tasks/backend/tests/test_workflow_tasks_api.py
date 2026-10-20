@@ -579,6 +579,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         response = self._post({"skills": ["error-triage"]})
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         task = Task.objects.get(id=response.json()["id"])
+        task.runs.update(status=TaskRun.Status.COMPLETED)
 
         later_run = task.create_run(mode="background")
 
@@ -590,6 +591,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         response = self._post({"connectors": ["server-1"]})
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         task = Task.objects.get(id=response.json()["id"])
+        task.runs.update(status=TaskRun.Status.COMPLETED)
 
         later_run = task.create_run(mode="background")
 
