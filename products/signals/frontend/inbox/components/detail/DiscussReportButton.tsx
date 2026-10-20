@@ -109,7 +109,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
         setIsQuickAskOpen(false)
     }
 
-    const startPrAction = (question: string, intent: ReportDiscussionIntent, pullRequestUrl?: string): void => {
+    const startPrAction = (request: string, intent: ReportDiscussionIntent, pullRequestUrl?: string): void => {
         setIsQuickAskOpen(false)
         captureInboxReportAction({
             report,
@@ -117,7 +117,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
             surface: 'detail_pane',
             extra: discussQuestionProperties({ source: 'suggested', suggestionCount: 1, intent }),
         })
-        discussReport(report, reportUrl, question, undefined, intent, pullRequestUrl)
+        discussReport(report, reportUrl, request, undefined, intent, pullRequestUrl)
     }
 
     const items: LemonMenuItems = [
