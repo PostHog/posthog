@@ -75,6 +75,8 @@ import { getExperimentStatus } from 'products/experiments/frontend/experimentSta
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
 
+export type DashboardDiscardPromptTrigger = 'cancel_button' | 'escape'
+
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -953,10 +955,12 @@ export interface eventUsageLogicActions {
     }
     reportDashboardEditModeDiscardPrompt: (
         dashboard: DashboardType | null,
-        action: 'discarded' | 'kept_editing' | 'shown'
+        action: 'discarded' | 'kept_editing' | 'shown',
+        trigger: DashboardDiscardPromptTrigger
     ) => {
         action: 'discarded' | 'kept_editing' | 'shown'
         dashboard: DashboardType | null
+        trigger: DashboardDiscardPromptTrigger
     }
     reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => {
         dashboardId: number | undefined
@@ -1753,8 +1757,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => ({ tileDensity }),
         reportDashboardEditModeDiscardPrompt: (
             dashboard: DashboardType | null,
-            action: 'shown' | 'discarded' | 'kept_editing'
-        ) => ({ dashboard, action }),
+            action: 'shown' | 'discarded' | 'kept_editing',
+            trigger: DashboardDiscardPromptTrigger
+        ) => ({ dashboard, action, trigger }),
         reportDashboardMoveInitiated: (method: 'single' | 'bulk', count: number) => ({ method, count }),
         reportDashboardInsightDeleteAfterRemovalClicked: (otherDashboardCount: number) => ({ otherDashboardCount }),
         reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized', layoutZoom: number) => ({
@@ -2245,11 +2250,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardTileDensityConfigured: async ({ tileDensity }) => {
             posthog.capture('dashboard tile density configured', { tile_density: tileDensity })
         },
-        reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
+        reportDashboardEditModeDiscardPrompt: async ({ dashboard, action, trigger }) => {
             posthog.capture('dashboard edit mode discard prompt', {
                 dashboard_id: dashboard?.id,
                 dashboard: sanitizeDashboard(dashboard),
                 action,
+                trigger,
             })
         },
         reportDashboardMoveInitiated: async ({ method, count }) => {

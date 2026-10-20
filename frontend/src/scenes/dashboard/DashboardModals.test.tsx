@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { ButtonTileCardModal } from 'lib/components/Cards/ButtonTileCard/ButtonTileCardModal'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 
 import type { DashboardType } from '~/types'
 
@@ -41,6 +42,8 @@ jest.mock('lib/components/Shortcuts/Shortcut', () => ({
     Shortcut: ({ children, name }: { children: React.ReactElement; name: string }) =>
         jest.requireActual('react').cloneElement(children, { 'data-shortcut-name': name }),
 }))
+
+jest.mock('lib/components/Shortcuts/useShortcut', () => ({ useShortcut: jest.fn() }))
 
 jest.mock('lib/utils/eventUsageLogic', () => ({ eventUsageLogic: { __mock: 'eventUsageLogic' } }))
 
@@ -212,31 +215,41 @@ describe('dashboard layout edit shortcut with a tile dialog', () => {
                       showButtonTileModal: false,
                       showTextTileModal: false,
                       addWidgetModalOpen: false,
+                      layoutDiscardPromptOpen: false,
                       ...(visibleKey ? { [visibleKey]: true } : {}),
                   }
                 : {}
         )
-        mockedUseActions.mockImplementation(() => ({ cancelLayoutEdit, saveLayout: jest.fn() }))
+        mockedUseActions.mockImplementation(() => ({
+            cancelLayoutEdit,
+            cancelLayoutEditFromEscape: jest.fn(),
+            saveLayout: jest.fn(),
+        }))
         return render(<EditModeActions />)
     }
 
-    it.each(['showImageTileModal', 'showButtonTileModal', 'showTextTileModal', 'addWidgetModalOpen'] as const)(
-        'does not bind Escape to discard while %s is open',
-        (visibleKey) => {
-            const { container } = renderActions(visibleKey)
+    const escapeShortcutDisabled = (): boolean | undefined =>
+        (useShortcut as jest.Mock).mock.calls.findLast(([options]) => options.name === 'CancelDashboardEdit')?.[0]
+            .disabled
 
-            expect(container.querySelector('[data-shortcut-name="CancelDashboardEdit"]')).toBeNull()
-            const cancelButton = container.querySelector(
-                '[data-attr="dashboard-edit-mode-discard"]'
-            ) as HTMLButtonElement
-            expect(cancelButton.disabled).toBe(false)
-            expect(cancelLayoutEdit).not.toHaveBeenCalled()
-        }
-    )
+    it.each([
+        'showImageTileModal',
+        'showButtonTileModal',
+        'showTextTileModal',
+        'addWidgetModalOpen',
+        'layoutDiscardPromptOpen',
+    ] as const)('does not bind Escape to discard while %s is open', (visibleKey) => {
+        const { container } = renderActions(visibleKey)
+
+        expect(escapeShortcutDisabled()).toBe(true)
+        const cancelButton = container.querySelector('[data-attr="dashboard-edit-mode-discard"]') as HTMLButtonElement
+        expect(cancelButton.disabled).toBe(false)
+        expect(cancelLayoutEdit).not.toHaveBeenCalled()
+    })
 
     it('binds Escape to discard when no tile dialog is open', () => {
-        const { container } = renderActions()
+        renderActions()
 
-        expect(container.querySelector('[data-shortcut-name="CancelDashboardEdit"]')).not.toBeNull()
+        expect(escapeShortcutDisabled()).toBe(false)
     })
 })

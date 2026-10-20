@@ -2135,6 +2135,75 @@ describe('dashboardLogic', () => {
                     logic.actionCreators.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
             })
+
+            const enterLayoutEditMode = async (promptFlag: boolean): Promise<void> => {
+                setDiscardPromptFlag(promptFlag)
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
+                }).toFinishAllListeners()
+            }
+
+            it.each([
+                { name: 'no change leaves edit mode', flag: true, moveTile: false, choice: null, asks: false },
+                { name: 'a change keeps edit mode and asks', flag: true, moveTile: true, choice: null, asks: true },
+                { name: 'the flag off reverts the change', flag: false, moveTile: true, choice: null, asks: false },
+                { name: 'discard reverts the change', flag: true, moveTile: true, choice: 'discard', asks: true },
+                { name: 'keep editing keeps the change', flag: true, moveTile: true, choice: 'keep', asks: true },
+                {
+                    name: 'dismissing the dialog keeps the change',
+                    flag: true,
+                    moveTile: true,
+                    choice: 'dismiss',
+                    asks: true,
+                },
+            ] as const)('Escape with $name', async ({ flag, moveTile, choice, asks }) => {
+                await enterLayoutEditMode(flag)
+                if (moveTile) {
+                    await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelLayoutEditFromEscape()
+                }).toFinishAllListeners()
+
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(asks ? 1 : 0)
+                const dialogProps = dialogOpenSpy.mock.calls[0]?.[0]
+                if (choice === 'discard') {
+                    dialogProps.primaryButton.onClick({} as React.MouseEvent<HTMLButtonElement>)
+                } else if (choice === 'keep') {
+                    dialogProps.secondaryButton.onClick({} as React.MouseEvent<HTMLButtonElement>)
+                }
+                if (choice) {
+                    dialogProps.onAfterClose()
+                }
+
+                const expectedEditing = asks && choice !== 'discard'
+                await expectLogic(logic)
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        dashboardEditing: expectedEditing ? expect.objectContaining({ layout: true }) : null,
+                        hasUnsavedLayoutChanges: expectedEditing,
+                        layoutDiscardPromptOpen: asks && !choice,
+                    })
+            })
+
+            it('does not discard on a second Escape while the prompt is open', async () => {
+                await enterLayoutEditMode(true)
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelLayoutEditFromEscape()
+                    logic.actions.cancelLayoutEditFromEscape()
+                }).toFinishAllListeners()
+
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+                expect(logic.values.dashboardEditing?.layout).toBe(true)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+            })
         })
 
         describe('openAddInsightModal action', () => {

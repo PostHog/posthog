@@ -47,6 +47,7 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import {
+    DashboardDiscardPromptTrigger,
     DashboardEventSource,
     DashboardFilterChangeType,
     dashboardViewedProperties,
@@ -412,6 +413,7 @@ export interface dashboardLogicValues {
     itemsLoading: boolean
     lastDashboardRefresh: Dayjs | null
     layout: Layout | undefined
+    layoutDiscardPromptOpen: boolean
     layoutEditMode: boolean
     layoutForItem: Record<string, TileLayout>
     layoutZoom: number
@@ -528,6 +530,9 @@ export interface dashboardLogicActions {
         value: true
     }
     cancelLayoutEdit: () => {
+        value: true
+    }
+    cancelLayoutEditFromEscape: () => {
         value: true
     }
     changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
@@ -989,6 +994,9 @@ export interface dashboardLogicActions {
     setInterval: (interval: IntervalType | null) => {
         interval: IntervalType | null
     }
+    setLayoutDiscardPromptOpen: (open: boolean) => {
+        open: boolean
+    }
     setLayoutZoom: (layoutZoom: number) => {
         layoutZoom: number
     }
@@ -1443,6 +1451,62 @@ function exitFilterEditModeWhenSaved(
     }
 }
 
+function discardEditModeChanges(actions: dashboardLogicType['actions']): void {
+    actions.setLayoutZoom(1)
+    actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+}
+
+function openDiscardPrompt(
+    values: dashboardLogicType['values'],
+    actions: dashboardLogicType['actions'],
+    trigger: DashboardDiscardPromptTrigger
+): void {
+    let choiceReported = false
+    const report = (action: 'shown' | 'discarded' | 'kept_editing'): void => {
+        choiceReported = action !== 'shown'
+        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, action, trigger)
+    }
+    report('shown')
+    actions.setLayoutDiscardPromptOpen(true)
+    LemonDialog.open({
+        title: 'Discard unsaved changes?',
+        description:
+            'You have unsaved layout or color changes. If you discard now, the dashboard will revert to its last saved state.',
+        primaryButton: {
+            children: 'Discard changes',
+            status: 'danger',
+            onClick: () => {
+                report('discarded')
+                discardEditModeChanges(actions)
+            },
+            'data-attr': 'dashboard-edit-mode-discard-confirm',
+        },
+        secondaryButton: {
+            children: 'Keep editing',
+            onClick: () => report('kept_editing'),
+        },
+        onAfterClose: () => {
+            if (!choiceReported) {
+                report('kept_editing')
+            }
+            actions.setLayoutDiscardPromptOpen(false)
+        },
+    })
+}
+
+function cancelEditMode(
+    values: dashboardLogicType['values'],
+    actions: dashboardLogicType['actions'],
+    trigger: DashboardDiscardPromptTrigger
+): void {
+    const promptEnabled = !!values.featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT]
+    if (!promptEnabled || !(values.hasUnsavedLayoutChanges || values.hasUnsavedColorChanges)) {
+        discardEditModeChanges(actions)
+        return
+    }
+    openDiscardPrompt(values, actions, trigger)
+}
+
 let dashboardViewedTimeout: ReturnType<typeof setTimeout> | undefined
 
 export const dashboardLogic = kea<dashboardLogicType>([
@@ -1634,6 +1698,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDashboardEditing: (editing: DashboardEditing | null, source: DashboardEventSource) => ({ editing, source }),
         /** Exit edit mode, prompting to confirm if there are unsaved changes. */
         cancelLayoutEdit: true,
+        /** Exit edit mode from the Escape key, prompting like cancelLayoutEdit unless the prompt is already open. */
+        cancelLayoutEditFromEscape: true,
+        setLayoutDiscardPromptOpen: (open: boolean) => ({ open }),
         /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
         /** Optimistic pin/unpin toggle. */
@@ -2566,6 +2633,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 setDashboardCustomizeMenuOpen: (_, { open }) => open,
                 setDashboardMode: () => false,
+            },
+        ],
+        layoutDiscardPromptOpen: [
+            false,
+            {
+                setLayoutDiscardPromptOpen: (_, { open }) => open,
             },
         ],
         urlSearchParamsAtEditModeEntry: [
@@ -4937,36 +5010,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             addInsightToDashboardLogic.actions.showAddInsightToDashboardModal()
         },
         cancelLayoutEdit: () => {
-            const discard = (): void => {
-                actions.setLayoutZoom(1)
-                actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-            }
-            const promptEnabled = !!values.featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT]
-            if (!promptEnabled || !(values.hasUnsavedLayoutChanges || values.hasUnsavedColorChanges)) {
-                discard()
+            cancelEditMode(values, actions, 'cancel_button')
+        },
+        cancelLayoutEditFromEscape: () => {
+            if (values.layoutDiscardPromptOpen) {
                 return
             }
-            eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
-            LemonDialog.open({
-                title: 'Discard unsaved changes?',
-                description:
-                    'You have unsaved layout or color changes. If you discard now, the dashboard will revert to its last saved state.',
-                primaryButton: {
-                    children: 'Discard changes',
-                    status: 'danger',
-                    onClick: () => {
-                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
-                        discard()
-                    },
-                    'data-attr': 'dashboard-edit-mode-discard-confirm',
-                },
-                secondaryButton: {
-                    children: 'Keep editing',
-                    onClick: () => {
-                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
-                    },
-                },
-            })
+            cancelEditMode(values, actions, 'escape')
         },
         changeDashboardTileSpacing: ({ tileSpacing }) => {
             if (tileSpacing === (values.dashboard?.customization?.tile_spacing ?? 'standard')) {

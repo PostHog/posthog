@@ -4,8 +4,10 @@ import { router } from 'kea-router'
 import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -128,8 +130,19 @@ export function DashboardEditSaveCancelButtons({
     /** The large-dashboard "Apply filters" preview button, rendered between Cancel and Save. */
     applyFiltersButton?: JSX.Element | null
 }): JSX.Element {
-    const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
-    const { cancelLayoutEdit, saveLayout } = useActions(dashboardLogic)
+    const { dashboardLoading, canEditDashboard, layoutDiscardPromptOpen } = useValues(dashboardLogic)
+    const { cancelLayoutEdit, cancelLayoutEditFromEscape, saveLayout } = useActions(dashboardLogic)
+
+    // Unbound while the discard prompt is open, so that Escape reaches the dialog and closes it.
+    useShortcut({
+        name: 'CancelDashboardEdit',
+        keybind: [keyBinds.escape],
+        intent: 'Cancel edit mode',
+        interaction: 'function',
+        callback: cancelLayoutEditFromEscape,
+        scope: Scene.Dashboard,
+        disabled: !withShortcuts || layoutDiscardPromptOpen,
+    })
 
     const cancelButton = (
         <LemonButton
@@ -137,7 +150,17 @@ export function DashboardEditSaveCancelButtons({
             type="secondary"
             onClick={cancelLayoutEdit}
             size="small"
-            tooltip="Discard layout changes and exit layout editing"
+            tooltip={
+                <>
+                    Discard layout changes and exit layout editing
+                    {withShortcuts && (
+                        <>
+                            {' '}
+                            <KeyboardShortcut escape className="relative text-xs -top-px" />
+                        </>
+                    )}
+                </>
+            }
         >
             Cancel
         </LemonButton>
@@ -175,15 +198,7 @@ export function DashboardEditSaveCancelButtons({
 
     return (
         <>
-            <Shortcut
-                name="CancelDashboardEdit"
-                keybind={[keyBinds.escape]}
-                intent="Cancel edit mode"
-                interaction="click"
-                scope={Scene.Dashboard}
-            >
-                {cancelButton}
-            </Shortcut>
+            {cancelButton}
             {applyFiltersButton}
             <Shortcut
                 name="SaveDashboard"
