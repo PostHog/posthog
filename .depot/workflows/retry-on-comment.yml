@@ -16,6 +16,11 @@ jobs:
             github.event.issue.pull_request
             && startsWith(github.event.comment.body, '/depot retry')
             && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+        # On the job, not the workflow, so a skipped run for any other comment cannot cancel a queued retry.
+        # A second retry waits for the first, then finds its jobs requeued and retries nothing.
+        concurrency:
+            group: ${{ github.workflow }}-pr-${{ github.event.issue.number }}
+            cancel-in-progress: false
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
