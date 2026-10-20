@@ -4861,30 +4861,12 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
     }
 
-    export type ActivityEventsListWidgetAddRequestOpenApiWidgetType = typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType];
+    export type ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType];
 
 
-    export const ActivityEventsListWidgetAddRequestOpenApiWidgetType = {
+    export const ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = {
       ActivityEventsList: 'activity_events_list',
     } as const;
-
-    export interface _TileLayoutBoxOpenApi {
-      /** Column position in the dashboard grid (0-indexed). */
-      x?: number;
-      /** Row position in the dashboard grid (0-indexed). */
-      y?: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w?: number;
-      /** Height in grid rows. */
-      h?: number;
-    }
-
-    export interface _TileLayoutsOpenApi {
-      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: _TileLayoutBoxOpenApi;
-      /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
-      xs?: _TileLayoutBoxOpenApi;
-    }
 
     export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
 
@@ -4954,31 +4936,6 @@ export namespace Schemas {
       properties?: ActivityEventsPropertyFilter[] | null;
     }
 
-    export interface ActivityEventsListWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: ActivityEventsListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the recent events widget. */
-      config: ActivityEventsListWidgetConfig;
-    }
-
-    export type ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType];
-
-
-    export const ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = {
-      ActivityEventsList: 'activity_events_list',
-    } as const;
-
     export interface ActivityEventsListWidgetCatalogEntryOpenApi {
       widget_type: ActivityEventsListWidgetCatalogEntryOpenApiWidgetType;
       group_id: string;
@@ -5002,29 +4959,6 @@ export namespace Schemas {
     export const ActivityEventsListWidgetTypeEnum = {
       ActivityEventsList: 'activity_events_list',
     } as const;
-
-    export type ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = {
-      ActivityEventsList: 'activity_events_list',
-    } as const;
-
-    export interface ActivityEventsListWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: ActivityEventsListWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the recent events widget. Omit to leave unchanged. */
-      config?: ActivityEventsListWidgetConfig;
-    }
 
     /**
      * * `awaiting_input` - awaiting_input
@@ -7703,340 +7637,58 @@ export namespace Schemas {
       GithubPr: 'github_pr',
     } as const;
 
-    export type NotebookWidgetAddRequestOpenApiWidgetType = typeof NotebookWidgetAddRequestOpenApiWidgetType[keyof typeof NotebookWidgetAddRequestOpenApiWidgetType];
+    /**
+     * Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field.
+     */
+    export type AddDashboardWidgetRequestConfig = { [key: string]: unknown };
 
-
-    export const NotebookWidgetAddRequestOpenApiWidgetType = {
-      NotebookWidget: 'notebook_widget',
-    } as const;
-
-    export interface NotebookWidgetConfig {
-      /** Source notebook short ID. */
-      notebookShortId?: string | null;
-      /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
-      snapshotId?: string | null;
+    export interface _TileLayoutBoxOpenApi {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
     }
 
-    export interface NotebookWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: NotebookWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the notebook widget widget. */
-      config: NotebookWidgetConfig;
+    export interface _TileLayoutsOpenApi {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: _TileLayoutBoxOpenApi;
+      /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+      xs?: _TileLayoutBoxOpenApi;
     }
 
-    export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
+    /**
+     * * `activity_events_list` - Activity Events List
+     * * `canvas_app` - Canvas App
+     * * `conversations_recent_tickets` - Conversations Recent Tickets
+     * * `error_tracking_list` - Error Tracking List
+     * * `experiment_results` - Experiment Results
+     * * `experiments_list` - Experiments List
+     * * `logs_list` - Logs List
+     * * `notebook_widget` - Notebook Widget
+     * * `session_replay_list` - Session Replay List
+     * * `survey_results` - Survey Results
+     */
+    export type DashboardWidgetTypeEnum = typeof DashboardWidgetTypeEnum[keyof typeof DashboardWidgetTypeEnum];
 
 
-    export const ErrorTrackingListWidgetAddRequestOpenApiWidgetType = {
+    export const DashboardWidgetTypeEnum = {
+      ActivityEventsList: 'activity_events_list',
+      CanvasApp: 'canvas_app',
+      ConversationsRecentTickets: 'conversations_recent_tickets',
       ErrorTrackingList: 'error_tracking_list',
-    } as const;
-
-    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
-
-
-    export const ErrorTrackingOrderBy = {
-      LastSeen: 'last_seen',
-      FirstSeen: 'first_seen',
-      Occurrences: 'occurrences',
-      Users: 'users',
-      Sessions: 'sessions',
-      Severity: 'severity',
-    } as const;
-
-    /**
-     * Sort direction for orderBy.
-     */
-    export type ErrorTrackingListWidgetConfigOrderDirection = typeof ErrorTrackingListWidgetConfigOrderDirection[keyof typeof ErrorTrackingListWidgetConfigOrderDirection];
-
-
-    export const ErrorTrackingListWidgetConfigOrderDirection = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    /**
-     * Issue status filter.
-     */
-    export type ErrorTrackingListWidgetConfigStatus = typeof ErrorTrackingListWidgetConfigStatus[keyof typeof ErrorTrackingListWidgetConfigStatus];
-
-
-    export const ErrorTrackingListWidgetConfigStatus = {
-      Archived: 'archived',
-      Active: 'active',
-      Resolved: 'resolved',
-      PendingRelease: 'pending_release',
-      Suppressed: 'suppressed',
-      All: 'all',
-    } as const;
-
-    export type WidgetAssigneeFilterType = typeof WidgetAssigneeFilterType[keyof typeof WidgetAssigneeFilterType];
-
-
-    export const WidgetAssigneeFilterType = {
-      User: 'user',
-      Role: 'role',
-    } as const;
-
-    export interface WidgetAssigneeFilter {
-      id: string | number;
-      type: WidgetAssigneeFilterType;
-    }
-
-    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
-
-    export interface ErrorTrackingListWidgetConfig {
-      dateRange?: WidgetDateRange | null;
-      filterTestAccounts?: boolean | null;
-      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
-      /**
-         * Maximum number of issues to return.
-         * @minimum 1
-         * @maximum 25
-         */
-      limit?: number;
-      /** Issue ranking column. */
-      orderBy?: ErrorTrackingOrderBy;
-      /** Sort direction for orderBy. */
-      orderDirection?: ErrorTrackingListWidgetConfigOrderDirection;
-      /** Issue status filter. */
-      status?: ErrorTrackingListWidgetConfigStatus;
-      /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
-      assignee?: WidgetAssigneeFilter | null;
-    }
-
-    export interface ErrorTrackingListWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: ErrorTrackingListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the top issues widget. */
-      config: ErrorTrackingListWidgetConfig;
-    }
-
-    export type SessionReplayListWidgetAddRequestOpenApiWidgetType = typeof SessionReplayListWidgetAddRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetAddRequestOpenApiWidgetType];
-
-
-    export const SessionReplayListWidgetAddRequestOpenApiWidgetType = {
-      SessionReplayList: 'session_replay_list',
-    } as const;
-
-    /**
-     * Recording ranking column.
-     */
-    export type SessionReplayListWidgetConfigOrderBy = typeof SessionReplayListWidgetConfigOrderBy[keyof typeof SessionReplayListWidgetConfigOrderBy];
-
-
-    export const SessionReplayListWidgetConfigOrderBy = {
-      StartTime: 'start_time',
-      ActivityScore: 'activity_score',
-      RecordingDuration: 'recording_duration',
-      Duration: 'duration',
-      ClickCount: 'click_count',
-      ConsoleErrorCount: 'console_error_count',
-    } as const;
-
-    /**
-     * Sort direction for orderBy.
-     */
-    export type SessionReplayListWidgetConfigOrderDirection = typeof SessionReplayListWidgetConfigOrderDirection[keyof typeof SessionReplayListWidgetConfigOrderDirection];
-
-
-    export const SessionReplayListWidgetConfigOrderDirection = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
-
-    export interface SessionReplayListWidgetConfig {
-      dateRange?: WidgetDateRange | null;
-      filterTestAccounts?: boolean | null;
-      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
-      /**
-         * Maximum number of recordings to return.
-         * @minimum 1
-         * @maximum 25
-         */
-      limit?: number;
-      /** Recording ranking column. */
-      orderBy?: SessionReplayListWidgetConfigOrderBy;
-      /** Sort direction for orderBy. */
-      orderDirection?: SessionReplayListWidgetConfigOrderDirection;
-      /** short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection. */
-      savedFilterId?: string | null;
-      /** short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply. */
-      collectionId?: string | null;
-    }
-
-    export interface SessionReplayListWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: SessionReplayListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the recent recordings widget. */
-      config: SessionReplayListWidgetConfig;
-    }
-
-    export type ExperimentsListWidgetAddRequestOpenApiWidgetType = typeof ExperimentsListWidgetAddRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetAddRequestOpenApiWidgetType];
-
-
-    export const ExperimentsListWidgetAddRequestOpenApiWidgetType = {
-      ExperimentsList: 'experiments_list',
-    } as const;
-
-    /**
-     * Experiment list sort column.
-     */
-    export type ExperimentsListWidgetConfigOrderBy = typeof ExperimentsListWidgetConfigOrderBy[keyof typeof ExperimentsListWidgetConfigOrderBy];
-
-
-    export const ExperimentsListWidgetConfigOrderBy = {
-      CreatedAt: 'created_at',
-      Name: 'name',
-      StartDate: 'start_date',
-    } as const;
-
-    /**
-     * Sort direction for orderBy.
-     */
-    export type ExperimentsListWidgetConfigOrderDirection = typeof ExperimentsListWidgetConfigOrderDirection[keyof typeof ExperimentsListWidgetConfigOrderDirection];
-
-
-    export const ExperimentsListWidgetConfigOrderDirection = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    /**
-     * Experiment status filter.
-     */
-    export type ExperimentsListWidgetConfigStatus = typeof ExperimentsListWidgetConfigStatus[keyof typeof ExperimentsListWidgetConfigStatus];
-
-
-    export const ExperimentsListWidgetConfigStatus = {
-      Draft: 'draft',
-      Running: 'running',
-      Paused: 'paused',
-      ExposureFrozen: 'exposure_frozen',
-      Stopped: 'stopped',
-      All: 'all',
-    } as const;
-
-    export interface ExperimentsListWidgetConfig {
-      /**
-         * Maximum number of experiments to return.
-         * @minimum 1
-         * @maximum 25
-         */
-      limit?: number;
-      /** Experiment list sort column. */
-      orderBy?: ExperimentsListWidgetConfigOrderBy;
-      /** Sort direction for orderBy. */
-      orderDirection?: ExperimentsListWidgetConfigOrderDirection;
-      /** Experiment status filter. */
-      status?: ExperimentsListWidgetConfigStatus;
-      /** Filter by creator (user id). Omit for any creator. */
-      createdBy?: number | null;
-    }
-
-    export interface ExperimentsListWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: ExperimentsListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the experiments list widget. */
-      config: ExperimentsListWidgetConfig;
-    }
-
-    export type ExperimentResultsWidgetAddRequestOpenApiWidgetType = typeof ExperimentResultsWidgetAddRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetAddRequestOpenApiWidgetType];
-
-
-    export const ExperimentResultsWidgetAddRequestOpenApiWidgetType = {
       ExperimentResults: 'experiment_results',
-    } as const;
-
-    export interface ExperimentResultsWidgetConfig {
-      /** Experiment to show results for. Null until the user picks one in the widget settings. */
-      experimentId?: number | null;
-    }
-
-    export interface ExperimentResultsWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: ExperimentResultsWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the experiment results widget. */
-      config: ExperimentResultsWidgetConfig;
-    }
-
-    export type SurveyResultsWidgetAddRequestOpenApiWidgetType = typeof SurveyResultsWidgetAddRequestOpenApiWidgetType[keyof typeof SurveyResultsWidgetAddRequestOpenApiWidgetType];
-
-
-    export const SurveyResultsWidgetAddRequestOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+      LogsList: 'logs_list',
+      NotebookWidget: 'notebook_widget',
+      SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',
     } as const;
 
-    export interface SurveyResultsWidgetConfig {
-      /** Null or omitted means all time (the survey's full lifetime). */
-      dateRange?: WidgetDateRange | null;
-      /** Survey to show performance stats and recent responses for. Null until the user picks one. */
-      surveyId?: string | null;
-      /**
-         * Maximum number of recent responses to return.
-         * @minimum 1
-         * @maximum 25
-         */
-      limit?: number;
-    }
-
-    export interface SurveyResultsWidgetAddRequestOpenApi {
+    export interface AddDashboardWidgetRequest {
       /**
          * Optional custom display name for the widget tile.
          * @maxLength 400
@@ -8049,215 +7701,22 @@ export namespace Schemas {
       layouts?: _TileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
-      widget_type: SurveyResultsWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the survey results widget. */
-      config: SurveyResultsWidgetConfig;
+      /** Widget type to add. Use dashboard-widget-catalog-list to pick one.
+       *
+       * * `activity_events_list` - Activity Events List
+       * * `canvas_app` - Canvas App
+       * * `conversations_recent_tickets` - Conversations Recent Tickets
+       * * `error_tracking_list` - Error Tracking List
+       * * `experiment_results` - Experiment Results
+       * * `experiments_list` - Experiments List
+       * * `logs_list` - Logs List
+       * * `notebook_widget` - Notebook Widget
+       * * `session_replay_list` - Session Replay List
+       * * `survey_results` - Survey Results */
+      widget_type: DashboardWidgetTypeEnum;
+      /** Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. */
+      config: AddDashboardWidgetRequestConfig;
     }
-
-    export type LogsListWidgetAddRequestOpenApiWidgetType = typeof LogsListWidgetAddRequestOpenApiWidgetType[keyof typeof LogsListWidgetAddRequestOpenApiWidgetType];
-
-
-    export const LogsListWidgetAddRequestOpenApiWidgetType = {
-      LogsList: 'logs_list',
-    } as const;
-
-    /**
-     * Sort by newest (latest) or oldest (earliest) first.
-     */
-    export type LogsListWidgetConfigOrderBy = typeof LogsListWidgetConfigOrderBy[keyof typeof LogsListWidgetConfigOrderBy];
-
-
-    export const LogsListWidgetConfigOrderBy = {
-      Latest: 'latest',
-      Earliest: 'earliest',
-    } as const;
-
-    export type LogsListWidgetConfigSeverityLevelsItem = typeof LogsListWidgetConfigSeverityLevelsItem[keyof typeof LogsListWidgetConfigSeverityLevelsItem];
-
-
-    export const LogsListWidgetConfigSeverityLevelsItem = {
-      Trace: 'trace',
-      Debug: 'debug',
-      Info: 'info',
-      Warn: 'warn',
-      Error: 'error',
-      Fatal: 'fatal',
-    } as const;
-
-    /**
-     * Render log timestamps in UTC or in each viewer's local timezone.
-     */
-    export type LogsListWidgetConfigTimezone = typeof LogsListWidgetConfigTimezone[keyof typeof LogsListWidgetConfigTimezone];
-
-
-    export const LogsListWidgetConfigTimezone = {
-      Utc: 'UTC',
-      Local: 'local',
-    } as const;
-
-    export interface LogsListWidgetConfig {
-      dateRange?: WidgetDateRange | null;
-      /**
-         * Maximum number of log lines to return.
-         * @minimum 1
-         * @maximum 100
-         */
-      limit?: number;
-      /** Sort by newest (latest) or oldest (earliest) first. */
-      orderBy?: LogsListWidgetConfigOrderBy;
-      /** Only show logs at these severity levels. Empty shows all levels. */
-      severityLevels?: LogsListWidgetConfigSeverityLevelsItem[];
-      /** Only show logs from these services. Empty shows all services. */
-      serviceNames?: string[];
-      /** Wrap long log lines instead of truncating them to a single row. */
-      wrapLines?: boolean;
-      /** Render log timestamps in UTC or in each viewer's local timezone. */
-      timezone?: LogsListWidgetConfigTimezone;
-      /** short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply. */
-      savedViewId?: string | null;
-    }
-
-    export interface LogsListWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: LogsListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the recent logs widget. */
-      config: LogsListWidgetConfig;
-    }
-
-    export type ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType = typeof ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType[keyof typeof ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType];
-
-
-    export const ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType = {
-      ConversationsRecentTickets: 'conversations_recent_tickets',
-    } as const;
-
-    /**
-     * Ticket status filter.
-     */
-    export type ConversationsRecentTicketsWidgetConfigStatus = typeof ConversationsRecentTicketsWidgetConfigStatus[keyof typeof ConversationsRecentTicketsWidgetConfigStatus];
-
-
-    export const ConversationsRecentTicketsWidgetConfigStatus = {
-      New: 'new',
-      Open: 'open',
-      Pending: 'pending',
-      OnHold: 'on_hold',
-      Resolved: 'resolved',
-      All: 'all',
-    } as const;
-
-    export type ConversationsRecentTicketsWidgetConfigPrioritiesItem = typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem[keyof typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem];
-
-
-    export const ConversationsRecentTicketsWidgetConfigPrioritiesItem = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Critical: 'critical',
-    } as const;
-
-    /**
-     * Ticket channel filter.
-     */
-    export type ConversationsRecentTicketsWidgetConfigChannel = typeof ConversationsRecentTicketsWidgetConfigChannel[keyof typeof ConversationsRecentTicketsWidgetConfigChannel];
-
-
-    export const ConversationsRecentTicketsWidgetConfigChannel = {
-      Widget: 'widget',
-      Email: 'email',
-      Slack: 'slack',
-      Teams: 'teams',
-      Github: 'github',
-      All: 'all',
-    } as const;
-
-    export interface ConversationsRecentTicketsWidgetConfig {
-      /**
-         * Maximum number of tickets to return.
-         * @minimum 1
-         * @maximum 25
-         */
-      limit?: number;
-      /** Ticket status filter. */
-      status?: ConversationsRecentTicketsWidgetConfigStatus;
-      /** Only show tickets with these priorities. Empty shows all priorities. */
-      priorities?: ConversationsRecentTicketsWidgetConfigPrioritiesItem[];
-      /** Ticket channel filter. */
-      channel?: ConversationsRecentTicketsWidgetConfigChannel;
-      /**
-         * Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.
-         * @maxItems 100
-         */
-      assignees?: ('me' | 'unassigned' | WidgetAssigneeFilter)[];
-      /**
-         * Search requester name or email, ticket subject, message text, or ticket number.
-         * @maxLength 200
-         */
-      search?: string;
-      /** short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit. */
-      savedViewId?: string | null;
-    }
-
-    export interface ConversationsRecentTicketsWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the recent tickets widget. */
-      config: ConversationsRecentTicketsWidgetConfig;
-    }
-
-    export type CanvasAppWidgetAddRequestOpenApiWidgetType = typeof CanvasAppWidgetAddRequestOpenApiWidgetType[keyof typeof CanvasAppWidgetAddRequestOpenApiWidgetType];
-
-
-    export const CanvasAppWidgetAddRequestOpenApiWidgetType = {
-      CanvasApp: 'canvas_app',
-    } as const;
-
-    export interface CanvasAppWidgetConfig {
-      /** Canvas to render in the tile. Null until the user picks one in the widget settings. */
-      canvasId?: string | null;
-    }
-
-    export interface CanvasAppWidgetAddRequestOpenApi {
-      /**
-         * Optional custom display name for the widget tile.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional markdown description shown when show_description is enabled. */
-      description?: string;
-      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _TileLayoutsOpenApi;
-      /** Whether to show the description on the dashboard tile. */
-      show_description?: boolean;
-      widget_type: CanvasAppWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the canvas app widget. */
-      config: CanvasAppWidgetConfig;
-    }
-
-    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi | CanvasAppWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
@@ -10114,6 +9573,18 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
+
+
+    export const ErrorTrackingOrderBy = {
+      LastSeen: 'last_seen',
+      FirstSeen: 'first_seen',
+      Occurrences: 'occurrences',
+      Users: 'users',
+      Sessions: 'sessions',
+      Severity: 'severity',
+    } as const;
+
     export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
 
 
@@ -11466,6 +10937,323 @@ export namespace Schemas {
       style?: StyleEnum;
       readonly last_modified_at: string;
       team: number;
+    }
+
+    export interface NotebookWidgetConfig {
+      /** Source notebook short ID. */
+      notebookShortId?: string | null;
+      /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
+      snapshotId?: string | null;
+    }
+
+    /**
+     * Sort direction for orderBy.
+     */
+    export type ErrorTrackingListWidgetConfigOrderDirection = typeof ErrorTrackingListWidgetConfigOrderDirection[keyof typeof ErrorTrackingListWidgetConfigOrderDirection];
+
+
+    export const ErrorTrackingListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
+     * Issue status filter.
+     */
+    export type ErrorTrackingListWidgetConfigStatus = typeof ErrorTrackingListWidgetConfigStatus[keyof typeof ErrorTrackingListWidgetConfigStatus];
+
+
+    export const ErrorTrackingListWidgetConfigStatus = {
+      Archived: 'archived',
+      Active: 'active',
+      Resolved: 'resolved',
+      PendingRelease: 'pending_release',
+      Suppressed: 'suppressed',
+      All: 'all',
+    } as const;
+
+    export type WidgetAssigneeFilterType = typeof WidgetAssigneeFilterType[keyof typeof WidgetAssigneeFilterType];
+
+
+    export const WidgetAssigneeFilterType = {
+      User: 'user',
+      Role: 'role',
+    } as const;
+
+    export interface WidgetAssigneeFilter {
+      id: string | number;
+      type: WidgetAssigneeFilterType;
+    }
+
+    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
+
+    export interface ErrorTrackingListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
+      /**
+         * Maximum number of issues to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Issue ranking column. */
+      orderBy?: ErrorTrackingOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: ErrorTrackingListWidgetConfigOrderDirection;
+      /** Issue status filter. */
+      status?: ErrorTrackingListWidgetConfigStatus;
+      /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
+      assignee?: WidgetAssigneeFilter | null;
+    }
+
+    /**
+     * Recording ranking column.
+     */
+    export type SessionReplayListWidgetConfigOrderBy = typeof SessionReplayListWidgetConfigOrderBy[keyof typeof SessionReplayListWidgetConfigOrderBy];
+
+
+    export const SessionReplayListWidgetConfigOrderBy = {
+      StartTime: 'start_time',
+      ActivityScore: 'activity_score',
+      RecordingDuration: 'recording_duration',
+      Duration: 'duration',
+      ClickCount: 'click_count',
+      ConsoleErrorCount: 'console_error_count',
+    } as const;
+
+    /**
+     * Sort direction for orderBy.
+     */
+    export type SessionReplayListWidgetConfigOrderDirection = typeof SessionReplayListWidgetConfigOrderDirection[keyof typeof SessionReplayListWidgetConfigOrderDirection];
+
+
+    export const SessionReplayListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
+
+    export interface SessionReplayListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
+      /**
+         * Maximum number of recordings to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Recording ranking column. */
+      orderBy?: SessionReplayListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: SessionReplayListWidgetConfigOrderDirection;
+      /** short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection. */
+      savedFilterId?: string | null;
+      /** short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply. */
+      collectionId?: string | null;
+    }
+
+    /**
+     * Experiment list sort column.
+     */
+    export type ExperimentsListWidgetConfigOrderBy = typeof ExperimentsListWidgetConfigOrderBy[keyof typeof ExperimentsListWidgetConfigOrderBy];
+
+
+    export const ExperimentsListWidgetConfigOrderBy = {
+      CreatedAt: 'created_at',
+      Name: 'name',
+      StartDate: 'start_date',
+    } as const;
+
+    /**
+     * Sort direction for orderBy.
+     */
+    export type ExperimentsListWidgetConfigOrderDirection = typeof ExperimentsListWidgetConfigOrderDirection[keyof typeof ExperimentsListWidgetConfigOrderDirection];
+
+
+    export const ExperimentsListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
+     * Experiment status filter.
+     */
+    export type ExperimentsListWidgetConfigStatus = typeof ExperimentsListWidgetConfigStatus[keyof typeof ExperimentsListWidgetConfigStatus];
+
+
+    export const ExperimentsListWidgetConfigStatus = {
+      Draft: 'draft',
+      Running: 'running',
+      Paused: 'paused',
+      ExposureFrozen: 'exposure_frozen',
+      Stopped: 'stopped',
+      All: 'all',
+    } as const;
+
+    export interface ExperimentsListWidgetConfig {
+      /**
+         * Maximum number of experiments to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Experiment list sort column. */
+      orderBy?: ExperimentsListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: ExperimentsListWidgetConfigOrderDirection;
+      /** Experiment status filter. */
+      status?: ExperimentsListWidgetConfigStatus;
+      /** Filter by creator (user id). Omit for any creator. */
+      createdBy?: number | null;
+    }
+
+    export interface ExperimentResultsWidgetConfig {
+      /** Experiment to show results for. Null until the user picks one in the widget settings. */
+      experimentId?: number | null;
+    }
+
+    export interface SurveyResultsWidgetConfig {
+      /** Null or omitted means all time (the survey's full lifetime). */
+      dateRange?: WidgetDateRange | null;
+      /** Survey to show performance stats and recent responses for. Null until the user picks one. */
+      surveyId?: string | null;
+      /**
+         * Maximum number of recent responses to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+    }
+
+    /**
+     * Sort by newest (latest) or oldest (earliest) first.
+     */
+    export type LogsListWidgetConfigOrderBy = typeof LogsListWidgetConfigOrderBy[keyof typeof LogsListWidgetConfigOrderBy];
+
+
+    export const LogsListWidgetConfigOrderBy = {
+      Latest: 'latest',
+      Earliest: 'earliest',
+    } as const;
+
+    export type LogsListWidgetConfigSeverityLevelsItem = typeof LogsListWidgetConfigSeverityLevelsItem[keyof typeof LogsListWidgetConfigSeverityLevelsItem];
+
+
+    export const LogsListWidgetConfigSeverityLevelsItem = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    /**
+     * Render log timestamps in UTC or in each viewer's local timezone.
+     */
+    export type LogsListWidgetConfigTimezone = typeof LogsListWidgetConfigTimezone[keyof typeof LogsListWidgetConfigTimezone];
+
+
+    export const LogsListWidgetConfigTimezone = {
+      Utc: 'UTC',
+      Local: 'local',
+    } as const;
+
+    export interface LogsListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      /**
+         * Maximum number of log lines to return.
+         * @minimum 1
+         * @maximum 100
+         */
+      limit?: number;
+      /** Sort by newest (latest) or oldest (earliest) first. */
+      orderBy?: LogsListWidgetConfigOrderBy;
+      /** Only show logs at these severity levels. Empty shows all levels. */
+      severityLevels?: LogsListWidgetConfigSeverityLevelsItem[];
+      /** Only show logs from these services. Empty shows all services. */
+      serviceNames?: string[];
+      /** Wrap long log lines instead of truncating them to a single row. */
+      wrapLines?: boolean;
+      /** Render log timestamps in UTC or in each viewer's local timezone. */
+      timezone?: LogsListWidgetConfigTimezone;
+      /** short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply. */
+      savedViewId?: string | null;
+    }
+
+    /**
+     * Ticket status filter.
+     */
+    export type ConversationsRecentTicketsWidgetConfigStatus = typeof ConversationsRecentTicketsWidgetConfigStatus[keyof typeof ConversationsRecentTicketsWidgetConfigStatus];
+
+
+    export const ConversationsRecentTicketsWidgetConfigStatus = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+      All: 'all',
+    } as const;
+
+    export type ConversationsRecentTicketsWidgetConfigPrioritiesItem = typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem[keyof typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem];
+
+
+    export const ConversationsRecentTicketsWidgetConfigPrioritiesItem = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
+    /**
+     * Ticket channel filter.
+     */
+    export type ConversationsRecentTicketsWidgetConfigChannel = typeof ConversationsRecentTicketsWidgetConfigChannel[keyof typeof ConversationsRecentTicketsWidgetConfigChannel];
+
+
+    export const ConversationsRecentTicketsWidgetConfigChannel = {
+      Widget: 'widget',
+      Email: 'email',
+      Slack: 'slack',
+      Teams: 'teams',
+      Github: 'github',
+      All: 'all',
+    } as const;
+
+    export interface ConversationsRecentTicketsWidgetConfig {
+      /**
+         * Maximum number of tickets to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Ticket status filter. */
+      status?: ConversationsRecentTicketsWidgetConfigStatus;
+      /** Only show tickets with these priorities. Empty shows all priorities. */
+      priorities?: ConversationsRecentTicketsWidgetConfigPrioritiesItem[];
+      /** Ticket channel filter. */
+      channel?: ConversationsRecentTicketsWidgetConfigChannel;
+      /**
+         * Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.
+         * @maxItems 100
+         */
+      assignees?: ('me' | 'unassigned' | WidgetAssigneeFilter)[];
+      /**
+         * Search requester name or email, ticket subject, message text, or ticket number.
+         * @maxLength 200
+         */
+      search?: string;
+      /** short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit. */
+      savedViewId?: string | null;
+    }
+
+    export interface CanvasAppWidgetConfig {
+      /** Canvas to render in the tile. Null until the user picks one in the widget settings. */
+      canvasId?: string | null;
     }
 
     export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig;
@@ -20663,29 +20451,6 @@ export namespace Schemas {
       CanvasApp: 'canvas_app',
     } as const;
 
-    export type CanvasAppWidgetUpdateRequestOpenApiWidgetType = typeof CanvasAppWidgetUpdateRequestOpenApiWidgetType[keyof typeof CanvasAppWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const CanvasAppWidgetUpdateRequestOpenApiWidgetType = {
-      CanvasApp: 'canvas_app',
-    } as const;
-
-    export interface CanvasAppWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: CanvasAppWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the canvas app widget. Omit to leave unchanged. */
-      config?: CanvasAppWidgetConfig;
-    }
-
     /**
      * One emitted file of a built canvas artifact.
      */
@@ -25779,29 +25544,6 @@ export namespace Schemas {
       ConversationsRecentTickets: 'conversations_recent_tickets',
     } as const;
 
-    export type ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType = typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType[keyof typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType = {
-      ConversationsRecentTickets: 'conversations_recent_tickets',
-    } as const;
-
-    export interface ConversationsRecentTicketsWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the recent tickets widget. Omit to leave unchanged. */
-      config?: ConversationsRecentTicketsWidgetConfig;
-    }
-
     export interface ConversationsTicketImage {
       url: string;
       author: string;
@@ -28401,50 +28143,22 @@ export namespace Schemas {
       xs?: _DashboardPatchTileLayoutBoxOpenApi;
     }
 
-    /**
-     * * `activity_events_list` - activity_events_list
-     * * `canvas_app` - canvas_app
-     * * `conversations_recent_tickets` - conversations_recent_tickets
-     * * `error_tracking_list` - error_tracking_list
-     * * `experiment_results` - experiment_results
-     * * `experiments_list` - experiments_list
-     * * `logs_list` - logs_list
-     * * `notebook_widget` - notebook_widget
-     * * `session_replay_list` - session_replay_list
-     * * `survey_results` - survey_results
-     */
-    export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
-
-
-    export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
-      ActivityEventsList: 'activity_events_list',
-      CanvasApp: 'canvas_app',
-      ConversationsRecentTickets: 'conversations_recent_tickets',
-      ErrorTrackingList: 'error_tracking_list',
-      ExperimentResults: 'experiment_results',
-      ExperimentsList: 'experiments_list',
-      LogsList: 'logs_list',
-      NotebookWidget: 'notebook_widget',
-      SessionReplayList: 'session_replay_list',
-      SurveyResults: 'survey_results',
-    } as const;
-
     export interface DashboardPatchWidgetOpenApi {
       /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
       id?: string;
       /** Widget type identifier (cannot be changed on update).
        *
-       * * `activity_events_list` - activity_events_list
-       * * `canvas_app` - canvas_app
-       * * `conversations_recent_tickets` - conversations_recent_tickets
-       * * `error_tracking_list` - error_tracking_list
-       * * `experiment_results` - experiment_results
-       * * `experiments_list` - experiments_list
-       * * `logs_list` - logs_list
-       * * `notebook_widget` - notebook_widget
-       * * `session_replay_list` - session_replay_list
-       * * `survey_results` - survey_results */
-      widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
+       * * `activity_events_list` - Activity Events List
+       * * `canvas_app` - Canvas App
+       * * `conversations_recent_tickets` - Conversations Recent Tickets
+       * * `error_tracking_list` - Error Tracking List
+       * * `experiment_results` - Experiment Results
+       * * `experiments_list` - Experiments List
+       * * `logs_list` - Logs List
+       * * `notebook_widget` - Notebook Widget
+       * * `session_replay_list` - Session Replay List
+       * * `survey_results` - Survey Results */
+      widget_type?: DashboardWidgetTypeEnum;
       /** Widget-specific configuration. Shape depends on the tile's widget_type. */
       config?: DashboardWidgetConfig;
       /**
@@ -41906,29 +41620,6 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
-    export type ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = {
-      ErrorTrackingList: 'error_tracking_list',
-    } as const;
-
-    export interface ErrorTrackingListWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the top issues widget. Omit to leave unchanged. */
-      config?: ErrorTrackingListWidgetConfig;
-    }
-
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
       id: string;
@@ -46272,29 +45963,6 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
     } as const;
 
-    export type ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = {
-      ExperimentResults: 'experiment_results',
-    } as const;
-
-    export interface ExperimentResultsWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: ExperimentResultsWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the experiment results widget. Omit to leave unchanged. */
-      config?: ExperimentResultsWidgetConfig;
-    }
-
     export interface ExperimentSavedMetricLinkedExperiment {
       /** Experiment ID. */
       id: number;
@@ -47878,29 +47546,6 @@ export namespace Schemas {
     export const ExperimentsListWidgetTypeEnum = {
       ExperimentsList: 'experiments_list',
     } as const;
-
-    export type ExperimentsListWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const ExperimentsListWidgetUpdateRequestOpenApiWidgetType = {
-      ExperimentsList: 'experiments_list',
-    } as const;
-
-    export interface ExperimentsListWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: ExperimentsListWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the experiments list widget. Omit to leave unchanged. */
-      config?: ExperimentsListWidgetConfig;
-    }
 
     export interface ExplainRequest {
       /** UUID of the log entry to explain */
@@ -65109,29 +64754,6 @@ export namespace Schemas {
       LogsList: 'logs_list',
     } as const;
 
-    export type LogsListWidgetUpdateRequestOpenApiWidgetType = typeof LogsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof LogsListWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const LogsListWidgetUpdateRequestOpenApiWidgetType = {
-      LogsList: 'logs_list',
-    } as const;
-
-    export interface LogsListWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: LogsListWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the recent logs widget. Omit to leave unchanged. */
-      config?: LogsListWidgetConfig;
-    }
-
     /**
      * * `logs` - Logs
      * * `spans` - Spans
@@ -69456,29 +69078,6 @@ export namespace Schemas {
     export const NotebookWidgetTypeEnum = {
       NotebookWidget: 'notebook_widget',
     } as const;
-
-    export type NotebookWidgetUpdateRequestOpenApiWidgetType = typeof NotebookWidgetUpdateRequestOpenApiWidgetType[keyof typeof NotebookWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const NotebookWidgetUpdateRequestOpenApiWidgetType = {
-      NotebookWidget: 'notebook_widget',
-    } as const;
-
-    export interface NotebookWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: NotebookWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the notebook widget widget. Omit to leave unchanged. */
-      config?: NotebookWidgetConfig;
-    }
 
     /**
      * Optional structured payload for rich client-side rendering, specific to the notification type. For `web_analytics_digest`, holds the weekly metrics (visitors, pageviews, sessions, bounce rate, session duration with week-over-week change), top pages, and top sources used to render the digest card.
@@ -88505,14 +88104,12 @@ export namespace Schemas {
       memory_gb?: number;
     }
 
-    export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
+    /**
+     * Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. Each top-level key you send replaces the stored value, and keys you leave out stay as they are. Omit config to leave it unchanged.
+     */
+    export type UpdateDashboardWidgetRequestConfig = { [key: string]: unknown };
 
-
-    export const SessionReplayListWidgetUpdateRequestOpenApiWidgetType = {
-      SessionReplayList: 'session_replay_list',
-    } as const;
-
-    export interface SessionReplayListWidgetUpdateRequestOpenApi {
+    export interface UpdateDashboardWidgetRequest {
       /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
       tile_id: number;
       /**
@@ -88523,35 +88120,22 @@ export namespace Schemas {
       name?: string | null;
       /** New markdown description for the widget. Omit to leave unchanged. */
       description?: string;
-      widget_type: SessionReplayListWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the recent recordings widget. Omit to leave unchanged. */
-      config?: SessionReplayListWidgetConfig;
+      /** The tile's widget type. It cannot be changed, so omit it or pass the current type.
+       *
+       * * `activity_events_list` - Activity Events List
+       * * `canvas_app` - Canvas App
+       * * `conversations_recent_tickets` - Conversations Recent Tickets
+       * * `error_tracking_list` - Error Tracking List
+       * * `experiment_results` - Experiment Results
+       * * `experiments_list` - Experiments List
+       * * `logs_list` - Logs List
+       * * `notebook_widget` - Notebook Widget
+       * * `session_replay_list` - Session Replay List
+       * * `survey_results` - Survey Results */
+      widget_type?: DashboardWidgetTypeEnum;
+      /** Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. Each top-level key you send replaces the stored value, and keys you leave out stay as they are. Omit config to leave it unchanged. */
+      config?: UpdateDashboardWidgetRequestConfig;
     }
-
-    export type SurveyResultsWidgetUpdateRequestOpenApiWidgetType = typeof SurveyResultsWidgetUpdateRequestOpenApiWidgetType[keyof typeof SurveyResultsWidgetUpdateRequestOpenApiWidgetType];
-
-
-    export const SurveyResultsWidgetUpdateRequestOpenApiWidgetType = {
-      SurveyResults: 'survey_results',
-    } as const;
-
-    export interface SurveyResultsWidgetUpdateRequestOpenApi {
-      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-      tile_id: number;
-      /**
-         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** New markdown description for the widget. Omit to leave unchanged. */
-      description?: string;
-      widget_type: SurveyResultsWidgetUpdateRequestOpenApiWidgetType;
-      /** New configuration for the survey results widget. Omit to leave unchanged. */
-      config?: SurveyResultsWidgetConfig;
-    }
-
-    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi | CanvasAppWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.

@@ -152,7 +152,7 @@ describe('Tool schema snapshots', () => {
 
     describe('schema budgets', () => {
         // Ratchet: the number of oversized tool schemas may only go down.
-        const OVERSIZED_SCHEMA_COUNT = 43
+        const OVERSIZED_SCHEMA_COUNT = 41
         // Ratchet: the share of nested properties with a description may only go up.
         const NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT = 55
 
