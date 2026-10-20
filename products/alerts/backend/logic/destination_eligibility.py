@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import hashlib
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
@@ -86,7 +86,7 @@ _BUCKET_ORDER: Final = tuple(DestinationBucket)
 _ALERT_BATCH_SIZE: Final = 200
 
 # Only these receive alert events. Any other function on the same event id reads captured events.
-_RECEIVES_ALERT_EVENTS: Final = {"type": "internal_destination", "filters__source": "internal-events"}
+RECEIVES_ALERT_EVENTS: Final = {"type": "internal_destination", "filters__source": "internal-events"}
 # Compiled code and drafts are large and never classified, so they stay unread.
 _UNCLASSIFIED_FIELDS: Final = ("bytecode", "transpiled", "draft")
 
@@ -99,7 +99,7 @@ def classify_alert_destinations(
         owned_alert_destinations_qs(
             team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
         )
-        .filter(**_RECEIVES_ALERT_EVENTS)
+        .filter(**RECEIVES_ALERT_EVENTS)
         .defer(*_UNCLASSIFIED_FIELDS)
         .order_by("created_at", "id")
     )
@@ -117,12 +117,12 @@ def classify_destinations_by_alert(
             owned_alert_destinations_qs(
                 team_id=team_id, alert_ids=batch, allowed_event_ids=allowed_event_ids, known_templates_only=False
             )
-            .filter(**_RECEIVES_ALERT_EVENTS)
+            .filter(**RECEIVES_ALERT_EVENTS)
             .defer(*_UNCLASSIFIED_FIELDS)
             .order_by("created_at", "id")
         )
         for function, eligibility in zip(functions, _classify(team_id, functions, allowed_event_ids)):
-            for alert_id in _named_alert_ids(function.filters) & batch:
+            for alert_id in named_alert_ids(function.filters) & batch:
                 by_alert[alert_id].append(eligibility)
     return {alert_id: tuple(eligibilities) for alert_id, eligibilities in by_alert.items()}
 
@@ -167,10 +167,16 @@ def _classify(
     )
 
 
+def most_restrictive(buckets: Iterable[DestinationBucket]) -> DestinationBucket:
+    """The most restrictive of these buckets, or stock when there are none."""
+    return min(buckets, key=_BUCKET_ORDER.index, default=DestinationBucket.STOCK)
+
+
 def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
     """The most restrictive bucket among a destination's hold-backs. No hold-back means stock."""
-    buckets = {_BUCKET_BY_HOLD_BACK.get(hold_back, DestinationBucket.PORTABLE) for hold_back in eligibility.hold_backs}
-    return min(buckets, key=_BUCKET_ORDER.index, default=DestinationBucket.STOCK)
+    return most_restrictive(
+        _BUCKET_BY_HOLD_BACK.get(hold_back, DestinationBucket.PORTABLE) for hold_back in eligibility.hold_backs
+    )
 
 
 def unbound_alert_destinations(
@@ -189,15 +195,15 @@ def unbound_alert_destinations(
             team_id=team_id,
             deleted=False,
             **enabled,
-            **_RECEIVES_ALERT_EVENTS,
+            **RECEIVES_ALERT_EVENTS,
         )
         .order_by("created_at", "id")
         .values_list("id", "filters")
     )
-    return tuple(function_id for function_id, filters in candidates if not _bound_to_one_alert(filters))
+    return tuple(function_id for function_id, filters in candidates if not bound_to_one_alert(filters))
 
 
-def _named_alert_ids(filters: Any) -> set[str]:
+def named_alert_ids(filters: Any) -> set[str]:
     # Matches `owned_alert_destinations_qs`, which reads an alert id under any operator.
     properties = filters.get("properties") if isinstance(filters, dict) else None
     return {
@@ -207,7 +213,7 @@ def _named_alert_ids(filters: Any) -> set[str]:
     }
 
 
-def _bound_to_one_alert(filters: Any) -> bool:
+def bound_to_one_alert(filters: Any) -> bool:
     # Only an exact match on one alert id scopes a function to that alert. Any other operator,
     # such as `is_not`, still lets it fire for other alerts.
     properties = filters.get("properties") if isinstance(filters, dict) else None

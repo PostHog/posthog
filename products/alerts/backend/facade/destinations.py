@@ -7,7 +7,7 @@ objects stay inside the product.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Final
@@ -22,6 +22,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationGroup,
+    AlertEventKind,
     DeliveryPath,
     DestinationType,
     EventKindSpec,
@@ -37,6 +38,7 @@ from ..logic import (
     destination_configs,
     destination_eligibility,
     destinations,
+    flow_port,
     insight_alert_destinations,
 )
 from .contracts import (
@@ -45,6 +47,7 @@ from .contracts import (
     DestinationBucket,
     DestinationEligibility,
     DestinationHoldBack,
+    FlowPort,
 )
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
@@ -315,6 +318,27 @@ def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
 def bucket_report_lines(team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]) -> Iterator[str]:
     """One line per destination of the given (team id, alert id) pairs, then the count per bucket and per reason."""
     return destination_bucket_report.bucket_report_lines(team_alerts, allowed_event_ids=allowed_event_ids)
+
+
+def flow_ports(
+    *,
+    team_id: int,
+    alerts: Iterable[tuple[str, str]],
+    allowed_event_ids: Collection[str],
+    transition_by_event_id: Mapping[str, AlertEventKind],
+) -> Iterator[FlowPort]:
+    """Each customized destination of the given (alert id, alert name) pairs, with the workflow that would replace it."""
+    return flow_port.flow_ports(
+        team_id=team_id,
+        alerts=alerts,
+        allowed_event_ids=allowed_event_ids,
+        transition_by_event_id=transition_by_event_id,
+    )
+
+
+def flow_port_report_lines(ports: Iterable[FlowPort]) -> Iterator[str]:
+    """One line per destination, then its rewrites and issues, then the counts. Never prints an input value."""
+    return flow_port.flow_port_report_lines(ports)
 
 
 def team_delivery_paths(

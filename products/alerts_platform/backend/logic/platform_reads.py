@@ -126,6 +126,18 @@ def alert_snapshot(team_id: int, configuration_id: str, grouping_key: str) -> Pl
     return instance_view(alert, alert.configuration) if alert is not None else None
 
 
+def configuration_ids_by_legacy_id(*, team_id: int, legacy_configuration_ids: Collection[UUID]) -> dict[UUID, UUID]:
+    """The platform configuration id of each named source alert that has one, whoever owns it."""
+    if not legacy_configuration_ids:
+        return {}
+    rows = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(legacy_configuration_id__in=list(legacy_configuration_ids))
+        .values_list("legacy_configuration_id", "id")
+    )
+    return {legacy_id: configuration_id for legacy_id, configuration_id in rows if legacy_id is not None}
+
+
 def runtime_by_legacy_id(
     *, team_id: int, legacy_configuration_ids: Collection[UUID]
 ) -> dict[UUID, PlatformAlertRuntime]:

@@ -119,6 +119,13 @@ def get_configuration(
     )
 
 
+def configuration_ids_by_legacy_id(*, team_id: int, legacy_configuration_ids: Collection[UUID]) -> dict[UUID, UUID]:
+    """The platform configuration id of each named source alert that has one, keyed by the source's id."""
+    return platform_reads.configuration_ids_by_legacy_id(
+        team_id=team_id, legacy_configuration_ids=legacy_configuration_ids
+    )
+
+
 def runtime_by_legacy_id(
     *, team_id: int, legacy_configuration_ids: Collection[UUID]
 ) -> dict[UUID, PlatformAlertRuntime]:

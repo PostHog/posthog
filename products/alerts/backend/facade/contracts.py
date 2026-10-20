@@ -7,6 +7,7 @@ an insight alert means.
 
 from __future__ import annotations
 
+from dataclasses import field
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
@@ -111,6 +112,58 @@ class BucketedDestination:
     # None for a function bound to no single alert, which fires for several alerts of the team.
     alert_id: str | None
     eligibility: DestinationEligibility
+
+
+class FlowPortProblem(StrEnum):
+    """Why an alert destination cannot become a workflow without a person reading it first."""
+
+    NO_PLATFORM_CONFIGURATION = "no_platform_configuration"
+    # A workflow step runs its template's code, so edited code has nowhere to go.
+    EDITED_CODE = "edited_code"
+    NO_TEMPLATE = "no_template"
+    # A workflow step validates inputs against its template's schema, so an added input is dropped.
+    CUSTOM_INPUTS = "custom_inputs"
+    MAPPINGS = "mappings"
+    # Native delivery refuses the address on purpose, and a workflow would keep sending to it.
+    REFUSED_ADDRESS = "refused_address"
+    # Fires for several alerts, so one alert's workflow would change what the others send.
+    UNBOUND = "unbound"
+    EXTRA_FILTERS = "extra_filters"
+    # The event has no transition in `$alert_transition`, such as a PagerDuty incident open or close.
+    EVENT_WITHOUT_TRANSITION = "event_without_transition"
+    # Two functions of one destination take the same transition, and a branch runs only one of them.
+    SHARED_TRANSITION = "shared_transition"
+    # A workflow has one trigger masking, and the functions of one destination mask differently.
+    MIXED_MASKING = "mixed_masking"
+    UNKNOWN_PLACEHOLDER = "unknown_placeholder"
+    # A workflow webhook step refuses a signing secret that is not base64 of at least 24 bytes.
+    INVALID_SIGNING_SECRET = "invalid_signing_secret"
+    NOTHING_ENABLED = "nothing_enabled"
+
+
+@frozen
+class FlowPortIssue:
+    problem: FlowPortProblem
+    hog_function_id: UUID | None
+    # Names a placeholder, an event or a filter key. Never an input value.
+    detail: str = ""
+
+
+@frozen
+class FlowPort:
+    """One alert destination, the HogFunctions behind it, and the workflow that would replace them."""
+
+    alert_id: str
+    hog_function_ids: tuple[UUID, ...]
+    template_id: str | None
+    bucket: DestinationBucket
+    rewrites: tuple[str, ...]
+    issues: tuple[FlowPortIssue, ...]
+    # Disabled functions, left out of the workflow.
+    left_out: tuple[UUID, ...]
+    # The workflow as the HogFlow API takes it, or None when an issue stops the port. Holds the
+    # destination's secret inputs, so it stays out of `repr`.
+    flow: dict[str, Any] | None = field(default=None, repr=False)
 
 
 @frozen

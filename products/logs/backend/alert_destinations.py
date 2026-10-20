@@ -7,6 +7,7 @@ from typing import Literal
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationAction,
+    AlertEventKind,
     DestinationType,
     EventKindSpec,
     IncidentAction,
@@ -162,6 +163,11 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
 
 EVENT_KINDS: tuple[EventKind, ...] = tuple(EVENT_KIND_CONFIG.keys())
 LOGS_ALERT_EVENT_IDS: tuple[str, ...] = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
+# The `$alert_transition` each message event becomes. An incident event has none, because a
+# transition does not say whether an incident opened or closed.
+TRANSITION_BY_LOGS_EVENT_ID: dict[str, AlertEventKind] = {
+    spec.event_id: AlertEventKind(kind) for kind, spec in EVENT_KIND_CONFIG.items() if spec.incident_action is None
+}
 
 _SEVERITY_SERVICE_CONTEXT = (
     "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0,"

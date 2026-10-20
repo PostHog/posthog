@@ -1,4 +1,4 @@
-"""The logs alerts whose destinations the cutover bucket report reads."""
+"""The logs alerts whose destinations the cutover reports read."""
 
 from __future__ import annotations
 
@@ -13,3 +13,11 @@ def enabled_logs_alerts(*, team_id: int | None = None) -> Iterator[tuple[int, st
         alerts = alerts.filter(team_id=team_id)
     for alert_team_id, alert_id in alerts.values_list("team_id", "id").iterator():
         yield alert_team_id, str(alert_id)
+
+
+def named_logs_alerts(*, team_id: int, alert_id: str | None = None) -> list[tuple[str, str]]:
+    """The (alert id, name) of a team's logs alerts, disabled ones included, because a person can enable one."""
+    alerts = LogsAlertConfiguration.objects.filter(team_id=team_id).order_by("created_at")
+    if alert_id is not None:
+        alerts = alerts.filter(id=alert_id)
+    return [(str(found_id), name) for found_id, name in alerts.values_list("id", "name")]
