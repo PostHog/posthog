@@ -108,9 +108,13 @@ describe('EditSubscription unsaved changes', () => {
         expect(await screen.findByText('Not found')).toBeInTheDocument()
     })
 
-    it.each([[[998, 999]], [[11, 999]]])(
+    it.each([
+        { selectedIds: [998, 999], removeTileAfterOpen: false },
+        { selectedIds: [11, 999], removeTileAfterOpen: false },
+        { selectedIds: [11], removeTileAfterOpen: true },
+    ])(
         'removes unavailable selections on save: %j',
-        async (selectedIds) => {
+        async ({ selectedIds, removeTileAfterOpen }) => {
             const subscription = subscriptionFixture({
                 target_type: 'email',
                 target_value: 'subscriber@example.com',
@@ -143,24 +147,38 @@ describe('EditSubscription unsaved changes', () => {
             userLogic.mount()
             userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
             router.actions.push('/dashboard/5/subscriptions/1')
-            render(
+            const { rerender } = render(
                 <Provider>
                     <EditSubscription id={1} dashboard={DASHBOARD} onCancel={jest.fn()} onDelete={jest.fn()} />
                 </Provider>
             )
 
+            if (removeTileAfterOpen) {
+                await screen.findByDisplayValue(subscription.title)
+                expect(isClean()).toBe(true)
+                rerender(
+                    <Provider>
+                        <EditSubscription
+                            id={1}
+                            dashboard={{ ...DASHBOARD, tiles: DASHBOARD.tiles.slice(1) }}
+                            onCancel={jest.fn()}
+                            onDelete={jest.fn()}
+                        />
+                    </Provider>
+                )
+            }
             await screen.findByText(/selected insights? (?:is|are) no longer on this dashboard/, {}, { timeout: 10000 })
             expect(isClean()).toBe(false)
             expect(screen.queryByText('Remove all missing insights')).not.toBeInTheDocument()
-            if (selectedIds.includes(998)) {
+            if (selectedIds.includes(998) || removeTileAfterOpen) {
                 await userEvent.click(saveButton())
                 expect(await screen.findAllByText('Select at least one insight')).not.toHaveLength(0)
                 expect(patch).not.toHaveBeenCalled()
-                await userEvent.click(screen.getByText('Pageviews'))
+                await userEvent.click(screen.getByText(removeTileAfterOpen ? 'Sessions' : 'Pageviews'))
             }
             await userEvent.click(saveButton())
             await waitFor(() => expect(patch).toHaveBeenCalledTimes(1))
-            expect(savedIds).toEqual([11])
+            expect(savedIds).toEqual([removeTileAfterOpen ? 12 : 11])
             await waitFor(() => expect(isClean()).toBe(true))
             expect(
                 screen.queryByText(/selected insights? (?:is|are) no longer on this dashboard/)

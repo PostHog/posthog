@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    connect,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -324,6 +337,7 @@ export interface SubscriptionLogicProps extends SubscriptionBaseProps {
 export interface subscriptionLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     user: UserType | null // userLogic
+    dashboardTiles: DashboardTile[] | undefined
     hasUnavailableInsights: boolean
     isSubscriptionSubmitting: boolean
     isSubscriptionValid: boolean
@@ -508,6 +522,9 @@ export interface subscriptionLogicActions {
     sendTestDeliverySuccess: () => {
         value: true
     }
+    setDashboardTiles: (tiles: DashboardTile[] | undefined) => {
+        tiles: DashboardTile[] | undefined
+    }
     setPreviewAsset: (asset: ExportedAssetType | null) => {
         asset: ExportedAssetType | null
     }
@@ -558,7 +575,7 @@ export interface subscriptionLogicActions {
 export interface subscriptionLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        hasUnavailableInsights: (subscription: SubscriptionType) => boolean
+        hasUnavailableInsights: (subscription: SubscriptionType, dashboardTiles: DashboardTile[] | undefined) => boolean
     }
 }
 
@@ -587,6 +604,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewLoading: (loading: boolean) => ({ loading }),
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
+        setDashboardTiles: (tiles: DashboardTile[] | undefined) => ({ tiles }),
         applyDefaultSelectedInsights: (selectedIds: number[]) => ({ selectedIds }),
         applyDefaultIntegration: (integrationId: number) => ({ integrationId }),
         replaceTeamsWebhook: true,
@@ -598,7 +616,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         selectAiAnalysisWindow: (mode: AIWindowConfigApi['mode']) => ({ mode }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
+        dashboardTiles: [props.dashboardTiles, { setDashboardTiles: (_, { tiles }) => tiles }],
         // The host the API returned for a saved Teams subscription. Null once the user chooses to
         // replace the URL, which is what puts the input back on screen and the validation back on.
         storedTeamsWebhookHost: [
@@ -657,8 +676,13 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 loadSubscriptionSuccess: () => true,
             },
         ],
-    }),
+    })),
 
+    propsChanged(({ actions, props }, previousProps) => {
+        if (props.dashboardTiles !== previousProps.dashboardTiles) {
+            actions.setDashboardTiles(props.dashboardTiles)
+        }
+    }),
     loaders(({ props }) => ({
         lastDelivery: {
             __default: null as SubscriptionDeliveryApi | null,
@@ -712,42 +736,51 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    selectors(({ props }) => ({
+    selectors({
         hasUnavailableInsights: [
-            (s) => [s.subscription],
-            (subscription: SubscriptionType): boolean => {
-                if (!props.dashboardId || subscription.resource_type === SubscriptionResourceTypes.AiPrompt) {
+            (s) => [s.subscription, s.dashboardTiles],
+            (subscription: SubscriptionType, dashboardTiles?: DashboardTile[]): boolean => {
+                if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt) {
                     return false
                 }
                 const selectedIds = subscription.dashboard_export_insights ?? []
-                return availableDashboardInsightIds(selectedIds, props.dashboardTiles).length < selectedIds.length
+                return availableDashboardInsightIds(selectedIds, dashboardTiles).length < selectedIds.length
             },
         ],
-    })),
+    }),
     forms(({ props, actions, cache, values }) => ({
         subscription: {
             defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
-            errors: (subscription) => ({
-                frequency: validateFrequency(subscription),
-                title: !subscription.title ? 'You need to give your subscription a name' : undefined,
-                interval: !subscription.interval ? 'You need to set an interval' : undefined,
-                start_date: !subscription.start_date ? 'You need to set a delivery time' : undefined,
-                // The destination select cannot produce an unknown value, but a `target_type`
-                // search param can.
-                target_type: isSupportedTargetType(subscription.target_type) ? undefined : 'Unsupported target type',
-                prompt: validatePrompt(subscription.resource_type, subscription.prompt),
-                ...validateAiWindow(subscription),
-                target_value: validateTargetValue(
-                    subscription.target_type,
-                    subscription.target_value,
-                    isTeamsWebhookKept(subscription.target_type, values.storedTeamsWebhookHost)
-                ),
-                dashboard_export_insights: validateDashboardExportInsights(
-                    subscription,
-                    props.dashboardId,
-                    props.dashboardTiles
-                ),
-            }),
+            errors: [
+                (s) => [s.subscription, s.dashboardTiles, s.storedTeamsWebhookHost],
+                (
+                    subscription: SubscriptionType,
+                    dashboardTiles: DashboardTile[] | undefined,
+                    storedTeamsWebhookHost: string | null
+                ) => ({
+                    frequency: validateFrequency(subscription),
+                    title: !subscription.title ? 'You need to give your subscription a name' : undefined,
+                    interval: !subscription.interval ? 'You need to set an interval' : undefined,
+                    start_date: !subscription.start_date ? 'You need to set a delivery time' : undefined,
+                    // The destination select cannot produce an unknown value, but a `target_type`
+                    // search param can.
+                    target_type: isSupportedTargetType(subscription.target_type)
+                        ? undefined
+                        : 'Unsupported target type',
+                    prompt: validatePrompt(subscription.resource_type, subscription.prompt),
+                    ...validateAiWindow(subscription),
+                    target_value: validateTargetValue(
+                        subscription.target_type,
+                        subscription.target_value,
+                        isTeamsWebhookKept(subscription.target_type, storedTeamsWebhookHost)
+                    ),
+                    dashboard_export_insights: validateDashboardExportInsights(
+                        subscription,
+                        props.dashboardId,
+                        dashboardTiles
+                    ),
+                }),
+            ],
             submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
                 const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
@@ -771,7 +804,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         ? []
                         : availableDashboardInsightIds(
                               subscription.dashboard_export_insights ?? [],
-                              props.dashboardTiles
+                              values.dashboardTiles
                           ),
                     // Only AI subscriptions carry a prompt; a stale one on a non-AI sub (e.g. after
                     // toggling resource_type back) would be rejected by the backend, so drop it.
