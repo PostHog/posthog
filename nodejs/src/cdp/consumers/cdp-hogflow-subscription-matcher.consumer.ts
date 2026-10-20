@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import { ALERT_TRANSITION_EVENT } from '~/cdp/managed-alert-events'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
     StepResume,
@@ -883,6 +884,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             messages.map(async (message) => {
                 try {
                     const parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
+                    // A wait or a goal is a predicate its author writes with no access check, so an
+                    // event whose readers are checked never reaches one.
+                    if (parsed.event.event === ALERT_TRANSITION_EVENT) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'reserved_event' }).inc()
+                        return
+                    }
                     if (!parsed.event.distinct_id && !parsed.person?.id) {
                         counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
                         return
