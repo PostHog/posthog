@@ -6,6 +6,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { DEFAULT_LOGS_COLUMNS, LogsColumnConfig } from 'products/logs/frontend/components/LogsViewer/config/columns'
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { LogsViewApi, LogsViewApiFilters } from 'products/logs/frontend/generated/api.schemas'
 import { DEFAULT_ACTIVE_TAB, logsSceneLogic } from 'products/logs/frontend/logsSceneLogic'
@@ -40,9 +42,21 @@ export interface logsViewsLogicActions {
         filters: Partial<LogsViewerFilters>
         pushToHistory: boolean
     } // logsViewerFiltersLogic
-    createView: ({ name, filters }: { filters: LogsViewApiFilters; name: string }) => {
+    setColumns: (columns: LogsColumnConfig[]) => {
+        columns: LogsColumnConfig[]
+    } // logsViewerConfigLogic
+    createView: ({
+        name,
+        filters,
+        columns,
+    }: {
+        columns: LogsColumnConfig[]
+        filters: LogsViewApiFilters
+        name: string
+    }) => {
         name: string
         filters: LogsViewApiFilters
+        columns: LogsColumnConfig[]
     }
     createViewFailure: (
         error: string,
@@ -56,12 +70,14 @@ export interface logsViewsLogicActions {
         payload?: {
             name: string
             filters: LogsViewApiFilters
+            columns: LogsColumnConfig[]
         }
     ) => {
         views: LogsViewApi[]
         payload?: {
             name: string
             filters: LogsViewApiFilters
+            columns: LogsColumnConfig[]
         }
     }
     deleteView: (shortId: string) => {
@@ -106,7 +122,14 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
 
     connect((props: LogsViewsLogicProps) => ({
         values: [teamLogic, ['currentTeamId']],
-        actions: [logsViewerFiltersLogic({ id: props.id }), ['setFilters'], logsSceneLogic(), ['setActiveTab']],
+        actions: [
+            logsViewerFiltersLogic({ id: props.id }),
+            ['setFilters'],
+            logsViewerConfigLogic({ id: props.id }),
+            ['setColumns'],
+            logsSceneLogic(),
+            ['setActiveTab'],
+        ],
     })),
 
     actions({
@@ -123,11 +146,20 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
                     const response = await api.get(`${logsViewsUrl(values.currentTeamId)}/`)
                     return response.results
                 },
-                createView: async ({ name, filters }: { name: string; filters: LogsViewApiFilters }) => {
+                createView: async ({
+                    name,
+                    filters,
+                    columns,
+                }: {
+                    name: string
+                    filters: LogsViewApiFilters
+                    columns: LogsColumnConfig[]
+                }) => {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const created: LogsView = await api.create(`${logsViewsUrl(values.currentTeamId)}/`, {
                         name,
                         filters,
+                        columns,
                     })
                     lemonToast.success('View saved')
                     return [created, ...values.views]
@@ -154,6 +186,8 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
             }
         },
         loadView: ({ view }) => {
+            // A null `columns` means the view has no column preference, so it opens with the default set
+            actions.setColumns(view.columns ?? DEFAULT_LOGS_COLUMNS)
             actions.setFilters(view.filters || {})
             actions.setActiveTab(DEFAULT_ACTIVE_TAB)
         },
