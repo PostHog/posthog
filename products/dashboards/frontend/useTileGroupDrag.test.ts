@@ -94,6 +94,7 @@ describe('useTileGroupDrag', () => {
                 compactor: getDashboardGridCompactor(),
                 rowHeight: 80,
                 margin: [16, 16],
+                enabled: true,
                 toggleTileGroup: jest.fn(),
                 moveTileToGroup,
                 updateLayout,
@@ -113,5 +114,53 @@ describe('useTileGroupDrag', () => {
 
         expect(moveTileToGroup).toHaveBeenCalledTimes(moved ? 1 : 0)
         expect(updateLayout.mock.calls).toEqual(restored ? [[layout]] : [])
+    })
+
+    it('ignores a drop once edit mode turns off mid-drag', async () => {
+        const sourceBand = band('tiles-start')
+        const opsBand = band('group-ops')
+        dashboardRoot(sourceBand, opsBand)
+        const tileElement = document.createElement('div')
+        sourceBand.append(tileElement)
+        Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [opsBand] })
+        const moveTileToGroup = jest.fn()
+        const updateLayout = jest.fn()
+        const { result, rerender } = renderHook(
+            (props: { enabled: boolean }) =>
+                useTileGroupDrag({
+                    sections,
+                    sectionLayouts: [[box(1, 0)], [box(2, 0)]],
+                    layout,
+                    collapsedTileGroupKeys: [],
+                    compactor: getDashboardGridCompactor(),
+                    rowHeight: 80,
+                    margin: [16, 16],
+                    enabled: props.enabled,
+                    toggleTileGroup: jest.fn(),
+                    moveTileToGroup,
+                    updateLayout,
+                }),
+            { initialProps: { enabled: true } }
+        )
+
+        const draggedItem = box(1, 40)
+        act(() => result.current.startTileDrag(draggedItem, tileElement))
+
+        // Escape exits edit mode without cancelling the drag already tracked by the browser.
+        rerender({ enabled: false })
+        expect(result.current.draggingTileId).toBeNull()
+        expect(result.current.frozenSourceGrid).toBeNull()
+
+        act(() =>
+            result.current.finishTileDrag(
+                draggedItem,
+                tileElement,
+                new MouseEvent('mouseup', { clientX: 10, clientY: 10 })
+            )
+        )
+        await Promise.resolve()
+
+        expect(moveTileToGroup).not.toHaveBeenCalled()
+        expect(updateLayout).not.toHaveBeenCalled()
     })
 })

@@ -339,6 +339,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             compactor: dropCompactor,
             rowHeight,
             margin,
+            enabled: canEditDashboard && layoutEditMode && !isMobileView,
             toggleTileGroup,
             moveTileToGroup,
             updateLayout: (layout) => updateLayouts({ sm: layout }),

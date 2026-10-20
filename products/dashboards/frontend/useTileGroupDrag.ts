@@ -19,6 +19,7 @@ interface TileGroupDragProps {
     rowHeight: number
     margin: [number, number]
     layout: Layout
+    enabled: boolean
     toggleTileGroup: (groupKey: string) => void
     moveTileToGroup: (tileId: number, groupKey: string | null, layout: Layout) => void
     updateLayout: (layout: Layout) => void
@@ -82,6 +83,21 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
     }, [])
     useEffect(() => clearOpenTimer, [clearOpenTimer])
 
+    // Edit mode can turn off without react-grid-layout cancelling its drag (Escape discards edit mode,
+    // and a source grid can remount under an unrelated state change). Stop tracking so a late
+    // onDragStop/onStop does not move or re-save a tile once the dashboard is read-only again.
+    useEffect(() => {
+        if (props.enabled) {
+            return
+        }
+        trackingRef.current = false
+        clearOpenTimer()
+        dropTargetRef.current = null
+        setDropTargetKey(null)
+        setDraggingTileId(null)
+        setFrozenSourceGrid(null)
+    }, [props.enabled, clearOpenTimer])
+
     const collapsedGroupKey = (sectionKey: string | null): string | null => {
         const section = latest.current.sections.find((candidate) => candidate.key === sectionKey)
         return section?.kind === 'group' && latest.current.collapsedTileGroupKeys.includes(section.groupKey)
@@ -141,7 +157,7 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
 
     const finishTileDrag = useCallback(
         (item: LayoutItem | null, element: HTMLElement | null, event: Event): void => {
-            if (!trackingRef.current) {
+            if (!trackingRef.current || !latest.current.enabled) {
                 return
             }
             trackingRef.current = false
