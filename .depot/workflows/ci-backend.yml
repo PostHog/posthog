@@ -4333,7 +4333,7 @@ jobs:
             # and the summary on the Checks tab. Branch protection requires this check, so a
             # failed post fails the gate instead of leaving the PR pending with a green gate.
             - name: Post the test results check
-              if: ${{ always() && github.event_name == 'pull_request' }}
+              if: ${{ always() && steps.gate-token.outputs.token != '' }}
               env:
                   GH_TOKEN: ${{ steps.gate-token.outputs.token }}
                   REPO: ${{ github.repository }}
@@ -4342,39 +4342,34 @@ jobs:
                   # A `no-ci` draft skips change detection and every check, so its row says so.
                   CONCLUSION: ${{ job.status == 'cancelled' && 'cancelled' || needs.changes.result == 'skipped' && 'skipped' || (steps.verdict.outcome == 'success' && 'success' || 'failure') }}
                   # A completed check stays on the commit, so a draft's passing verdict would satisfy
-                  # branch protection the moment the PR turns ready. A passing draft run leaves the
-                  # check in progress and the ready run completes it. Merge-queue PRs are drafts
-                  # whose run is the verdict.
+                  # branch protection the moment the PR turns ready. A draft run posts only a failure;
+                  # the ready run posts the verdict. Merge-queue PRs are drafts whose run is the verdict.
                   DRAFT: ${{ github.event.pull_request.draft == true && !startsWith(github.head_ref, 'trunk-merge/') }}
               run: |
+                  if [[ "$DRAFT" == "true" && "$CONCLUSION" != "failure" ]]; then
+                      echo "Draft run: the ready-for-review run posts the $GATE_CHECK check."
+                      exit 0
+                  fi
                   case "$CONCLUSION" in
                       success) title="Backend tests passed on Depot" ;;
                       skipped) title="No backend checks ran on Depot" ;;
                       cancelled) title="Backend tests cancelled on Depot" ;;
                       *) title=$(head -1 "$GATE_TITLE" 2>/dev/null || true); title="${title:-Backend tests failed on Depot}" ;;
                   esac
-                  status=completed
-                  if [[ "$DRAFT" == "true" && ( "$CONCLUSION" == "success" || "$CONCLUSION" == "skipped" ) ]]; then
-                      status=in_progress
-                      title="${title/ on Depot/ on a draft run}. The merge verdict comes from the run on the ready-for-review PR."
-                  fi
                   # One request carries the verdict and the output. A PATCH sent right after the POST
                   # can answer 404, because GitHub does not always find a check it just created.
                   # GitHub rejects a summary over 65535 characters, and the byte budget below stays
                   # under that however the characters are encoded.
                   touch "$GATE_SUMMARY"
-                  conclusion_arg=()
-                  [[ "$status" == "completed" ]] && conclusion_arg=(-f conclusion="$CONCLUSION")
-                  jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg status "$status" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
+                  jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
                       --arg title "$title" --rawfile summary "$GATE_SUMMARY" \
-                      '{name: $name, head_sha: $sha, status: $status, details_url: $url,
-                        output: {title: $title, summary: ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end)}}
-                       + (if $status == "completed" then {conclusion: $conclusion} else {} end)' \
+                      '{name: $name, head_sha: $sha, status: "completed", conclusion: $conclusion, details_url: $url,
+                        output: {title: $title, summary: ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end)}}' \
                       | gh api "repos/$REPO/check-runs" --method POST --input - --silent && exit 0
                   # A rejected output must not lose the check.
                   echo "::warning::Could not post the gate check with its summary. Posting it without."
                   gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
-                      -f head_sha="$SHA" -f status="$status" "${conclusion_arg[@]}" -f details_url="$DEPOT_JOB_URL" --silent
+                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
