@@ -10,11 +10,13 @@ no credential, the same as a file upload.
 
 import re
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import connection, transaction
 
 import boto3
+from botocore.config import Config
 
 from posthog.hogql.database.database import MODELS_NAMESPACE_TABLE_ERROR, Database, is_reserved_models_name
 
@@ -46,8 +48,16 @@ def build_notebook_table_staging_s3_key(team_id: int, table_name: str, run_id: s
     return f"{NOTEBOOK_TABLES_FOLDER}/team_{team_id}/{table_name}/staging/{run_id}.parquet"
 
 
+def _object_url(key: str) -> str:
+    # Local object storage serves plain HTTP with the bucket in the path, the same form that
+    # DataWarehouseSavedQuery.url_pattern uses in local setup.
+    if settings.USE_LOCAL_SETUP:
+        return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{settings.DATAWAREHOUSE_BUCKET}/{key}"
+    return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{key}"
+
+
 def build_notebook_table_url_pattern(team_id: int, table_name: str) -> str:
-    return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{build_notebook_table_s3_key(team_id, table_name)}"
+    return _object_url(build_notebook_table_s3_key(team_id, table_name))
 
 
 def _live_table(team_id: int, table_name: str) -> DataWarehouseTable | None:
@@ -94,15 +104,27 @@ def validate_notebook_table_name(team_id: int, table_name: str, user_id: int | N
         raise NotebookTableError(f"A table or view named '{table_name}' already exists. Choose a different name.")
 
 
-def _s3_client() -> "S3Client":
+def _s3_client(endpoint_url: str | None = None) -> "S3Client":
     if settings.USE_LOCAL_SETUP:
         return boto3.client(
             "s3",
             aws_access_key_id=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
             aws_secret_access_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            endpoint_url=endpoint_url or settings.OBJECT_STORAGE_ENDPOINT,
+            config=Config(signature_version="s3v4"),
         )
-    return boto3.client("s3")
+    # botocore presigns with SigV2 unless told otherwise. SeaweedFS and S3 buckets created
+    # after June 2020 accept only SigV4.
+    return boto3.client("s3", config=Config(signature_version="s3v4"))
+
+
+def _sandbox_object_storage_endpoint() -> str | None:
+    # A local Docker kernel can't resolve the compose hostname, and the host is part of the
+    # SigV4 signature, so the URL has to be signed for the address the container dials.
+    if not settings.DEBUG or not settings.OBJECT_STORAGE_ENDPOINT:
+        return None
+    parsed = urlparse(settings.OBJECT_STORAGE_ENDPOINT)
+    return parsed._replace(netloc=f"host.docker.internal:{parsed.port or 80}").geturl()
 
 
 def presign_notebook_table_upload(team_id: int, table_name: str, run_id: str) -> str:
@@ -111,7 +133,7 @@ def presign_notebook_table_upload(team_id: int, table_name: str, run_id: str) ->
     The sandbox writes to a staging key, never to the live object, so a dataframe that can't be
     read as a table never replaces the data a table already serves.
     """
-    return _s3_client().generate_presigned_url(
+    return _s3_client(_sandbox_object_storage_endpoint()).generate_presigned_url(
         "put_object",
         Params={
             "Bucket": settings.DATAWAREHOUSE_BUCKET,
@@ -136,7 +158,7 @@ def save_notebook_table(team_id: int, table_name: str, user_id: int | None, run_
         team_id=team_id,
         name=table_name,
         format=DataWarehouseTableFormat.Parquet,
-        url_pattern=f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{staging_key}",
+        url_pattern=_object_url(staging_key),
     )
     try:
         columns = staged.get_columns()

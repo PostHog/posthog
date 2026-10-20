@@ -1,8 +1,11 @@
+from urllib.parse import parse_qs, urlparse
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -15,12 +18,29 @@ from products.data_warehouse.backend.logic.notebook_tables import (
     build_notebook_table_s3_key,
     build_notebook_table_staging_s3_key,
     build_notebook_table_url_pattern,
+    presign_notebook_table_upload,
     save_notebook_table,
     validate_notebook_table_name,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 COLUMNS = {"score": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "valid": True}}
+
+
+@override_settings(USE_LOCAL_SETUP=True, OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000")
+class TestPresignNotebookTableUpload(SimpleTestCase):
+    @parameterized.expand(
+        [("docker_kernel", True, "host.docker.internal:19000"), ("no_debug", False, "objectstorage:19000")]
+    )
+    def test_signs_a_sigv4_put_for_the_host_the_kernel_dials(self, _name: str, debug: bool, host: str) -> None:
+        with override_settings(DEBUG=debug):
+            url = urlparse(presign_notebook_table_upload(1, "scores", "run-1"))
+
+        self.assertEqual(url.netloc, host)
+        self.assertEqual(
+            url.path, f"/{settings.DATAWAREHOUSE_BUCKET}/notebook_tables/team_1/scores/staging/run-1.parquet"
+        )
+        self.assertEqual(parse_qs(url.query)["X-Amz-Algorithm"], ["AWS4-HMAC-SHA256"])
 
 
 class TestValidateNotebookTableName(BaseTest):
