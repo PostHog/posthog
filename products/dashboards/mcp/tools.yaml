@@ -50,27 +50,16 @@ tools:
             already declined a subscription earlier in this conversation, do not offer again.
         exclude_params:
             - creation_mode
-            - effective_restriction_level
-            - effective_privilege_level
             - is_shared
-            - access_control_version
             - last_refresh
             - last_accessed_at
             - deleted
             - persisted_filters
             - persisted_variables
             - _create_in_folder
-        param_overrides:
-            restriction_level:
-                description: >
-                    Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.
         response:
             exclude:
-                - effective_restriction_level
-                - effective_privilege_level
                 - user_access_level
-                - access_control_version
-                - restriction_level
                 - creation_mode
                 - deleted
                 - breakdown_colors
@@ -91,8 +80,6 @@ tools:
                 - tiles.*.insight.filters_hash
                 - tiles.*.insight.dashboards
                 - tiles.*.insight.dashboard_tiles
-                - tiles.*.insight.effective_restriction_level
-                - tiles.*.insight.effective_privilege_level
                 - tiles.*.insight.user_access_level
                 - tiles.*.insight.filters
                 - tiles.*.insight.is_sample
@@ -231,11 +218,7 @@ tools:
                 cast: string-int
         response:
             exclude:
-                - effective_restriction_level
-                - effective_privilege_level
                 - user_access_level
-                - access_control_version
-                - restriction_level
                 - creation_mode
                 - deleted
                 - breakdown_colors
@@ -256,8 +239,6 @@ tools:
                 - tiles.*.insight.filters_hash
                 - tiles.*.insight.dashboards
                 - tiles.*.insight.dashboard_tiles
-                - tiles.*.insight.effective_restriction_level
-                - tiles.*.insight.effective_privilege_level
                 - tiles.*.insight.user_access_level
                 - tiles.*.insight.filters
                 - tiles.*.insight.is_sample
@@ -447,29 +428,25 @@ tools:
         title: Update dashboard
         description: >
             Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned
-            status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API.
-            After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each
-            tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type,
-            including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and
-            height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's
-            minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's
-            whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and
-            overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set
-            `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use
+            status, tags, and filters. After you create or add insight tiles, call dashboard-get to get their tile IDs,
+            then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This
+            works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set
+            each tile's width and height for its content and importance. Width can be any whole number from 1 to 12,
+            subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write
+            replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are
+            stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one
+            request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use
             dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. This tool
             does not change a widget tile's own settings (`config`, `name`, `description`): use
-            dashboard-widgets-batch-update for that. To group tiles, give each tile in the group the same `group_key`,
-            and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map).
-            To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and
-            `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget
-            tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to
-            save context — use dashboard-insights-run to fetch the actual data for each insight.
+            dashboard-widgets-batch-update for that. To group tiles, give each tile in the group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title,
+            which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the
+            best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to
+            remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned
+            tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each
+            insight.
         exclude_params:
             - creation_mode
-            - effective_restriction_level
-            - effective_privilege_level
             - is_shared
-            - access_control_version
             - last_refresh
             - last_accessed_at
             - deleted
@@ -485,16 +462,9 @@ tools:
                     Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set
                     its grid position and size. To change a widget tile's config, name, or description, use
                     dashboard-widgets-batch-update.
-            restriction_level:
-                description: >
-                    Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.
         response:
             exclude:
-                - effective_restriction_level
-                - effective_privilege_level
                 - user_access_level
-                - access_control_version
-                - restriction_level
                 - creation_mode
                 - deleted
                 - breakdown_colors
@@ -515,8 +485,6 @@ tools:
                 - tiles.*.insight.filters_hash
                 - tiles.*.insight.dashboards
                 - tiles.*.insight.dashboard_tiles
-                - tiles.*.insight.effective_restriction_level
-                - tiles.*.insight.effective_privilege_level
                 - tiles.*.insight.user_access_level
                 - tiles.*.insight.filters
                 - tiles.*.insight.is_sample

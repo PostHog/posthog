@@ -6,11 +6,6 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_memberships
 
-from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.models import Insight
-
 if TYPE_CHECKING:
     from products.access_control.backend.models.access_control import AccessControl
 
@@ -22,21 +17,16 @@ class UserPermissions:
     Generally responsible for the following tasks:
     1. Calculating whether a user has access to the current team
     2. Calculating whether a user has access to other team(s)
-    3. Calculating permissioning of a certain object (dashboard, insight) in the team
 
-    Note that task 3 depends on task 1, so for efficiency sake the class _generally_
-    expects the current team/organization to be passed to it and will use it to skip certain
-    lookups.
+    For efficiency sake the class _generally_ expects the current team/organization to be
+    passed to it and will use it to skip certain lookups.
     """
 
     def __init__(self, user: User, team: Optional[Team] = None):
         self.user = user
         self._current_team = team
 
-        self._tiles: Optional[list[DashboardTile]] = None
         self._team_permissions: dict[int, UserTeamPermissions] = {}
-        self._dashboard_permissions: dict[int, UserDashboardPermissions] = {}
-        self._insight_permissions: dict[int, UserInsightPermissions] = {}
 
     @cached_property
     def current_team(self) -> "UserTeamPermissions":
@@ -51,22 +41,6 @@ class UserPermissions:
         if team.pk not in self._team_permissions:
             self._team_permissions[team.pk] = UserTeamPermissions(self, team)
         return self._team_permissions[team.pk]
-
-    def dashboard(self, dashboard: Dashboard) -> "UserDashboardPermissions":
-        if self._current_team is None:
-            raise ValueError("Cannot call .dashboard without passing current team to UserPermissions")
-
-        if dashboard.pk not in self._dashboard_permissions:
-            self._dashboard_permissions[dashboard.pk] = UserDashboardPermissions(self, dashboard)
-        return self._dashboard_permissions[dashboard.pk]
-
-    def insight(self, insight: Insight) -> "UserInsightPermissions":
-        if self._current_team is None:
-            raise ValueError("Cannot call .insight without passing current team to UsePermissions")
-
-        if insight.pk not in self._insight_permissions:
-            self._insight_permissions[insight.pk] = UserInsightPermissions(self, insight)
-        return self._insight_permissions[insight.pk]
 
     @cached_property
     def teams_visible_for_user(self) -> list[Team]:
@@ -102,16 +76,6 @@ class UserPermissions:
     def organization_memberships(self) -> dict[UUID, OrganizationMembership]:
         memberships = get_cached_organization_memberships(self.user)
         return {membership.organization_id: membership for membership in memberships}
-
-    @cached_property
-    def dashboard_privileges(self) -> dict[int, PrivilegeLevel]:
-        try:
-            from ee.models import DashboardPrivilege
-
-            rows = DashboardPrivilege.objects.filter(user=self.user).values_list("dashboard_id", "level")
-            return {dashboard_id: cast(PrivilegeLevel, level) for dashboard_id, level in rows}
-        except ImportError:
-            return {}
 
     @cached_property
     def _prefetched_access_controls(self) -> dict[int, list["AccessControl"]]:
@@ -166,28 +130,6 @@ class UserPermissions:
         for organization_id, role_id in role_memberships.values_list("role__organization_id", "role_id"):
             result.setdefault(organization_id, set()).add(role_id)
         return result
-
-    def set_preloaded_dashboard_tiles(self, tiles: list[DashboardTile]):
-        """
-        Allows for speeding up insight-related permissions code
-        """
-        self._tiles = tiles
-
-    @cached_property
-    def preloaded_insight_dashboards(self) -> Optional[list[Dashboard]]:
-        if self._tiles is None:
-            return None
-
-        dashboard_ids = {tile.dashboard_id for tile in self._tiles}
-        # nosemgrep: idor-lookup-without-team (IDs from internal FK query)
-        return list(Dashboard.objects.filter(pk__in=dashboard_ids))
-
-    def reset_insights_dashboard_cached_results(self):
-        """
-        Resets cached results for insights/dashboards. Useful for update methods.
-        """
-        self._dashboard_permissions = {}
-        self._insight_permissions = {}
 
 
 class UserTeamPermissions:
@@ -294,89 +236,6 @@ def user_can_access_team(user: User, team: Team) -> bool:
     """Whether the user has any access to the team. Membership of the team's organization is not
     enough on its own, because access control can restrict a project to some members."""
     return UserPermissions(user).team(team).effective_membership_level is not None
-
-
-class UserDashboardPermissions:
-    def __init__(self, user_permissions: "UserPermissions", dashboard: Dashboard):
-        self.p = user_permissions
-        self.dashboard = dashboard
-
-    @cached_property
-    def effective_restriction_level(self) -> RestrictionLevel:
-        return (
-            RestrictionLevel(self.dashboard.restriction_level)
-            if cast(Organization, self.p.current_organization).is_feature_available(AvailableFeature.ACCESS_CONTROL)
-            else RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        )
-
-    @cached_property
-    def can_restrict(self) -> bool:
-        # Sync conditions with frontend hasInherentRestrictionsRights
-        from posthog.models.organization import OrganizationMembership
-
-        # The owner (aka creator) has full permissions
-        if self.p.user.pk == self.dashboard.created_by_id:
-            return True
-        effective_project_membership_level = self.p.current_team.effective_membership_level
-        return (
-            effective_project_membership_level is not None
-            and effective_project_membership_level >= OrganizationMembership.Level.ADMIN
-        )
-
-    @cached_property
-    def effective_privilege_level(self) -> PrivilegeLevel:
-        if (
-            # Checks can be skipped if the dashboard in on the lowest restriction level
-            self.effective_restriction_level == RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-            # Users with restriction rights can do anything
-            or self.can_restrict
-        ):
-            # Returning the highest access level if no checks needed
-            return PrivilegeLevel.CAN_EDIT
-
-        # We return lowest access level if there's no explicit privilege for this user
-        return self.p.dashboard_privileges.get(self.dashboard.pk, PrivilegeLevel.CAN_VIEW)
-
-    @cached_property
-    def can_edit(self) -> bool:
-        if self.effective_restriction_level < RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
-            return True
-        return self.effective_privilege_level >= PrivilegeLevel.CAN_EDIT
-
-
-class UserInsightPermissions:
-    def __init__(self, user_permissions: "UserPermissions", insight: Insight):
-        self.p = user_permissions
-        self.insight = insight
-
-    @cached_property
-    def effective_restriction_level(self) -> RestrictionLevel:
-        if len(self.insight_dashboards) == 0:
-            return RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-
-        return max(self.p.dashboard(dashboard).effective_restriction_level for dashboard in self.insight_dashboards)
-
-    @cached_property
-    def effective_privilege_level(self) -> PrivilegeLevel:
-        if len(self.insight_dashboards) == 0:
-            return PrivilegeLevel.CAN_EDIT
-
-        if any(self.p.dashboard(dashboard).can_edit for dashboard in self.insight_dashboards):
-            return PrivilegeLevel.CAN_EDIT
-        else:
-            return PrivilegeLevel.CAN_VIEW
-
-    @cached_property
-    def insight_dashboards(self):
-        # If we're in dashboard(s) and have sped up lookups
-        if self.p.preloaded_insight_dashboards is not None:
-            return self.p.preloaded_insight_dashboards
-
-        dashboard_ids = set(
-            DashboardTile.objects.filter(insight=self.insight.pk).values_list("dashboard_id", flat=True)
-        )
-        # nosemgrep: idor-lookup-without-team (IDs from internal FK query)
-        return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
 
 class UserPermissionsSerializerMixin:

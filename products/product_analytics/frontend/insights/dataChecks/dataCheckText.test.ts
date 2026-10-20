@@ -13,7 +13,14 @@ const passed: InsightDataCheckApi = {
     action: null,
     top_events: [],
     top_hosts: [],
+    distinct_hosts: null,
     top_bots: [],
+    distinct_bots: null,
+    removed_by_filter: null,
+    missed_by_filter: null,
+    top_emails: [],
+    distinct_emails: null,
+    filter_to_add: null,
 }
 
 describe('dataCheckText', () => {
