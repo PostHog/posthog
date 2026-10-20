@@ -1503,3 +1503,14 @@ class UpdateCustomerTaskInput:
     assigned_to_id_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False
+
+
+@dataclass(frozen=True)
+class KeyMetric:
+    key: str
+    name: str
+    people: bool
+    daily: list[tuple[date, float]]
+    this_week: float
+    last_week: float
+    node: dict[str, Any]

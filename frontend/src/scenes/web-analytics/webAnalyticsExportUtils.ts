@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { downloadFile } from 'lib/utils/dom'
 import { slugify } from 'lib/utils/strings'
+import { getResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -13,7 +14,7 @@ import {
     getInsightExportAdapter,
 } from '~/queries/nodes/InsightViz/exportAdapters'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { GRADE_PER_BAND } from '~/queries/nodes/WebVitals/definitions'
+import { GRADE_PER_BAND, WebVitalsRow } from '~/queries/nodes/WebVitals/definitions'
 import {
     DataTableNode,
     NodeKind,
@@ -26,6 +27,7 @@ import {
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
+    WebVitalsQuery,
     WebVitalsQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
@@ -100,7 +102,7 @@ export function getExportAdapter(insightDataRaw: unknown, query: QuerySchema | u
         return null
     }
     if (isWebVitalsQuery(query)) {
-        return webVitalsTrendsAdapter(insightDataRaw as WebVitalsQueryResponse)
+        return webVitalsTrendsAdapter(insightDataRaw as WebVitalsQueryResponse, query)
     }
     if (isWebVitalsPathBreakdownQuery(query)) {
         return new WebVitalsPathBreakdownAdapter(insightDataRaw as WebVitalsPathBreakdownQueryResponse, query)
@@ -284,13 +286,15 @@ function webVitalsColumnName(metric: WebVitalsMetric, percentile: string): strin
     return metric === 'CLS' ? `${metric} ${percentile}` : `${metric} ${percentile} (ms)`
 }
 
-function webVitalsTrendsAdapter(response: WebVitalsQueryResponse): TrendsAdapter {
+function webVitalsTrendsAdapter(response: WebVitalsQueryResponse, query: WebVitalsQuery): TrendsAdapter {
     return new TrendsAdapter({
         ...response,
-        results: (response.results ?? []).map((item) => ({
-            ...item,
-            action: { ...item.action, custom_name: webVitalsColumnName(item.action.custom_name, item.action.math) },
-        })),
+        results: ((response.results ?? []) as WebVitalsRow[]).map((item) => {
+            const node = getResultSeries(query.source, { order: item.order }).node
+            return node?.custom_name && node.math
+                ? { ...item, label: webVitalsColumnName(node.custom_name as WebVitalsMetric, node.math) }
+                : item
+        }),
     })
 }
 

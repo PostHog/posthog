@@ -41,14 +41,15 @@ from products.logs.backend.alert_check_query import (
     fetch_live_logs_checkpoint,
     is_projection_eligible,
     resolve_alert_date_to,
-    rolling_check_lookback_minutes,
 )
 from products.logs.backend.alert_destinations import LOGS_ALERT_INCIDENT_CLOSED_EVENT, LOGS_ALERT_INCIDENT_OPENED_EVENT
 from products.logs.backend.alert_error_classifier import (
     AlertErrorCode,
     classify as classify_alert_error,
 )
+from products.logs.backend.alert_event_properties import failure_event_properties, threshold_event_properties
 from products.logs.backend.alert_incidents import close_incident, has_incident_destination, incident_closed_properties
+from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.alert_signal_emitter import (
     NotifiedAlert,
     emit_alert_state_change_signal,
@@ -72,7 +73,6 @@ from products.logs.backend.alert_utils import (
     due_alerts_q,
     next_allowed_check_at,
 )
-from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
     EMIT_SIGNAL_CONCURRENCY,
@@ -1597,20 +1597,19 @@ def _emit_alert_event(
     date_from: datetime,
     date_to: datetime,
 ) -> ProduceResult | None:
-    properties: dict = {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "team_id": alert.team_id,
-        "threshold_count": alert.threshold_count,
-        "threshold_operator": alert.threshold_operator,
-        "window_minutes": alert.window_minutes,
-        "result_count": check_result.result_count,
-        "filters": alert.filters,
-        "service_names": alert.filters.get("serviceNames", []),
-        "severity_levels": alert.filters.get("severityLevels", []),
-        "logs_url_params": build_logs_url_params(alert.filters, date_from=date_from, date_to=date_to),
-        "triggered_at": now.isoformat(),
-    }
+    properties = threshold_event_properties(
+        alert_id=str(alert.id),
+        alert_name=alert.name,
+        team_id=alert.team_id,
+        threshold_count=alert.threshold_count,
+        threshold_operator=alert.threshold_operator,
+        window_minutes=alert.window_minutes,
+        result_count=check_result.result_count,
+        filters=alert.filters,
+        date_from=date_from,
+        date_to=date_to,
+        triggered_at=now,
+    )
     return _produce_alert_internal_event(alert, event_name, properties, now)
 
 
@@ -1619,15 +1618,14 @@ def _base_failure_properties(
     outcome: AlertCheckOutcome,
     now: datetime,
 ) -> dict:
-    return {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "team_id": alert.team_id,
-        "consecutive_failures": outcome.consecutive_failures,
-        "service_names": alert.filters.get("serviceNames", []),
-        "severity_levels": alert.filters.get("severityLevels", []),
-        "triggered_at": now.isoformat(),
-    }
+    return failure_event_properties(
+        alert_id=str(alert.id),
+        alert_name=alert.name,
+        team_id=alert.team_id,
+        consecutive_failures=outcome.consecutive_failures,
+        filters=alert.filters,
+        triggered_at=now,
+    )
 
 
 def _emit_auto_disabled_event(

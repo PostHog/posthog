@@ -26,7 +26,7 @@ use super::key_queues::{KeyQueues, KeyRun, Settlement};
 use super::packer::Packer;
 use super::request::{Request, RequestClass};
 use super::retry_policy::{RetryPolicy, RetryReason};
-use super::worker_assigner::WorkerAssigner;
+use super::worker_assigner::{WorkerAssigner, WorkerInFlight};
 use crate::order_sentinel::ack_mark;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
@@ -80,6 +80,19 @@ pub struct Effects {
     pub busy_workers: Vec<WorkerId>,
     pub fatal: Option<String>,
     pub next_wakeup: Option<Instant>,
+}
+
+/// A point-in-time view of the batcher's load, for the debug API.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BatcherSnapshot {
+    pub keys: usize,
+    pub pending_messages: usize,
+    pub queued_bytes: usize,
+    pub waiting_keys: usize,
+    pub claimed_keys: usize,
+    pub in_flight_requests: usize,
+    pub in_flight_messages: usize,
+    pub per_worker: Vec<WorkerInFlight>,
 }
 
 pub enum BatcherStateMachine {
@@ -240,6 +253,11 @@ impl BatcherStateMachine {
             .map_or(0, |active| active.assigner.in_flight_messages())
     }
 
+    pub fn snapshot(&self) -> BatcherSnapshot {
+        self.active()
+            .map_or_else(BatcherSnapshot::default, ActiveState::snapshot)
+    }
+
     fn active(&self) -> Option<&ActiveState> {
         match self {
             BatcherStateMachine::Running(active) | BatcherStateMachine::Draining(active) => {
@@ -310,6 +328,19 @@ pub struct ActiveState {
 impl ActiveState {
     fn pending_messages(&self) -> usize {
         self.keys.queued_messages()
+    }
+
+    fn snapshot(&self) -> BatcherSnapshot {
+        BatcherSnapshot {
+            keys: self.keys.key_count(),
+            pending_messages: self.keys.queued_messages(),
+            queued_bytes: self.keys.queued_bytes(),
+            waiting_keys: self.keys.waiting_keys(),
+            claimed_keys: self.keys.claimed_keys(),
+            in_flight_requests: self.in_flight.len(),
+            in_flight_messages: self.assigner.in_flight_messages(),
+            per_worker: self.assigner.in_flight_per_worker(),
+        }
     }
 
     /// The stall clock starts when work becomes pending, not at the last

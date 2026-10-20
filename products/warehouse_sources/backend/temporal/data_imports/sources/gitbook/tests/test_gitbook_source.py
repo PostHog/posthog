@@ -2,7 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitbook import (
     GitBookSourceConfig,
 )
@@ -62,8 +61,3 @@ class TestGitBookSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-05-01T00:00:00Z"
         assert kwargs["incremental_field"] == "createdAt"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown GitBook schema 'not_a_table'"

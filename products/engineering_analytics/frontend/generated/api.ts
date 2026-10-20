@@ -142,7 +142,7 @@ export const getEngineeringAnalyticsAuthorFrictionUrl = (
 }
 
 /**
- * Every author's friction over pull requests merged in the last 30 days, most first: red CI they did not cause, re-runs that failed again, CI waits, the wait for the first approval, merge-queue time and kickouts, and rework. The score is a multiple of the typical author and never counts how much or how fast someone ships. Bots are excluded, and authors need at least 3 merged pull requests.
+ * Every author's friction over pull requests merged in the last 30 days, most first: red CI they did not cause, re-runs that failed again, CI waits, the wait for the first approval, merge-queue time and failed queue attempts, and rework. The score is a multiple of the typical author and never counts how much or how fast someone ships. Bots are excluded, and authors need at least 3 merged pull requests.
  */
 export const engineeringAnalyticsAuthorFriction = async (
     projectId: string,
@@ -803,7 +803,7 @@ export const getEngineeringAnalyticsPullRequestFrictionUrl = (
 }
 
 /**
- * One merged pull request's friction as a multiple of the typical pull request, with the counts behind it: red CI by cause, re-runs that failed again, CI time per push, the wait for the first approval, merge-queue time and kickouts, and rework. Covers pull requests merged in the last 30 days.
+ * One merged pull request's friction as a multiple of the typical pull request, with the counts behind it: red CI by cause, re-runs that failed again, CI time per push, the wait for the first approval, merge-queue time and failed queue attempts, and rework. Covers pull requests merged in the last 30 days.
  */
 export const engineeringAnalyticsPullRequestFriction = async (
     projectId: string,

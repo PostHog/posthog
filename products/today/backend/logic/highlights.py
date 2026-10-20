@@ -22,7 +22,9 @@ from posthog.temporal.common.client import sync_connect
 from posthog.week_start_day import WeekStartDay
 
 from ..facade import contracts
+from ..facade.contracts import HighlightCandidate, HighlightFindings, HighlightSource
 from ..facade.enums import HighlightInterval, HighlightLabel, HighlightPriority, HighlightsStatus
+from ..feature_flags import pulse_ranking
 from ..models import TodayHighlights
 from ..temporal.inputs import (
     HIGHLIGHTS_WORKFLOW_NAME,
@@ -33,7 +35,7 @@ from ..temporal.inputs import (
     highlights_workflow_id,
 )
 from .highlight_registry import load_sources
-from .highlight_types import CACHE_SECONDS, Candidate, Context, Found, Source, property_restrictions
+from .highlight_types import CACHE_SECONDS, Context, property_restrictions
 
 logger = structlog.get_logger(__name__)
 
@@ -47,7 +49,7 @@ PULSE_TILES = 4
 URGENT_RISK_SCORE = 0.75
 MINOR_OPPORTUNITY_SCORE = 0.4
 
-_FOUND = TypeAdapter(Found)
+_FINDINGS = TypeAdapter(HighlightFindings)
 _HIGHLIGHTS = TypeAdapter(contracts.Highlights)
 
 
@@ -81,7 +83,8 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
 
 def _key(team: Team, user: User, scopes: frozenset[str] | None) -> str:
     granted = "session" if scopes is None else ",".join(sorted(scopes))
-    return hashlib.sha256(f"{granted}:{property_restrictions(team, user)}".encode()).hexdigest()[:32]
+    restrictions = property_restrictions(team, user)
+    return hashlib.sha256(f"{granted}:{restrictions}:{pulse_ranking(user, team)}".encode()).hexdigest()[:32]
 
 
 def _is_due(row: TodayHighlights, now: datetime) -> bool:
@@ -129,9 +132,9 @@ def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
     if source is None or not context.allows(*source.scopes):
         return HighlightSourceResult(source_name=inputs.source_name, found=None, failed=False)
     with tags_context(product=Product.TODAY, feature=Feature.QUERY, team_id=context.team.id):
-        found = context.guard(source.name, partial(source.find, context), Found())
+        found = context.guard(source.name, partial(source.find, context), HighlightFindings())
     return HighlightSourceResult(
-        source_name=source.name, found=_FOUND.dump_json(found).decode(), failed=bool(context.failures)
+        source_name=source.name, found=_FINDINGS.dump_json(found).decode(), failed=bool(context.failures)
     )
 
 
@@ -139,7 +142,7 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
     row = TodayHighlights.objects.for_team(inputs.team_id).filter(id=inputs.highlights_id).first()
     if row is None:
         return
-    found = {result.source_name: _FOUND.validate_json(result.found) for result in inputs.results if result.found}
+    found = {result.source_name: _FINDINGS.validate_json(result.found) for result in inputs.results if result.found}
     highlights = build_highlights(load_sources(), found, Team.objects.get(id=inputs.team_id), row.local_day)
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
@@ -163,7 +166,7 @@ def delete_for_teams(team_ids: list[int]) -> None:
 
 
 def build_highlights(
-    sources: Sequence[Source], found: Mapping[str, Found], team: Team, day: date
+    sources: Sequence[HighlightSource], found: Mapping[str, HighlightFindings], team: Team, day: date
 ) -> contracts.Highlights:
     pulse = [
         metric
@@ -189,8 +192,13 @@ def _refresh_at(team: Team, day: date) -> datetime:
     return datetime.combine(day + timedelta(days=1), time.min, team.timezone_info)
 
 
-def _item(candidate: Candidate) -> contracts.HighlightItem:
-    score = round(candidate.score, 3)
+def _score(candidate: HighlightCandidate) -> float:
+    floor = 0.5 if candidate.importance >= 0.9 else 0.2
+    return candidate.importance * (floor + (1 - floor) * candidate.relevance)
+
+
+def _item(candidate: HighlightCandidate) -> contracts.HighlightItem:
+    score = round(_score(candidate), 3)
     return contracts.HighlightItem(
         key=candidate.key,
         source=candidate.source,
@@ -221,10 +229,10 @@ def _period_starts(metric: contracts.HighlightMetric, team: Team, day: date) -> 
     return [day - timedelta(days=days) for days in back]
 
 
-def rank(candidates: list[Candidate]) -> list[Candidate]:
-    shown: list[Candidate] = []
-    for candidate in sorted(candidates, key=lambda c: -c.score):
-        if candidate.score < MIN_SCORE or len(shown) == MAX_ITEMS:
+def rank(candidates: list[HighlightCandidate]) -> list[HighlightCandidate]:
+    shown: list[HighlightCandidate] = []
+    for candidate in sorted(candidates, key=lambda c: -_score(c)):
+        if _score(candidate) < MIN_SCORE or len(shown) == MAX_ITEMS:
             break
         if sum(1 for s in shown if s.family == candidate.family) >= MAX_PER_FAMILY:
             continue

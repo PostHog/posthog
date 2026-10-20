@@ -1,8 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -69,12 +67,6 @@ const ALL_OK = buildChecklist(
 describe('instrumentationChecklistLogic', () => {
     let logic: ReturnType<typeof instrumentationChecklistLogic.build>
 
-    function setFlag(enabled: boolean): void {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST]: enabled,
-        })
-    }
-
     beforeEach(() => {
         jest.clearAllMocks()
         // The verdict cache is module state, so it outlives a logic unmount by design and would
@@ -82,13 +74,10 @@ describe('instrumentationChecklistLogic', () => {
         clearCachedChecklistVerdict()
         mockRetrieve.mockResolvedValue(ALL_OK)
         initKeaTests()
-        featureFlagLogic.mount()
-        setFlag(true)
     })
 
     afterEach(() => {
         logic?.unmount()
-        featureFlagLogic.unmount()
     })
 
     it('reuses a fresh verdict instead of refetching on every remount', async () => {
@@ -123,44 +112,6 @@ describe('instrumentationChecklistLogic', () => {
         expect(mockRetrieve).toHaveBeenCalledTimes(1)
         expect(logic.values.checks).toEqual(checklist.checks)
         expect(logic.values.windowDays).toBe(30)
-    })
-
-    it('makes no request while the feature flag is off', async () => {
-        setFlag(false)
-        logic = instrumentationChecklistLogic()
-        logic.mount()
-
-        await expectLogic(logic).toFinishAllListeners()
-        expect(mockRetrieve).not.toHaveBeenCalled()
-        expect(logic.values.checklist).toBeNull()
-        expect(logic.values.checklistCardState).toBe('hidden')
-    })
-
-    it('loads once the feature flag arrives after mount', async () => {
-        setFlag(false)
-        logic = instrumentationChecklistLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        setFlag(true)
-
-        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
-        expect(mockRetrieve).toHaveBeenCalledTimes(1)
-        expect(logic.values.checklistCardState).toBe('passing')
-    })
-
-    it('loads when the feature flag arrives in the same tick as mount', async () => {
-        setFlag(false)
-        logic = instrumentationChecklistLogic()
-        logic.mount()
-        // No awaiting: this is the cold-page ordering, where flags land while a mount-time load
-        // would still be in flight. A load started before the flag resolves returns null and blocks
-        // the retry, so the card would sit hidden behind a skeleton that never resolves.
-        setFlag(true)
-
-        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
-        expect(mockRetrieve).toHaveBeenCalledTimes(1)
-        expect(logic.values.checklistCardState).toBe('passing')
     })
 
     it('leaves every consumer on generic copy when the request fails, with nothing surfaced', async () => {
@@ -290,28 +241,6 @@ describe('instrumentationChecklistLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
         expect(logic.values.checklistCardState).toBe(expected)
-    })
-
-    // A stopped rollout has to take the card and the empty-state overrides with it, including in
-    // tabs that are already open and on the load where localStorage replays the old flag set.
-    it('takes a loaded checklist back off screen when the flag goes off', async () => {
-        mockRetrieve.mockResolvedValue(
-            buildChecklist(
-                InstrumentationCheckStatusEnumApi.Warning,
-                InstrumentationCheckStatusEnumApi.Ok,
-                InstrumentationCheckStatusEnumApi.Ok,
-                InstrumentationCheckStatusEnumApi.Ok
-            )
-        )
-        logic = instrumentationChecklistLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
-        expect(logic.values.checklistCardState).toBe('warnings')
-
-        setFlag(false)
-
-        expect(logic.values.checklistCardState).toBe('hidden')
-        expect(logic.values.warningForCheck(AIObservabilityInstrumentationCheckEnumApi.Sessions)).toBeNull()
     })
 
     it('only offers a check to an empty state when that check is warning', async () => {

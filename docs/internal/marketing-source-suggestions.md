@@ -287,3 +287,12 @@ The source status banner names each required table that needs attention and link
 Disabled imports, missing tables, running syncs, failures, pauses, cancellations, and tables awaiting a completed sync have separate messages.
 Multiple table problems remain visible together, even when the connection has one overall status.
 Google Ads connections using the legacy `campaign_stats` schema retain support and display that actual schema name.
+
+## Connection issues
+
+The source onboarding panel groups connected sources by integration and identifies each connection by its prefix, or its source ID when no prefix exists.
+Expand an integration to review the affected tables and open the connection’s source settings.
+The panel includes the source validation details shown by the status banner.
+When the panel displays a connection, its duplicate status banner entry is hidden.
+Configuration validation failures and issues for sources outside the panel remain in the banner.
+With source onboarding disabled, the existing banner remains available.

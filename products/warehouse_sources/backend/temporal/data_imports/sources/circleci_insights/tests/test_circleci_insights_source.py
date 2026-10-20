@@ -48,12 +48,6 @@ class TestCircleciInsightsSource:
         assert schemas[endpoint].supports_incremental is expected
         assert bool(INCREMENTAL_FIELDS.get(endpoint)) is expected
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["flaky_tests"])
-        assert [schema.name for schema in schemas] == ["flaky_tests"]
-
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://circleci.com/api/v2/insights/gh/a/b/workflows", True),

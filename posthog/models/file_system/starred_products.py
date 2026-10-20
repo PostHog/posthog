@@ -35,6 +35,11 @@ def _product_stars(user: User, team: "Team") -> QuerySet[FileSystemShortcut]:
     return _project_shortcuts(user, team).filter(ref__isnull=True).exclude(type="folder")
 
 
+def has_starred_product(user: User, team: "Team", product_paths: list[str]) -> bool:
+    """Whether the user starred any of these products anywhere in the team's project."""
+    return _product_stars(user, team).filter(path__in=product_paths).exists()
+
+
 def star_products(user: User, team: "Team", product_paths: list[str]) -> int:
     """Star products on the user's sidebar for a team, after their existing stars. Returns how many were added.
 

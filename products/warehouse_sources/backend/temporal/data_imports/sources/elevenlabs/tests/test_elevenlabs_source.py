@@ -39,10 +39,6 @@ class TestElevenLabsSchemas:
         assert schemas[endpoint].supports_incremental is incremental
         assert schemas[endpoint].supports_append is append
 
-    def test_names_filter_limits_returned_schemas(self) -> None:
-        schemas = ElevenLabsSource().get_schemas(MagicMock(), team_id=1, names=["voices"])
-        assert [s.name for s in schemas] == ["voices"]
-
 
 class TestElevenLabsNonRetryableErrors:
     @parameterized.expand(

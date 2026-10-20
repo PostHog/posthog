@@ -125,6 +125,8 @@ const WAIT_TIMEOUT_MESSAGES: Record<Exclude<WaitPhase, 'settled'>, string> = {
 
 const PARSE_ERROR_MESSAGE = "Couldn't read the results for this app. Re-run the tool to try again."
 
+const TOOL_ERROR_MESSAGE = 'The tool call failed, so there are no results to show. Re-run the tool to try again.'
+
 /**
  * Parse tool result content, preferring structuredContent over the `_meta`
  * fallback. Never falls back to text content.
@@ -241,7 +243,7 @@ export function useToolResult<T = unknown>({
             appInstance.ontoolresult = (params) => {
                 try {
                     const meta = (params as { _meta?: Record<string, unknown> })._meta
-                    const parsed = parseToolResultContent<T>(params.structuredContent, meta)
+                    const parsed = params.isError ? null : parseToolResultContent<T>(params.structuredContent, meta)
 
                     // Extract analytics metadata and identify the user
                     const analytics = extractAnalytics(parsed)
@@ -257,13 +259,14 @@ export function useToolResult<T = unknown>({
                         hasAppData: meta?.[APP_DATA_META_KEY] !== undefined && meta[APP_DATA_META_KEY] !== null,
                         contentLength: params.content?.length,
                         rendered: parsed !== null,
+                        isError: !!params.isError,
                     })
 
                     if (parsed !== null) {
                         setData(parsed)
                         setParseError(null)
                     } else {
-                        const err = new Error(PARSE_ERROR_MESSAGE)
+                        const err = new Error(params.isError ? TOOL_ERROR_MESSAGE : PARSE_ERROR_MESSAGE)
                         console.error('[PostHog MCP App UI] Parse error:', err)
                         setParseError(err)
                     }

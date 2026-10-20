@@ -6,11 +6,11 @@ import { sidePanelMaxLogic } from 'scenes/max/maxLogic'
 // into the shell chunk. SidePanel already wraps panel content in a Suspense boundary.
 const MaxInstance = lazyWithRetry(() => import('scenes/max/Max').then((m) => ({ default: m.MaxInstance })))
 
-export function SidePanelMax(): JSX.Element | null {
+export function SidePanelMax({ header }: { header?: JSX.Element | null }): JSX.Element | null {
     // Closing the panel unmounts this tree, so hold the chat logic to keep the open chat and draft.
     useOnMountEffect(() => {
         sidePanelMaxLogic()
     })
 
-    return <MaxInstance sidePanel />
+    return <MaxInstance sidePanel header={header} />
 }

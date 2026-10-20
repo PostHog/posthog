@@ -202,15 +202,158 @@ class TestFanOutShaping:
         ]
         assert result.requests[1].param("includeApiKeys") == "true"
 
-    def test_deployment_resources_window_the_parent_walk_not_the_child(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, child_row, expected_row, child_path",
+        [
+            (
+                "deployment_resources",
+                {"provider": "aws", "type": "aws_s3_bucket", "name": "logs", "mode": "managed"},
+                # moduleName is absent for root-module resources but is part of the key, and a NULL
+                # key part never matches on merge.
+                {"provider": "aws", "type": "aws_s3_bucket", "name": "logs", "mode": "managed", "moduleName": ""},
+                "/environments/deployments/dep-1/resources",
+            ),
+            (
+                "deployment_steps",
+                {"name": "terraform-plan", "order": 3, "status": "SUCCESS", "deploymentLogId": "dep-1"},
+                {"name": "terraform-plan", "order": 3, "status": "SUCCESS", "deploymentLogId": "dep-1"},
+                "/deployments/dep-1/steps",
+            ),
+        ],
+    )
+    def test_deployment_children_window_the_parent_walk_not_the_child(
+        self, endpoint: str, child_row: dict, expected_row: dict, child_path: str
+    ) -> None:
         result = _driver().run(
-            "deployment_resources",
+            endpoint,
             [
                 ScriptedResponse(json=[{"id": "org-1"}]),
                 ScriptedResponse(json=[{"id": "env-1"}]),
                 ScriptedResponse(json=[{"id": "dep-1", "startedAt": "2026-06-02T10:00:00.000Z"}]),
+                ScriptedResponse(json=[child_row]),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {**expected_row, "deployment_id": "dep-1", "deployment_started_at": "2026-06-02T10:00:00.000Z"}
+        ]
+        deployment_request = next(request for request in result.requests if request.path.endswith("/deployments"))
+        assert deployment_request.param("fromDate") == "2026-05-31T00:00:00.000Z"
+        # The child endpoint takes no time filter; only the parent walk is bounded.
+        child_request = result.requests[-1]
+        assert child_request.path == child_path
+        assert child_request.query == {}
+
+    @pytest.mark.parametrize(
+        "endpoint, parent_rows, child_responses, expected_child_paths, expected_rows",
+        [
+            (
+                "user_role_assignments",
+                [{"id": "env-1"}],
+                [
+                    ScriptedResponse(
+                        json=[
+                            {
+                                "userId": "u-1",
+                                "role": "Viewer",
+                                "user": {"user_id": "u-1", "identities": [{"access_token": "fake-token"}]},
+                            }
+                        ]
+                    )
+                ],
+                ["/roles/assignments/users"],
+                [{"userId": "u-1", "role": "Viewer", "environment_id": "env-1"}],
+            ),
+            (
+                "team_role_assignments",
+                [{"id": "proj-1"}],
+                [ScriptedResponse(json=[{"teamId": "team-1", "role": "Admin", "inherited": True}])],
+                ["/roles/assignments/teams"],
+                # A missing optional id is part of the key, and a NULL key part never matches on merge.
+                [{"teamId": "team-1", "role": "Admin", "inherited": True, "id": "", "project_id": "proj-1"}],
+            ),
+            (
+                "project_budgets",
+                [{"id": "proj-1"}, {"id": "proj-2"}],
+                [
+                    # A project with no budget answers with an empty object, which is not a row.
+                    ScriptedResponse(json={}),
+                    ScriptedResponse(
+                        json={"projectId": "proj-2", "amount": 500, "timeframe": "MONTHLY", "thresholds": [80]}
+                    ),
+                ],
+                ["/costs/project/proj-1/budget", "/costs/project/proj-2/budget"],
+                [{"projectId": "proj-2", "amount": 500, "timeframe": "MONTHLY", "thresholds": [80]}],
+            ),
+        ],
+    )
+    def test_role_and_budget_fan_out_shaping(
+        self,
+        endpoint: str,
+        parent_rows: list[dict],
+        child_responses: list[ScriptedResponse],
+        expected_child_paths: list[str],
+        expected_rows: list[dict],
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=[{"id": "org-1"}]), ScriptedResponse(json=parent_rows), *child_responses],
+        )
+
+        assert result.raised is None
+        assert result.paths[-len(expected_child_paths) :] == expected_child_paths
+        assert result.rows == expected_rows
+
+    def test_project_budget_summaries_request_one_project_at_a_time(self) -> None:
+        result = _driver().run(
+            "project_budget_summaries",
+            [
+                ScriptedResponse(json=[{"id": "org-1"}]),
+                ScriptedResponse(json=[{"id": "proj-1"}, {"id": "proj-2"}]),
+                ScriptedResponse(json=[{"projectId": "proj-1", "usage": 12.5, "amount": 100}]),
+                ScriptedResponse(json=[{"projectId": "proj-2", "usage": 0, "amount": 50}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [request.param("projectIds") for request in result.requests[-2:]] == ["proj-1", "proj-2"]
+        assert [row["projectId"] for row in result.rows] == ["proj-1", "proj-2"]
+
+    def test_audit_logs_window_strip_users_and_follow_the_cursor(self) -> None:
+        result = _driver().run(
+            "audit_logs",
+            [
+                ScriptedResponse(json=[{"id": "org-1"}]),
                 ScriptedResponse(
-                    json=[{"provider": "aws", "type": "aws_s3_bucket", "name": "logs", "mode": "managed"}]
+                    json={
+                        "events": [
+                            {
+                                "id": "evt-1",
+                                "actionName": "deploy",
+                                "actorId": "u-1",
+                                "timestamp": "2026-06-02T10:00:00.000Z",
+                                "actor": {"user_id": "u-1", "identities": [{"refresh_token": "fake-token"}]},
+                                "attributedToUser": {"user_id": "u-1"},
+                            }
+                        ],
+                        "nextPageKey": "evt-1",
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "events": [
+                            {
+                                "id": "evt-2",
+                                "actionName": "destroy",
+                                "actorId": "u-2",
+                                "timestamp": "2026-06-03T10:00:00.000Z",
+                            }
+                        ],
+                        "nextPageKey": "",
+                    }
                 ),
             ],
             should_use_incremental_field=True,
@@ -218,24 +361,20 @@ class TestFanOutShaping:
         )
 
         assert result.raised is None
-        # moduleName is absent for root-module resources but is part of the key, and a NULL key part
-        # never matches on merge.
         assert result.rows == [
-            {
-                "provider": "aws",
-                "type": "aws_s3_bucket",
-                "name": "logs",
-                "mode": "managed",
-                "moduleName": "",
-                "deployment_id": "dep-1",
-                "deployment_started_at": "2026-06-02T10:00:00.000Z",
-            }
+            {"id": "evt-1", "actionName": "deploy", "actorId": "u-1", "timestamp": "2026-06-02T10:00:00.000Z"},
+            {"id": "evt-2", "actionName": "destroy", "actorId": "u-2", "timestamp": "2026-06-03T10:00:00.000Z"},
         ]
-        deployment_request = next(request for request in result.requests if request.path.endswith("/deployments"))
-        assert deployment_request.param("fromDate") == "2026-05-31T00:00:00.000Z"
-        # The resources endpoint takes no time filter; only the parent walk is bounded.
-        resource_request = next(request for request in result.requests if request.path.endswith("/resources"))
-        assert resource_request.query == {}
+        first_page, second_page = result.requests[1:]
+        assert first_page.path == "/audit/events"
+        assert first_page.param("organizationId") == "org-1"
+        # Audit events take from/to, not the fromDate/toDate names the deployments endpoint uses.
+        assert first_page.param("from") == "2026-06-01T00:00:00.000Z"
+        assert first_page.param("to") is not None
+        assert first_page.param("fromDate") is None
+        assert first_page.param("offset") is None
+        assert second_page.param("offset") == "evt-1"
+        assert second_page.param("from") == "2026-06-01T00:00:00.000Z"
 
 
 class TestEnv0SourceResponse:

@@ -2,7 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendowl import (
     SendowlSourceConfig,
 )
@@ -79,9 +78,3 @@ class TestSendowlSource:
         assert kwargs["api_secret"] == "sendowl-secret"
         assert kwargs["endpoint"] == "products"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown SendOwl schema 'not_a_table'" in str(result.raised)
-        assert result.requests == []

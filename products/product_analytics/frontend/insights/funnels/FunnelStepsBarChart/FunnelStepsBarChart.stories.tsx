@@ -98,6 +98,12 @@ const manyStepsFixture = {
     },
 }
 
+// One bar per step, so the step to step conversion chips sit in the gaps between steps.
+export const BarLabels: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomFixture} />,
+    parameters: { featureFlags: [FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS] },
+}
+
 // Steps shrink to fit the width instead of scrolling, with the rate on each bar.
 export const BarLabelsManySteps: Story = {
     render: () => <StoryRender insightFixture={manyStepsFixture} width={1520} />,

@@ -320,6 +320,7 @@ export type SettingId =
     | 'web-vitals-autocapture'
     | 'workflows-frequency-cap'
     | 'workflows-ai-task-limits'
+    | 'workflows-replay-vision-limits'
     | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
     | 'xaa-configuration'

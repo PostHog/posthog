@@ -587,7 +587,7 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
             ),
         )
 
-    assert "exit code 124" in str(error.value)
+    assert "Could not clone posthog/posthog (git exited with code 124)" in str(error.value)
     assert error.value.context == {
         "repository": "posthog/posthog",
         "sandbox_id": "sandbox-id",
@@ -604,6 +604,7 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
             "used_snapshot": "false",
             "status": "FAILED",
             "runtime": "gvisor",
+            "sandbox_backend": "modal",
         }
     ]
     assert str(capture_exception.call_args.args[0]) == "clone output"

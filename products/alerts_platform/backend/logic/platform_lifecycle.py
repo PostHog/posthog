@@ -5,6 +5,7 @@ and every write to these rows, stays here. A source never holds one of these mod
 """
 
 from collections.abc import Collection, Sequence
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Final
 from uuid import UUID
@@ -24,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     HandbackRefusal,
     InstanceCheckState,
     PlatformAlertCheckInput,
+    PlatformAlertConfigurationEdit,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
     PlatformHandback,
@@ -45,7 +47,7 @@ from products.alerts_platform.backend.facade.scheduling import (
     validate_and_normalize_schedule_start_time,
 )
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
 
 
 def due_q(moment: datetime) -> Q:
@@ -335,6 +337,7 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
     return {
         **source_condition(configuration.source_config),
         "evaluation_periods": configuration.evaluation_periods,
+        "check_interval_minutes": configuration.check_interval_minutes,
         "datapoints_to_alarm": configuration.datapoints_to_alarm,
         "cooldown_minutes": configuration.cooldown_minutes,
     }
@@ -355,15 +358,11 @@ def _event_row(
     now: datetime,
 ) -> PlatformAlertEventRow:
     group = verdict if isinstance(verdict, GroupOutcome) else None
-    return PlatformAlertEventRow(
-        team_id=configuration.team_id,
-        source_kind=configuration.source_kind,
-        configuration_id=configuration.id,
-        alert_id=alert.id if alert else CONFIGURATION_ROW_ALERT_ID,
-        grouping_key=alert.grouping_key if alert else "",
+    return event_row(
+        configuration,
+        alert=alert,
         evaluation_key=outcome.evaluation_key,
         kind=verdict.kind.value,
-        alert_name=configuration.name,
         previous_state=previous_state,
         state=verdict.new_state,
         # The whole episode, ended or not. A resolve names the firing it closed, which is what a
@@ -371,17 +370,57 @@ def _event_row(
         episode_started_at=verdict.firing_episode.started_at if verdict.firing_episode else None,
         value=group.value if group else None,
         labels=group.labels if group else {},
-        condition_snapshot=_condition_snapshot(configuration),
-        source_config_snapshot=configuration.source_config,
         query_duration_ms=outcome.query_duration_ms,
         error_message=outcome.error_message,
         consecutive_failures=outcome.consecutive_failures,
         muted_notification=verdict.muted_notification,
+        now=now,
+    )
+
+
+def event_row(
+    configuration: PlatformAlertConfiguration,
+    *,
+    alert: PlatformAlert | None,
+    evaluation_key: str,
+    kind: str,
+    previous_state: str,
+    state: str,
+    episode_started_at: datetime | None,
+    consecutive_failures: int,
+    now: datetime,
+    value: float | None = None,
+    labels: dict[str, str] | None = None,
+    query_duration_ms: int | None = None,
+    error_message: str | None = None,
+    muted_notification: str = "",
+) -> PlatformAlertEventRow:
+    """One history row for a configuration, with the snapshots every row carries."""
+    return PlatformAlertEventRow(
+        team_id=configuration.team_id,
+        source_kind=configuration.source_kind,
+        configuration_id=configuration.id,
+        alert_id=alert.id if alert else CONFIGURATION_ROW_ALERT_ID,
+        grouping_key=alert.grouping_key if alert else "",
+        evaluation_key=evaluation_key,
+        kind=kind,
+        alert_name=configuration.name,
+        previous_state=previous_state,
+        state=state,
+        episode_started_at=episode_started_at,
+        value=value,
+        labels=labels or {},
+        condition_snapshot=_condition_snapshot(configuration),
+        source_config_snapshot=configuration.source_config,
+        query_duration_ms=query_duration_ms,
+        error_message=error_message,
+        consecutive_failures=consecutive_failures,
+        muted_notification=muted_notification,
         occurred_at=now,
     )
 
 
-def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
+def record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
     recorded = insert_events(team_id, rows)
     if recorded < len(rows):
         # One batch holds one source's checks.
@@ -419,6 +458,22 @@ def _check_status(configuration: PlatformAlertConfiguration, outcome: PlatformAl
     return PlatformAlertConfiguration.CheckStatus.OK.value
 
 
+def _without_stale_groups(
+    configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome
+) -> PlatformAlertOutcome:
+    """The outcome, or the outcome with its groups dropped when the check ran under another grouping.
+
+    An edit that changes the grouping deletes the instances, so recording a stale check's groups
+    would bring back instances keyed for the old grouping and announce them. The rest of the
+    outcome still holds: the check ran, so its schedule and status advance.
+    """
+    if outcome.grouping is None:
+        return outcome
+    if outcome.grouping.splits_like(Grouping.from_stored(configuration.grouping)):
+        return outcome
+    return replace(outcome, groups=(), overflowed=0, evicted=())
+
+
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
@@ -454,6 +509,8 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         if not configurations:
             return 0
+        for configuration in configurations:
+            by_id[str(configuration.id)] = _without_stale_groups(configuration, by_id[str(configuration.id)])
         # In outcome order, because the source put the groups it most wants kept first.
         returned = [
             _InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)
@@ -543,7 +600,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
-        transaction.on_commit(lambda: _record_history(team_id, rows))
+        transaction.on_commit(lambda: record_history(team_id, rows))
     return len(configurations)
 
 
@@ -557,6 +614,9 @@ _ADMISSION_LOCK_SQL: Final = {
 
 def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -> bool:
     """Copies one source configuration in. Returns True when it created a row.
+
+    A copy the platform owns is left as it is. Every edit writes both of its rows, and a caller here
+    reads its source row without a lock, so its snapshot can predate such an edit.
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
 
@@ -580,9 +640,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             PlatformAlertConfiguration.objects.unscoped()
             .select_for_update()
             .filter(legacy_configuration_id=upsert.legacy_configuration_id)
-            .values("enabled", "next_check_at", *_CADENCE_FIELDS)
+            .values("enabled", "next_check_at", "owner", *_CADENCE_FIELDS)
             .first()
         )
+        if existing is not None and existing["owner"] == PlatformAlertOwner.PLATFORM:
+            return False
         defaults = {
             "team_id": upsert.team_id,
             "name": upsert.name,
@@ -631,12 +693,99 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     return created
 
 
+def write_edit(
+    configuration: PlatformAlertConfiguration,
+    edit: PlatformAlertConfigurationEdit,
+    *,
+    regrouped: bool,
+    now: datetime,
+) -> None:
+    """Writes an edit made through an API onto a configuration locked by the caller.
+
+    Here rather than with the edit's validation, because it writes `enabled` and the failure state,
+    which only this module changes.
+    """
+    if regrouped:
+        # The old keys never come back from a check, so each old instance would resolve and
+        # announce a recovery that did not happen. They go, threads included, without a message.
+        PlatformAlert.objects.for_team(configuration.team_id, canonical=True).filter(
+            configuration=configuration
+        ).delete()
+        PlatformAlertThread.objects.for_team(configuration.team_id, canonical=True).filter(
+            configuration=configuration
+        ).delete()
+    update_fields = [
+        "name",
+        "enabled",
+        "source_config",
+        "grouping",
+        "schedule_restriction",
+        "evaluation_periods",
+        "datapoints_to_alarm",
+        "cooldown_minutes",
+        "updated_at",
+    ]
+    # An alert turned back on starts clean, as a revived copy does. A BROKEN one would otherwise stay
+    # out of discovery for good.
+    if edit.enabled and not configuration.enabled:
+        configuration.consecutive_failures = 0
+        configuration.check_status = PlatformAlertConfiguration.CheckStatus.OK
+        configuration.next_check_at = now + _REVIVE_FENCE
+        update_fields += ["consecutive_failures", "check_status", "next_check_at"]
+    configuration.name = edit.name
+    configuration.enabled = edit.enabled
+    configuration.source_config = edit.source_config
+    configuration.grouping = edit.grouping.to_stored()
+    configuration.schedule_restriction = edit.schedule_restriction
+    configuration.evaluation_periods = edit.evaluation_periods
+    configuration.datapoints_to_alarm = edit.datapoints_to_alarm
+    configuration.cooldown_minutes = edit.cooldown_minutes
+    configuration.save(update_fields=update_fields)
+
+
+def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: datetime) -> list[PlatformAlert]:
+    """Moves every firing instance of a configuration locked by the caller to not firing, and returns
+    them as they were.
+
+    The next check moves past a fence, so a check already running finds the row no longer due and
+    records nothing. Otherwise it would write back the firing this just ended, with no incident open.
+    """
+    instances = PlatformAlert.objects.for_team(configuration.team_id, canonical=True).filter(
+        configuration=configuration, state=PlatformAlertState.FIRING
+    )
+    firing = list(instances)
+    if firing:
+        instances.update(state=PlatformAlertState.NOT_FIRING, firing_started_at=None)
+        configuration.next_check_at = max(configuration.next_check_at or now, now + _REVIVE_FENCE)
+        configuration.save(update_fields=["next_check_at"])
+    return firing
+
+
+def write_snooze(configuration: PlatformAlertConfiguration, snooze_until: datetime | None, *, now: datetime) -> None:
+    """Sets or clears a configuration's mute from a source's API.
+
+    A snooze defers the next check to its end, as the logs stack runs no check while snoozed. A mute
+    alone holds only messages, and a breach that went on would open a new incident during the snooze.
+    """
+    next_check_at = configuration.next_check_at or now
+    current = configuration.snooze_until
+    if current is not None and current > now:
+        # The stored due time is the current snooze's end, which the new snooze replaces. A fence an
+        # edit set earlier in this transaction is at most this far out, so it holds.
+        next_check_at = min(next_check_at, now + _REVIVE_FENCE)
+    if snooze_until is not None and snooze_until > now:
+        next_check_at = max(next_check_at, snooze_until)
+    configuration.snooze_until = snooze_until
+    configuration.next_check_at = next_check_at
+    configuration.save(update_fields=["snooze_until", "next_check_at", "updated_at"])
+
+
 def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
-    A copy the platform owns is the production alert, so it always follows its source, including
-    back on after the source turns it off. Otherwise a team runs a source here while any of its
-    parallel-run copies of that source is enabled. A team the backfill left out of its sample, or one
+    A copy the platform owns gets nothing, because every edit already writes both of its rows.
+    Otherwise a team runs a source here while any of its parallel-run copies of that source is
+    enabled. A team the backfill left out of its sample, or one
     `disable_configurations` switched off, gets nothing, and neither does a copy an operator switched
     off by name, so a write in the source never widens a sample or undoes an operator's switch-off.
     """
@@ -647,7 +796,6 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> N
         )
         existing = team_copies.filter(legacy_configuration_id=upsert.legacy_configuration_id).first()
         if existing is not None and existing.owner == PlatformAlertOwner.PLATFORM:
-            upsert_configuration(upsert, revive=revive)
             return
         running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists()
         switched_off = existing is not None and existing.switched_off_at is not None

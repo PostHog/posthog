@@ -387,10 +387,11 @@ def _to_workflow(
 # by surface in the UI (see WorkflowTypeTag), so returning it under `messaging` would contradict the
 # tag on the row. Accepting several lets a list say which surfaces it covers, which is how the
 # workflows page asks for everything except the ones that moved out.
-WORKFLOW_TYPES: Final[tuple[str, ...]] = ("messaging", "automation", "loop", "broadcast")
+WORKFLOW_TYPES: Final[tuple[str, ...]] = ("messaging", "automation", "loop", "broadcast", "transactional_email")
 OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
     "loop": HogFlow.OriginProduct.LOOPS,
     "broadcast": HogFlow.OriginProduct.BROADCASTS,
+    "transactional_email": HogFlow.OriginProduct.TRANSACTIONAL_EMAILS,
 }
 
 
