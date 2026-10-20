@@ -423,7 +423,9 @@ class TestShadowSchedulerTick:
             release_old_leader = asyncio.Event()
 
             async def evaluate_due(conn, due, now_epoch):
-                task_name = asyncio.current_task().get_name()
+                current_task = asyncio.current_task()
+                assert current_task is not None
+                task_name = current_task.get_name()
                 evaluations.append((task_name, "start"))
                 if task_name == "old" and not old_leader_in_batch.is_set():
                     old_leader_in_batch.set()
