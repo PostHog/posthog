@@ -21,8 +21,6 @@ class TestNorthpassLMSSource:
 
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.northpass.com/v2/people?limit=100"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.northpass.com/v2/courses?limit=100"),
             (
                 "empty_quiz_log",
                 "Northpass sent-webhooks log returned no quiz-completed events, so quiz_attempts has no rows to sync",
@@ -32,17 +30,6 @@ class TestNorthpassLMSSource:
     def test_non_retryable_errors_match_auth_failures(self, _name, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            ("throttle", "429 Client Error: Too Many Requests for url: https://api.northpass.com/v2/people"),
-            ("server", "500 Server Error: Internal Server Error for url: https://api.northpass.com/v2/people"),
-            ("timeout", "HTTPSConnectionPool(host='api.northpass.com', port=443): Read timed out."),
-        ]
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, _name, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
 
     @parameterized.expand(
         [

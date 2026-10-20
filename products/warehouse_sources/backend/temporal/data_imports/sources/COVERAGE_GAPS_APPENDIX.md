@@ -3790,7 +3790,7 @@ Audit logs are not: v3 places them at `/v3/enterprise/audit-logs` and `/v3/enter
 
 ## DigitalOcean — gaps
 
-Today (25): `actions`, `apps`, `billing_history`, `database_backups`, `database_events`, `databases`, `domain_records`, `domains`, `droplets`, `images`, `invoice_items`, `invoice_summaries`, `invoices`, `kubernetes_clusters`, `load_balancers`, `project_resources`, `projects`, `regions`, `reserved_ips`, `sizes`, `snapshots`, `ssh_keys`, `tags`, `volumes`, `vpcs`
+Today (32): `actions`, `app_deployments`, `app_events`, `apps`, `billing_history`, `database_backups`, `database_events`, `databases`, `domain_records`, `domains`, `droplets`, `images`, `invoice_items`, `invoice_summaries`, `invoices`, `kubernetes_clusters`, `kubernetes_node_pools`, `load_balancers`, `project_resources`, `projects`, `regions`, `registries`, `registry_repositories`, `reserved_ips`, `sizes`, `snapshots`, `ssh_keys`, `tags`, `uptime_check_states`, `uptime_checks`, `volumes`, `vpcs`
 
 Diffed against: <https://api-engineering.nyc3.cdn.digitaloceanspaces.com/spec-ci/DigitalOcean-public.v2.yaml>
 
@@ -3799,13 +3799,13 @@ Diffed against: <https://api-engineering.nyc3.cdn.digitaloceanspaces.com/spec-ci
 - [x] `/v2/regions` — lookup resolving the region slug carried by droplets, databases, load balancers and volumes (high)
 - [x] `/v2/projects/{project_id}/resources (and /v2/projects/default/resources)` — the join table mapping every synced resource URN to a project — projects are synced but the membership is not (high) — added as `project_resources` (`/v2/projects/default/resources` is an alias for the project flagged `is_default`, which the fan-out over `/v2/projects` already visits)
 - [x] `/v2/actions (and /v2/droplets/{droplet_id}/actions)` — account-wide action history: creates, resizes, power cycles with status and timing — the state-transition log for infrastructure (high)
-- [ ] `/v2/apps/{app_id}/deployments (+ /v2/apps/{app_id}/events)` — App Platform deployment history and phase transitions; apps are synced but not their deploy activity (medium)
-- [ ] `/v2/kubernetes/clusters/{cluster_id}/node_pools` — node pool sizing per cluster, needed to explain Kubernetes cost and capacity (medium)
+- [x] `/v2/apps/{app_id}/deployments (+ /v2/apps/{app_id}/events)` — App Platform deployment history and phase transitions; apps are synced but not their deploy activity (medium) — added as `app_deployments` and `app_events`
+- [x] `/v2/kubernetes/clusters/{cluster_id}/node_pools` — node pool sizing per cluster, needed to explain Kubernetes cost and capacity (medium) — added as `kubernetes_node_pools`
 - [ ] `/v2/tags/{tag_id}/resources` — resolves tags (already synced as names) to the resources they are applied to (medium) — not buildable: the spec exposes only POST and DELETE on this path, so tag membership cannot be read back. `/v2/tags` carries per-resource-type counts and a `last_tagged_uri`, which is the closest available data and is already synced.
 - [x] `/v2/domains/{domain_name}/records` — DNS records under the domains already synced (medium) — added as `domain_records`
 - [x] `/v2/databases/{database_cluster_uuid}/backups and /v2/databases/{database_cluster_uuid}/events` — backup inventory and cluster event history for managed databases (medium) — added as `database_backups` and `database_events`
-- [ ] `/v2/uptime/checks (+ /checks/{check_id}/state)` — uptime check inventory and current state for availability reporting (low)
-- [ ] `/v2/registry/{registry_name}/repositories (+ /tags, /digests)` — container registry repository and tag inventory with sizes (low)
+- [x] `/v2/uptime/checks (+ /checks/{check_id}/state)` — uptime check inventory and current state for availability reporting (low) — added as `uptime_checks` and `uptime_check_states`
+- [x] `/v2/registry/{registry_name}/repositories (+ /tags, /digests)` — container registry repository and tag inventory with sizes (low) — added as `registries` and `registry_repositories`, from the non-deprecated `/v2/registries` and `/v2/registries/{registry_name}/repositoriesV2` paths. Per-tag and per-digest tables are not added: they need a two-level fan-out, and repository names that contain `/` must be sent URL-encoded. The repository rows already carry `tag_count`, `manifest_count` and the sizes of the latest manifest.
 
 Note: The public spec has 447 paths, but a large share is GenAI, monitoring metric time series, and mutation-only endpoints. Firewalls, certificates, CDN endpoints and monitoring alert policies were treated as config and excluded.
 
@@ -4027,17 +4027,17 @@ Note: The synced `goals` table is Drip's /v2/{account_id}/goals endpoint, which 
 
 ## DropboxSign — gaps
 
-Today (8): `account`, `api_apps`, `bulk_send_jobs`, `faxes`, `signature_requests`, `team`, `team_members`, `templates`
+Today (11): `account`, `api_apps`, `bulk_send_jobs`, `fax_lines`, `faxes`, `signature_requests`, `team`, `team_invites`, `team_members`, `team_sub_teams`, `templates`
 
 Diffed against: <https://raw.githubusercontent.com/hellosign/hellosign-openapi/main/openapi.yaml>
 
 - [x] `GET /team/members/{team_id} (teamMembers)` — member roster that resolves the account IDs carried on signature_requests and templates (high) — added as `team_members`. The path takes a team id, resolved from `/team/info` at sync time.
 - [x] `GET /bulk_send_job/list + /bulk_send_job/{id} (bulkSendJobList)` — bulk send batches and their per-batch signature request status (medium) — added as `bulk_send_jobs` from the list endpoint. `/bulk_send_job/{id}` is not synced: it returns the batch's signature requests, which the `signature_requests` table already holds, and every row there carries `bulk_send_job_id` to join on.
 - [x] `GET /team and /team/info (teamGet, teamInfo)` — team/org record with seat and usage counts to join members against (medium) — added as `team`, from `/team/info`, which carries the team id, name and the member and sub-team counts. `/team` is not used: its payload has no id field to key a row on, and its `accounts` array repeats `team_members`.
-- [ ] `GET /team/sub_teams/{team_id} (teamSubTeams)` — team hierarchy lookup for rolling member activity up to parent teams (low)
-- [ ] `GET /team/invites (teamInvites)` — pending invites for onboarding/seat funnel analysis (low)
+- [x] `GET /team/sub_teams/{team_id} (teamSubTeams)` — team hierarchy lookup for rolling member activity up to parent teams (low) — added as `team_sub_teams`. The path takes the team id from `/team/info`, so the table holds the direct sub-teams of the connected team.
+- [x] `GET /team/invites (teamInvites)` — pending invites for onboarding/seat funnel analysis (low) — added as `team_invites`, off by default. The endpoint returns all invites in one response, with no pagination.
 - [x] `GET /fax/list (faxList)` — sent/received fax transactions for accounts using the fax product (low) — added as `faxes`, off by default since faxing is a separate product most accounts do not use.
-- [ ] `GET /fax_line/list (faxLineList)` — fax line lookup that resolves the line a fax was sent on (low)
+- [x] `GET /fax_line/list (faxLineList)` — fax line lookup that resolves the line a fax was sent on (low) — added as `fax_lines`, off by default like `faxes`.
 
 Note: Spec has 36 paths; the only other GETs are file downloads, embedded URL generators and OAuth. /report/create is POST-only and emails a CSV, so it is not warehouse-queryable.
 The team endpoints 404 for an account that belongs to no team, which the source treats as an empty table rather than a failed sync.
@@ -11605,8 +11605,8 @@ Today (9): `escalation_policies`, `incidents`, `postmortems`, `runbooks`, `sched
 Diffed against: <https://developers.incidents.cloud.solarwinds.com/llms.txt>
 
 - [ ] `incidents/{incidentID}/events (Get Incident Events)` — the incident timeline - acknowledge/reassign/resolve state transitions behind MTTA and MTTR (high)
-- [ ] `squads` — lookup plus membership table resolving squad ids on incidents, services and escalation policies (high)
-- [ ] `schedules/{scheduleID}/rotations and .../rotations/{id}/participants` — on-call rotations and who is in them; schedules are synced but are meaningless without rotations (high)
+- [x] `squads` — lookup plus membership table resolving squad ids on incidents, services and escalation policies (high)
+- [x] `schedules/{scheduleID}/rotations and .../rotations/{id}/participants` — on-call rotations and who is in them; schedules are synced but are meaningless without rotations (high)
 - [ ] `analytics (org-level and team-level)` — the vendor's headline MTTA/MTTR/incident-volume metrics (high)
 - [ ] `incidents/tags` — incident tag values, the primary breakdown dimension for incident reporting (medium)
 - [ ] `incidents/{incidentID}/notes` — responder commentary attached to incidents (medium)
