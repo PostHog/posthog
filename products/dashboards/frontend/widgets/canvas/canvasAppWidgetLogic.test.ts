@@ -134,4 +134,20 @@ describe('canvasAppWidgetLogic', () => {
 
         expect(logic.values.renderState).toEqual('error')
     })
+
+    it('keeps a runtime error from the app until the viewer reloads the frame', async () => {
+        jest.mocked(canvasesViewRetrieve).mockResolvedValue(view())
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+
+        logic.actions.setRuntimeError('TypeError: x is undefined')
+        expect(logic.values.runtimeError).toEqual('TypeError: x is undefined')
+        expect(logic.values.frameKey).toEqual(0)
+
+        logic.actions.reloadFrame()
+        expect(logic.values.runtimeError).toBeNull()
+        expect(logic.values.frameKey).toEqual(1)
+    })
 })

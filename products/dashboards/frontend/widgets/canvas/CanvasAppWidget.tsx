@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { urls } from 'scenes/urls'
@@ -89,19 +90,25 @@ function CanvasAppEmptyStatePicker({
     onUpdateConfig,
 }: Required<Pick<DashboardWidgetComponentProps, 'tileId' | 'config' | 'onUpdateConfig'>>): JSX.Element {
     const [optimisticCanvasId, setOptimisticCanvasId] = useState<string | null>(null)
+    // One save at a time: concurrent saves can land out of order and leave the earlier pick selected.
+    const [saving, setSaving] = useState(false)
     return (
         <div className="w-64 max-w-full">
             <CanvasPickerSelect
                 pickerKey={`canvas-tile-${tileId}`}
                 value={optimisticCanvasId}
                 fullWidth
+                disabled={saving}
                 onChange={async (value) => {
                     setOptimisticCanvasId(value)
+                    setSaving(true)
                     try {
                         await onUpdateConfig(patchCanvasAppWidgetConfig(config, value))
                     } catch {
                         // Persist failed, drop the optimistic pick so we don't show a selection that wasn't saved.
                         setOptimisticCanvasId((current) => (current === value ? null : current))
+                    } finally {
+                        setSaving(false)
                     }
                 }}
                 dataAttr="canvas-app-widget-empty-state-select"
@@ -112,7 +119,8 @@ function CanvasAppEmptyStatePicker({
 
 /** The live build inside the tile, wired to the same host bridge as the canvas scene. */
 function CanvasAppFrame({ artifactUrl, buildId }: { artifactUrl: string; buildId: string | null }): JSX.Element {
-    const { capabilities } = useValues(canvasAppWidgetLogic)
+    const { capabilities, frameKey } = useValues(canvasAppWidgetLogic)
+    const { setRuntimeError } = useActions(canvasAppWidgetLogic)
     const hostLogic = useMountedLogic(canvasHostLogic)
     const { navigate, openExternal, canvasRendered, canvasErrored } = useActions(hostLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -122,9 +130,9 @@ function CanvasAppFrame({ artifactUrl, buildId }: { artifactUrl: string; buildId
     )
 
     return (
-        // Keyed by build, so a new build gets a fresh frame and bridge.
+        // Keyed by build and reload count, so a new build or a reload gets a fresh frame and bridge.
         <BuiltCanvas
-            key={buildId ?? artifactUrl}
+            key={`${buildId ?? artifactUrl}:${frameKey}`}
             artifactUrl={artifactUrl}
             capabilities={capabilities}
             theme={isDarkModeOn ? 'dark' : 'light'}
@@ -132,7 +140,10 @@ function CanvasAppFrame({ artifactUrl, buildId }: { artifactUrl: string; buildId
             onNavigate={navigate}
             onOpenExternal={openExternal}
             onRendered={() => canvasRendered(buildId)}
-            onError={(message: string) => canvasErrored(message, buildId)}
+            onError={(message: string) => {
+                canvasErrored(message, buildId)
+                setRuntimeError(message)
+            }}
             hasUserActivation={canvasHasUserActivation}
             commentHighlights={[]}
             clearTextSelectionKey={0}
@@ -151,8 +162,8 @@ function CanvasAppTile({
 }): JSX.Element {
     const logicProps = { tileId, canvasId, publishedBuildId }
     const logic = canvasAppWidgetLogic(logicProps)
-    const { renderState, artifactUrl, buildId, hostProps, viewLoading } = useValues(logic)
-    const { loadView } = useActions(logic)
+    const { renderState, artifactUrl, buildId, hostProps, viewLoading, runtimeError } = useValues(logic)
+    const { loadView, reloadFrame } = useActions(logic)
 
     switch (renderState) {
         case 'loading':
@@ -197,6 +208,19 @@ function CanvasAppTile({
                     <BindLogic logic={canvasHostLogic} props={{ ...hostProps, surface: 'web_dashboard_widget' }}>
                         <div data-quill className="relative h-full min-h-0 w-full">
                             <CanvasAppFrame artifactUrl={artifactUrl as string} buildId={buildId} />
+                            {runtimeError && (
+                                <div
+                                    className="absolute inset-x-0 top-0 z-10 m-2"
+                                    data-attr="canvas-app-widget-runtime-error"
+                                >
+                                    <LemonBanner
+                                        type="error"
+                                        action={{ children: 'Reload', onClick: () => reloadFrame() }}
+                                    >
+                                        This app hit an error, so parts of it may not work.
+                                    </LemonBanner>
+                                </div>
+                            )}
                             <CanvasHostPromptDialog />
                         </div>
                     </BindLogic>
