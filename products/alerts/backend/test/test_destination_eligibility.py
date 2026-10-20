@@ -410,7 +410,7 @@ class TestDestinationEligibility(APIBaseTest):
         if later is not None:
             function.refresh_from_db()
             self._edited(
-                function, inputs={**function.inputs, **{key: {"value": value} for key, value in later.items()}}
+                function, inputs={**(function.inputs or {}), **{key: {"value": value} for key, value in later.items()}}
             )
 
         (eligibility,) = classify_alert_destinations(team_id=self.team.id, alert_id=ALERT_ID, allowed_event_ids=[event])
