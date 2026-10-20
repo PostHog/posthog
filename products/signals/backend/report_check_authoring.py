@@ -317,15 +317,11 @@ class CheckReconciliation:
 
 
 def _spec_soak_minutes(spec: CheckSpec, previous: SignalReportCheck | None) -> int:
-    if (
-        previous is not None
-        and previous.soak_minutes is not None
-        and (
-            "soak_hours" not in spec.model_fields_set
-            or spec.soak_hours == max(1, round((previous.soak_minutes or 60) / 60))
-        )
+    if previous is not None and (
+        "soak_hours" not in spec.model_fields_set
+        or spec.soak_hours == max(1, round((previous.soak_minutes or 60) / 60))
     ):
-        return previous.soak_minutes
+        return previous.soak_minutes if previous.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60
     return spec.soak_hours * 60
 
 

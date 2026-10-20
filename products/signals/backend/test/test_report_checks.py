@@ -3061,6 +3061,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
             ("omitted_existing_wait", False, "unchanged", "omitted_wait"),
             ("revise_omitted_existing_wait", False, "revise", "omitted_wait"),
             ("longer_wait", False, "revise", "longer_wait"),
+            ("revise_legacy_null_wait", False, "revise", "legacy_null_wait"),
             ("invalid_stored_config", False, "revise", "invalid_stored"),
         ]
     )
@@ -3071,7 +3072,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
         spec = self._spec()
         if variant == "metric_defaults":
             spec.config["baseline_value"] = None
-        elif variant == "agent_defaults":
+        elif variant in {"agent_defaults", "legacy_null_wait"}:
             spec = self._spec(kind="agent", config={"instructions": "Check the issue again."})
         existing = create_checks_from_specs(
             report=self.report, specs=[spec], attribution=ArtefactAttribution.system()
@@ -3093,6 +3094,8 @@ class TestResearchAuthoredChecks(APIBaseTest):
             }
         if variant == "omitted_wait":
             SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(soak_minutes=72 * 60)
+        if variant == "legacy_null_wait":
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(soak_minutes=None)
         if variant == "recurring":
             SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(
                 soak_minutes=1450, run_interval_minutes=7 * 24 * 60, runs_remaining=3
@@ -3116,6 +3119,12 @@ class TestResearchAuthoredChecks(APIBaseTest):
 
         if variant == "monitoring_visible":
             specs = [spec]
+        if variant == "legacy_null_wait":
+            specs = [
+                self._spec(
+                    title="Revised goal", kind="agent", config=spec.config, existing_check_id=existing.id, soak_hours=1
+                )
+            ]
         if variant == "monitoring_null_interval":
             specs[0].config["monitoring"] = stored_config["monitoring"]
         if variant == "omitted_wait":
@@ -3152,7 +3161,13 @@ class TestResearchAuthoredChecks(APIBaseTest):
         if written:
             assert written[0].title == specs[0].title
             assert written[0].approved_at is None
-            assert written[0].soak_minutes == (72 * 60 if variant == "longer_wait" else existing.soak_minutes)
+            assert written[0].soak_minutes == (
+                DEFAULT_CHECK_SOAK_HOURS * 60
+                if variant == "legacy_null_wait"
+                else 72 * 60
+                if variant == "longer_wait"
+                else existing.soak_minutes
+            )
             assert written[0].run_interval_minutes == existing.run_interval_minutes
             assert written[0].runs_remaining == existing.runs_remaining
         assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == (
