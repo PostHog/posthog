@@ -1302,6 +1302,10 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
         access_level = self.user_access_control.specific_access_level_for_object(feature_flag)
         assert access_level == "viewer"
+        deferred_flag = FeatureFlag.objects.only("id", "created_by").get(id=feature_flag.id)
+        with self.assertNumQueries(0):
+            assert self.user_access_control.get_user_access_level(deferred_flag) == "viewer"
+        assert "team_id" in deferred_flag.get_deferred_fields()
 
     def test_notebook_specific_access_control(self):
         """Test notebook-specific access controls"""
