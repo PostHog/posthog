@@ -26,17 +26,17 @@ export function BannerDeck({
     const cardsBehind = Math.min(banners.length - 1, 2)
 
     return (
-        <div data-quill className={cn('relative', cardsBehind === 2 ? 'pb-4' : 'pb-2')}>
+        <div className={cn('relative', cardsBehind === 2 ? 'pb-4' : 'pb-2')}>
             {cardsBehind === 2 && (
                 <div
                     aria-hidden
-                    className="absolute inset-x-6 bottom-0 h-8 rounded-md border border-border bg-card shadow-sm"
+                    className="absolute inset-x-6 bottom-0 h-8 rounded border border-primary bg-surface-primary"
                 />
             )}
             <div
                 aria-hidden
                 className={cn(
-                    'absolute inset-x-3 h-8 rounded-md border border-border bg-card shadow-sm',
+                    'absolute inset-x-3 h-8 rounded border border-primary bg-surface-primary',
                     cardsBehind === 2 ? 'bottom-2' : 'bottom-0'
                 )}
             />

@@ -26,8 +26,10 @@ export function BannerCallout({
     onDismiss,
 }: BannerCalloutProps): JSX.Element {
     return (
-        <div data-quill className="@container">
-            <Item variant="outline" className="flex-wrap bg-card">
+        // The shell uses the issues table's surface tokens, so the banner reads as a card in both themes.
+        // Inside quill's scope these tokens resolve to the page background, so the shell stays outside it.
+        <div className="@container rounded border border-primary bg-surface-primary">
+            <Item className="flex-wrap border-transparent">
                 {/* `eager` because a lazy image hidden by a container query never loads. */}
                 <ItemMedia className="hidden @2xl:flex">
                     <Illustration className="size-12" loading="eager" />
