@@ -75,7 +75,7 @@ export const NarrowWithLongLabels: Story = {
     },
 }
 
-// On a wide card the label column stops at 16rem, so one long label truncates instead of squeezing the bars.
+// On a wide card the label column stops at 12rem, so one long label truncates instead of squeezing the bars.
 export const WideWithOneLongLabel: Story = {
     render: () => {
         const theme = useReactiveTheme()

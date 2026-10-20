@@ -167,7 +167,7 @@ function BarListInner<Meta = unknown>({
                 isTop
                     ? { height: plotTop + rows.length * rowHeight }
                     : {
-                          gridTemplateColumns: 'fit-content(min(40%, 16rem)) minmax(0, 1fr) auto',
+                          gridTemplateColumns: 'fit-content(min(40%, 12rem)) minmax(0, 1fr) auto',
                           gridTemplateRows: `repeat(${rows.length}, ${rowHeight}px)`,
                       }
             }
