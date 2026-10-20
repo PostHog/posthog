@@ -2124,6 +2124,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def query_status_labels(self) -> list[str] | None:
         return None
 
+    def _query_json_with_events_schema(self) -> dict[str, Any]:
+        # The worker rebuilds this runner from the payload. Pin the resolved table, so the worker writes the cache key
+        # this request reads even when its instance-setting snapshot differs.
+        query_json = self.query.model_dump()
+        node: dict[str, Any] | None = query_json
+        while isinstance(node, dict) and "modifiers" not in node:
+            node = node.get("source")
+        if isinstance(node, dict):
+            node["modifiers"] = {**(node["modifiers"] or {}), "useNewEventsSchema": self.modifiers.useNewEventsSchema}
+        return query_json
+
     def enqueue_async_calculation(
         self,
         *,
@@ -2165,7 +2176,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
-            query_json=self.query.model_dump(),
+            query_json=self._query_json_with_events_schema(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
             labels=self.query_status_labels(),
