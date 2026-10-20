@@ -52,7 +52,10 @@ export class ResourceSaveQueue {
             return 'ignore'
         }
         if (this.pending > 0 || this.options.isBusy?.()) {
-            this.deferred = event
+            // Events can arrive out of order, so a held older copy never replaces a newer one.
+            if (!this.deferred || !dayjs(event.updated_at).isBefore(dayjs(this.deferred.updated_at))) {
+                this.deferred = event
+            }
             return 'defer'
         }
         const loaded = this.options.getLoadedStamp()

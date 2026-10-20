@@ -62,13 +62,14 @@ describe('ResourceSaveQueue', () => {
         expect(queue(null).classify(event())).toBe('ignore')
     })
 
-    it('holds an event that lands mid-save and hands the latest one over once', async () => {
+    it('holds an event that lands mid-save and hands the newest one over once', async () => {
         const saves = queue()
         let finish: () => void = () => {}
         const saving = saves.run(() => new Promise<void>((resolve) => (finish = resolve)))
 
         expect(saves.classify(event({ updated_at: '2026-09-25T10:00:03Z' }))).toBe('defer')
         expect(saves.classify(event())).toBe('defer')
+        expect(saves.classify(event({ updated_at: '2026-09-25T10:00:04Z' }))).toBe('defer')
         await Promise.resolve()
         finish()
         await saving
