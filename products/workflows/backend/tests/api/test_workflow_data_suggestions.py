@@ -838,7 +838,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("with_an_unknown_project", "team 999999: skipped, no such project\n"),
         ]
     )
-    @patch(f"{SERVICE}.ph_scoped_capture")
+    @patch(f"{SERVICE}.posthoganalytics.capture")
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_premade_ideas_replace_the_generated_cards_until_one_click_saves_them(
@@ -847,7 +847,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         missing: str,
         suggest_ideas: MagicMock,
         plan_steps: MagicMock,
-        scoped_capture: MagicMock,
+        capture: MagicMock,
         flag: MagicMock,
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
@@ -881,6 +881,13 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert cache.get(_cache_key(self.team)) is None
 
         save = {"suggestion_id": str(idea.id), "save_draft": True}
+        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
+        unsaved = self.client.post(build_url, {"suggestion_id": str(idea.id)}, format="json")
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        withdrawn = (self._list()["status"], self.client.post(build_url, save, format="json").status_code)
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
         other_team = Team.objects.create(organization=self.organization)
         foreign = self.client.post(
             f"/api/projects/{other_team.id}/workflow_data_suggestions/build/", save, format="json"
@@ -890,11 +897,12 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             label="agent", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write", "query:read"]
         )
         self.client.logout()
-        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
         auth = {"authorization": f"Bearer {key}"}
         saved = self.client.post(build_url, save, format="json", headers=auth)
         repeated = self.client.post(build_url, save, format="json", headers=auth)
 
+        assert (unsaved.status_code, unsaved.json()["status"], unsaved.json()["workflow_id"]) == (200, "ready", None)
+        assert withdrawn == ("ai_not_approved", 404)
         assert (foreign.status_code, saved.status_code, repeated.status_code) == (404, 200, 409)
         draft = HogFlow.objects.get(team=self.team)
         idea.refresh_from_db()
@@ -903,9 +911,9 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         # The sender was verified after the idea was built, so the save fills it in.
         assert draft.actions[1]["config"]["inputs"]["email"]["value"]["from"]["integrationId"] == sender.id
         assert plan_steps.call_count == 0
-        capture = scoped_capture.return_value.__enter__.return_value
-        capture.assert_called_once()
-        assert capture.call_args.kwargs["properties"]["source"] == EventSource.API.value
+        events = {call.kwargs.get("event"): call.kwargs.get("properties") for call in capture.call_args_list}
+        assert events["workflows data suggestion built"]["source"] == EventSource.API.value
+        assert events["hog_flow_created"]["workflow_id"] == str(draft.id)
 
         self.client.force_login(self.user)
         suggest_ideas.return_value = [_idea("user_registered")]

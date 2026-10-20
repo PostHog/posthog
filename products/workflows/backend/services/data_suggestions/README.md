@@ -37,7 +37,9 @@ Building a draft (`_plan_and_build` in `service.py`):
 
 `python manage.py prepare_workflow_ideas --team-ids <id> ...` runs the card run and a build for each card now, then stores each built card as a `WorkflowIdea` row with its workflow in `definition`.
 While a project has such ideas waiting, `current` and `generate` return only those cards, read from Postgres, and no run starts.
+The consent and privacy checks apply to premade cards too, so a project that loses AI approval stops seeing them.
 A build with `save_draft` saves the stored workflow as a draft and marks the idea accepted in one transaction.
+A build without `save_draft` returns the stored workflow, checked with the caller's own create rules, and the idea stays offered.
 Once every idea is used, the project gets the generated cards again.
 
 Agents use the same endpoints through three MCP tools in `products/workflows/mcp/tools.yaml`: `workflows-data-suggestions-list`, `-get` and `-create`.

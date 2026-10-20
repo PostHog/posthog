@@ -76,6 +76,12 @@ def lock_premade_idea(team_id: int, idea_id: str) -> WorkflowIdea | None:
     return row
 
 
+def waiting_premade_idea(team_id: int, idea_id: str) -> WorkflowIdea | None:
+    if not _is_uuid(idea_id):
+        return None
+    return _waiting(team_id).filter(id=idea_id).first()
+
+
 def mark_accepted(row: WorkflowIdea, *, hog_flow_id: str, user: User) -> None:
     row.status = WorkflowIdeaStatus.ACCEPTED
     row.hog_flow_id = hog_flow_id

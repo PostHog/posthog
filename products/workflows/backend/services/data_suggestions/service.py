@@ -33,6 +33,7 @@ from products.workflows.backend.facade.contracts import (
     MissingInput,
     PreparedIdeas,
 )
+from products.workflows.backend.models import WorkflowIdea as WorkflowIdeaRow
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.data_suggestions import team_context
 from products.workflows.backend.services.data_suggestions.builder import (
@@ -58,6 +59,7 @@ from products.workflows.backend.services.data_suggestions.premade import (
     premade_card,
     premade_suggestions,
     store_premade_ideas,
+    waiting_premade_idea,
     with_sender,
 )
 from products.workflows.backend.services.data_suggestions.ranking import (
@@ -107,12 +109,13 @@ NO_SENDER_FIELD = "Email sender (no verified sender yet: add a sending domain un
 
 def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     """The cards as they are now. This never runs a query or a model, so a read-only caller cannot cause spend."""
-    premade = _premade_result(team)
-    if premade is not None:
-        return premade
+    # Checked before the premade cards too, because the models wrote them from the project's events.
     unavailable = _unavailable_reason(team)
     if unavailable is not None:
         return unavailable
+    premade = _premade_result(team)
+    if premade is not None:
+        return premade
     # Checked before the cache, so a refresh in progress reads as generating rather than as the old cards.
     if cache.get(_generation_lock_key(team)) is not None:
         return _GENERATING
@@ -159,12 +162,12 @@ def count_waiting_data_suggestions(*, team: Team, user: User) -> int:
 def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str], None]) -> DataSuggestionsResult:
     """Returns the cached cards, or starts a background run through `enqueue` and reports that it is generating.
     A project with premade ideas gets only those, and no run starts."""
-    premade = _premade_result(team)
-    if premade is not None:
-        return premade
     unavailable = _unavailable_reason(team)
     if unavailable is not None:
         return unavailable
+    premade = _premade_result(team)
+    if premade is not None:
+        return premade
     cached = _read_cache(team)
     if cached is not None and not refresh:
         return cached
@@ -260,6 +263,8 @@ def save_premade_draft(
 ) -> BuiltSuggestion | None:
     """Saves a premade idea's workflow as a draft and marks the idea accepted, or returns None when the id is not a
     premade idea. The idea row stays locked until both writes commit, so a second call cannot save a second draft."""
+    if _unavailable_reason(team) is not None:
+        raise DataSuggestionNotFound()
     with transaction.atomic():
         row = lock_premade_idea(team.id, idea_id)
         if row is None:
@@ -270,17 +275,39 @@ def save_premade_draft(
             return _BUILD_FAILED
         workflow_id = save_draft(team, user, validated)
         mark_accepted(row, hog_flow_id=workflow_id, user=user)
-    result = BuiltSuggestion(
+    result = dataclasses.replace(_premade_build(team, row, workflow), workflow_id=workflow_id)
+    # The web page sends this event itself, with the surface the card was on.
+    if not caller.startswith(f"{EventSource.WEB.value}:"):
+        # The process-wide client sends in the background, so the request does not wait for a flush.
+        _capture_saved_build(
+            capture=posthoganalytics.capture, user=user, suggestion=premade_card(row), result=result, caller=caller
+        )
+    return result
+
+
+def get_premade_workflow(
+    *, team: Team, idea_id: str, validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None]
+) -> BuiltSuggestion | None:
+    """A waiting premade idea's workflow without saving it, or None when the id is not a waiting premade idea. The
+    idea stays offered until a call saves it."""
+    if _unavailable_reason(team) is not None:
+        raise DataSuggestionNotFound()
+    row = waiting_premade_idea(team.id, idea_id)
+    if row is None:
+        return None
+    workflow = with_sender(row.definition, team_context.email_sender(team))
+    if validate_draft(team, workflow) is None:
+        return _BUILD_FAILED
+    return _premade_build(team, row, workflow)
+
+
+def _premade_build(team: Team, row: WorkflowIdeaRow, workflow: dict[str, Any]) -> BuiltSuggestion:
+    return BuiltSuggestion(
         status="ready",
         workflow=workflow,
         uses_saved_template=bool(row.evidence.get("uses_saved_template")),
-        workflow_id=workflow_id,
         missing_inputs=_missing_inputs(team, workflow),
     )
-    # The web page sends this event itself, with the surface the card was on.
-    if not caller.startswith(f"{EventSource.WEB.value}:"):
-        _capture_saved_build(user=user, suggestion=premade_card(row), result=result, caller=caller)
-    return result
 
 
 def build_caller(event_source: str, *, save: bool, user_id: int) -> str:
@@ -338,7 +365,8 @@ def run_build(
             cache.set(_build_key(team_id, suggestion_id, caller), dataclasses.asdict(result), ttl)
         # Sent after the result is stored, so a slow analytics delivery never keeps a saved draft reading as building.
         if result.workflow_id is not None and suggestion is not None:
-            _capture_saved_build(user=user, suggestion=suggestion, result=result, caller=caller)
+            with ph_scoped_capture() as capture:
+                _capture_saved_build(capture=capture, user=user, suggestion=suggestion, result=result, caller=caller)
     finally:
         _release(lock_key, lock_token)
 
@@ -473,22 +501,23 @@ def _input_schemas(workflow: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     return schemas
 
 
-def _capture_saved_build(*, user: User, suggestion: DataSuggestion, result: BuiltSuggestion, caller: str) -> None:
+def _capture_saved_build(
+    *, capture: Callable[..., object], user: User, suggestion: DataSuggestion, result: BuiltSuggestion, caller: str
+) -> None:
     # The web page sends this event from the browser. A saved build has no browser, so the funnel gets it from here.
-    with ph_scoped_capture() as capture:
-        # pinned: analytics event name - renaming breaks dashboards
-        capture(
-            distinct_id=user.distinct_id,
-            event="workflows data suggestion built",
-            properties={
-                "workflow_id": result.workflow_id,
-                "source": caller.split(":")[0],
-                "trigger_event": suggestion.trigger_event,
-                "stage": suggestion.stage,
-                "uses_saved_template": result.uses_saved_template,
-                "missing_inputs": len(result.missing_inputs),
-            },
-        )
+    # pinned: analytics event name - renaming breaks dashboards
+    capture(
+        distinct_id=user.distinct_id,
+        event="workflows data suggestion built",
+        properties={
+            "workflow_id": result.workflow_id,
+            "source": caller.split(":")[0],
+            "trigger_event": suggestion.trigger_event,
+            "stage": suggestion.stage,
+            "uses_saved_template": result.uses_saved_template,
+            "missing_inputs": len(result.missing_inputs),
+        },
+    )
 
 
 def _chosen_template_bodies(
