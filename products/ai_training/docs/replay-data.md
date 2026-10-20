@@ -375,7 +375,7 @@ v4 copies the v3 key design: one key per team and UTC month, and one key per ses
 - `key_month` is the UTC month in which the recorder first stored data for the team or session. A session keeps its key in later months.
 - KMS wraps a team month key with the encryption context `{"purpose": "ai-research-v4", "team_id": ..., "key_month": ...}`.
 - A session key is sealed under the team month key with HKDF-SHA256 (empty salt, info `ml-session-key-wrap`) and AES-256-GCM. The additional authenticated data is the canonical JSON of `{"key_month", "purpose": "ai-research-v4", "session_id", "team_id"}`.
-- `expires_at` is the start of the fifth month after `key_month`, in epoch seconds: key month 2026-10 expires at 2027-03-01. DynamoDB TTL removes the row after that. A session writes for at most about 15 days after its key month ends, and an object lives at most 98 days, so every key outlives the objects that use it.
+- `expires_at` is the start of the fifth month after `key_month`, in epoch seconds: key month 2026-10 expires at 2027-03-01. DynamoDB TTL removes the row after that. A session writes for at most about 15 days after its key month ends, and an object lives at most 38 days, so every key outlives the objects that use it. The margin lets the object windows go back up to 90 days without a change to the key expiry.
 - A row past `expires_at` that DynamoDB has not removed yet is not used.
 - Writers store keys before the objects that use them, as in v3.
 - Only the recorder creates keys. The image fetcher only reads them, and it drops a job whose team month row is missing or deleted.
@@ -443,12 +443,12 @@ Fetched images are partitioned by the key month of their reference.
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
 
-S3 expires an object a fixed time after the object was written: 90 days in `rrweb-v4` and 98 days in `images-v4`.
+S3 expires an object a fixed time after the object was written: 30 days in `rrweb-v4` and 38 days in `images-v4`.
 The lifecycle rounds up to midnight and runs late, so plan for data to stay readable for up to 2 days more.
 A block can use an image only while that image outlives the block:
 
 - A block finds each inline image in a pack that the same flush wrote, so the pack lives at least as long as the block.
-- The image fetcher copies a fetched image onto itself when a job refers to it and the copy is more than 7 days old. The copy restarts the image's expiry, so an image lives at least 90 days after the last block that refers to it.
+- The image fetcher copies a fetched image onto itself when a job refers to it and the copy is more than 7 days old. The copy restarts the image's expiry, so an image lives at least 30 days after the last block that refers to it.
 
 The recorder does not write the two index prefixes itself, as in v3:
 
