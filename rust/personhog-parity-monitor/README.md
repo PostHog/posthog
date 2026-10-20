@@ -30,8 +30,8 @@ All names start with `personhog_parity_`. Labels carry outcomes only, never a te
 | `merge_partition_total` | `outcome`: `same`, `different` | Merges present on both feeds, by partition number; only counted while both merge topics have the same partition count |
 | `merge_placement_total` | `feed`, `outcome`: `expected`, `unexpected` | Arrival partition against the key's murmur2 partition |
 | `version_ties_total`, `merge_conflicts_total` | `feed` | A feed contradicting itself |
-| `messages_total`, `decode_failures_total`, `read_errors_total`, `filtered_total` | `feed`, `topic` | Reader counters |
-| `topic_partitions` | `feed`, `topic` | Partition counts from metadata, read once at startup |
+| `messages_total`, `decode_failures_total`, `read_errors_total`, `metadata_errors_total`, `filtered_total` | `feed`, `topic` | Reader counters |
+| `topic_partitions` | `feed`, `topic` | Partition counts from metadata, re-read every `PARITY_METADATA_POLL_SECONDS` |
 | `topic_pair_partitions_equal` | `topic` | Whether the two feeds' topics of that kind have the same count |
 | `pending_entries` | `kind` | Entries waiting to settle |
 | `watermark_age_seconds` | `feed` | Wall clock minus the feed's watermark; a stalled feed shows here |
@@ -54,6 +54,7 @@ All names start with `personhog_parity_`. Labels carry outcomes only, never a te
 | `PARITY_TEAMS` | empty, every team | Comma separated team ids; set it to the merge events allowlist when that is a subset |
 | `PARITY_SAMPLE_RING_SIZE` | `500` | Disagreements kept for `/debug/mismatches` |
 | `PARITY_SWEEP_INTERVAL_MS` | `1000` | How often entries are settled |
+| `PARITY_METADATA_POLL_SECONDS` | `30` | How often each topic's partition list is re-read; partitions a repartition added are assigned from their beginning, and the placement check uses the new count |
 | `DEBUG_API_SECRET` | unset, endpoint off | Required in the `x-debug-api-secret` header to read `/debug/mismatches`, which carries distinct ids |
 | `BIND_HOST`, `BIND_PORT` | `0.0.0.0`, `3301` | `/metrics`, `/_readiness`, `/_liveness`, `/debug/mismatches` |
 

@@ -2,6 +2,7 @@
 //! nothing committed: a consumer group would split the partitions between
 //! replicas and break the cross-feed join, and a restart resumes nothing.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
@@ -12,7 +13,7 @@ use rdkafka::error::KafkaError;
 use rdkafka::message::BorrowedMessage;
 use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
 use tokio::sync::mpsc;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::config::FeedConfig;
 use crate::join::{Event, Kind, Record, Topic};
@@ -28,7 +29,8 @@ const PREFETCH_KBYTES: &str = "16384";
 pub struct TopicReader {
     topic: Topic,
     name: String,
-    consumer: StreamConsumer,
+    consumer: Arc<StreamConsumer>,
+    partitions: Vec<i32>,
 }
 
 impl TopicReader {
@@ -61,18 +63,8 @@ impl TopicReader {
         let consumer: StreamConsumer = client
             .create()
             .with_context(|| format!("creating the {} reader for {name}", feed.side.label()))?;
-        let metadata = consumer
-            .fetch_metadata(Some(&name), METADATA_TIMEOUT)
-            .with_context(|| format!("fetching metadata of {name}"))?;
-        let partitions: Vec<i32> = metadata
-            .topics()
-            .iter()
-            .find(|entry| entry.name() == name)
-            .map(|entry| entry.partitions().iter().map(|p| p.id()).collect())
-            .unwrap_or_default();
-        if partitions.is_empty() {
-            bail!("topic {name} has no partitions on {}", feed.kafka_hosts);
-        }
+        let partitions = fetch_partitions(&consumer, &name)
+            .with_context(|| format!("on {}", feed.kafka_hosts))?;
         let mut assignment = TopicPartitionList::new();
         for partition in &partitions {
             // The end offset is read here, before anyone learns the reader is
@@ -86,13 +78,15 @@ impl TopicReader {
         consumer
             .assign(&assignment)
             .with_context(|| format!("assigning {name}"))?;
+        let count = partitions.len() as u32;
         Ok((
             Self {
                 topic,
                 name,
-                consumer,
+                consumer: Arc::new(consumer),
+                partitions,
             },
-            partitions.len() as u32,
+            count,
         ))
     }
 
@@ -101,7 +95,12 @@ impl TopicReader {
     }
 
     /// The first decode failure per topic is logged in full; the counter is the signal.
-    pub async fn run(self, events: mpsc::Sender<Event>, health: HealthHandle) {
+    pub async fn run(
+        mut self,
+        events: mpsc::Sender<Event>,
+        health: HealthHandle,
+        metadata_poll: Duration,
+    ) {
         let feed = self.topic.side.label();
         let kind = self.topic.kind.label();
         let messages =
@@ -112,12 +111,39 @@ impl TopicReader {
             "feed" => feed,
             "topic" => kind
         );
+        let metadata_errors = metrics::counter!(
+            "personhog_parity_metadata_errors_total",
+            "feed" => feed,
+            "topic" => kind
+        );
         let mut last_health_report = Instant::now() - HEALTH_REPORT_INTERVAL;
+        let mut next_metadata_poll = Instant::now() + metadata_poll;
         let mut decode_failure_logged = false;
         loop {
             if last_health_report.elapsed() >= HEALTH_REPORT_INTERVAL {
                 health.report_healthy().await;
                 last_health_report = Instant::now();
+            }
+            if Instant::now() >= next_metadata_poll {
+                match self.assign_new_partitions().await {
+                    Ok(Some(partitions)) => {
+                        let assigned = Event::Assigned {
+                            topic: self.topic,
+                            partitions,
+                        };
+                        if events.send(assigned).await.is_err() {
+                            return;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        warn!(topic = %self.name, %error, "refreshing the partition list failed");
+                        metadata_errors.increment(1);
+                    }
+                }
+                // Armed after the request, so a slow one cannot leave the
+                // next poll already due and starve the reads between polls.
+                next_metadata_poll = Instant::now() + metadata_poll;
             }
             let message = match tokio::time::timeout(RECV_TIMEOUT, self.consumer.recv()).await {
                 Err(_) => continue,
@@ -162,6 +188,33 @@ impl TopicReader {
         }
     }
 
+    /// New partitions are read from their beginning: they were empty at
+    /// creation, so the end would skip rows that landed before this poll.
+    async fn assign_new_partitions(&mut self) -> Result<Option<u32>> {
+        let consumer = Arc::clone(&self.consumer);
+        let name = self.name.clone();
+        let current = tokio::task::spawn_blocking(move || fetch_partitions(&consumer, &name))
+            .await
+            .context("the metadata task panicked")??;
+        let added: Vec<i32> = current
+            .into_iter()
+            .filter(|partition| !self.partitions.contains(partition))
+            .collect();
+        if added.is_empty() {
+            return Ok(None);
+        }
+        let mut assignment = TopicPartitionList::new();
+        for partition in &added {
+            assignment.add_partition_offset(&self.name, *partition, Offset::Beginning)?;
+        }
+        self.consumer
+            .incremental_assign(&assignment)
+            .with_context(|| format!("assigning the new partitions of {}", self.name))?;
+        info!(topic = %self.name, ?added, "assigned new partitions from their beginning");
+        self.partitions.extend(added);
+        Ok(Some(self.partitions.len() as u32))
+    }
+
     fn decode(&self, message: &BorrowedMessage<'_>) -> Result<Record, DecodeError> {
         let payload = message.payload().unwrap_or_default();
         match self.topic.kind {
@@ -169,6 +222,22 @@ impl TopicReader {
             Kind::MergeEvents => MergeEvent::decode(message.key(), payload).map(Record::Merge),
         }
     }
+}
+
+fn fetch_partitions(consumer: &StreamConsumer, name: &str) -> Result<Vec<i32>> {
+    let metadata = consumer
+        .fetch_metadata(Some(name), METADATA_TIMEOUT)
+        .with_context(|| format!("fetching metadata of {name}"))?;
+    let partitions: Vec<i32> = metadata
+        .topics()
+        .iter()
+        .find(|entry| entry.name() == name)
+        .map(|entry| entry.partitions().iter().map(|p| p.id()).collect())
+        .unwrap_or_default();
+    if partitions.is_empty() {
+        bail!("topic {name} has no partitions");
+    }
+    Ok(partitions)
 }
 
 pub fn now_ms() -> i64 {
