@@ -169,7 +169,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
             posthog.capture('insight person modal properties timeline point selected', {
                 source_kind: props.query.source.kind,
                 point_count: values.points.length,
-                selected_present: index === null,
+                selected_present: index !== null,
             })
         },
     })),

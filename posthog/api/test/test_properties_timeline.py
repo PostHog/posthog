@@ -242,6 +242,30 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "query")
 
+    def test_query_timeline_rejects_a_malformed_hogql_filter(self):
+        # The filter parses during key extraction, which raises a hogql `SyntaxError` rather than a `QueryError`.
+        self._create_person({"foo": "abc"})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/persons/{TEST_PERSON_ID}/properties_timeline/",
+            {
+                "query": {
+                    "kind": "InsightActorsQuery",
+                    "day": "2020-01-01",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        "properties": [{"type": "hogql", "key": "person.properties.foo !!"}],
+                    },
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "query")
+
     @also_test_with_materialized_columns(**MATERIALIZED_COLUMN_KWARGS)
     @snapshot_clickhouse_queries
     def test_timeline_for_new_actor_with_one_event_in_range(self):
@@ -963,6 +987,14 @@ class TestPropertiesTimelineRequestSerializer(SimpleTestCase):
                 "unparseable_day",
                 InsightActorsQuery(source=TrendsQuery(series=[EventsNode(event="$pageview")]), day="not-a-date"),
                 "A Trends data point's day must be a date string.",
+            ),
+            (
+                "group_aggregated_source",
+                InsightActorsQuery(
+                    source=TrendsQuery(series=[EventsNode(event="$pageview")], aggregation_group_type_index=0),
+                    day="2020-01-01",
+                ),
+                "The properties timeline supports person aggregation only.",
             ),
         ]
     )

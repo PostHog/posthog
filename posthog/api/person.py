@@ -34,7 +34,7 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.schema import ActionsNode, ActorsQuery, EventsNode, InsightActorsQuery, ProductKey, TrendsQuery
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
@@ -556,6 +556,9 @@ class PropertiesTimelineRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("The query's series index is out of range.")
         if not isinstance(query.source.series[series_index], EventsNode | ActionsNode):
             raise serializers.ValidationError("The properties timeline supports events and actions series only.")
+        if query.source.aggregation_group_type_index is not None:
+            # The actor is a person, so a group-aggregated source would read the group's properties.
+            raise serializers.ValidationError("The properties timeline supports person aggregation only.")
         if query.day is not None and not _is_date_string(query.day):
             raise serializers.ValidationError("A Trends data point's day must be a date string.")
         return query
@@ -1736,7 +1739,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         try:
             properties_timeline = PropertiesTimeline().run(serializer.validated_data["query"], self.team, person)
-        except QueryError as error:
+        except ExposedHogQLError as error:
+            # Covers both `QueryError` and the `SyntaxError` a malformed HogQL filter parses into.
             raise ValidationError({"query": [str(error)]})
 
         return response.Response(data=properties_timeline)
