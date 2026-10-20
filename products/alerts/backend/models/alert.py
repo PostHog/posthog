@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -204,6 +204,19 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
+
+    def internal_event_properties(self, *, state: str, last_checked_at: datetime | None) -> dict[str, Any]:
+        """The properties every `$insight_alert_firing` carries, from the insight stack or the platform."""
+        return {
+            "alert_id": str(self.id),
+            "alert_name": self.name,
+            "project_name": self.team.name,
+            "insight_name": self.insight.name,
+            "insight_id": self.insight.short_id,
+            "state": state,
+            "last_checked_at": last_checked_at.isoformat() if last_checked_at else None,
+            **derive_detector_event_fields(self.detector_config),
+        }
 
     @property
     def is_high_frequency_interval(self) -> bool:

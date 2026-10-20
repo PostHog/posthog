@@ -33,7 +33,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     evaluate_alert_check,
     should_notify,
 )
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
 from products.alerts_platform.backend.facade.scheduling import (
@@ -185,14 +185,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     )
 
     props = {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "project_name": alert.team.name,
-        "insight_name": alert.insight.name,
-        "insight_id": alert.insight.short_id,
-        "state": alert.state,
-        "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
-        **derive_detector_event_fields(alert.detector_config),
+        **alert.internal_event_properties(state=alert.state, last_checked_at=alert.last_checked_at),
         **properties,
     }
 

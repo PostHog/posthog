@@ -18,7 +18,7 @@ from posthog.schema_enums import AlertState
 
 from products.alerts.backend.facade.contracts import AlertInternalEvent
 from products.alerts.backend.logic.destinations import emit_alert_internal_events
-from products.alerts.backend.models.alert import AlertConfiguration, derive_detector_event_fields
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -61,14 +61,7 @@ def emit_insight_legacy_events(
 def _firing_event(alert: AlertConfiguration, transition: AnnouncedTransition) -> AlertInternalEvent:
     detail = transition.source_detail
     properties: dict[str, Any] = {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "project_name": alert.team.name,
-        "insight_name": alert.insight.name,
-        "insight_id": alert.insight.short_id,
-        "state": AlertState.FIRING.value,
-        "last_checked_at": transition.occurred_at.isoformat(),
-        **derive_detector_event_fields(alert.detector_config),
+        **alert.internal_event_properties(state=AlertState.FIRING.value, last_checked_at=transition.occurred_at),
         "breaches": "\n".join(detail.get("breaches") or []),
     }
     if detail.get("insight_chart_url"):
