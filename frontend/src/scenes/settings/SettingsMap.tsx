@@ -37,7 +37,6 @@ import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
-import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import {
     TaskAgentMyPreferenceSettings,
     TaskAgentProjectDefaultSettings,
@@ -1792,15 +1791,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
                 keywords: ['bounce', 'pageview', 'url', 'calculation'],
-            },
-            {
-                id: 'session-join-mode',
-                title: 'Session join mode',
-                description:
-                    "Choose which join mode to use for sessions. Don't change this unless you know what you're doing.",
-                component: <SessionsV2JoinModeSettings />,
-                flag: 'SETTINGS_SESSIONS_V2_JOIN',
-                keywords: ['session', 'join', 'string', 'uuid'],
             },
             {
                 id: 'web-analytics-pre-aggregated-tables',

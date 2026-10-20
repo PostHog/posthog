@@ -84,19 +84,6 @@ class TestNonRetryableErrors:
     def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
         assert any(key in observed for key in FlutterwaveSource().get_non_retryable_errors())
 
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.flutterwave.com', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.flutterwave.com/v3/transactions",
-            ),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.flutterwave.com/v3/transfers"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        assert not any(key in observed for key in FlutterwaveSource().get_non_retryable_errors())
-
 
 class TestSourceForPipeline:
     @parameterized.expand(

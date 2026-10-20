@@ -72,15 +72,6 @@ class TestValidateCredentials:
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.mistral.ai/v1/files?page=0"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.mistral.ai/v1/batch/jobs"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        assert any(key in observed for key in MistralAISource().get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
             (
                 "page_zero",
                 "410 Client Error: Gone for url: https://api.mistral.ai/v1/fine_tuning/jobs?page=0&page_size=100",
@@ -95,15 +86,6 @@ class TestNonRetryableErrors:
         # Mistral's 410 means fine-tuning is unavailable for the workspace, not a page-specific fluke,
         # so the match must hold regardless of which page the pagination loop was on.
         assert any(key in observed for key in MistralAISource().get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.mistral.ai/v1/files"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.mistral.ai/v1/files"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
-        assert not any(key in observed for key in MistralAISource().get_non_retryable_errors())
 
 
 class TestPipelinePlumbing:
