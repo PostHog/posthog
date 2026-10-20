@@ -50,6 +50,7 @@ jobs:
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
             all_crates: ${{ steps.filter.outputs.all_crates || 'false' }}
+            image_build: ${{ steps.filter.outputs.image_build || 'false' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -90,10 +91,35 @@ jobs:
                         - 'posthog/models/feature_flag/flags_cache.py'
                         - 'posthog/models/feature_flag/feature_flag.py'
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
+                      image_build:
+                        - 'rust/Dockerfile*'
+                        - 'rust/.dockerignore'
+                        - 'rust/.cargo/**'
+                        - 'rust/rust-toolchain*'
+                        - '.github/rust-images.yml'
+                        - '.github/workflows/_rust-build-images.yml'
+                        - '.github/workflows/rust-docker-build.yml'
+                        - '.github/workflows/ci-rust.yml'
                       all_crates:
                         # Pins the service images that every crate's tests run against.
                         # A determinator rule would also rebuild and deploy every Rust image.
                         - 'docker-compose.base.yml'
+
+    image-build:
+        name: Validate Rust container images
+        needs: changes
+        if: >-
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            needs.changes.outputs.image_build == 'true'
+        uses: ./.github/workflows/_rust-build-images.yml
+        with:
+            push: false
+            tag-rules: type=sha
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
 
     # Compute affected crates and test shards. Only runs when Rust changes
     # are detected, keeping the lightweight `changes` job fast for non-Rust PRs.
@@ -969,7 +995,7 @@ jobs:
     # Collate job - single required status check for branch protection.
     # Individual jobs skip entirely when no Rust changes, saving runner time.
     rust_tests:
-        needs: [changes, affected, build, test, linting]
+        needs: [changes, affected, build, test, linting, image-build]
         name: Rust Tests Pass
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -981,6 +1007,11 @@ jobs:
                   # Fail if change detection failed, affected computation failed, or either was cancelled (outputs are empty on cancel, so the exit below would report green).
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.image-build.result }}" != "success" && "${{ needs.image-build.result }}" != "skipped" ]]; then
+                    echo "Rust container image validation did not succeed (result: ${{ needs.image-build.result }})."
                     exit 1
                   fi
 
