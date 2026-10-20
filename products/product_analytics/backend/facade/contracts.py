@@ -131,6 +131,8 @@ class TeamEmailAccess:
     # A match reveals that an email belongs to the team, so each source needs the caller to be allowed to read it.
     member_emails: bool
     verified_domains: bool
+    # The emails a check finds are person data, so the check names them only for a caller who may read persons.
+    person_emails: bool
 
 
 @dataclass(frozen=True)

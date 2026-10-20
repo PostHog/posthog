@@ -9367,14 +9367,14 @@ export interface InsightDataCheckApi {
      * @nullable
      */
     missed_by_filter: number | null
-    /** For the internal users check, the team emails whose events the project's internal and test users filter keeps, most affected first. Only emails the caller may see as the team's are matched. */
+    /** For the internal users check, the team emails whose events the project's internal and test users filter keeps, most affected first. Only emails the caller may see as the team's are matched. Empty for a token without the `person:read` scope. */
     top_emails: string[]
     /**
      * For the internal users check, how many team emails sent events that the project's internal and test users filter keeps. Null for the other checks and when the check did not run.
      * @nullable
      */
     distinct_emails: number | null
-    /** A rule for the project's internal and test users filter that removes what the check found: the local hosts or team emails it found, up to 50 values, or bot and AI agent traffic. Null when the check found none. */
+    /** A rule for the project's internal and test users filter that removes what the check found: the local hosts or team emails it found, up to 50 values, or bot and AI agent traffic. Null when the check found none, and for the internal users check for a token without the `person:read` scope. */
     filter_to_add: InsightDataCheckFilterApi | null
 }
 

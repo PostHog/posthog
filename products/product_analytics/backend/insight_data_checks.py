@@ -356,6 +356,7 @@ class _InternalUsersMatch:
     is_team_email: ast.Expr
     # The person fields the match reads from the current person join, or None when it needs no join.
     person_fields: frozenset[str] | None = None
+    names_emails: bool = False
 
 
 _NO_INTERNAL_USERS = _InternalUsersMatch(
@@ -496,6 +497,7 @@ def _internal_users_match(
     return _InternalUsersMatch(
         passes_filter=passes_filter,
         person_fields=person_fields,
+        names_emails=email_access.person_emails,
         email=email,
         stored_email=stored_email,
         is_team_email=parse_expr(
@@ -536,8 +538,8 @@ def _count_every_event(
             missed_by_filter=int(missed or 0),
             top_events=list(top_internal_events),
             distinct_missed_emails=int(distinct_missed_emails or 0),
-            top_missed_emails=list(top_missed_emails),
-            missed_emails=[email for email in missed_emails if email],
+            top_missed_emails=list(top_missed_emails) if internal_users.names_emails else [],
+            missed_emails=[email for email in missed_emails if email] if internal_users.names_emails else [],
         )
     return CountedEvents(events=int(count or 0), internal=internal)
 

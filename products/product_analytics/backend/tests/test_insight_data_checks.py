@@ -329,7 +329,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             query,
             team=self.team,
             user=self.user,
-            email_access=TeamEmailAccess(member_emails=True, verified_domains=True),
+            email_access=TeamEmailAccess(member_emails=True, verified_domains=True, person_emails=True),
         )
 
     def _internal_users(self, result: InsightDataChecks) -> InsightDataCheck:
@@ -859,36 +859,49 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("member_for_a_session_that_may_see_them", MEMBER_EMAIL, None, True, 80),
+            ("member_for_a_session_that_may_see_them", MEMBER_EMAIL, None, True, (80, [MEMBER_EMAIL])),
             (
                 "member_for_a_token_with_the_member_scope",
                 MEMBER_EMAIL,
+                [*CHECK_SCOPES, "person:read", "organization_member:read"],
+                True,
+                (80, [MEMBER_EMAIL]),
+            ),
+            (
+                "member_for_a_token_without_the_member_scope",
+                MEMBER_EMAIL,
+                [*CHECK_SCOPES, "person:read"],
+                True,
+                (0, []),
+            ),
+            ("member_for_a_session_that_may_not_see_them", MEMBER_EMAIL, None, False, (0, [])),
+            (
+                "member_for_a_token_without_the_person_scope",
+                MEMBER_EMAIL,
                 [*CHECK_SCOPES, "organization_member:read"],
                 True,
-                80,
+                (80, []),
             ),
-            ("member_for_a_token_without_the_member_scope", MEMBER_EMAIL, CHECK_SCOPES, True, 0),
-            ("member_for_a_session_that_may_not_see_them", MEMBER_EMAIL, None, False, 0),
             (
                 "verified_domain_for_a_token_with_the_organization_scope",
                 VERIFIED_DOMAIN_EMAIL,
-                [*CHECK_SCOPES, "organization:read"],
+                [*CHECK_SCOPES, "person:read", "organization:read"],
                 True,
-                80,
+                (80, [VERIFIED_DOMAIN_EMAIL]),
             ),
             (
                 "verified_domain_for_a_token_without_the_organization_scope",
                 VERIFIED_DOMAIN_EMAIL,
-                [*CHECK_SCOPES, "organization_member:read"],
+                [*CHECK_SCOPES, "person:read", "organization_member:read"],
                 True,
-                0,
+                (0, []),
             ),
             (
                 "member_for_a_token_confined_to_the_project",
                 MEMBER_EMAIL,
-                [*CHECK_SCOPES, "organization_member:read", "organization:read"],
+                [*CHECK_SCOPES, "person:read", "organization_member:read", "organization:read"],
                 True,
-                0,
+                (0, []),
                 True,
             ),
         ]
@@ -899,7 +912,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         email: str,
         scopes: list[str] | None,
         member_is_visible: bool,
-        internal_user_events: int,
+        expected: tuple[int, list[str]],
         confined_to_the_project: bool = False,
     ) -> None:
         self._create_user(MEMBER_EMAIL)
@@ -925,9 +938,12 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         internal_users = next(check for check in response.json()["checks"] if check["key"] == INTERNAL)
-        assert (internal_users["events"], internal_users["top_emails"]) == (
-            internal_user_events,
-            [email] if internal_user_events else [],
+        rule = internal_users["filter_to_add"]
+        events, named_emails = expected
+        assert (internal_users["events"], internal_users["top_emails"], rule["value"] if rule else []) == (
+            events,
+            named_emails,
+            named_emails,
         )
 
     def _limit_the_member_list_to_project_members(self) -> None:

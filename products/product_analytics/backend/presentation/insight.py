@@ -1836,7 +1836,8 @@ class InsightDataCheckSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text=(
             "For the internal users check, the team emails whose events the project's internal and test users filter "
-            "keeps, most affected first. Only emails the caller may see as the team's are matched."
+            "keeps, most affected first. Only emails the caller may see as the team's are matched. Empty for a token "
+            "without the `person:read` scope."
         ),
     )
     distinct_emails = serializers.IntegerField(
@@ -1851,7 +1852,7 @@ class InsightDataCheckSerializer(serializers.Serializer):
         help_text=(
             "A rule for the project's internal and test users filter that removes what the check found: the local "
             "hosts or team emails it found, up to 50 values, or bot and AI agent traffic. Null when the check found "
-            "none."
+            "none, and for the internal users check for a token without the `person:read` scope."
         ),
     )
 
@@ -2646,8 +2647,8 @@ When set, the specified dashboard's filters and date range override will be appl
             "and lifecycle insights whose series are events. The checks apply the insight's own filters, and read "
             "the newest days of its date range, up to 7. The bot and duplicate checks read a sample of those days. "
             "For a token, the internal users check matches the emails of the organization's members only with the "
-            "`organization_member:read` scope, and its verified domains only with `organization:read`. Nothing is "
-            "stored. This route runs the query it is sent, so it needs query access as well as insight access. To "
+            "`organization_member:read` scope, and its verified domains only with `organization:read`. It names the "
+            "emails it finds only with `person:read`. Nothing is stored. This route runs the query it is sent, so it needs query access as well as insight access. To "
             "check a saved insight by its id, send a GET request to `insights/{id}/data_checks/`."
         ),
     )
@@ -2705,12 +2706,12 @@ When set, the specified dashboard's filters and date range override will be appl
         project_scoped = bool(get_authenticator_scoped_team_ids(authenticator))
 
         def holds(scope: str) -> bool:
-            if project_scoped:
-                return False
             return scopes is None or "*" in scopes or not scopes_not_covered(scopes, [scope])
 
         return TeamEmailAccess(
-            member_emails=holds("organization_member:read"), verified_domains=holds("organization:read")
+            member_emails=not project_scoped and holds("organization_member:read"),
+            verified_domains=not project_scoped and holds("organization:read"),
+            person_emails=holds("person:read"),
         )
 
     # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
