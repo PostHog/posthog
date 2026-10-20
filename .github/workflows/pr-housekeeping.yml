@@ -130,7 +130,11 @@ jobs:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     stack-depth:
-        # Runs on every action: a skipped run would turn a failing required check green.
+        # Only actions that can move a PR's depth. A skipped caller reports `stack-depth`, not
+        # `stack-depth / Stack depth`, so the last result stays in place.
+        if: >-
+            contains(fromJSON('["opened", "synchronize", "reopened", "stacked"]'), github.event.action)
+            || (github.event.action == 'edited' && github.event.changes.base != null)
         uses: ./.github/workflows/pr-stack-depth.yml
         permissions:
             contents: read

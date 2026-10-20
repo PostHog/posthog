@@ -34,7 +34,7 @@ async function main() {
         await updateSectionIfPresent({
             id: SECTION_ID,
             status: 'info',
-            summary: 'not checked on this push',
+            summary: 'not checked on the latest run',
             body: 'The stack could not be read from the GitHub API, so the depth was not checked. The previous result no longer applies.',
         })
         return
@@ -50,15 +50,20 @@ async function main() {
         return
     }
 
-    const bottom = stack.pull_requests.find((pr) => pr.state === 'open')
+    const openLayers = stack.pull_requests.filter((pr) => pr.state === 'open')
+    const pullUrl = (pr) => `https://github.com/${repo}/pull/${pr.number}`
     await postSection({
         id: SECTION_ID,
         status: 'fail',
-        summary: `layer ${depth} of its stack, the limit is ${maxOpenDepth}`,
+        summary: `open layer ${depth} of its stack, over the limit of ${maxOpenDepth}`,
         body: [
-            `This pull request is layer ${depth} of its stack, counting open pull requests from the [bottom](https://github.com/${repo}/pull/${bottom.number}). The limit is ${maxOpenDepth}, because every layer reruns CI on each push and restack.`,
+            `This pull request is open layer ${depth} of its stack, counting from the [bottom](${pullUrl(openLayers[0])}). The limit is ${maxOpenDepth}, because each restack force-pushes every layer and reruns CI on all of them.`,
             '',
-            'To fix it, merge the lower layers, or move this layer and the ones above it into a new stack on top with `gh stack init --base <branch>`. The new stack rebases onto `master` once the lower one merges.',
+            'To fix it, merge the lower layers, or split the stack:',
+            '',
+            '1. Drop this layer and the ones above it from the stack with `gh stack modify`. Their pull requests stay open.',
+            `2. Check out one of the dropped branches. Stack them on the branch of [open layer ${maxOpenDepth}](${pullUrl(openLayers[maxOpenDepth - 1])}) with \`gh stack init --base <that branch> <their branches>\`, then run \`gh stack submit\`.`,
+            '3. Once the lower stack merges, rebase the new stack onto `master`.',
         ].join('\n'),
     })
     console.log(

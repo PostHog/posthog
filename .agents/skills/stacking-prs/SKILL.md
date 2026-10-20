@@ -56,7 +56,7 @@ gh stack add -Am "add UI" my-feature-ui   # stage all + commit in one step
 - Slice by reviewable unit: migration / backend / frontend, or mechanical-rename / behavior-change. Each PR must make sense to review and merge alone.
 - Keep stacks shallow (2–4 layers). Every layer multiplies CI cost and rebase churn, and deep-stack pushes can trip GitHub's dispatch cap (see AGENTS.md, "Stacked PRs").
   The `Stack depth` check fails layers above the fifth open one (merged layers don't count).
-  For more work on top, start a new stack on the top branch (`gh stack init --base <branch>`) and rebase it onto `master` once the lower stack lands.
+  For more work on top, run `gh stack init --base <top branch> <new branch>` from `master`, because gh-stack refuses to start a stack from a layer of another one. Rebase the new stack onto `master` once the lower stack lands.
 - Place a CI-heavy layer by how CI diffs it:
   - Most jobs pick their work from the layer's own diff against its parent, so such a layer does not make the layers above it heavy. A push to any layer below it starts its jobs again (see the duplicate-run note under "Iterate and keep in sync"). Put it low, unless it is the layer that still changes most.
   - A few steps diff against master, so they repeat on layers above the change. Trunk's impacted-targets job runs on every layer and computes affected crates when `rust/` or `proto/` differs. Backend jobs build the HogQL parser from source when `common/hogql_parser/` or `rust/hogql/parser/` differs, and Playwright jobs when `common/hogql_parser/` differs. Those builds repeat only on upper layers whose own diff starts backend or Playwright jobs. If upper layers do, put the parser change in the top layer.

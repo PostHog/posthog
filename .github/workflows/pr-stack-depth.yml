@@ -14,9 +14,10 @@ permissions:
 jobs:
     stack-depth:
         name: Stack depth
-        # `position` counts merged layers, so a PR at or below the limit can't fail. The skip
-        # lives here, not in the caller, to keep the `stack-depth / Stack depth` check name.
-        if: ${{ github.event.pull_request.stack.position > inputs.max-open-depth }}
+        # PRs opened before the limit shipped are exempt. Every other stacked PR runs, so a layer
+        # that moves to a shallower stack clears its old failure. The skip lives here, not in
+        # the caller, to keep the `stack-depth / Stack depth` check name.
+        if: ${{ github.event.pull_request.number > 120291 && github.event.pull_request.stack != null }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
 
