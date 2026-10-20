@@ -52,7 +52,7 @@ export function WatchPicksStarter({ size }: { size: 'small' | 'large' }): JSX.El
             dataAttr="vision-watch-picks-starter"
             footer={
                 <Link
-                    to={urls.replayVisionTemplates()}
+                    to={urls.replayVisionNewScanner()}
                     className="mt-1"
                     data-attr="vision-watch-picks-starter-own-goal"
                 >
