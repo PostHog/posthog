@@ -739,16 +739,16 @@ export const DashboardTileBadgeEnumApi = {
 } as const
 
 /**
- * * `activity_events_list` - Activity Events List
- * * `canvas_app` - Canvas App
- * * `conversations_recent_tickets` - Conversations Recent Tickets
- * * `error_tracking_list` - Error Tracking List
- * * `experiment_results` - Experiment Results
- * * `experiments_list` - Experiments List
- * * `logs_list` - Logs List
- * * `notebook_widget` - Notebook Widget
- * * `session_replay_list` - Session Replay List
- * * `survey_results` - Survey Results
+ * * `activity_events_list` - activity_events_list
+ * * `canvas_app` - canvas_app
+ * * `conversations_recent_tickets` - conversations_recent_tickets
+ * * `error_tracking_list` - error_tracking_list
+ * * `experiment_results` - experiment_results
+ * * `experiments_list` - experiments_list
+ * * `logs_list` - logs_list
+ * * `notebook_widget` - notebook_widget
+ * * `session_replay_list` - session_replay_list
+ * * `survey_results` - survey_results
  */
 export type DashboardWidgetTypeEnumApi = (typeof DashboardWidgetTypeEnumApi)[keyof typeof DashboardWidgetTypeEnumApi]
 
@@ -1222,16 +1222,16 @@ export interface DashboardPatchWidgetOpenApiApi {
     id?: string
     /** Widget type identifier (cannot be changed on update).
      *
-     * * `activity_events_list` - Activity Events List
-     * * `canvas_app` - Canvas App
-     * * `conversations_recent_tickets` - Conversations Recent Tickets
-     * * `error_tracking_list` - Error Tracking List
-     * * `experiment_results` - Experiment Results
-     * * `experiments_list` - Experiments List
-     * * `logs_list` - Logs List
-     * * `notebook_widget` - Notebook Widget
-     * * `session_replay_list` - Session Replay List
-     * * `survey_results` - Survey Results */
+     * * `activity_events_list` - activity_events_list
+     * * `canvas_app` - canvas_app
+     * * `conversations_recent_tickets` - conversations_recent_tickets
+     * * `error_tracking_list` - error_tracking_list
+     * * `experiment_results` - experiment_results
+     * * `experiments_list` - experiments_list
+     * * `logs_list` - logs_list
+     * * `notebook_widget` - notebook_widget
+     * * `session_replay_list` - session_replay_list
+     * * `survey_results` - survey_results */
     widget_type?: DashboardWidgetTypeEnumApi
     /** Widget-specific configuration. Shape depends on the tile's widget_type. */
     config?: DashboardWidgetConfigApi
@@ -10297,16 +10297,16 @@ export interface AddDashboardWidgetRequestApi {
     show_description?: boolean
     /** Widget type to add. Use dashboard-widget-catalog-list to pick one.
      *
-     * * `activity_events_list` - Activity Events List
-     * * `canvas_app` - Canvas App
-     * * `conversations_recent_tickets` - Conversations Recent Tickets
-     * * `error_tracking_list` - Error Tracking List
-     * * `experiment_results` - Experiment Results
-     * * `experiments_list` - Experiments List
-     * * `logs_list` - Logs List
-     * * `notebook_widget` - Notebook Widget
-     * * `session_replay_list` - Session Replay List
-     * * `survey_results` - Survey Results */
+     * * `activity_events_list` - activity_events_list
+     * * `canvas_app` - canvas_app
+     * * `conversations_recent_tickets` - conversations_recent_tickets
+     * * `error_tracking_list` - error_tracking_list
+     * * `experiment_results` - experiment_results
+     * * `experiments_list` - experiments_list
+     * * `logs_list` - logs_list
+     * * `notebook_widget` - notebook_widget
+     * * `session_replay_list` - session_replay_list
+     * * `survey_results` - survey_results */
     widget_type: DashboardWidgetTypeEnumApi
     /** Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. */
     config: AddDashboardWidgetRequestApiConfig
@@ -10347,16 +10347,16 @@ export interface UpdateDashboardWidgetRequestApi {
     description?: string
     /** The tile's widget type. It cannot be changed, so omit it or pass the current type.
      *
-     * * `activity_events_list` - Activity Events List
-     * * `canvas_app` - Canvas App
-     * * `conversations_recent_tickets` - Conversations Recent Tickets
-     * * `error_tracking_list` - Error Tracking List
-     * * `experiment_results` - Experiment Results
-     * * `experiments_list` - Experiments List
-     * * `logs_list` - Logs List
-     * * `notebook_widget` - Notebook Widget
-     * * `session_replay_list` - Session Replay List
-     * * `survey_results` - Survey Results */
+     * * `activity_events_list` - activity_events_list
+     * * `canvas_app` - canvas_app
+     * * `conversations_recent_tickets` - conversations_recent_tickets
+     * * `error_tracking_list` - error_tracking_list
+     * * `experiment_results` - experiment_results
+     * * `experiments_list` - experiments_list
+     * * `logs_list` - logs_list
+     * * `notebook_widget` - notebook_widget
+     * * `session_replay_list` - session_replay_list
+     * * `survey_results` - survey_results */
     widget_type?: DashboardWidgetTypeEnumApi
     /** Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. Each top-level key you send replaces the stored value, and keys you leave out stay as they are. Omit config to leave it unchanged. */
     config?: UpdateDashboardWidgetRequestApiConfig
