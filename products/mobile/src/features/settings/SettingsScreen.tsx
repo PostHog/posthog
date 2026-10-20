@@ -17,6 +17,7 @@ import { DefaultPageGroup } from './DefaultPageGroup'
 import { currentDefaultPageHref } from './defaultPageStore'
 import { EnvironmentGroup } from './EnvironmentGroup'
 import { LegalGroup } from './LegalGroup'
+import { NotificationPreferencesGroup } from './NotificationPreferencesGroup'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { PushStatusGroup } from './PushStatusGroup'
 import { SETTINGS_CHROME_ROW_HEIGHT, SETTINGS_CHROME_TOP, SETTINGS_TITLE_GAP, SettingsChrome } from './SettingsChrome'
@@ -81,6 +82,7 @@ export function SettingsScreen(): ReactElement {
                 <DefaultPageGroup />
                 {signedIn && !demo ? <ProjectSwitcher /> : null}
                 {signedIn ? <PushStatusGroup /> : null}
+                {signedIn || demo ? <NotificationPreferencesGroup /> : null}
                 {__DEV__ ? (
                     <SettingsGroup
                         title="Demo"

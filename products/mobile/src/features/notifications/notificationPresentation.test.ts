@@ -15,12 +15,12 @@ describe('foreground notification sequences', () => {
         }
     )
 
-    test.each(['turn_completed', 'awaiting', 'pull_request_ready'])(
+    test.each(['turn_completed', 'awaiting', 'pull_request_ready', 'report_turn_completed', 'report_awaiting'])(
         'preserves distinct %s events while suppressing replay of the same OS notification',
         (notificationKind) => {
             const policy = new NotificationPresentation()
             const data =
-                notificationKind === 'pull_request_ready'
+                notificationKind === 'pull_request_ready' || notificationKind.startsWith('report_')
                     ? { type: 'report', report_id: 'report-1', project_id: 2, notificationKind }
                     : { ...COMPLETED, notificationKind }
             expect(policy.shouldPresent('first', data, 'a', 0)).toBe(true)
@@ -36,6 +36,31 @@ describe('foreground notification sequences', () => {
         const policy = new NotificationPresentation()
         expect(policy.shouldPresent('first', data, 'a', 0)).toBe(true)
         expect(policy.shouldPresent('replay', data, 'a', 1)).toBe(false)
+    })
+
+    test.each(['report_completed', 'report_failed', 'report_cancelled'])(
+        'deduplicates terminal report work by run: %s',
+        (notificationKind) => {
+            const policy = new NotificationPresentation()
+            const data = { type: 'report', report_id: 'r1', project_id: 2, taskRunId: 'run-1', notificationKind }
+            expect(policy.shouldPresent('first', data, 'a', 0)).toBe(true)
+            expect(policy.shouldPresent('retry', data, 'a', 1)).toBe(false)
+            expect(policy.shouldPresent('next', { ...data, taskRunId: 'run-2' }, 'a', 2)).toBe(true)
+        }
+    )
+
+    test('deduplicates a ready PR without hiding another PR on the same report', () => {
+        const policy = new NotificationPresentation()
+        const data = {
+            type: 'report',
+            report_id: 'r1',
+            project_id: 2,
+            notificationKind: 'pull_request_ready',
+            pullRequestId: 'pr-1',
+        }
+        expect(policy.shouldPresent('first', data, 'a', 0)).toBe(true)
+        expect(policy.shouldPresent('retry', data, 'a', 1)).toBe(false)
+        expect(policy.shouldPresent('another-pr', { ...data, pullRequestId: 'pr-2' }, 'a', 2)).toBe(true)
     })
 
     test('keeps deduplication scoped to the account and project', () => {

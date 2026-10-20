@@ -1,6 +1,7 @@
 import { BUDGETS, BudgetExceededError, resetBudgets } from './budget'
 import { apiJson, setAuthProvider } from './client'
 import { resetServerClock, serverOffsetMs } from './serverClock'
+import { createTask, sendTaskRunCommand, startTaskRun } from './tasks'
 
 describe('api client send path', () => {
     let fetchMock: jest.Mock
@@ -24,6 +25,42 @@ describe('api client send path', () => {
     afterEach(() => {
         jest.useRealTimers()
         setAuthProvider(null)
+    })
+
+    test('identifies mobile creation, continuation and permission answers on every task action', async () => {
+        await createTask({
+            title: '',
+            description: 'Example',
+            origin_product: 'posthog_ai',
+            initial_permission_mode: 'default',
+            pending_user_message: 'Example',
+        })
+        await startTaskRun('task-1', {
+            mode: 'interactive',
+            pending_user_message: 'Continue',
+            resume_from_run_id: 'run-1',
+        })
+        await sendTaskRunCommand(
+            'task-1',
+            'run-1',
+            { method: 'user_message', params: { content: 'Continue' } },
+            { id: 'message-1' }
+        )
+        await sendTaskRunCommand(
+            'task-1',
+            'run-1',
+            { method: 'permission_response', params: { requestId: 'question-1', optionId: 'allow' } },
+            { id: 'answer-1' }
+        )
+        expect(fetchMock).toHaveBeenCalledTimes(4)
+        for (const [, init] of fetchMock.mock.calls) {
+            expect(init).toEqual(
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: expect.objectContaining({ 'X-PostHog-Client-Platform': 'mobile' }),
+                })
+            )
+        }
     })
 
     test('keeps the server clock offset from the Date header', async () => {

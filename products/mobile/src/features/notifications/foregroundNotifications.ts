@@ -6,6 +6,7 @@ import { reportKeys, type SignalReportApi } from '@/api/reports'
 import type { TaskApi } from '@/api/tasks'
 import { useAuthStore } from '@/auth/authStore'
 import { track } from '@/lib/analytics'
+import { asRecord } from '@/lib/records'
 
 import { snoozeKey } from '../snooze/snoozeEntries'
 import { useSnoozeStore } from '../snooze/snoozeStore'
@@ -19,6 +20,11 @@ interface ViewedReport {
 }
 
 let viewedReport: ViewedReport | null = null
+let viewedTask: { accountKey: string; projectId: number; taskId: string } | null = null
+
+export function setViewedNotificationTask(task: typeof viewedTask): void {
+    viewedTask = task
+}
 const presentation = new NotificationPresentation()
 
 export function setViewedNotificationReport(report: ViewedReport | null): void {
@@ -33,6 +39,17 @@ function shouldShowWhileActive(data: unknown, host: string, accountKey: string):
     const target = notificationTarget(data)
     // Legacy task pushes lack a project. Without it, a cached association cannot safely mute a push.
     if (!target || target.projectId === null) {
+        return true
+    }
+    if (
+        target.type === 'task' &&
+        viewedTask?.accountKey === accountKey &&
+        viewedTask.projectId === target.projectId &&
+        viewedTask.taskId === target.id
+    ) {
+        return false
+    }
+    if (target.type === 'task' && asRecord(data)?.type === 'task') {
         return true
     }
     const scope = { host, projectId: target.projectId }

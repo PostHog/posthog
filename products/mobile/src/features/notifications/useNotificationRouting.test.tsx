@@ -5,6 +5,7 @@ import { AppState } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
 import { foregroundNotificationBehavior } from './foregroundNotifications'
+import { findTask } from './taskLookup'
 import { useNotificationRouting } from './useNotificationRouting'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -89,4 +90,29 @@ test('suppresses the viewed report only while that route is on screen', () => {
     hook.rerender({})
     hook.unmount()
     expect(foregroundNotificationBehavior(notification('unmounted')).shouldShowBanner).toBe(true)
+})
+
+test('opens a standalone task chat from a notification', async () => {
+    jest.mocked(findTask).mockResolvedValue({ found: true, reportId: null })
+    const response = { notification: notification('standalone-chat'), actionIdentifier: 'default' }
+    response.notification.request.content.data = { taskId: 'task-1', projectId: 2 }
+    jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(response)
+    renderHook(useNotificationRouting)
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/chat?taskId=task-1&from=push'))
+})
+
+test('does not route a task lookup into an account that signed in while it was pending', async () => {
+    let resolveLookup!: (value: { found: true; reportId: null }) => void
+    jest.mocked(findTask).mockReturnValue(
+        new Promise((resolve) => {
+            resolveLookup = resolve
+        })
+    )
+    const response = { notification: notification('changed-account'), actionIdentifier: 'default' }
+    response.notification.request.content.data = { taskId: 'task-1', projectId: 2 }
+    jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(response)
+    renderHook(useNotificationRouting)
+    act(() => useAuthStore.setState({ host: 'https://another.example.com' }))
+    await act(async () => resolveLookup({ found: true, reportId: null }))
+    expect(router.push).not.toHaveBeenCalled()
 })

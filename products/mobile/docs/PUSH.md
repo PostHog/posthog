@@ -59,7 +59,11 @@ Without `google-services.json` the Android build still succeeds, but the app get
 ## Payloads
 
 Server pushes are sent by `posthog/tasks/push_notifications.send_user_push` through the Expo push API.
-Both senders are gated by the `posthog-code-mobile-push` feature flag, evaluated per user.
+All server pushes respect the account's push notification preferences. Ordinary chat and task pushes do not require a feature flag. Report pushes also require the existing `posthog-code-mobile-push` feature flag. Settings saves these in `users/@me/` `notification_settings`: `mobile_push_enabled` (master), `mobile_push_tasks_enabled` (mobile chats and tasks), `mobile_push_reports_enabled` (new reports), and `mobile_push_report_updates_enabled` (report updates). All default to enabled. The server checks preferences again before delivery, so disabling a category also stops queued pushes.
+
+Chat and task notifications are eligible for work started in the mobile app, or work you actively continue there. Sending a message, starting or resuming a run, or answering an agent question from mobile enables updates for your account on that task, including chats originally started on the web or Slack. Merely opening a chat, reading its history, or watching its stream does not enable updates. Configuration changes and canceling a run also do not enroll the task.
+
+Continuing a chat on mobile transfers its agent-update notifications to mobile for that user: automated run/chat @mentions, stream recipient targeting, and lifecycle/PR notifications stop targeting the enrolled user on Slack. Artifact and comment DMs remain unchanged because mobile does not yet offer the corresponding comment reader and deep links. Shared Slack thread content and notifications for other participants remain. Slack may still send its own subscribed-thread alerts for shared replies; PostHog cannot turn off those user-managed Slack subscriptions. Web activity, history, and unread state remain available. Report notifications are independent of where their associated work started: new reports and meaningful report updates have separate controls.
 
 **Inbox** (`products/signals/backend/inbox_push_notifications.py`):
 
@@ -67,18 +71,22 @@ Both senders are gated by the `posthog-code-mobile-push` feature flag, evaluated
 { "type": "report", "report_id": "<uuid>", "project_id": 2, "notificationKind": "report_visible" }
 ```
 
-`notificationKind` is `report_visible` (a new report for its suggested reviewers) or `pull_request_ready`.
+`notificationKind` is `report_visible` (a new report for its suggested reviewers), `pull_request_ready`, or `report_completed`, `report_failed`, `report_cancelled`, `report_awaiting`, `report_turn_completed`, `report_pr_merged`, and `report_pr_closed` (with `taskRunId`). Report updates cover meaningful milestones of implementation or research work: needs input, a finished turn, completion, failure, cancellation, or a pull request being merged or closed. They use report links and the report updates preference even when the work began outside mobile. `pull_request_ready` includes `pullRequestId` to deduplicate a single PR without hiding other PRs on the report. A report discussion remains a chat and follows the chat and task updates preference.
 
 **Tasks** (`products/tasks/backend/push_dispatcher.py`):
 
 ```json
-{ "taskId": "<uuid>", "taskRunId": "<uuid>", "projectId": 2, "notificationKind": "awaiting" }
+{ "type": "task", "taskId": "<uuid>", "taskRunId": "<uuid>", "projectId": 2, "notificationKind": "awaiting" }
 ```
 
-Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread_message` (with `messageId`, no run), `handoff` (no run).
+The server records the `X-PostHog-Client-Platform: mobile` creation header on the task; subsequent runs do not change its origin. Active continuation from mobile records a separate user-specific notification enrollment rather than rewriting that origin. Tasks created before the server stored the creation marker stay silent until actively continued in mobile; history alone cannot reliably establish mobile origin, and there is no backfill.
+
+Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread_message` (with `messageId`, no run), `handoff` (no run), `pr_merged`, and `pr_closed` (with `pullRequestUrl`).
 `projectId` is the task's team id. Pushes from servers that predate it have no project id.
 
-**Snooze reminders** are local notifications. They should use the inbox shape with `notificationKind: 'snooze_reminder'`, so the same routing opens the report.
+**Pull request outcomes** come from verified PR close events through `notify_task_pull_request_outcome()`. Ordinary task pushes use title `PostHog` and body `"{task title}" pull request was merged` or `"{task title}" pull request was closed`, with `Untitled task` as the blank-title fallback. Report work uses title `Report update`, the same suffix with the report title (`Untitled report` fallback), and the report updates preference. Both carry `pullRequestUrl` as the stable PR identity. A durable per-recipient, task, PR, and outcome claim prevents retry duplicates independently of Slack announcement history.
+
+**Snooze reminders** are local notifications. They use the inbox shape with `notificationKind: 'snooze_reminder'`, so the same routing opens the report.
 
 ## Routing
 
@@ -91,13 +99,17 @@ The pure resolver is `resolveNotificationRoute()` in `notificationRouting.ts`.
 | `type: 'report'`, project is current or absent | `/report/{report_id}` |
 | `type: 'report'`, another project the user has | switch project, then `/report/{report_id}` |
 | `type: 'report'`, a project the user does not have | `/inbox` |
-| `taskId` with `projectId` | `GET /api/projects/{projectId}/tasks/{taskId}/` only, or `/inbox` when the user does not have that project. `signal_report` set: switch project if needed, then `/report/{signal_report}`. Otherwise `/inbox`. |
+| `type: 'task'` with `taskId` and `projectId` | Validate access with `GET /api/projects/{projectId}/tasks/{taskId}/`, switch project if needed, then `/chat?taskId={taskId}`, including report discussions. Missing tasks or inaccessible projects go to `/inbox`. |
+| Legacy `taskId` with `projectId`, without `type: 'task'` | `GET /api/projects/{projectId}/tasks/{taskId}/` only, or `/inbox` when the user does not have that project. `signal_report` set: switch project if needed, then `/report/{signal_report}`. Otherwise switch project if needed, then `/chat?taskId={taskId}`. |
 | `taskId` without `projectId` | The same lookup in the current project, then the others (at most 8 lookups). |
 | anything else | nothing |
 
 A tap turns demo mode off, because a push is about live data.
+A task lookup that finishes after the account changes cannot navigate the new account.
 Every tap captures `mobile_push_opened` with `kind` (the payload's `notificationKind`, else `report`, `task` or `unknown`).
-A push that arrives while the app is open captures `mobile_push_received` with `kind` and `shown` (false when the user is on that report or snoozed it).
+A push that arrives while the app is open captures `mobile_push_received` with `kind` and `shown` (false when the user is viewing that task or report, or has time-snoozed the report). Explicit task pushes are suppressed only when that chat is open; viewing its linked report does not hide a discussion reply. Legacy task payloads retain report-association suppression. Foreground delivery never plays sound or sets a badge.
+
+Time snooze reminders are scheduled on the device after an explicit snooze action. They follow system notification permission and are separate from the account's server push categories. A signal-based snooze does not schedule a timed reminder. Repeated delivery of the same notification is suppressed before receipt analytics in the foreground; terminal task and report-work outcomes are also deduplicated by run.
 A permission prompt captures `mobile_push_permission_resolved` with `permission`, `can_ask_again` and `trigger` (`auto` for the first signed-in run, `settings` for the Enable button).
 Registration captures `mobile_push_registration_finished` with `ok` and `trigger`, plus `reason` (`token_unavailable`, `network`, `api_error` or `unknown`) on failure. A success counts only a new registration, not the silent one on every launch.
 The Settings button captures `mobile_push_enable_pressed` with `action` (`request` or `open_system_settings`).
@@ -121,6 +133,6 @@ The Settings button captures `mobile_push_enable_pressed` with `action` (`reques
    ```
 
 4. Tap it with the app killed, in the background and in the foreground (the banner shows). Each opens the report.
-5. Repeat with `{"taskId":"<task id>","notificationKind":"awaiting"}` for a task linked to a report, and for one without a report (opens the inbox).
-6. For real server pushes, enable `posthog-code-mobile-push` for your user and trigger a task run or a new report.
+5. Repeat with `{"taskId":"<task id>","notificationKind":"awaiting"}` for a task linked to a report, and for one without a report (opens its chat).
+6. For real server pushes, trigger a task run started or actively continued in mobile. To test report pushes, also enable `posthog-code-mobile-push` for your user and trigger a new report or report update.
 7. Sign out and check that `POST …/push_tokens/unregister/` ran (server logs or the token row is gone).

@@ -1,3 +1,4 @@
+import { usePathname } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { Keyboard, StyleSheet, Text, type TextInput, useWindowDimensions, View } from 'react-native'
 import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -8,6 +9,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
+import { setViewedNotificationTask } from '@/features/notifications/foregroundNotifications'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import { useNow } from '@/lib/useNow'
@@ -105,6 +107,20 @@ export function ChatSheet({
     const [preparing, setPreparing] = useState(false)
     const queueEpoch = useRef(0)
     const [visible, setVisible] = useState(true)
+    const pathname = usePathname()
+    const userUuid = useAuthStore((state) => state.user?.uuid)
+    useEffect(() => {
+        setViewedNotificationTask(
+            visible && pathname === '/chat' && !demo && scope && userUuid && session.taskId
+                ? {
+                      accountKey: `${scope.host.replace(/\/$/, '')}|${userUuid}`,
+                      projectId: scope.projectId,
+                      taskId: session.taskId,
+                  }
+                : null
+        )
+        return () => setViewedNotificationTask(null)
+    }, [visible, pathname, demo, scope, userUuid, session.taskId])
     const { progress } = usePresence(visible, motion.sheet)
     const close = useCallback((): void => {
         queueEpoch.current++

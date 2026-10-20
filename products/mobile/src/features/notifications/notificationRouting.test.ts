@@ -34,9 +34,24 @@ describe('notification routing', () => {
             { pathname: '/inbox', switchToProjectId: null },
         ],
         [
-            'a task linked to a report',
+            'a legacy task linked to a report',
             { taskId: 'task-with-report', taskRunId: 'run-1', notificationKind: 'awaiting' },
             { pathname: '/report/report-1', switchToProjectId: null },
+        ],
+        [
+            'an explicit mobile discussion linked to a report',
+            { type: 'task', taskId: 'task-with-report', projectId: 2, notificationKind: 'awaiting' },
+            { pathname: '/chat?taskId=task-with-report', switchToProjectId: null },
+        ],
+        [
+            'an explicit task in another project',
+            { type: 'task', taskId: 'task-in-other-project', projectId: 7 },
+            { pathname: '/chat?taskId=task-in-other-project', switchToProjectId: 7 },
+        ],
+        [
+            'an explicit task without access',
+            { type: 'task', taskId: 'missing', projectId: 2 },
+            { pathname: '/inbox', switchToProjectId: null },
         ],
         [
             'a task in another project',
@@ -46,7 +61,7 @@ describe('notification routing', () => {
         [
             'a task without a report',
             { taskId: 'task-without-report', notificationKind: 'completed' },
-            { pathname: '/inbox', switchToProjectId: null },
+            { pathname: '/chat?taskId=task-without-report', switchToProjectId: null },
         ],
         [
             'a task no project has',

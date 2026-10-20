@@ -26,7 +26,12 @@ export async function scheduleSnoozeReminder(reminder: SnoozeReminder): Promise<
             title: reminder.title,
             body: SNOOZE_REMINDER_BODY,
             // Same shape as the server's report pushes, so one tap handler routes both.
-            data: { type: 'report', report_id: reminder.reportId, project_id: reminder.projectId },
+            data: {
+                type: 'report',
+                report_id: reminder.reportId,
+                project_id: reminder.projectId,
+                notificationKind: 'snooze_reminder',
+            },
         },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(reminder.until) },
     })

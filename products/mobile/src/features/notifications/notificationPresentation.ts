@@ -25,19 +25,23 @@ export class NotificationPresentation {
         const target = notificationTarget(data)
         const record = asRecord(data)
         const kind = notificationKind(data)
-        // Turns, questions and PR-ready events have no stable occurrence id in today's payload.
-        // Deduplicating those by run/report would hide a later real reply, decision or PR.
+        // Turns and questions have no stable occurrence id in today's payload.
+        // Deduplicating those by run/report would hide a later real reply or decision.
         if (target && target.projectId !== null && record) {
             const runId = typeof record.taskRunId === 'string' ? record.taskRunId : null
             const messageId = typeof record.messageId === 'string' ? record.messageId : null
+            const pullRequestId = typeof record.pullRequestId === 'string' ? record.pullRequestId : null
             const occurrence =
-                target.type === 'task' && ['completed', 'failed', 'cancelled'].includes(kind)
+                (target.type === 'task' && ['completed', 'failed', 'cancelled'].includes(kind)) ||
+                (target.type === 'report' && ['report_completed', 'report_failed', 'report_cancelled'].includes(kind))
                     ? runId
                     : kind === 'thread_message'
                       ? messageId
-                      : target.type === 'report' && kind === 'report_visible'
-                        ? target.id
-                        : null
+                      : target.type === 'report' && kind === 'pull_request_ready'
+                        ? pullRequestId
+                        : target.type === 'report' && kind === 'report_visible'
+                          ? target.id
+                          : null
             if (occurrence) {
                 keys.push(JSON.stringify([target.projectId, target.type, target.id, kind, occurrence]))
             }

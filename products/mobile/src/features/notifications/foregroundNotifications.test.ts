@@ -5,7 +5,7 @@ import { queryClient } from '@/api/queryClient'
 import { reportKeys } from '@/api/reports'
 import { useAuthStore } from '@/auth/authStore'
 import { useSnoozeStore } from '../snooze/snoozeStore'
-import { setViewedNotificationReport } from './foregroundNotifications'
+import { setViewedNotificationReport, setViewedNotificationTask } from './foregroundNotifications'
 import { configureNotifications } from './pushRegistration'
 
 jest.mock('expo-notifications', () => ({ setNotificationHandler: jest.fn() }))
@@ -64,6 +64,7 @@ beforeEach(() => {
     queryClient.setDefaultOptions({ queries: { gcTime: Infinity } })
     queryClient.clear()
     setViewedNotificationReport(null)
+    setViewedNotificationTask(null)
     jest.mocked(Notifications.setNotificationHandler).mockClear()
     configureNotifications()
 })
@@ -143,4 +144,18 @@ test('does not treat a backgrounded report as being watched', async () => {
     viewReport()
     AppState.currentState = 'background'
     await expect(deliver(REPORT)).resolves.toMatchObject({ shouldShowBanner: true })
+})
+
+test.each([TASK, { ...TASK, type: 'task' }])('does not interrupt the task already open in a chat: %j', async (data) => {
+    setViewedNotificationTask({ accountKey: `${SCOPE.host}|user-${accountNumber}`, projectId: 2, taskId: 'task-1' })
+    await expect(deliver(data)).resolves.toMatchObject({ shouldShowBanner: false })
+    setViewedNotificationTask(null)
+    await expect(deliver({ ...data, taskRunId: 'later-run' })).resolves.toMatchObject({ shouldShowBanner: true })
+})
+
+test('an explicit discussion task interrupts a viewed report, while a legacy report-linked task does not', async () => {
+    viewReport()
+    queryClient.setQueryData(reportKeys.task(SCOPE, 'task-1'), { signal_report: 'report-1' })
+    await expect(deliver({ ...TASK, type: 'task' })).resolves.toMatchObject({ shouldShowBanner: true })
+    await expect(deliver({ ...TASK, taskRunId: 'legacy-run' })).resolves.toMatchObject({ shouldShowBanner: false })
 })

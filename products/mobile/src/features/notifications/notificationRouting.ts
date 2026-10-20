@@ -106,7 +106,8 @@ function taskLookupOrder(pushProjectId: number | null, context: NotificationRout
 async function taskRoute(
     taskId: string,
     pushProjectId: number | null,
-    context: NotificationRouteContext
+    context: NotificationRouteContext,
+    openChat: boolean
 ): Promise<NotificationRoute> {
     const current = context.currentProjectId
     for (const projectId of taskLookupOrder(pushProjectId, context)) {
@@ -119,11 +120,11 @@ async function taskRoute(
         if (!lookup.found) {
             continue
         }
-        if (!lookup.reportId) {
-            return INBOX
-        }
         return {
-            pathname: `/report/${encodeURIComponent(lookup.reportId)}`,
+            pathname:
+                lookup.reportId && !openChat
+                    ? `/report/${encodeURIComponent(lookup.reportId)}`
+                    : `/chat?taskId=${encodeURIComponent(taskId)}`,
             switchToProjectId: projectId === current ? null : projectId,
         }
     }
@@ -143,7 +144,7 @@ export async function resolveNotificationRoute(
     }
     const taskId = asNonEmptyString(record.taskId)
     if (taskId) {
-        return taskRoute(taskId, asProjectId(record.projectId), context)
+        return taskRoute(taskId, asProjectId(record.projectId), context, record.type === 'task')
     }
     return null
 }

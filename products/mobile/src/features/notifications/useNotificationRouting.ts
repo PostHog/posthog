@@ -32,6 +32,14 @@ async function openFromNotification(response: Notifications.NotificationResponse
         projectIds: auth.projects.map((project) => project.id),
         findTask,
     })
+    const currentAuth = useAuthStore.getState()
+    if (
+        currentAuth.status !== 'signed_in' ||
+        currentAuth.host !== auth.host ||
+        currentAuth.user?.uuid !== auth.user?.uuid
+    ) {
+        return
+    }
     if (!route) {
         return
     }
@@ -46,7 +54,7 @@ async function openFromNotification(response: Notifications.NotificationResponse
     if (route.pathname === '/inbox') {
         router.navigate('/inbox')
     } else {
-        router.push(`${route.pathname}?from=push`)
+        router.push(`${route.pathname}${route.pathname.includes('?') ? '&' : '?'}from=push`)
     }
 }
 
