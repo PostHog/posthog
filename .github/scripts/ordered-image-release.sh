@@ -61,6 +61,11 @@ publish_alias() {
         echo "::warning title=Ordered image alias destination unavailable::Ordered image alias publication was skipped because the ECR registry or repository name resolved empty."
         return 0
     fi
+    if { [ -n "${SOURCE_REGISTRY:-}" ] && [ -z "${SOURCE_REPO:-}" ]; } ||
+        { [ -z "${SOURCE_REGISTRY:-}" ] && [ -n "${SOURCE_REPO:-}" ]; }; then
+        echo "::warning title=Ordered image alias source unavailable::Ordered image alias publication was skipped because the source registry and repository must be supplied together."
+        return 0
+    fi
     local source_image="${SOURCE_REGISTRY:-$ECR_REGISTRY}/${SOURCE_REPO:-$ECR_REPO}@${EXPECTED_DIGEST}"
     local target_image="${ECR_REGISTRY}/${ECR_REPO}:${ORDERED_ALIAS}"
     local publication_status=0 readback_status=0 resolved_digest result

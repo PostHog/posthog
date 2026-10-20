@@ -4,6 +4,8 @@ description: >
   Use when adding or editing a GitHub Actions workflow that pushes a container
   image to a registry (ECR/ghcr/Docker Hub via build-push-action) or dispatches a
   production deploy (a `commit_state_update` repository_dispatch to PostHog/charts).
+  Also use for adding an ordered image release for a new worker or a new consumer
+  of the shared image.
   Those run from a single canonical deploy repo, gated by the CD_DEPLOY_ENABLED
   variable. Does NOT apply to workflows that publish GitHub releases, npm, crates,
   or Homebrew — those stay on the public repo.
@@ -72,5 +74,5 @@ Counter-example, not gated: `build-phrocs.yml`.
 For a new monorepo publisher or independent releases of a shared built image,
 read [Ordered image releases](references/ordered-image-releases.md). Reuse the
 repository helper and canonical policy. The foundation supports the common
-alias and policy helpers; selective worker publication is pending in the next
-integration PR. Services built elsewhere retain their existing publisher family.
+alias and policy helpers. Channels must stay empty; selective worker publication
+is not implemented. Services built elsewhere retain their existing publisher family.

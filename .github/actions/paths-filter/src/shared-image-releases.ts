@@ -29,6 +29,7 @@ export interface ImageBinding {
   destinations: readonly DestinationBinding[]
 }
 export type ApprovedImages = {[image: string]: ImageBinding}
+export type ChannelBindings = {[image: string]: {[channel: string]: DestinationBinding}}
 
 function object(value: unknown, location: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -127,11 +128,13 @@ export function loadPolicy(text: string): Policy {
   return {version: 1, filters, images}
 }
 
-export function bindChannels(policy: Policy, approved: ApprovedImages): void {
+export function bindChannels(policy: Policy, approved: ApprovedImages): ChannelBindings {
   const destinations = new Set<string>()
+  const resolved: ChannelBindings = {}
   for (const [image, definition] of Object.entries(policy.images)) {
     if (!Object.prototype.hasOwnProperty.call(approved, image)) throw new Error(`images.${image}: unknown build input`)
     const source = approved[image]
+    resolved[image] = {}
     for (const [name, channel] of Object.entries(definition.channels)) {
       const location = `images.${image}.channels.${name}`
       if (!source.registry || !source.repository || source.sourceRepository !== CANONICAL_SOURCE_REPOSITORY) {
@@ -149,8 +152,10 @@ export function bindChannels(policy: Policy, approved: ApprovedImages): void {
         if (destinations.has(key)) throw new Error(`${location}: conflicting destination ${key}`)
         destinations.add(key)
       }
+      resolved[image][name] = binding
     }
   }
+  return resolved
 }
 
 export function projectLegacyFilters(policy: Policy, inlineYaml: string): string {

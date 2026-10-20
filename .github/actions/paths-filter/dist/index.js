@@ -43400,10 +43400,12 @@ function loadPolicy(text) {
 }
 function bindChannels(policy, approved) {
     const destinations = new Set();
+    const resolved = {};
     for (const [image, definition] of Object.entries(policy.images)) {
         if (!Object.prototype.hasOwnProperty.call(approved, image))
             throw new Error(`images.${image}: unknown build input`);
         const source = approved[image];
+        resolved[image] = {};
         for (const [name, channel] of Object.entries(definition.channels)) {
             const location = `images.${image}.channels.${name}`;
             if (!source.registry || !source.repository || source.sourceRepository !== exports.CANONICAL_SOURCE_REPOSITORY) {
@@ -43424,8 +43426,10 @@ function bindChannels(policy, approved) {
                     throw new Error(`${location}: conflicting destination ${key}`);
                 destinations.add(key);
             }
+            resolved[image][name] = binding;
         }
     }
+    return resolved;
 }
 function projectLegacyFilters(policy, inlineYaml) {
     const inline = object(yaml.load(inlineYaml), 'legacy filters');

@@ -1,4 +1,3 @@
-import {createHash} from 'crypto'
 import {readFileSync} from 'fs'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
@@ -7,37 +6,6 @@ import {
   bindChannels, loadPolicy, policyDigest, projectLegacyFilters,
   serializePolicy, validateConsumerBinding
 } from '../src/shared-image'
-
-const LEGACY_RULE_NAMES = [
-  'nodejs',
-  'batchExports',
-  'maxAi',
-  'tasksAgent',
-  'generalPurpose',
-  'experimentsRecalculation',
-  'signupEnrichment',
-  'billing',
-  'videoExport',
-  'selfDriving',
-  'sessionReplay',
-  'replayVision',
-  'errorTracking',
-  'webAnalytics',
-  'weeklyDigest',
-  'messaging',
-  'analyticsPlatform',
-  'llmAnalyticsEvals',
-  'ducklake',
-  'dataWarehouse',
-  'dataWarehouseCdpProducer',
-  'warehouseSourcesLoad',
-  'healthCheck',
-  'logsAlerting',
-  'dataModeling',
-  'mcpAnalytics',
-  'stamphog'
-]
-const LEGACY_FILTERS_SHA256 = 'c69212ef548e655ea12a1820f8ff7e633b0d439243f404dca1344a02d30e227a'
 
 const destination: DestinationBinding = {
   owner: 'metadata', repository: 'posthog-temporal-workers/data-warehouse-metadata',
@@ -156,10 +124,13 @@ describe('shared-image policy and legacy projection', () => {
       {jobs: {posthog_build: {steps: {id?: string; with?: {filters?: string}}[]}}}
     const inline = workflow.jobs.posthog_build.steps.find(step => step.id === 'check_temporal_worker_changes')?.with?.filters
     expect(inline).toBeDefined()
+    const inlineRules = yaml.load(inline!) as Record<string, Paths | null>
     const policy = loadPolicy(readFileSync(path.join(__dirname, '../../../shared-image-releases.yaml'), 'utf8'))
     const projected = yaml.load(projectLegacyFilters(policy, inline!)) as Record<string, Paths>
-    expect(Object.keys(projected)).toEqual(LEGACY_RULE_NAMES)
-    expect(createHash('sha256').update(JSON.stringify(projected)).digest('hex')).toBe(LEGACY_FILTERS_SHA256)
+    expect(Object.keys(projected)).toEqual(Object.keys(inlineRules))
+    for (const [name, rule] of Object.entries(inlineRules)) {
+      expect({[name]: projected[name]}).toEqual({[name]: rule === null ? policy.filters[name] : rule})
+    }
   })
 
   test('aliases, statuses and exclusions survive projection without changing legacy-only veto rules', () => {
@@ -208,7 +179,10 @@ describe('shared-image policy and legacy projection', () => {
   })
 
   test('one logical owner with all approved regional replicas passes', () => {
-    expect(() => bindChannels(loadPolicy(fixture), approved)).not.toThrow()
+    const destinations = [{...destination, repository: 'other/image'}, destination]
+    expect(bindChannels(loadPolicy(fixture), {'posthog-cloud': {...source, destinations}})).toEqual({
+      'posthog-cloud': {'dw-metadata': destination}
+    })
     expect(() => validateConsumerBinding(consumer, source, {...destination, replicas: [...destination.replicas]})).not.toThrow()
     expect(() => validateConsumerBinding(consumer, {...source, destinations: []}, destination)).toThrow('metadata.destination: unsupported source/consumer binding')
   })
