@@ -270,4 +270,16 @@ describe('insightDataChecksLogic', () => {
         expect(dataChecks).toHaveBeenCalledTimes(2)
         expect(logic.values.status).toBe('passed')
     })
+
+    it('turns the filter on for the insight from the checks, then checks the filtered chart', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, () =>
+            logic.actions.setFiltersTestAccounts(true, 'internal_users')
+        ).toFinishAllListeners()
+
+        expect(vizData.values.querySource?.filterTestAccounts).toBe(true)
+        expect(sentSources.map((source) => !!source.filterTestAccounts)).toEqual([false, true])
+    })
 })

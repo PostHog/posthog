@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -20,6 +22,7 @@ import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/fronte
 
 import { ApplyTestAccountFilterToExistingInsights } from './ApplyTestAccountFilterToExistingInsights'
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
+import { suggestedTestAccountFilterOf, withoutSuggestedTestAccountFilter } from './suggestedTestAccountFilter'
 
 function createTestAccountFilterWarningLabels(
     currentTeam: TeamPublicType | TeamType | null,
@@ -56,6 +59,48 @@ function createTestAccountFilterWarningLabels(
         }
         return filter.key
     })
+}
+
+function SuggestedTestAccountFilter({ restrictedReason }: { restrictedReason: string | null }): JSX.Element | null {
+    const { location, searchParams, hashParams } = useValues(router)
+    const { replace } = useActions(router)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const rule = suggestedTestAccountFilterOf(searchParams)
+    if (!rule) {
+        return null
+    }
+
+    const dismiss = (): void => replace(location.pathname, withoutSuggestedTestAccountFilter(searchParams), hashParams)
+
+    return (
+        <LemonBanner type="info">
+            <div className="flex flex-col items-start gap-2">
+                <span>Suggested by your insight's data checks. It removes only what the checks found.</span>
+                <PropertyFilterButton item={rule} />
+                <div className="flex gap-2">
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        loading={currentTeamLoading}
+                        disabledReason={restrictedReason ?? undefined}
+                        onClick={() => {
+                            updateCurrentTeam({
+                                test_account_filters: [...(currentTeam?.test_account_filters ?? []), rule],
+                            })
+                            dismiss()
+                        }}
+                        data-attr="suggested-test-account-filter-add"
+                    >
+                        Add rule
+                    </LemonButton>
+                    <LemonButton type="secondary" size="small" onClick={dismiss}>
+                        Dismiss
+                    </LemonButton>
+                </div>
+            </div>
+        </LemonBanner>
+    )
 }
 
 function TestAccountFiltersConfig(): JSX.Element {
@@ -120,6 +165,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                         </ul>
                     </LemonBanner>
                 )}
+                <SuggestedTestAccountFilter restrictedReason={restrictedReason} />
                 {currentTeam && (
                     <PropertyFilters
                         pageKey="testaccountfilters"
