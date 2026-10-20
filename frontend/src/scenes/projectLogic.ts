@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -344,6 +345,12 @@ export const projectLogic = kea<projectLogicType>([
         },
         locationChanged: ({ pathname }) => {
             actions.guardPendingDeletion(pathname, values.currentProject?.is_pending_deletion)
+        },
+        updateCurrentProjectFailure: ({ error, errorObject }) => {
+            const apiError = errorObject as ApiError | undefined
+            if (apiError?.status === 409) {
+                lemonToast.error(apiError.detail || error)
+            }
         },
         guardPendingDeletion: ({ pathname, isPendingDeletion }) => {
             const onLockoutScreen = pathname.endsWith(urls.projectPendingDeletion())

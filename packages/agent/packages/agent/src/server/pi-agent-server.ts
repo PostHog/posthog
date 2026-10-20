@@ -66,6 +66,7 @@ import {
   piModelIdForRoute,
 } from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
+import { readRunLaunch } from "./launch/run-launch";
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema } from "./schemas";
@@ -663,24 +664,25 @@ export class PiAgentServer {
           return null;
         }),
     ]);
-    const runState = taskRun?.state;
-    seedRunUsage(this.runUsage, runState?.token_usage);
+    const launch = readRunLaunch({
+      payload,
+      task,
+      taskRun,
+      config: this.config,
+      env: process.env,
+    });
+    seedRunUsage(this.runUsage, launch.tokenUsage);
     // Before the prompt: its skills-store section counts the stubs on disk.
     const storeSkillsInstalledCount = await syncStoreSkills(
-      runState,
+      launch.runState,
       { taskId: payload.task_id, runId: payload.run_id },
       this.logger,
     );
     // Before the Pi child starts: it reads ~/.pi/agent/AGENTS.md when it loads its resources.
-    await new AgentInstructionFiles(this.logger).sync(runState, {
+    await new AgentInstructionFiles(this.logger).sync(launch.runState, {
       taskId: payload.task_id,
       runId: payload.run_id,
     });
-    const taskSnapshotKind = taskRun
-      ? typeof runState?.snapshot_kind === "string"
-        ? runState.snapshot_kind
-        : "absent"
-      : null;
     const configuredSystemPrompt =
       typeof this.config.claudeCode?.systemPrompt === "string"
         ? this.config.claudeCode.systemPrompt
@@ -703,36 +705,26 @@ export class PiAgentServer {
       channelMode,
       additionalInstructions,
     };
-    const aiStage =
-      typeof runState?.ai_stage === "string" ? runState.ai_stage : null;
     const providerRoute = buildPiProviderRoute(
       this.config,
       {
-        originProduct: task?.origin_product ?? null,
-        aiStage,
+        originProduct: launch.originProduct,
+        aiStage: launch.aiStage,
         taskId: payload.task_id,
         model: this.config.model,
         properties: {
           task_id: payload.task_id,
           task_run_id: payload.run_id,
-          task_origin_product: task?.origin_product ?? null,
-          task_repositories: task?.repositories?.length
-            ? JSON.stringify(task.repositories)
-            : task?.repository
-              ? JSON.stringify([task.repository])
-              : null,
+          task_origin_product: launch.originProduct,
+          task_repositories: launch.repositories.length
+            ? JSON.stringify(launch.repositories)
+            : null,
           task_runtime_adapter: "pi",
-          task_sandbox_environment_id:
-            typeof runState?.sandbox_environment_id === "string"
-              ? runState.sandbox_environment_id
-              : null,
-          task_snapshot_kind: taskSnapshotKind,
-          task_prewarmed: taskRun ? runState?.prewarmed === true : null,
-          ai_stage: aiStage,
-          ai_agent_name:
-            typeof runState?.ai_agent_name === "string"
-              ? runState.ai_agent_name
-              : null,
+          task_sandbox_environment_id: launch.sandboxEnvironmentId,
+          task_snapshot_kind: launch.snapshotKind,
+          task_prewarmed: launch.prewarmed,
+          ai_stage: launch.aiStage,
+          ai_agent_name: launch.aiAgentName,
           task_execution_environment: "cloud",
         },
       },
@@ -754,10 +746,7 @@ export class PiAgentServer {
         apiUrl: this.config.apiUrl,
         projectId: this.config.projectId,
         apiKey: this.config.apiKey,
-        interactionOrigin:
-          process.env.POSTHOG_CODE_INTERACTION_ORIGIN ??
-          process.env.CODE_INTERACTION_ORIGIN ??
-          process.env.TWIG_INTERACTION_ORIGIN,
+        interactionOrigin: launch.interactionOrigin,
       },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,

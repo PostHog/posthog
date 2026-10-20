@@ -6,16 +6,28 @@ from rest_framework import status
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_task_actions import (
+    FIX_CI_REQUEST,
     INBOX_REPORT_ACTION_EVENT,
+    MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON,
+    MAKE_IT_GREEN_NO_PR_DISABLED_REASON,
     MERGE_PR_REQUEST,
     REPORT_DISCUSSION_STATE_INSTRUCTIONS,
+    task_create_data,
 )
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import compute_quota_limit_response
 from products.tasks.backend.models import Task, TaskRun
 
 
 def _flag(flag_key: str, *args: object, **kwargs: object) -> bool:
     return flag_key == "inbox-get-it-merged"
+
+
+def _ci(ci_status: str):
+    return patch(
+        "products.signals.backend.report_task_actions.pr_ci_statuses_for_references",
+        side_effect=lambda _team_id, refs: dict.fromkeys(refs, ci_status),
+    )
 
 
 @patch("posthoganalytics.feature_enabled", side_effect=_flag)
@@ -37,13 +49,18 @@ class TestReportTaskActionsAPI(APIBaseTest):
             suggested_prompts=prompts or [],
         )
 
-    def _attach_pr(self, report: SignalReport, review_decision: str | None) -> None:
+    def _attach_pr(
+        self,
+        report: SignalReport,
+        review_decision: str | None,
+        state: str = SignalReportPullRequest.State.OPEN,
+    ) -> None:
         pr = SignalReportPullRequest.objects.create(
             team=self.team,
             repository="example/app",
             number=SignalReportPullRequest.objects.count() + 1,
             url=f"https://github.com/example/app/pull/{SignalReportPullRequest.objects.count() + 1}",
-            state=SignalReportPullRequest.State.OPEN,
+            state=state,
             review_decision=review_decision,
         )
         SignalReportArtefact.objects.create(
@@ -80,7 +97,8 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert actions[0]["action"] == "get_it_merged"
         assert actions[0]["available"] is available
         assert (actions[0]["disabled_reason"] is None) is available
-        assert [(a["action"], a["suggested_prompt_index"], a["text"]) for a in actions[1:]] == [
+        assert actions[1]["action"] == "make_it_green"
+        assert [(a["action"], a["suggested_prompt_index"], a["text"]) for a in actions[2:]] == [
             ("suggested_prompt", 0, "Why does checkout fail?"),
             ("suggested_prompt", 1, "Create the alert"),
         ]
@@ -121,6 +139,82 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert second.json()["task_id"] == str(task.id)
         assert second.json()["run_id"] == str(run.id)
         assert Task.objects.filter(signal_report=report).count() == 1
+
+    @parameterized.expand(
+        [
+            ("failing_draft", SignalReportPullRequest.State.DRAFT, "failing", None),
+            ("failing_unapproved", SignalReportPullRequest.State.OPEN, "failing", None),
+            ("pending", SignalReportPullRequest.State.OPEN, "pending", MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON),
+            ("passing", SignalReportPullRequest.State.OPEN, "passing", MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON),
+            ("merged", SignalReportPullRequest.State.MERGED, "failing", MAKE_IT_GREEN_NO_PR_DISABLED_REASON),
+            ("no_pr", None, "failing", MAKE_IT_GREEN_NO_PR_DISABLED_REASON),
+        ]
+    )
+    def test_lists_make_it_green_only_while_ci_fails_on_an_open_pr(
+        self,
+        _workflow: MagicMock,
+        _flag_mock: MagicMock,
+        _name: str,
+        pr_state: str | None,
+        ci_status: str,
+        disabled_reason: str | None,
+    ) -> None:
+        report = self._report()
+        if pr_state is not None:
+            self._attach_pr(report, None, state=pr_state)
+
+        with _ci(ci_status):
+            make_it_green = self._actions(report)[1]
+
+        assert make_it_green["action"] == "make_it_green"
+        assert make_it_green["disabled_reason"] == disabled_reason
+        assert make_it_green["available"] is (disabled_reason is None)
+        assert make_it_green["text"] == FIX_CI_REQUEST
+
+    def test_make_it_green_starts_a_run_that_never_merges_and_shares_the_pr_run_guard(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        report = self._report()
+        self._attach_pr(report, "approved")
+
+        with _ci("failing"), patch("products.signals.backend.views.report_user_action") as capture:
+            response = self._run(report, {"action": "make_it_green"})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        task = Task.objects.get(id=response.json()["task_id"])
+        assert task.description.endswith(f"</posthog_trusted_context>\n\n{FIX_CI_REQUEST}")
+        assert "Do not merge the pull request, do not add it to a merge queue" in task.description
+        assert capture.call_args.args[2]["question_intent"] == "fix_ci"
+        assert capture.call_args.args[2]["report_action"] == "make_it_green"
+
+        # Both runs push to the same branch, so either kind refuses while the other works.
+        for action in ("make_it_green", "get_it_merged"):
+            with _ci("failing"):
+                second = self._run(report, {"action": action})
+            assert second.status_code == status.HTTP_409_CONFLICT, action
+            assert second.json()["task_id"] == str(task.id)
+        assert Task.objects.filter(signal_report=report).count() == 1
+        workflow.assert_called_once()
+
+    def test_a_pr_run_task_without_a_run_yet_blocks_another_pr_run(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        report = self._report()
+        self._attach_pr(report, "approved")
+        # The inbox creates the task and starts its run in separate requests.
+        pending = tasks_facade.create_task(
+            self.team.id,
+            self.user.id,
+            validated_data=task_create_data(
+                report, f"<posthog_trusted_context>\n</posthog_trusted_context>\n\n{FIX_CI_REQUEST}"
+            ),
+        )
+
+        response = self._run(report, {"action": "get_it_merged"})
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.data
+        assert set(Task.objects.filter(signal_report=report).values_list("id", flat=True)) == {pending.id}
+        workflow.assert_not_called()
 
     def test_get_it_merged_without_an_approved_pr_starts_nothing(
         self, workflow: MagicMock, _flag_mock: MagicMock
