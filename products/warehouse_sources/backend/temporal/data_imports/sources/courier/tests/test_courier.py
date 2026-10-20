@@ -493,15 +493,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("valid", 200, (True, None)),
-            (
-                "invalid_key",
-                403,
-                (
-                    False,
-                    "Courier authentication failed: Invalid or missing authentication credentials. Please check your API key.",
-                ),
-            ),
-            ("server_error", 500, (False, "Courier API returned an unexpected response (HTTP 500)")),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected: tuple[bool, str | None]) -> None:

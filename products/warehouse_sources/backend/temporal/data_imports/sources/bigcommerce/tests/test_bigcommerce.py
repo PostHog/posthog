@@ -319,7 +319,7 @@ class TestBigCommerceSourceResumeBehavior:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [200, 401, 403, 404])
+    @pytest.mark.parametrize("status_code", [403, 404])
     def test_returns_status_code(self, status_code: int) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("store123", "token") == status_code

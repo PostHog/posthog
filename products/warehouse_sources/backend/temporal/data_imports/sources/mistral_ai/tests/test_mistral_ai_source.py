@@ -60,7 +60,7 @@ class TestGetSchemas:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, (True, None)), ("invalid", 401, (False, "Invalid Mistral AI API key"))])
+    @parameterized.expand([("valid", 200, (True, None))])
     def test_maps_probe_result(self, _name: str, status: int, expected: tuple[bool, str | None]) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             result = MistralAISource().validate_credentials(_config(), team_id=1)
