@@ -173,7 +173,7 @@ class FlowPort:
     # destination's secret inputs, so it stays out of `repr`.
     flow: dict[str, Any] | None = field(default=None, repr=False)
     # Per step id, the inputs that were secret on the HogFunction the step replaces.
-    secret_input_keys: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    secret_input_keys: dict[str, tuple[str, ...]] = field(default_factory=dict, repr=False)
 
 
 @frozen
