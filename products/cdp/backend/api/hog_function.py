@@ -317,6 +317,12 @@ class DraftExistsError(exceptions.APIException):
     default_code = "draft_exists"
 
 
+class DraftChangedError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "The staged draft changed since this restore was confirmed. Review the draft, then restore again."
+    default_code = "draft_changed"
+
+
 class HogFunctionStatusSerializer(serializers.Serializer):
     state = serializers.ChoiceField(choices=[state.value for state in HogFunctionState])
     tokens: serializers.IntegerField = serializers.IntegerField()
@@ -1036,6 +1042,15 @@ class HogFunctionRevisionRestoreRequestSerializer(serializers.Serializer):
         help_text=(
             "Replace the open staged draft with this revision's config. Without it, restoring while a "
             "draft is open returns 409."
+        ),
+    )
+    expected_draft_updated_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The draft_updated_at of the staged draft this overwrite was confirmed against. If a draft "
+            "exists with a different stamp (it was staged or edited since the confirmation was shown), "
+            "the restore returns 409 instead of overwriting it. Omit to overwrite unconditionally."
         ),
     )
 
@@ -1862,6 +1877,15 @@ class HogFunctionViewSet(
                 raise exceptions.NotFound("No such revision for this function.")
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
+            # The client confirms against the draft stamp it saw. A draft staged or edited after that
+            # carries another stamp, and overwriting it would lose content that no revision holds.
+            expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
+            if (
+                locked.draft
+                and expected_draft_updated_at is not None
+                and locked.draft_updated_at != expected_draft_updated_at
+            ):
+                raise DraftChangedError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFunction.objects.get(pk=instance.pk)
             locked.draft = dict(revision.content)

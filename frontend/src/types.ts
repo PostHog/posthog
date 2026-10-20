@@ -7504,6 +7504,8 @@ export type HogFunctionType = {
     /** Config staged for review by an agent, not live until published. Null when nothing is staged. */
     draft?: HogFunctionDraftType | null
     draft_updated_at?: string | null
+    /** Incremented every time the live config changes. */
+    version?: number
 }
 
 export type HogFunctionDraftType = Partial<
