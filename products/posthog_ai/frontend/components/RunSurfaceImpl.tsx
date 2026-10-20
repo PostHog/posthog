@@ -6,7 +6,7 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { useThreadSkin } from '../hooks/useThreadSkin'
-import { retainMountedLogic } from '../logics/retainedLogics'
+import { isLogicRetained, RETAINED_RUN_STREAMS, retainMountedLogic } from '../logics/retainedLogics'
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
@@ -107,9 +107,14 @@ function RunSurfaceRoot({
     const [floatingInputsHeight, setFloatingInputsHeight] = useState(0)
     const { hasThreadItems } = useValues(runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }))
     useEffect(() => {
-        if (retainAfterUnmount && !replayOnly && runId && logicKey === runId) {
+        if (
+            retainAfterUnmount &&
+            !replayOnly &&
+            runId &&
+            (logicKey === runId || isLogicRetained(RETAINED_RUN_STREAMS, logicKey))
+        ) {
             retainMountedLogic(
-                'run-stream',
+                RETAINED_RUN_STREAMS,
                 logicKey,
                 runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }),
                 MAX_RETAINED_RUN_STREAMS
