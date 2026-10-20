@@ -24,7 +24,6 @@ from products.error_tracking.backend.logic.severity_inference import (
     apply_inferred_severity,
     build_severity_state,
     infer_severity,
-    severity_inference_enabled,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import merge_similar_fingerprints
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
@@ -179,8 +178,6 @@ def generate_issue_created_embedding_activity(
 
 def _severity_state(inputs: IssueCreatedWorkflowInputs) -> str | SeverityInferenceSkipReason:
     """Build the text the model reads, or say why this issue is not eligible."""
-    if not severity_inference_enabled(inputs.team_id):
-        return SeverityInferenceSkipReason.DISABLED
     try:
         team = Team.objects.select_related("organization").get(id=inputs.team_id)
     except Team.DoesNotExist:
