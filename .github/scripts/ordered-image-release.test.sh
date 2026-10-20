@@ -62,8 +62,30 @@ check absent 0 0 None
 check integrity-mismatch 0 0 sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 check unknown 0 1
 check unknown 0 0 invalid
+
+check_read() {
+    local expected="$1" read_status="$2" expected_status="$3" value="$4" status=0
+    export READBACK_STATUS="$read_status" READBACK="$value"
+    : > "$GITHUB_OUTPUT"
+    : > "$COPY_ARGUMENTS"
+    : > "$TIMEOUT_ARGUMENTS"
+    bash "$helper" read > "$scratch/read-digest" 2> "$scratch/read-error" || status=$?
+    test "$status" = "$expected_status"
+    test "$(cat "$scratch/read-digest")" = "$value"
+    test "$(cat "$GITHUB_OUTPUT")" = "outcome=$expected"
+    test ! -s "$COPY_ARGUMENTS"
+    test "$(cat "$TIMEOUT_ARGUMENTS")" = "${READBACK_TIMEOUT_SECONDS:-40}s"
+    grep -Fxq -e 'imageTag='"$ORDERED_ALIAS" "$READBACK_ARGUMENTS"
+    echo "PASS read $expected status=$status"
+}
+check_read present-at-expected-digest 0 0 "$EXPECTED_DIGEST"
+check_read absent 0 0 None
+check_read integrity-mismatch 0 0 sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+check_read unknown 1 1 "$EXPECTED_DIGEST"
+check_read unknown 0 1 invalid
 export COPY_TIMEOUT_SECONDS=120 READBACK_TIMEOUT_SECONDS=30
 check present-at-expected-digest
+check_read present-at-expected-digest 0 0 "$EXPECTED_DIGEST"
 for variable in COPY_TIMEOUT_SECONDS READBACK_TIMEOUT_SECONDS; do
     for invalid in 0 -1 1s invalid 1000; do
         : > "$GITHUB_OUTPUT"
@@ -77,6 +99,27 @@ for variable in COPY_TIMEOUT_SECONDS READBACK_TIMEOUT_SECONDS; do
         grep -Fq 'Invalid ordered image publication timeout' "$scratch/invalid-timeout"
     done
 done
+for variable in ECR_REGISTRY ECR_REPO ORDERED_ALIAS; do
+    : > "$GITHUB_OUTPUT"
+    : > "$TIMEOUT_ARGUMENTS"
+    if env "$variable=" bash "$helper" read > "$scratch/invalid-read" 2>&1; then
+        echo "FAIL read accepted empty $variable" >&2
+        exit 1
+    fi
+    test ! -s "$GITHUB_OUTPUT"
+    test ! -s "$TIMEOUT_ARGUMENTS"
+    grep -Fq 'requires a registry, repository and alias' "$scratch/invalid-read"
+done
+: > "$GITHUB_OUTPUT"
+: > "$TIMEOUT_ARGUMENTS"
+if env READBACK_TIMEOUT_SECONDS=0 bash "$helper" read > "$scratch/invalid-read" 2>&1; then
+    echo 'FAIL read accepted an invalid timeout' >&2
+    exit 1
+fi
+test ! -s "$GITHUB_OUTPUT"
+test ! -s "$TIMEOUT_ARGUMENTS"
+grep -Fq 'Invalid ordered image publication timeout' "$scratch/invalid-read"
+echo 'PASS read rejects missing coordinates and invalid timeout before AWS'
 unset COPY_TIMEOUT_SECONDS READBACK_TIMEOUT_SECONDS
 export SOURCE_REGISTRY=source.example.com SOURCE_REPO=build/image
 check present-at-expected-digest

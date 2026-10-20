@@ -109,12 +109,12 @@ async function bootstrapChannel(selected: ResolvedChannel, seed: Bootstrap, cont
       channel.bootstrapPolicyDigest !== policyDigest(policy.filters[channel.filter])) {
     throw new Error(`${key}: bootstrapPolicyDigest must match the reviewed current policy`)
   }
-  const existing = inventory.nonempty ? await registry.read(destination, tag) : undefined
-  if (inventory.nonempty && existing !== seed.digest) {
-    throw new Error(`${key}: ${existing ? 'seed digest conflict' : 'seed missing in nonempty destination'}`)
+  const existing = inventory.nonempty ? await registry.read(destination, tag, seed.digest) : undefined
+  if (existing && existing.outcome !== 'present-at-expected-digest') {
+    throw new Error(`${key}: ${existing.outcome === 'integrity-mismatch' ? 'seed digest conflict' : existing.outcome === 'absent' ? 'seed missing in nonempty destination' : `seed readback unavailable: ${existing.reason ?? 'unknown'}`}`)
   }
-  await verifyImage(registry, history, existing ? destination : source, seed.digest, seed.revision, tag)
-  const publicationResult: Publication = existing ? {outcome: 'present-at-expected-digest'} : await registry.publish(source, destination, seed.digest, tag)
+  await verifyImage(registry, existing ? destination : source, seed.digest, seed.revision)
+  const publicationResult = existing ?? await registry.publish(source, destination, seed.digest, tag)
   if (publicationResult.outcome === 'present-at-expected-digest') {
     const receipt = {
       version: 1, sourceRepository: CANONICAL_SOURCE_REPOSITORY, sourceImage: `${source.registry}/${source.repository}`,
@@ -134,20 +134,22 @@ async function advanceChannel(selected: ResolvedChannel, force: string[], contex
   const inventory = await registry.list(destination)
   const frontier = [...inventory.tags].filter(tag => ORDERED_ALIAS.test(tag)).sort().pop()
   if (!frontier) throw new Error(`${key}: empty ordered frontier requires explicit bootstrap`)
-  const digest = await registry.read(destination, frontier)
+  const readback = await registry.read(destination, frontier, options.digest)
+  if (readback.outcome === 'unknown') throw new Error(`${key}: frontier readback unavailable: ${readback.reason ?? 'unknown'}`)
+  const digest = readback.digest
   if (!digest) throw new Error(`${key}: frontier disappeared during readback`)
   const identity = await registry.identity(destination.registry, destination.repository, digest)
   if (await history.alias(identity.revision) !== frontier) throw new Error(`${key}: frontier ordinal mismatch`)
   const relation = await history.relation(identity.revision, options.revision)
   if (relation === 'older') return {channel: key, decision: 'older-revision'}
   if (relation === 'equal') {
-    return publication(key, {outcome: digest === options.digest ? 'present-at-expected-digest' : 'integrity-mismatch'}, frontier, options.digest, true)
+    return publication(key, readback, frontier, options.digest, true)
   }
   const comparison = await history.compare(identity.revision, options.revision)
   const changed = policyChanged(comparison.policies, image, name, channel)
   const matches = new Filter(JSON.stringify({channel: policy.filters[channel.filter]})).match(comparison.files).channel.length > 0
   if (!changed && !matches && !force.includes(key)) return {channel: key, decision: 'unchanged'}
-  await verifyImage(registry, history, source, options.digest, options.revision, options.alias)
+  await verifyImage(registry, source, options.digest, options.revision)
   return publication(key, await registry.publish(source, destination, options.digest, options.alias), options.alias, options.digest)
 }
 
@@ -195,9 +197,9 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
   return results
 }
 
-async function verifyImage(registry: ReleaseRegistry, history: SourceHistory, coordinate: Pick<ImageBinding, 'registry' | 'repository'>, digest: string, revision: string, tag: string): Promise<void> {
+async function verifyImage(registry: ReleaseRegistry, coordinate: Pick<ImageBinding, 'registry' | 'repository'>, digest: string, revision: string): Promise<void> {
   const identity = await registry.identity(coordinate.registry, coordinate.repository, digest)
-  if (identity.revision !== revision || await history.alias(revision) !== tag) throw new Error('Image revision differs from approved source identity')
+  if (identity.revision !== revision) throw new Error('Image revision differs from approved source identity')
 }
 
 function publication(channel: string, result: Publication, tag: string, digest: string, present = false): ChannelResult {

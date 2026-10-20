@@ -5,6 +5,7 @@ import * as path from 'path'
 import {createHash} from 'crypto'
 import * as yaml from 'js-yaml'
 import {command, CommandOptions} from '../src/shared-image-command'
+import {ReleaseRegistry} from '../src/shared-image-registry'
 import {SourceHistory} from '../src/shared-image-history'
 import {publishChannels, PublisherOptions, validateRequests} from '../src/shared-image-publisher'
 import {approvedImages, CANONICAL_SOURCE_REPOSITORY, loadPolicy, POLICY_PATH, policyDigest} from '../src/shared-image'
@@ -68,6 +69,11 @@ const invoke = async (executable: string, args: string[], configuration: Command
     const env = configuration.env ?? {}
     const entries = tags.get(env.ECR_REPO ?? '') as Map<string, string>
     const existing = entries.get(env.ORDERED_ALIAS ?? '')
+    if (args[1] === 'read') {
+      const outcome = !existing ? 'absent' : existing === env.EXPECTED_DIGEST ? 'present-at-expected-digest' : 'integrity-mismatch'
+      writeFileSync(env.GITHUB_OUTPUT ?? '', `outcome=${outcome}\n`)
+      return existing ?? 'None'
+    }
     const outcome = existing && existing !== env.EXPECTED_DIGEST ? 'integrity-mismatch' : 'present-at-expected-digest'
     if (outcome === 'present-at-expected-digest') entries.set(env.ORDERED_ALIAS ?? '', env.EXPECTED_DIGEST ?? '')
     writeFileSync(env.GITHUB_OUTPUT ?? '', `outcome=${outcome}\n`)
@@ -148,10 +154,15 @@ describe('shared-image publication', () => {
     ]))
   })
 
-  test('explicit force preserves source identity and rejects unknown keys before copying', async () => {
+  test.each(['wrong source', 'wrong revision', 'corrupt manifest bytes'])('explicit force preserves source identity: %s', async mode => {
     put('unrelated.txt', 'unrelated'); commit(); build(); options.force = ['posthog-cloud/worker']
-    options.digest = image(options.revision, 'https://example.invalid/wrong')
-    expect((await publishChannels(options)).find(result => result.channel.endsWith('/worker'))).toMatchObject({decision: 'blocked', reason: expect.stringContaining('canonical')})
+    if (mode === 'wrong source') options.digest = image(options.revision, 'https://example.invalid/wrong')
+    if (mode === 'wrong revision') options.digest = image(base)
+    if (mode === 'corrupt manifest bytes') manifests.set(options.digest, JSON.stringify({...JSON.parse(manifests.get(options.digest)!), marker: 'tampered bytes'}))
+    expect((await publishChannels(options)).find(result => result.channel.endsWith('/worker'))).toMatchObject({
+      decision: 'blocked', reason: expect.stringContaining(mode === 'wrong source' ? 'canonical' : mode === 'wrong revision' ? 'Image revision differs' : 'Manifest digest mismatch')
+    })
+    expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
     build()
     expect((await publishChannels(options)).find(result => result.channel.endsWith('/worker'))).toMatchObject({decision: 'published'})
     options.force = ['posthog-cloud/missing']
@@ -208,7 +219,7 @@ describe('shared-image publication', () => {
   test('one channel failure preserves other eligible attempts and emits no success receipt', async () => {
     put('worker/run.py', 'relevant'); put('other/file.py', 'relevant'); commit(); build()
     external.mockImplementation(async (exe, args, config) => {
-      if (exe === 'helper' && config.env?.ECR_REPO === 'workers/worker') {
+      if (exe === 'helper' && args[1] === 'publish' && config.env?.ECR_REPO === 'workers/worker') {
         writeFileSync(config.env.GITHUB_OUTPUT!, 'outcome=absent\n'); return ''
       }
       return invoke(exe, args, config)
@@ -225,7 +236,7 @@ describe('shared-image publication', () => {
   test.each(['rejected', 'missing outcome', 'invalid outcome'])('helper failure is unknown with its reason: %s', async mode => {
     put('worker/run.py', 'relevant'); commit(); build()
     external.mockImplementation(async (executable, args, config) => {
-      if (executable === 'helper' && config.env?.ECR_REPO === 'workers/worker') {
+      if (executable === 'helper' && args[1] === 'publish' && config.env?.ECR_REPO === 'workers/worker') {
         if (mode === 'rejected') throw new Error('copy helper crashed')
         if (mode === 'invalid outcome') writeFileSync(config.env.GITHUB_OUTPUT!, 'outcome=invalid\n')
         return ''
@@ -237,28 +248,44 @@ describe('shared-image publication', () => {
     expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
   })
 
-  test.each(['ordinary', 'seed', 'retry after advancement', 'missing seed', 'conflict', 'missing historical policy', 'missing fingerprint', 'newer seed'])('bootstrap: %s', async mode => {
+  test.each(['ordinary', 'seed', 'retry after advancement', 'retry without source', 'unavailable seed', 'missing seed', 'conflict', 'missing historical policy', 'missing fingerprint', 'wrong fingerprint', 'newer seed', 'seed digest from another revision'])('bootstrap: %s', async mode => {
     const entries = tags.get('workers/worker')!
     entries.clear()
-    if (['missing historical policy', 'missing fingerprint'].includes(mode)) {
+    if (mode === 'seed') tags.get('workers/other')!.clear()
+    if (['missing historical policy', 'missing fingerprint', 'wrong fingerprint'].includes(mode)) {
       git('checkout', '--orphan', 'old')
       git('rm', '-rf', '.'); put('old.txt', 'old'); base = commit()
-      put(POLICY_PATH, policy(['worker/**'], mode === 'missing historical policy' ? {bootstrapPolicyDigest: policyDigest(['worker/**'])} : {})); commit()
+      put(POLICY_PATH, policy(['worker/**'], mode === 'missing historical policy' ? {bootstrapPolicyDigest: policyDigest(['worker/**'])} : mode === 'wrong fingerprint' ? {bootstrapPolicyDigest: 'f'.repeat(64)} : {})); commit()
     }
     put('unrelated.txt', 'later build'); commit(); build()
     if (mode !== 'ordinary') options.bootstrap = {channel: 'posthog-cloud/worker', revision: base, digest: image(base)}
-    if (mode === 'retry after advancement') { entries.set(alias(base), image(base)); entries.set(options.alias, options.digest) }
+    if (mode === 'retry after advancement' || mode === 'retry without source') { entries.set(alias(base), image(base)); entries.set(options.alias, options.digest) }
+    if (mode === 'retry without source' || mode === 'unavailable seed') external.mockImplementation(async (exe, args, config) => {
+      if (mode === 'retry without source' && exe === 'client' && args[2].includes('/posthog-cloud@')) throw new Error('source expired')
+      if (mode === 'unavailable seed' && exe === 'helper' && args[1] === 'read') throw new Error('seed read failed')
+      return invoke(exe, args, config)
+    })
+    if (mode === 'unavailable seed') entries.set(options.alias, options.digest)
     if (mode === 'missing seed') entries.set(options.alias, options.digest)
     if (mode === 'conflict') entries.set(alias(base), image(base, 'https://example.invalid/conflict'))
+    if (mode === 'seed digest from another revision') options.bootstrap!.digest = image(options.revision)
     if (mode === 'newer seed') {
       put('future.txt', 'future seed'); const future = commit()
       options.bootstrap = {channel: 'posthog-cloud/worker', revision: future, digest: image(future)}
       git('checkout', '--detach', options.revision)
     }
     const result = (await publishChannels(options)).find(row => row.channel.endsWith('/worker'))!
-    const succeeds = ['seed', 'retry after advancement', 'missing historical policy'].includes(mode)
-    expect(result.decision).toBe(succeeds ? mode === 'retry after advancement' ? 'present' : 'published' : 'blocked')
+    const succeeds = ['seed', 'retry after advancement', 'retry without source', 'missing historical policy'].includes(mode)
+    expect(result.decision).toBe(succeeds ? mode.startsWith('retry') ? 'present' : 'published' : 'blocked')
+    if (['conflict', 'missing seed', 'unavailable seed'].includes(mode)) expect(result.reason).toContain(mode === 'conflict' ? 'seed digest conflict' : mode === 'missing seed' ? 'seed missing in nonempty destination' : 'seed readback unavailable: Error: seed read failed')
+    if (mode === 'ordinary') expect(result.reason).toContain('empty ordered frontier requires explicit bootstrap')
     if (mode === 'newer seed') expect(result.reason).toContain('seed is newer than the executing revision')
+    if (mode === 'wrong fingerprint') expect(result.reason).toContain('must match the reviewed current policy')
+    if (mode === 'seed digest from another revision') {
+      expect(result.reason).toContain('Image revision differs')
+      expect(entries.size).toBe(0)
+    }
+    if (mode === 'seed') expect(tags.get('workers/other')!.size).toBe(0)
     if (succeeds) expect(JSON.parse(readFileSync(path.join(options.evidence, 'bootstrap/posthog-cloud/worker.json'), 'utf8'))).toEqual({
       version: 1, sourceRepository: CANONICAL_SOURCE_REPOSITORY, sourceImage: 'registry.example.com/posthog-cloud',
       destination: options.approved['posthog-cloud'].destinations[0], policyRevision: options.revision,
@@ -267,7 +294,8 @@ describe('shared-image publication', () => {
     })
   })
 
-  test.each([true, false])('seed predating manifest=%s uses the immutable fingerprint until adoption', async predatesManifest => {
+  test.each(['manifest', 'channel', 'missing fingerprint'])('seed predating %s uses the immutable fingerprint until adoption', async mode => {
+    const predatesManifest = mode === 'manifest'
     if (predatesManifest) git('rm', POLICY_PATH)
     else {
       const previous = loadPolicy(policy())
@@ -275,7 +303,11 @@ describe('shared-image publication', () => {
       put(POLICY_PATH, yaml.dump(previous))
     }
     const seedRevision = commit(); seed(seedRevision)
-    put(POLICY_PATH, policy(['worker/**'], {bootstrapPolicyDigest: policyDigest(['worker/**'])})); commit(); build()
+    put(POLICY_PATH, policy(['worker/**'], mode === 'missing fingerprint' ? {} : {bootstrapPolicyDigest: policyDigest(['worker/**'])})); commit(); build()
+    if (mode === 'missing fingerprint') {
+      expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toMatchObject({decision: 'blocked', reason: expect.stringContaining('missing bootstrapPolicyDigest for historical policy gap')})
+      return
+    }
     expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))?.decision).toBe('unchanged')
     put('worker/run.py', 'relevant'); commit(); build()
     expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))?.decision).toBe('published')
@@ -285,11 +317,101 @@ describe('shared-image publication', () => {
     expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toMatchObject({decision: 'blocked', reason: expect.stringContaining('cannot change')})
   })
 
-  test.each(['destination', 'fan-out'])('%s errors fail before any channel copy', async mode => {
+  test.each([
+    ['force scalar', '*', undefined],
+    ['force unknown', ['posthog-cloud/missing'], undefined],
+    ['force non-string', [7], undefined],
+    ['null seed', [], null],
+    ['primitive seed', [], 7],
+    ['extra seed key', [], {channel: 'posthog-cloud/worker', revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`, extra: true}],
+    ['unknown seed channel', [], {channel: 'posthog-cloud/missing', revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`}],
+    ['short seed revision', [], {channel: 'posthog-cloud/worker', revision: 'a', digest: `sha256:${'a'.repeat(64)}`}],
+    ['invalid seed digest', [], {channel: 'posthog-cloud/worker', revision: 'a'.repeat(40), digest: 'invalid'}],
+    ['seed with force', ['posthog-cloud/worker'], {channel: 'posthog-cloud/worker', revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`}]
+  ])('request validation rejects %s', (_name, force, bootstrap) => {
+    expect(() => validateRequests(loadPolicy(policy()), force, bootstrap)).toThrow(String(_name).startsWith('force') ? 'Force requires' : 'Bootstrap requires')
+  })
+
+  test.each([0, -1, 1.5, Infinity])('invalid budget %s rejects before commands', async value => {
+    build(); options.budgets.registryMs = value
+    await expect(publishChannels(options)).rejects.toThrow('Invalid publisher budget: registryMs')
+    expect(external).not.toHaveBeenCalled()
+  })
+
+  test.each(['missing imageIds', 'numeric tag', 'numeric token', 'empty token', 'repeated token', 'read unknown', 'read absent', 'read malformed digest', 'invalid digest', 'missing annotations'])('registry responses reject %s', async mode => {
+    put('worker/run.py', mode); commit(); build()
+    let pages = 0
+    external.mockImplementation(async (exe, args, config) => {
+      if (exe === 'aws' && args[1] === 'list-images') {
+        if (++pages > 6) throw new Error('fixture pagination limit reached')
+        if (mode === 'missing imageIds') return '{}'
+        if (mode === 'numeric tag') return JSON.stringify({imageIds: [{imageTag: 7}]})
+        if (mode.endsWith('token') && (mode !== 'numeric token' || !args.includes('--next-token'))) return JSON.stringify({imageIds: [], nextToken: mode === 'numeric token' ? 7 : mode === 'empty token' ? '' : 'repeat'})
+      }
+      if (exe === 'helper' && args[1] === 'read') {
+        if (mode === 'read unknown') throw new Error('frontier read failed')
+        if (mode === 'read absent') { writeFileSync(config.env!.GITHUB_OUTPUT!, 'outcome=absent\n'); return 'None' }
+        if (mode === 'read malformed digest') { writeFileSync(config.env!.GITHUB_OUTPUT!, 'outcome=integrity-mismatch\n'); return 'invalid' }
+      }
+      return invoke(exe, args, config)
+    })
+    if (mode === 'invalid digest') tags.get('workers/worker')!.set(alias(base), 'invalid')
+    if (mode === 'missing annotations') {
+      const raw = JSON.stringify({schemaVersion: 2})
+      const digest = `sha256:${createHash('sha256').update(raw).digest('hex')}`
+      manifests.set(digest, raw); tags.get('workers/worker')!.set(alias(base), digest)
+    }
+    const reasons: Record<string, string> = {
+      'missing imageIds': 'invalid frontier page', 'numeric tag': 'Invalid frontier tag',
+      'numeric token': 'invalid or repeated pagination token', 'empty token': 'invalid or repeated pagination token', 'repeated token': 'invalid or repeated pagination token',
+      'read unknown': 'frontier readback unavailable', 'read absent': 'frontier disappeared during readback',
+      'read malformed digest': 'frontier disappeared during readback', 'invalid digest': 'frontier disappeared during readback', 'missing annotations': 'invalid canonical source/revision metadata'
+    }
+    expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toMatchObject({decision: 'blocked', reason: expect.stringContaining(reasons[mode])})
+    expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
+  })
+
+  test('helper publication logs are forwarded while readback digests remain protocol data', async () => {
+    const registry = new ReleaseRegistry(repo, options.regctl, options.helper, options.budgets, Infinity)
+    const source = options.approved['posthog-cloud']
+    const destination = source.destinations[0]
+    const output = jest.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    try {
+      expect(await registry.read(destination, alias(base), image(base))).toEqual({outcome: 'present-at-expected-digest', digest: image(base)})
+      expect(output).not.toHaveBeenCalled()
+      external.mockImplementation(async (exe, args, config) => {
+        const result = await invoke(exe, args, config)
+        return exe === 'helper' && args[1] === 'publish' ? 'publication notice\n' : result
+      })
+      expect(await registry.publish(source, destination, image(base), alias(base))).toEqual({outcome: 'present-at-expected-digest'})
+      expect(output).toHaveBeenCalledWith('publication notice\n')
+    } finally { output.mockRestore() }
+  })
+
+  test('registry identity rejects an invalid digest before requesting manifest bytes', async () => {
+    const registry = new ReleaseRegistry(repo, options.regctl, options.helper, options.budgets, Infinity)
+    await expect(registry.identity('registry.example.com', 'posthog-cloud', 'invalid')).rejects.toThrow('Expected exact image digest')
+    expect(external).not.toHaveBeenCalled()
+  })
+
+  test.each(['short revision', 'ordinal zero', 'ordinal too long', 'missing policy', 'symlink policy'])('history API rejects %s', async mode => {
+    build()
+    if (mode === 'symlink policy') { git('rm', POLICY_PATH); git('update-index', '--add', '--cacheinfo', `120000,${git('hash-object', '-w', '--stdin')},${POLICY_PATH}`); git('commit', '-m', 'symlink') }
+    if (mode === 'missing policy') { git('rm', POLICY_PATH); commit() }
+    const history = new SourceHistory(repo, options.budgets)
+    if (mode.startsWith('ordinal')) external.mockImplementation(async (exe, args, config) => args.includes('--count') ? mode === 'ordinal zero' ? '0' : '1000000000000' : invoke(exe, args, config))
+    const result = mode === 'missing policy' || mode === 'symlink policy' ? history.current(git('rev-parse', 'HEAD')) : history.alias(mode === 'short revision' ? 'abcdef' : options.revision)
+    await expect(result).rejects.toThrow(mode === 'short revision' ? 'Expected full source revision' : mode.startsWith('ordinal') ? 'Source ordinal is out of range' : mode === 'missing policy' ? 'policy is missing' : 'expected a regular policy file')
+  })
+
+  test.each(['destination', 'fan-out', 'alias', 'digest'])('%s errors fail before any channel copy', async mode => {
     put('unrelated.txt', mode); commit(); build()
     if (mode === 'destination') options.approved['posthog-cloud'].destinations = []
-    else options.budgets.maxChannels = 1
-    await expect(publishChannels(options)).rejects.toThrow(mode === 'destination' ? /worker.*approved destination/ : /fan-out/)
+    if (mode === 'fan-out') options.budgets.maxChannels = 1
+    if (mode === 'alias') options.alias = `r000000000999-${options.revision.slice(0, 6)}`
+    if (mode === 'digest') options.digest = 'invalid'
+    await expect(publishChannels(options)).rejects.toThrow(mode === 'destination' ? /worker.*approved destination/ : mode === 'fan-out' ? /fan-out/ : mode === 'alias' ? /Built ordered alias differs/ : /successful build digest/)
+    if (mode === 'alias' || mode === 'digest') expect(external.mock.calls.every(([executable]) => executable === 'git')).toBe(true)
     expect([...tags.values()].every(entries => !entries.has(options.alias))).toBe(true)
   })
 })

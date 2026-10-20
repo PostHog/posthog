@@ -10,6 +10,9 @@ export interface Publication {
   outcome: Outcome
   reason?: string
 }
+export interface Readback extends Publication {
+  digest?: string
+}
 export interface RegistryBudgets {
   registryMs: number
   copySeconds: number
@@ -68,16 +71,11 @@ export class ReleaseRegistry {
     return {tags, nonempty}
   }
 
-  async read(destination: DestinationBinding, tag: string): Promise<string | undefined> {
-    const digest = (await this.aws(destination, [
-      'batch-get-image', '--image-ids', `imageTag=${tag}`, '--accepted-media-types',
-      'application/vnd.oci.image.index.v1+json', 'application/vnd.docker.distribution.manifest.list.v2+json',
-      'application/vnd.oci.image.manifest.v1+json', 'application/vnd.docker.distribution.manifest.v2+json',
-      '--query', 'images[0].imageId.imageDigest', '--output', 'text'
-    ])).trim()
-    if (digest === 'None') return undefined
-    if (!DIGEST.test(digest)) throw new Error(`${destination.repository}:${tag}: invalid image digest`)
-    return digest
+  read(destination: DestinationBinding, tag: string, expected: string): Promise<Readback> {
+    return this.runHelper('read', {
+      ECR_REGISTRY: destination.registry, ECR_REPO: destination.repository, ORDERED_ALIAS: tag,
+      EXPECTED_DIGEST: expected, READBACK_TIMEOUT_SECONDS: String(this.budgets.readbackSeconds)
+    }, this.budgets.registryMs)
   }
 
   async identity(registry: string, repository: string, digest: string): Promise<ImageIdentity> {
@@ -95,22 +93,27 @@ export class ReleaseRegistry {
     return {revision, digest}
   }
 
-  async publish(source: ImageBinding, destination: DestinationBinding, digest: string, tag: string): Promise<Publication> {
+  publish(source: ImageBinding, destination: DestinationBinding, digest: string, tag: string): Promise<Publication> {
+    return this.runHelper('publish', {
+      SOURCE_REGISTRY: source.registry, SOURCE_REPO: source.repository,
+      ECR_REGISTRY: destination.registry, ECR_REPO: destination.repository,
+      EXPECTED_DIGEST: digest, ORDERED_ALIAS: tag, REGCTL: this.regctl,
+      COPY_TIMEOUT_SECONDS: String(this.budgets.copySeconds), READBACK_TIMEOUT_SECONDS: String(this.budgets.readbackSeconds)
+    }, (this.budgets.copySeconds + this.budgets.readbackSeconds + 15) * 1000)
+  }
+
+  private async runHelper(operation: 'read' | 'publish', env: NodeJS.ProcessEnv, timeoutMs: number): Promise<Readback> {
     const scratch = mkdtempSync(path.join(tmpdir(), 'ordered-image-'))
     const output = path.join(scratch, 'output')
     try {
-      const logs = await command('helper', [this.helper, 'publish'], {
-        ...this.options((this.budgets.copySeconds + this.budgets.readbackSeconds + 15) * 1000),
-        env: {
-          SOURCE_REGISTRY: source.registry, SOURCE_REPO: source.repository,
-          ECR_REGISTRY: destination.registry, ECR_REPO: destination.repository,
-          EXPECTED_DIGEST: digest, ORDERED_ALIAS: tag, REGCTL: this.regctl, GITHUB_OUTPUT: output,
-          COPY_TIMEOUT_SECONDS: String(this.budgets.copySeconds), READBACK_TIMEOUT_SECONDS: String(this.budgets.readbackSeconds)
-        }
+      const logs = await command('helper', [this.helper, operation], {
+        ...this.options(timeoutMs), env: {...env, GITHUB_OUTPUT: output}
       })
-      process.stdout.write(logs)
+      if (operation === 'publish') process.stdout.write(logs)
       const match = existsSync(output) ? /^outcome=(present-at-expected-digest|absent|integrity-mismatch|unknown)$/m.exec(readFileSync(output, 'utf8')) : undefined
-      return match ? {outcome: match[1] as Outcome} : {outcome: 'unknown', reason: 'Publication helper produced no recognized outcome'}
+      return match ? {
+        outcome: match[1] as Outcome, ...(operation === 'read' && DIGEST.test(logs.trim()) ? {digest: logs.trim()} : {})
+      } : {outcome: 'unknown', reason: 'Publication helper produced no recognized outcome'}
     } catch (error) {
       process.stderr.write(`${String(error)}\n`)
       return {outcome: 'unknown', reason: String(error)}

@@ -1,51 +1,75 @@
 import {execFileSync} from 'child_process'
-import {chmodSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync} from 'fs'
+import {chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'fs'
 import {tmpdir} from 'os'
 import * as path from 'path'
 import {publishChannels, PublisherOptions} from '../src/shared-image-publisher'
-import {approvedImages, CANONICAL_SOURCE_REPOSITORY, POLICY_PATH} from '../src/shared-image'
+import {approvedImages, CANONICAL_SOURCE_REPOSITORY, Filter, POLICY_PATH, policyDigest} from '../src/shared-image'
 import {ReleaseRegistry} from '../src/shared-image-registry'
 import * as commands from '../src/shared-image-command'
+import {SourceHistory} from '../src/shared-image-history'
 
 jest.unmock('../src/shared-image-command')
 let scratch: string
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', ...args], {
-  cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
+  cwd, env: {...process.env, GIT_NO_LAZY_FETCH: '1'}, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
 }).trim()
 beforeEach(() => { scratch = mkdtempSync(path.join(tmpdir(), 'shared-image-fetch-')) })
 afterEach(() => { jest.restoreAllMocks(); rmSync(scratch, {recursive: true, force: true}) })
 
 describe('publisher bounded tree fetching with the real command runner', () => {
-  test.each(['available', 'missing', 'probe failure', 'fetch and probe failure'])('bounded tree fetch: %s', async mode => {
-    const available = mode === 'available' || mode === 'probe failure'
+  test.each(['available', 'missing subtrees', 'missing', 'probe failure', 'fetch and probe failure'])('bounded tree fetch: %s', async mode => {
+    const available = mode === 'available' || mode === 'missing subtrees' || mode === 'probe failure'
+    const source = path.join(scratch, 'source')
     const cwd = path.join(scratch, 'executing')
     const origin = path.join(scratch, 'origin.git')
-    mkdirSync(cwd)
-    git(cwd, 'init', '-b', 'main'); git(cwd, 'config', 'user.name', 'Fixture'); git(cwd, 'config', 'user.email', 'fixture@example.invalid')
+    mkdirSync(source)
+    git(source, 'init', '-b', 'main'); git(source, 'config', 'user.name', 'Fixture'); git(source, 'config', 'user.email', 'fixture@example.invalid')
     git(scratch, 'init', '--bare', origin)
     git(scratch, '--git-dir', origin, 'config', 'uploadpack.allowFilter', 'true')
     git(scratch, '--git-dir', origin, 'config', 'uploadpack.allowAnySHA1InWant', 'true')
-    git(cwd, 'remote', 'add', 'origin', `file://${origin}`)
+    git(source, 'remote', 'add', 'origin', `file://${origin}`)
     const put = (name: string, value: string): void => {
-      const file = path.join(cwd, name); mkdirSync(path.dirname(file), {recursive: true}); writeFileSync(file, value)
+      const file = path.join(source, name); mkdirSync(path.dirname(file), {recursive: true}); writeFileSync(file, value)
     }
-    const commit = (): string => { git(cwd, 'add', '-A'); git(cwd, 'commit', '-m', 'fixture'); return git(cwd, 'rev-parse', 'HEAD') }
+    const commit = (): string => { git(source, 'add', '-A'); git(source, 'commit', '-m', 'fixture'); return git(source, 'rev-parse', 'HEAD') }
     const alias = (revision: string): string => `r${git(cwd, 'rev-list', '--first-parent', '--count', revision).padStart(12, '0')}-${revision.slice(0, 6)}`
     put(POLICY_PATH, JSON.stringify({version: 1, filters: {worker: ['worker/**']}, images: {'posthog-cloud': {channels: {worker: {repository: 'workers/worker', filter: 'worker'}}}}}))
     put('worker/run.py', 'base'); const base = commit()
-    git(cwd, 'push', 'origin', 'main')
+    git(source, 'push', 'origin', 'main')
     put('worker/run.py', 'unpublished'); const relevant = commit()
+    put(POLICY_PATH, JSON.stringify({version: 1, filters: {worker: ['new-worker/**']}, images: {'posthog-cloud': {channels: {worker: {repository: 'workers/worker', filter: 'worker'}}}}})); commit()
     put('unrelated.txt', 'later successful build'); const revision = commit()
-    if (available) git(cwd, 'push', 'origin', 'main')
-    const tree = git(cwd, 'rev-parse', `${relevant}^{tree}`)
-    const treeFile = path.join(cwd, '.git/objects', tree.slice(0, 2), tree.slice(2))
-    unlinkSync(treeFile)
+    git(source, 'push', 'origin', 'main')
+    git(scratch, 'clone', '--depth', '1', `file://${origin}`, cwd)
+    expect(git(cwd, 'rev-parse', '--is-shallow-repository')).toBe('true')
+    git(cwd, 'fetch', '--unshallow', '--filter=tree:0', 'origin')
+    expect(git(cwd, 'rev-parse', '--is-shallow-repository')).toBe('false')
+    expect(git(cwd, 'config', 'remote.origin.promisor')).toBe('true')
+    const tree = git(source, 'rev-parse', `${relevant}^{tree}`)
+    const policyBlob = git(source, 'rev-parse', `${base}:${POLICY_PATH}`)
+    expect(() => git(cwd, 'cat-file', '-e', tree)).toThrow()
+    expect(() => git(cwd, 'cat-file', '-e', policyBlob)).toThrow()
+    if (mode === 'missing subtrees') {
+      const roots = git(source, 'rev-list', '--all', '--no-commit-header', '--format=%T').split('\n')
+      for (const root of roots) {
+        const raw = execFileSync('git', ['cat-file', 'tree', root], {cwd: source})
+        execFileSync('git', ['hash-object', '-w', '-t', 'tree', '--stdin'], {cwd, input: raw})
+      }
+      expect(() => git(cwd, 'cat-file', '-e', tree)).not.toThrow()
+      expect(() => git(cwd, 'cat-file', '-e', git(source, 'rev-parse', `${base}:.github`))).toThrow()
+    }
+    if (!available) {
+      const incomplete = path.join(scratch, 'incomplete.git')
+      git(scratch, 'init', '--bare', incomplete)
+      git(source, 'push', incomplete, `${base}:refs/heads/main`)
+      git(cwd, 'remote', 'set-url', 'origin', `file://${incomplete}`)
+    }
     const regctl = path.join(scratch, 'regctl')
     writeFileSync(regctl, '#!/bin/sh\nexit 1\n'); chmodSync(regctl, 0o755)
     const destination = {owner: 'worker', repository: 'workers/worker', registry: 'registry.example.com', replicas: []}
     const published = new Set<string>()
     jest.spyOn(ReleaseRegistry.prototype, 'list').mockResolvedValue({tags: new Set([alias(base)]), nonempty: true})
-    jest.spyOn(ReleaseRegistry.prototype, 'read').mockResolvedValue('sha256:' + 'a'.repeat(64))
+    jest.spyOn(ReleaseRegistry.prototype, 'read').mockResolvedValue({digest: 'sha256:' + 'a'.repeat(64), outcome: 'integrity-mismatch'})
     jest.spyOn(ReleaseRegistry.prototype, 'identity').mockImplementation(async (_registry, repository, digest) => ({
       revision: repository === destination.repository ? base : revision, digest
     }))
@@ -59,24 +83,39 @@ describe('publisher bounded tree fetching with the real command runner', () => {
       budgets: {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 1024 * 1024, registryMs: 30000, copySeconds: 1,
         readbackSeconds: 1, maxChannels: 1, concurrency: 1, channelMs: 120000, totalMs: 120000}
     }
-    if (mode.includes('probe failure')) {
-      const run = commands.command
-      let fetched = false
-      jest.spyOn(commands, 'command').mockImplementation(async (executable, args, configuration) => {
-        if (fetched && executable === 'git' && args[0] === 'cat-file' && args.includes('--batch-check=%(objectname) %(objecttype)')) {
-          throw new Error('post-fetch availability probe timed out')
-        }
-        try { return await run(executable, args, configuration) } finally {
-          if (executable === 'git' && args[0] === 'fetch') fetched = true
-        }
-      })
-    }
+    const run = commands.command
+    const fetches: {args: string[]; input?: string}[] = []
+    const probes: {args: string[]; output: string}[] = []
+    let fetched = false
+    jest.spyOn(commands, 'command').mockImplementation(async (executable, args, configuration) => {
+      if (mode.includes('probe failure') && fetched && executable === 'git' && args[0] === 'cat-file' && args.includes('--batch-check=%(objectname) %(objecttype)')) {
+        throw new Error('post-fetch availability probe timed out')
+      }
+      if (executable === 'git' && args[0] === 'fetch') fetches.push({args, input: configuration.input})
+      try {
+        const output = await run(executable, args, configuration)
+        if (executable === 'git') probes.push({args, output})
+        return output
+      } finally {
+        if (executable === 'git' && args[0] === 'fetch') fetched = true
+      }
+    })
     expect(options.approved['posthog-cloud'].sourceRepository).toBe(CANONICAL_SOURCE_REPOSITORY)
     const [result] = await publishChannels(options)
-    if (mode === 'available') {
+    if (mode === 'available' || mode === 'missing subtrees') {
       expect(result).toMatchObject({decision: 'published', outcome: 'present-at-expected-digest'})
       expect(() => git(cwd, 'cat-file', '-e', tree)).not.toThrow()
       expect(published.has(options.alias)).toBe(true)
+      if (mode === 'available') {
+        const missingRoot = probes.findIndex(probe => probe.args[0] === 'cat-file' && probe.output.split('\n').some(line => line.endsWith(' missing')))
+        expect(missingRoot).toBeGreaterThanOrEqual(0)
+        expect(probes[missingRoot + 1].args[0]).toBe('fetch')
+      }
+      expect(fetches.some(fetch => fetch.args.includes('--filter=blob:none') && fetch.args.includes('--stdin'))).toBe(true)
+      expect(fetches.some(fetch => !fetch.args.some(arg => arg.startsWith('--filter=')) && fetch.input?.includes(policyBlob))).toBe(true)
+      const comparison = await new SourceHistory(cwd, options.budgets).compare(base, revision)
+      expect(comparison.policies.map(policy => policyDigest(policy!.filters.worker))).toEqual([policyDigest(['worker/**']), policyDigest(['new-worker/**'])])
+      expect(new Filter(JSON.stringify({worker: ['new-worker/**']})).match(comparison.files).worker).toEqual([])
     } else {
       expect(result).toMatchObject({decision: 'blocked', reason: expect.stringContaining('remain unavailable after bounded fetch')})
       if (mode.includes('probe failure')) expect(result.reason).toContain('post-fetch availability probe timed out')
