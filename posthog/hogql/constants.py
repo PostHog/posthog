@@ -188,8 +188,6 @@ class HogQLQuerySettings(BaseModel):
     optimize_skip_unused_shards: Optional[bool] = None
     read_overflow_mode: Optional[str] = None
     max_bytes_to_read: Optional[int] = None
-    read_overflow_mode_leaf: Optional[str] = None
-    max_bytes_to_read_leaf: Optional[int] = None
     # The native events table stores a dotted JSON key under an escaped path name (EVENTS_JSON_INSERT_SETTINGS);
     # ClickHouse formats it back as `a.b` only when the reading query sets this too. The ClickHouse printer sets it
     # on every query that reads that table, and a raw SQL reader of the JSON columns must carry it itself.
