@@ -1,8 +1,11 @@
 import { useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -20,6 +23,7 @@ export const scene: SceneExport = {
 
 export function FeatureFlagsStaffToolsScene(): JSX.Element {
     const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!user?.is_staff) {
         return <AccessDenied object="page" reason="This page is only accessible to staff users." />
@@ -32,14 +36,25 @@ export function FeatureFlagsStaffToolsScene(): JSX.Element {
                 description="Look up any team across all organizations to inspect and rebuild its flag caches, or adjust its feature-flags config."
                 resourceType={{ type: 'feature_flag' }}
                 actions={
-                    <>
-                        <LemonButton type="secondary" size="small" to={urls.cohortsStaffTools()}>
-                            Cohorts staff tools
-                        </LemonButton>
-                        <LemonButton type="secondary" size="small" to={urls.instanceSettings()}>
-                            Flags-related instance settings
-                        </LemonButton>
-                    </>
+                    todayRailNav ? (
+                        <>
+                            <Button variant="outline" render={<LinkPrimitive to={urls.cohortsStaffTools()} />}>
+                                Cohorts staff tools
+                            </Button>
+                            <Button variant="outline" render={<LinkPrimitive to={urls.instanceSettings()} />}>
+                                Flags-related instance settings
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <LemonButton type="secondary" size="small" to={urls.cohortsStaffTools()}>
+                                Cohorts staff tools
+                            </LemonButton>
+                            <LemonButton type="secondary" size="small" to={urls.instanceSettings()}>
+                                Flags-related instance settings
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
             <StaffCacheToolsTab />
