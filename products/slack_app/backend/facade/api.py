@@ -112,7 +112,9 @@ def slack_artifact_delivery_state_updates(integration: Integration) -> dict[str,
     return {"slack_artifact_delivery": mode, "slack_chart_delivery": True}
 
 
-def slack_followup_invite_text(integration: Integration | None, *, utm_tags: str, ai_enabled: bool) -> str | None:
+def slack_followup_invite_text(
+    integration: Integration | None, *, utm_tags: str, ai_enabled: bool, subject: str | None = None
+) -> str | None:
     """The mrkdwn line inviting a reader to ask the bot a follow-up about this message.
 
     Returns ``None`` when there is nothing to invite: no Slack install, or an organization that has
@@ -120,11 +122,13 @@ def slack_followup_invite_text(integration: Integration | None, *, utm_tags: str
     link instead, so a caller never has to check the install itself.
 
     ``utm_tags`` attributes an install that starts from the setup link, so each caller passes its
-    own campaign.
+    own campaign. ``subject`` names what the reader would ask about, when it isn't a report.
     """
-    return build_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled)
+    return build_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled, subject=subject)
 
 
-def slack_followup_invite(integration: Integration | None, *, utm_tags: str, ai_enabled: bool) -> dict[str, Any] | None:
+def slack_followup_invite(
+    integration: Integration | None, *, utm_tags: str, ai_enabled: bool, subject: str | None = None
+) -> dict[str, Any] | None:
     """``slack_followup_invite_text`` as a Slack context block, for a caller that appends blocks."""
-    return build_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled)
+    return build_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled, subject=subject)

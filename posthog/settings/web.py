@@ -419,6 +419,11 @@ GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env(
 )
 # Research desk runs only on PostHog's own project. Unset disables its scheduled jobs.
 RESEARCH_DESK_TEAM_ID: int | None = get_from_env("RESEARCH_DESK_TEAM_ID", None, type_cast=int, optional=True)
+# Session briefs post through this Slack integration and channel, and stay off until both are set.
+RESEARCH_DESK_SLACK_INTEGRATION_ID: int | None = get_from_env(
+    "RESEARCH_DESK_SLACK_INTEGRATION_ID", optional=True, type_cast=int
+)
+RESEARCH_DESK_SLACK_CHANNEL_ID: str = get_from_env("RESEARCH_DESK_SLACK_CHANNEL_ID", "")
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")

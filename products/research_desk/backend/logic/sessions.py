@@ -3,11 +3,29 @@ from datetime import datetime
 from django.db.models import Q
 
 from ..facade import contracts
-from ..facade.enums import SessionStatus
+from ..facade.enums import SessionOrigin, SessionStatus
 from ..models import ResearchSession
 from .emails import email_domain, normalize_emails
 
 MAX_SESSIONS = 500
+
+
+def session_to_dto(obj: ResearchSession) -> contracts.ResearchSessionDTO:
+    return contracts.ResearchSessionDTO(
+        id=obj.id,
+        origin=SessionOrigin(obj.origin),
+        external_ref=obj.external_ref,
+        title=obj.title,
+        start_time=obj.start_time,
+        end_time=obj.end_time,
+        status=SessionStatus(obj.status),
+        organizer_email=obj.organizer_email,
+        internal_emails=list(obj.internal_emails),
+        external_emails=list(obj.external_emails),
+        meeting_url=obj.meeting_url,
+        brief_posted_at=obj.brief_posted_at,
+        created_at=obj.created_at,
+    )
 
 
 def list_sessions(
