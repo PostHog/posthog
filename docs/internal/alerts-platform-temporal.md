@@ -310,7 +310,7 @@ A group with no instance whose check decides nothing is left out, so a quiet ser
 
 Insight groups by breakdown value, with `keys` set to `["breakdown"]`.
 `check_alert_per_series` judges every series on its own, where production's `check_alert_for_insight` stops at the first series that breaches, and the adapter runs each value through the shared machine against its own instance.
-Only threshold alerts can group; a detector scores its series together, so a detector alert is judged as one instance whatever its copy's grouping says.
+Only threshold alerts can group; a detector scores its series together.
 
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 
