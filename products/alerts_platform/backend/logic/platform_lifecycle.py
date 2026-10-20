@@ -691,10 +691,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
         # episode nobody was told about.
         revived = existing is not None and upsert.enabled and (revive or not existing["enabled"])
         if revived:
-            defaults["consecutive_failures"] = 0
-            defaults["check_status"] = PlatformAlertConfiguration.CheckStatus.OK
-            defaults["overflowed_groups"] = 0
-            defaults["overflow_is_lower_bound"] = False
+            defaults.update(_CLEAN_START)
             # After any check already running, so an outcome it read before the source came back
             # on, such as a stop, finds the row no longer due and records nothing.
             defaults["next_check_at"] = max(
@@ -708,6 +705,16 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
                 state=PlatformAlert.State.NOT_FIRING.value, firing_started_at=None
             )
     return created
+
+
+# What one check found about its groups. It says nothing once the alert regroups or comes back on.
+_NO_OVERFLOW: Final = {"overflowed_groups": 0, "overflow_is_lower_bound": False}
+# The state an alert that comes back on starts from, whichever path turns it back on.
+_CLEAN_START: Final = {
+    "consecutive_failures": 0,
+    "check_status": PlatformAlertConfiguration.CheckStatus.OK,
+    **_NO_OVERFLOW,
+}
 
 
 def write_edit(
@@ -743,19 +750,15 @@ def write_edit(
         "updated_at",
     ]
     reenabled = edit.enabled and not configuration.enabled
-    if regrouped or reenabled:
-        # The count describes groups under old keys or from before the alert was off, so it says
-        # nothing until the next check.
-        configuration.overflowed_groups = 0
-        configuration.overflow_is_lower_bound = False
-        update_fields += ["overflowed_groups", "overflow_is_lower_bound"]
     # An alert turned back on starts clean, as a revived copy does. A BROKEN one would otherwise stay
     # out of discovery for good.
+    cleared = _CLEAN_START if reenabled else _NO_OVERFLOW if regrouped else {}
+    for field, value in cleared.items():
+        setattr(configuration, field, value)
+    update_fields += list(cleared)
     if reenabled:
-        configuration.consecutive_failures = 0
-        configuration.check_status = PlatformAlertConfiguration.CheckStatus.OK
         configuration.next_check_at = now + _REVIVE_FENCE
-        update_fields += ["consecutive_failures", "check_status", "next_check_at"]
+        update_fields.append("next_check_at")
     configuration.name = edit.name
     configuration.enabled = edit.enabled
     configuration.source_config = edit.source_config

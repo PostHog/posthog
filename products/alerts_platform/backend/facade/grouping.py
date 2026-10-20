@@ -166,7 +166,7 @@ class GroupDecision:
         evaluation_key: str,
         grouping: Grouping,
         query_duration_ms: int | None,
-        results_cut: bool = False,
+        results_cut: bool,
     ) -> PlatformAlertOutcome:
         """The outcome of a grouped check that ran. A query that ran reset the failure count.
 

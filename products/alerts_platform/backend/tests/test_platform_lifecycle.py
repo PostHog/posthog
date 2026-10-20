@@ -980,7 +980,11 @@ def test_a_full_grouped_check_with_hostile_labels_fits_one_payload() -> None:
         now=datetime(2026, 10, 15, tzinfo=UTC),
     )
     outcome = decision.as_outcome(
-        configuration_id=check.id, evaluation_key="window:x", grouping=check.grouping, query_duration_ms=1
+        configuration_id=check.id,
+        evaluation_key="window:x",
+        grouping=check.grouping,
+        query_duration_ms=1,
+        results_cut=False,
     )
 
     assert len(outcome.groups) == MAX_INSTANCES_CEILING
