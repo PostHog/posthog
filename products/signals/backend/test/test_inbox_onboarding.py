@@ -95,6 +95,7 @@ class TestInboxOnboarding(APIBaseTest):
         assert second.json()["variant"] == variant
         assert capture.call_count == 1
         assert capture.call_args.kwargs["properties"]["variant"] == variant
+        assert capture.call_args.kwargs["properties"]["$feature/inbox-ui-onboarding"] == variant
         assert capture.call_args.kwargs["properties"]["self_driving_ubp"] is True
         assert flag.call_args.args == ("self-driving-ubp", str(self.user.distinct_id))
         assert flag.call_args.kwargs["groups"]["organization"] == str(self.organization.id)
@@ -241,6 +242,7 @@ class TestInboxOnboarding(APIBaseTest):
         assert capture.call_args.kwargs["properties"]["variant"] == variant
         assert capture.call_args.kwargs["properties"] == {
             "variant": variant,
+            "$feature/inbox-ui-onboarding": variant,
             "project_id": self.team.id,
             "flow_version": "ui-first-v1",
             "inbox_client": "cloud",
