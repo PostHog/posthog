@@ -54,7 +54,7 @@ class TestAgentRunEvents(BaseTaskAPITest):
             ),
         ]
     )
-    def test_run_event_updates_the_run(self, _name, event, expected, _signal) -> None:
+    def test_run_event_updates_the_run(self, _signal, _name, event, expected) -> None:
         response = self._report(event)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -73,7 +73,7 @@ class TestAgentRunEvents(BaseTaskAPITest):
             ("pi", Task.Runtime.PI, "Pi agent server crashed: boom"),
         ]
     )
-    def test_server_names_the_crashed_runtime(self, _name, runtime, expected_message, _signal) -> None:
+    def test_server_names_the_crashed_runtime(self, _signal, _name, runtime, expected_message) -> None:
         self._create_run(self.create_task(runtime=runtime))
 
         self._report({"type": "failed", "error_type": "agent_server_crash", "cause": "boom"})
@@ -95,7 +95,7 @@ class TestAgentRunEvents(BaseTaskAPITest):
         ]
     )
     def test_structured_output_is_checked_against_the_schema(
-        self, _name, output, expected_status, expected_output, _signal
+        self, _signal, _name, output, expected_status, expected_output
     ) -> None:
         self.task.json_schema = {"type": "object", "properties": {"summary": {"type": "string"}}}
         self.task.save(update_fields=["json_schema"])
@@ -115,7 +115,7 @@ class TestAgentRunEvents(BaseTaskAPITest):
             ("empty_usage", {"type": "usage"}),
         ]
     )
-    def test_invalid_event_is_rejected(self, _name, event, _signal) -> None:
+    def test_invalid_event_is_rejected(self, _signal, _name, event) -> None:
         response = self._report(event)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -128,7 +128,7 @@ class TestAgentRunEvents(BaseTaskAPITest):
             ("same_status_retry", {"type": "failed", "error_type": "agent_reported", "cause": "late"}, 200),
         ]
     )
-    def test_event_for_an_ended_run(self, _name, event, expected_status, _signal) -> None:
+    def test_event_for_an_ended_run(self, _signal, _name, event, expected_status) -> None:
         self._create_run(self.task, TaskRun.Status.FAILED)
 
         response = self._report(event)
@@ -154,7 +154,7 @@ class TestAgentRunEvents(BaseTaskAPITest):
             ("retry_after_the_run_failed", TaskRun.Status.FAILED),
         ]
     )
-    def test_failed_event_retries_until_the_workflow_is_signalled(self, _name, run_status, signal) -> None:
+    def test_failed_event_retries_until_the_workflow_is_signalled(self, signal, _name, run_status) -> None:
         self._create_run(self.task, run_status)
         signal.return_value = False
 
@@ -172,7 +172,7 @@ class TestAgentRunEvents(BaseTaskAPITest):
             ("malformed_type", {"type": ["started"]}, status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_scout_trial_reports_only_lifecycle_events(self, _name, event, expected_status, _signal) -> None:
+    def test_scout_trial_reports_only_lifecycle_events(self, _signal, _name, event, expected_status) -> None:
         self._create_run(
             Task.objects.create(
                 team=self.team,
