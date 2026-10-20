@@ -4660,10 +4660,10 @@ Today (11): `accounts`, `charges`, `checkout_sessions`, `customers`, `invoices`,
 
 Diffed against: <https://docs.fintoc.com/_llms/v2026-02-01/en/api-reference.txt>
 
-- [ ] `Business accounts (GET /v2/accounts)` — resolve account IDs on transfers and analyze business account balances separately from linked open banking accounts (high)
-- [ ] `Payment methods (GET /v2/payment_methods)` — resolve payment_method IDs on subscriptions and compare recurring payment instruments and mandate status (high)
-- [ ] `Business account movements (GET /v2/accounts/{account_id}/movements)` — reconcile transfer activity and business account balances with the complete account ledger (high)
-- [ ] `Disputes (GET /v1/disputes)` — measure disputed payment amounts, outcomes, and revenue losses (high)
+- [x] `Business accounts (GET /v2/accounts)` — resolve account IDs on transfers and analyze business account balances separately from linked open banking accounts (high)
+- [x] `Payment methods (GET /v2/payment_methods)` — resolve payment_method IDs on subscriptions and compare recurring payment instruments and mandate status (high)
+- [x] `Business account movements (GET /v2/accounts/{account_id}/movements)` — reconcile transfer activity and business account balances with the complete account ledger (high)
+- [x] `Disputes (GET /v1/disputes)` — measure disputed payment amounts, outcomes, and revenue losses (high)
 - [ ] `Events (GET /v2/events)` — analyze payment, subscription, invoice, and transfer state changes over time (medium)
 - [ ] `Account numbers (GET /v2/account_numbers)` — analyze virtual collection accounts, including accounts without transfers and their recent activity (medium)
 - [ ] `Payout resources (GET /v1/payouts/{id}/resources)` — connect settlement payouts to the payments, charges, and refunds they include (medium)
