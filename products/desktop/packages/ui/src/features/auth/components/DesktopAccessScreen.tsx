@@ -69,7 +69,7 @@ const SIGNUPS_PAUSED_CONTENT = {
   icon: <HourglassMedium />,
   title: "Desktop sign-ups are paused",
   description:
-    "Sorry, we aren't letting new accounts into PostHog Desktop at the moment. Not ideal, we know. The hedgehogs have made some games in the meantime, and nobody has paused those.",
+    "Sorry, we aren't letting new accounts into PostHog Desktop at the moment. Not ideal, we know.",
 };
 
 const POSTHOG_GAMES_URL = "https://posthog.com/sparks-joy";
