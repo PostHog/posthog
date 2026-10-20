@@ -10299,3 +10299,44 @@ class TestExperimentScoutCallerRules(APILicensedTest):
             assert experiment.end_date is None
             assert experiment.feature_flag.filters == flag_filters_before
             assert Experiment.objects.filter(team=self.team).count() == 1
+
+    @parameterized.expand([("running", True, False), ("draft_on_live_flag", False, True)])
+    def test_scout_cannot_change_a_live_flag_holdout(self, _name: str, launched: bool, reuse_live_flag: bool) -> None:
+        if reuse_live_flag:
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="scout-rules-flag",
+                active=True,
+                filters={
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            )
+        experiment = self._experiment(launched=launched)
+        assert experiment.feature_flag is not None
+        flag_filters_before = experiment.feature_flag.filters
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name="Scout holdout",
+            created_by=self.user,
+            filters=[{"properties": [], "rollout_percentage": 10, "variant": "holdout-scout"}],
+        )
+        self._authenticate("experiment:read experiment:write signal_scout_internal:write task:write")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {"holdout_id": holdout.id, "update_feature_flag_params": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        experiment.refresh_from_db()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.holdout is None
+        assert experiment.feature_flag.filters == flag_filters_before

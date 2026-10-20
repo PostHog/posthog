@@ -55,11 +55,12 @@ def update_carries_flag_config(data: Mapping[str, Any], *, legacy_flag_config_ke
     """Whether an experiment update can write the linked flag's variants, rollout, or holdout.
 
     The flag config arrives as the `feature_flag` object or, for legacy callers, as keys under
-    `parameters`. The serializer copies the legacy keys onto the same flag write.
+    `parameters`. The serializer copies the legacy keys onto the same flag write. A holdout arrives
+    as `holdout_id`, because the `holdout` field is read-only.
     """
     parameters = data.get("parameters")
     legacy_flag_keys = isinstance(parameters, Mapping) and any(key in parameters for key in legacy_flag_config_keys)
-    return "feature_flag" in data or "holdout" in data or legacy_flag_keys
+    return "feature_flag" in data or "holdout_id" in data or legacy_flag_keys
 
 
 def refuse_scout_experiment_delete(is_scout_caller: bool) -> None:
