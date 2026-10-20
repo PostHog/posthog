@@ -217,6 +217,7 @@ export interface evaluationBackfillsLogicMeta {
             evaluation: EvaluationConfig | null
         ) => EvaluationTargetEnumApi
         startDisabledReason: (
+            evaluation: EvaluationConfig | null,
             hasActiveBackfill: boolean,
             transitioningIds: string[],
             conditions: EvaluationConditionSet[],
