@@ -429,7 +429,8 @@ export const SourceConfigsUnavailable: Story = {
 export const ReplayVisionExpanded: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('Replay vision', { exact: true }))
+        const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Replay vision')
+        await userEvent.click(expandButton)
     },
 }
 
@@ -437,7 +438,8 @@ export const ReplayVisionExpanded: Story = {
 export const ErrorTrackingExpanded: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('Error tracking', { exact: true }))
+        const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Error tracking')
+        await userEvent.click(expandButton)
     },
 }
 
