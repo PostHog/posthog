@@ -325,13 +325,26 @@ It records a message only when every check passes, in this order:
 3. No event ingestion restriction for `session_recordings` drops the message, as in the main lane.
 4. The team records sessions, has a valid retention period, and its organization opts in to AI training.
 5. The session ID is a recent UUIDv7, as in v3.
-6. Neither the main lane nor the v3 mirror blocked the session.
+6. The recorder's own new-session limit did not block the session, as described below.
 
 The recorder reads the team list from Postgres every five minutes.
 A refresh that takes more than 60 seconds fails.
 After 20 failed refreshes in a row it admits no team until a refresh succeeds, so an opt-out is never ignored for long.
 It also admits no team when its list is older than 20 refresh intervals plus their timeouts, whatever the refresh task does.
 It consumes the replay topic and its overflow topic.
+
+### New-session limit
+
+The recorder protects the dataset from floods of new sessions with the main lane's rules, applied by itself.
+It does not read the main lane's or the v3 mirror's blocklist.
+
+- A session is new when the recorder has neither seen it nor blocked it.
+- Each new session from the replay topic takes one token from its team's token bucket. A session that gets no token is blocked as a whole, and the recorder drops every later message of it from both topics.
+- A new session from the overflow topic takes no token. The recorder only counts it, as the replay overflow lane does.
+- The bucket holds `SESSION_RECORDING_ML_V4_NEW_SESSION_BUCKET_CAPACITY` tokens (default 3000) and refills at `SESSION_RECORDING_ML_V4_NEW_SESSION_BUCKET_REPLENISH_RATE` per second (default 300), the main lane's production values. Both scale with the sample percentage, because the limit counts only sessions that pass the gate. With `SESSION_RECORDING_ML_V4_NEW_SESSION_BLOCKING_ENABLED` set to false, the recorder counts and blocks nothing.
+- Each pod keeps its own buckets in memory, as the main lane does, so two deployments block slightly different sessions.
+- Seen and blocked sessions are stored in the replay Redis (`SESSION_RECORDING_REDIS_URL`) under `@posthog/replay/ai-research-v4/`, with the main lane's expiry, so a block survives a restart or a rebalance.
+- A Redis error lets the session through, as in the main lane.
 
 ### Gate
 
