@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
@@ -13,6 +14,7 @@ import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyt
 import { ScenePin } from 'lib/components/Scenes/ScenePin'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -85,6 +87,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { setShowFilters } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isNewPlaylist = useMemo(() => {
         if (!playlist || playlistLoading) {
@@ -210,7 +213,28 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     saveOnBlur
                     renameDebounceMs={100}
                     actions={
-                        playlist.is_synthetic ? undefined : playlist.type === 'collection' ? (
+                        playlist.is_synthetic ? undefined : todayRailNav ? (
+                            playlist.type === 'collection' ? (
+                                <Button
+                                    variant="primary"
+                                    onClick={() => setAddRecordingsModalOpen(true)}
+                                    data-attr="collection-add-recordings"
+                                >
+                                    <IconPlus />
+                                    Add recordings
+                                </Button>
+                            ) : (
+                                <Button
+                                    data-attr="collection-save-or-show-filters"
+                                    variant="primary"
+                                    disabledReason={showFilters && !hasChanges ? 'No changes to save' : undefined}
+                                    loading={hasChanges && playlistLoading}
+                                    onClick={() => (showFilters ? updatePlaylist() : setShowFilters(!showFilters))}
+                                >
+                                    {showFilters ? <>Save changes</> : <>Edit</>}
+                                </Button>
+                            )
+                        ) : playlist.type === 'collection' ? (
                             <LemonButton
                                 type="primary"
                                 size="small"

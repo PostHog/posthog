@@ -47,6 +47,7 @@ from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GatewayTokenUnavailableError,
     ProcessTaskError,
+    ProcessTaskFatalError,
     ProcessTaskTransientError,
 )
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
@@ -1767,6 +1768,7 @@ def posthog_code_token_unavailable(reason: str, team_id: int | None) -> ProcessT
     message = _POSTHOG_CODE_REFUSAL_MESSAGES.get(reason, f"PostHog AI refused this run (reason: {reason}).")
     if reason == "not_configured":
         logger.error("ai_gateway: posthog_code run with no gateway configured (team_id=%s)", team_id)
+        return ProcessTaskFatalError(message, context, RuntimeError(reason), capture=False)
     return GatewayTokenUnavailableError(message, context)
 
 

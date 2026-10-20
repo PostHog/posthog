@@ -2813,6 +2813,11 @@ export interface ProjectBackwardCompatApi {
      */
     name?: string
     /**
+     * ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.
+     * @nullable
+     */
+    logo_media_id?: string | null
+    /**
      * Short description of what the project is about. This is helpful to give our AI agents context about your project.
      * @maxLength 1000
      * @nullable
@@ -3697,6 +3702,11 @@ export interface PatchedProjectBackwardCompatApi {
      */
     name?: string
     /**
+     * ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.
+     * @nullable
+     */
+    logo_media_id?: string | null
+    /**
      * Short description of what the project is about. This is helpful to give our AI agents context about your project.
      * @maxLength 1000
      * @nullable
@@ -4559,6 +4569,11 @@ export interface ProjectApi {
      * @maxLength 200
      */
     name?: string
+    /**
+     * ID of the uploaded image shown as this project's logo. Null when the project has no logo.
+     * @nullable
+     */
+    readonly logo_media_id: string | null
     /**
      * @maxLength 1000
      * @nullable

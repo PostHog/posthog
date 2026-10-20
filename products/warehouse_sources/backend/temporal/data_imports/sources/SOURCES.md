@@ -519,6 +519,8 @@ the row lists both.
 | linkedin_ads                     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | linkrunner                       | HTTP                        | requests                                                        | ✅                          |
 | linode                           | HTTP                        | requests                                                        | ✅                          |
+| listmonk                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| litellm                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | livestorm                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | llama_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | lob                              | HTTP                        | requests                                                        | ✅                          |
@@ -545,6 +547,7 @@ the row lists both.
 | matomo                           | HTTP                        | requests                                                        | ✅                          |
 | maxio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | medusa                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| megaphone                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | membrain                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mention                          | HTTP                        | requests                                                        | ✅                          |
 | mercado_pago                     | HTTP                        | requests                                                        | ✅                          |
