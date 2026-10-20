@@ -1,6 +1,8 @@
 import shlex
 import base64
 
+from posthog.dataclasses import frozen
+
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 
 from .agentsh import (
@@ -16,6 +18,13 @@ from .agentsh import (
     read_gh_guard_script,
 )
 from .task_filesystem import TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script, task_filesystem_command
+
+
+@frozen
+class LaunchFile:
+    path: str
+    payload: bytes
+    mode: str
 
 
 def build_modal_launch_preparation_script(allowed_domains: list[str] | None) -> str:
@@ -54,19 +63,27 @@ def build_modal_agent_server_launch_script(
     return "\n".join(script) + "\n"
 
 
-def _base_files() -> list[tuple[str, bytes, str]]:
+def _base_files() -> list[LaunchFile]:
     return [
-        (BASH_ENV_SCRIPT, generate_bash_env_script().encode(), "644"),
-        (GH_GUARD_INSTALL_PATH, read_gh_guard_script(), "755"),
-        (TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script(), "644"),
+        LaunchFile(path=BASH_ENV_SCRIPT, payload=generate_bash_env_script().encode(), mode="644"),
+        LaunchFile(path=GH_GUARD_INSTALL_PATH, payload=read_gh_guard_script(), mode="755"),
+        LaunchFile(path=TASK_FILESYSTEM_SCRIPT, payload=read_task_filesystem_script(), mode="644"),
     ]
 
 
-def _agentsh_files(allowed_domains: list[str]) -> list[tuple[str, bytes, str]]:
+def _agentsh_files(allowed_domains: list[str]) -> list[LaunchFile]:
     return [
-        ("/etc/agentsh/config.yaml", generate_config_yaml(enable_ptrace=True, full_trace=True).encode(), "644"),
-        ("/etc/agentsh/policies/default.yaml", generate_policy_yaml(allowed_domains).encode(), "644"),
-        (ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode(), "755"),
+        LaunchFile(
+            path="/etc/agentsh/config.yaml",
+            payload=generate_config_yaml(enable_ptrace=True, full_trace=True).encode(),
+            mode="644",
+        ),
+        LaunchFile(
+            path="/etc/agentsh/policies/default.yaml",
+            payload=generate_policy_yaml(allowed_domains).encode(),
+            mode="644",
+        ),
+        LaunchFile(path=ENV_WRAPPER_SCRIPT, payload=generate_env_wrapper().encode(), mode="755"),
     ]
 
 
@@ -100,23 +117,23 @@ def _script_header() -> list[str]:
     ]
 
 
-def _install_lines(files: list[tuple[str, bytes, str]]) -> list[str]:
+def _install_lines(files: list[LaunchFile]) -> list[str]:
     lines: list[str] = ["first_staged=${#staged_files[@]}"]
-    for path, payload, mode in files:
-        destination = shlex.quote(path)
-        encoded = shlex.quote(base64.b64encode(payload).decode())
+    for file in files:
+        destination = shlex.quote(file.path)
+        encoded = shlex.quote(base64.b64encode(file.payload).decode())
         lines.extend(
             [
                 f'mkdir -p -- "$(dirname -- {destination})"',
-                f"temporary=$(mktemp {shlex.quote(path + '.tmp.XXXXXX')})",
+                f"temporary=$(mktemp {shlex.quote(file.path + '.tmp.XXXXXX')})",
                 'staged_files+=("$temporary")',
                 f'printf %s {encoded} | base64 -d > "$temporary"',
-                f'chmod {mode} "$temporary"',
+                f'chmod {file.mode} "$temporary"',
             ]
         )
-    for index, (path, _, _) in enumerate(files):
-        lines.append(f"test ! -d {shlex.quote(path)}")
-        lines.append(f'mv -f -- "${{staged_files[$((first_staged + {index}))]}}" {shlex.quote(path)}')
+    for index, file in enumerate(files):
+        lines.append(f"test ! -d {shlex.quote(file.path)}")
+        lines.append(f'mv -f -- "${{staged_files[$((first_staged + {index}))]}}" {shlex.quote(file.path)}')
     return lines
 
 
