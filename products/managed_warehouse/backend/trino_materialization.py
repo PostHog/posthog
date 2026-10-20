@@ -129,20 +129,30 @@ def _name_unnamed_columns(
 
     Trino rejects a CREATE TABLE AS statement with an unnamed column. A plain field keeps its column name.
     A ``COLUMNS(...)`` projection stays as is, because only the resolver can expand it.
+    A positional set operation takes its column names from its first branch, so only that branch and
+    ``BY NAME`` branches get names. A later branch can repeat an expression without a name conflict.
     """
     from posthog.hogql import ast  # noqa: PLC0415 -- keeps HogQL imports off Django startup
     from posthog.hogql.context import HogQLContext  # noqa: PLC0415
     from posthog.hogql.printer.hogql import HogQLPrinter  # noqa: PLC0415
-    from posthog.hogql.resolver_utils import extract_select_queries  # noqa: PLC0415
 
     printer = HogQLPrinter(context=HogQLContext(team_id=team.pk, team=team))
-    for select in extract_select_queries(node):
-        select.select = [
+
+    def name_columns(query: ast.SelectQuery | ast.SelectSetQuery) -> None:
+        if isinstance(query, ast.SelectSetQuery):
+            name_columns(query.initial_select_query)
+            for branch in query.subsequent_select_queries:
+                if branch.set_operator.endswith(" BY NAME"):
+                    name_columns(branch.select_query)
+            return
+        query.select = [
             column
             if isinstance(column, ast.Alias | ast.Field | ast.ColumnsExpr)
             else ast.Alias(alias=safe_identifier(printer.visit(column)), expr=column)
-            for column in select.select
+            for column in query.select
         ]
+
+    name_columns(node)
     return node
 
 
