@@ -812,6 +812,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Attio` - Attio
  * * `SnapchatAds` - SnapchatAds
  * * `Linear` - Linear
+ * * `LiteLLM` - LiteLLM
  * * `Intercom` - Intercom
  * * `Amplitude` - Amplitude
  * * `Mixpanel` - Mixpanel
@@ -2214,6 +2215,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Attio: 'Attio',
     SnapchatAds: 'SnapchatAds',
     Linear: 'Linear',
+    LiteLLM: 'LiteLLM',
     Intercom: 'Intercom',
     Amplitude: 'Amplitude',
     Mixpanel: 'Mixpanel',
@@ -3758,6 +3760,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -5667,6 +5670,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -7149,6 +7153,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -8555,6 +8560,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -10015,6 +10021,7 @@ export interface SourcePreviewRequestApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -11456,6 +11463,7 @@ export interface SourceSetupApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -12904,6 +12912,7 @@ export interface SourceCredentialCreateApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel

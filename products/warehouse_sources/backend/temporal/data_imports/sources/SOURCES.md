@@ -520,6 +520,7 @@ the row lists both.
 | linkrunner                       | HTTP                        | requests                                                        | ✅                          |
 | linode                           | HTTP                        | requests                                                        | ✅                          |
 | listmonk                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| litellm                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | livestorm                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | llama_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | lob                              | HTTP                        | requests                                                        | ✅                          |
