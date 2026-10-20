@@ -453,6 +453,8 @@ tools:
         description_file: ./prompts/logs-patterns-diff.md
         response:
             exclude:
+                - entries.*.pattern.pattern
+                - entries.*.pattern.services
                 - entries.*.pattern.examples
                 - entries.*.pattern.sparkline
                 - entries.*.pattern.count
@@ -498,6 +500,7 @@ tools:
         title: Query logs
         description_file: ./prompts/query-logs.md
         system_prompt_hint: Log filtering by severity/service/attribute
+        reads_ingested_data: events
         response:
             include:
                 - results

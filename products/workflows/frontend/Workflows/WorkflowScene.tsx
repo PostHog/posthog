@@ -44,6 +44,7 @@ import {
 } from './workflowAgentContext'
 import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowBroadcastMoveBanner } from './WorkflowBroadcastMoveBanner'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
@@ -247,6 +248,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
+                {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}
                 {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
                 {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}

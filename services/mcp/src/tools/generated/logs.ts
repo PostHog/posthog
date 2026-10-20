@@ -752,6 +752,8 @@ const logsPatternsDiff = (): ToolBase<
             body,
         })
         const filtered = omitResponseFields(result, [
+            'entries.*.pattern.pattern',
+            'entries.*.pattern.services',
             'entries.*.pattern.examples',
             'entries.*.pattern.sparkline',
             'entries.*.pattern.count',

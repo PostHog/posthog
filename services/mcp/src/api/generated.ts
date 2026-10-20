@@ -64016,6 +64016,36 @@ export namespace Schemas {
       project_name: string;
     }
 
+    /**
+     * Prefilled `query` object for that tool. Pass it as is or adjust it.
+     */
+    export type LogsAgentNextCallQuery = { [key: string]: unknown };
+
+    export interface LogsAgentNextCall {
+      /** MCP tool to call next, e.g. query-logs or logs-context. */
+      tool: string;
+      /** One line on what the follow-up call answers. */
+      why: string;
+      /** Prefilled `query` object for that tool. Pass it as is or adjust it. */
+      query: LogsAgentNextCallQuery;
+    }
+
+    export interface LogsAgentWindowBounds {
+      /** Window start, ISO 8601 UTC with a Z suffix (inclusive). */
+      from: string;
+      /** Window end, ISO 8601 UTC with a Z suffix (exclusive). */
+      to: string;
+    }
+
+    export interface LogsAgentWindow {
+      /** Absolute bounds the server used for the current window. */
+      current: LogsAgentWindowBounds;
+      /** Absolute bounds the server used for the baseline window, when there is one. */
+      baseline?: LogsAgentWindowBounds;
+      /** Always "UTC". */
+      timezone: string;
+    }
+
     export interface LogsAlertFilters {
       filterGroup?: PropertyGroupFilter | null;
       serviceNames?: string[] | null;
@@ -88973,6 +89003,18 @@ export namespace Schemas {
       funnels_query: unknown;
     }
 
+    /**
+     * * `stored_patterns` - Stored Patterns
+     * * `body_mining` - Body Mining
+     */
+    export type PatternsDiffSourceEnum = typeof PatternsDiffSourceEnum[keyof typeof PatternsDiffSourceEnum];
+
+
+    export const PatternsDiffSourceEnum = {
+      StoredPatterns: 'stored_patterns',
+      BodyMining: 'body_mining',
+    } as const;
+
     export interface PauseResponse {
       /** Always 'paused'. */
       status: string;
@@ -102844,6 +102886,264 @@ export namespace Schemas {
       policies?: ToolPolicyEntry[];
     }
 
+    /**
+     * * `none` - None
+     * * `previous_period` - Previous Period
+     * * `previous_day` - Previous Day
+     * * `previous_week` - Previous Week
+     */
+    export type ServiceHealthBaselineEnum = typeof ServiceHealthBaselineEnum[keyof typeof ServiceHealthBaselineEnum];
+
+
+    export const ServiceHealthBaselineEnum = {
+      None: 'none',
+      PreviousPeriod: 'previous_period',
+      PreviousDay: 'previous_day',
+      PreviousWeek: 'previous_week',
+    } as const;
+
+    /**
+     * * `status` - Status
+     * * `error_rate` - Error Rate
+     * * `p95` - P95
+     * * `throughput` - Throughput
+     * * `error_count` - Error Count
+     */
+    export type ServiceHealthOrderByEnum = typeof ServiceHealthOrderByEnum[keyof typeof ServiceHealthOrderByEnum];
+
+
+    export const ServiceHealthOrderByEnum = {
+      Status: 'status',
+      ErrorRate: 'error_rate',
+      P95: 'p95',
+      Throughput: 'throughput',
+      ErrorCount: 'error_count',
+    } as const;
+
+    export interface _ServiceHealthDateRange {
+      /**
+         * Relative (-30m, -6h, -7d) or ISO 8601.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * Same format. Omit or null for "now".
+         * @nullable
+         */
+      date_to?: string | null;
+    }
+
+    /**
+     * * `entry` - Entry
+     * * `all` - All
+     */
+    export type ServiceHealthSpanScopeEnum = typeof ServiceHealthSpanScopeEnum[keyof typeof ServiceHealthSpanScopeEnum];
+
+
+    export const ServiceHealthSpanScopeEnum = {
+      Entry: 'entry',
+      All: 'all',
+    } as const;
+
+    export interface _ServiceHealthQuery {
+      /** The window to score. Defaults to the last hour. */
+      dateRange?: _ServiceHealthDateRange;
+      /** The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.
+       *
+       * * `none` - None
+       * * `previous_period` - Previous Period
+       * * `previous_day` - Previous Day
+       * * `previous_week` - Previous Week */
+      compare?: ServiceHealthBaselineEnum;
+      /**
+         * Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.
+         * @nullable
+         */
+      environment?: string | null;
+      /**
+         * Only these services.
+         * @maxItems 100
+         */
+      serviceNames?: string[];
+      /** entry (default) counts root, server and consumer spans, one per request. all counts every span.
+       *
+       * * `entry` - Entry
+       * * `all` - All */
+      spanScope?: ServiceHealthSpanScopeEnum;
+      /** status (default) puts silent, regressed and degraded first. The others sort high to low.
+       *
+       * * `status` - Status
+       * * `error_rate` - Error Rate
+       * * `p95` - P95
+       * * `throughput` - Throughput
+       * * `error_count` - Error Count */
+      orderBy?: ServiceHealthOrderByEnum;
+      /**
+         * Max service rows, 1-200.
+         * @minimum 1
+         * @maximum 200
+         */
+      limit?: number;
+    }
+
+    export interface ServiceHealthRequest {
+      /** The service health query. Every field is optional. */
+      query: _ServiceHealthQuery;
+      /** An explicit baseline window. Overrides query.compare. */
+      baselineDateRange?: _ServiceHealthDateRange;
+    }
+
+    export interface _ServiceHealthTimeRange {
+      /** Start, ISO 8601 UTC, inclusive. */
+      date_from: string;
+      /** End, ISO 8601 UTC, exclusive. */
+      date_to: string;
+    }
+
+    export interface _ServiceHealthWindow {
+      /** The scored window. Reuse it as dateRange in follow-up calls. */
+      current: _ServiceHealthTimeRange;
+      /** The baseline window. Null when compare is none. */
+      baseline: _ServiceHealthTimeRange | null;
+      /** Always UTC. */
+      timezone: string;
+    }
+
+    export interface _ServiceHealthSummary {
+      /** Services scored, before the limit. */
+      services: number;
+      /** Requests over all scored services. */
+      requests: number;
+      /** Services per status. */
+      ok: number;
+      /** Services per status. */
+      degraded: number;
+      /** Services per status. */
+      regressed: number;
+      /** Services per status. */
+      silent: number;
+      /** Services per status. */
+      new: number;
+      /** Services per status. */
+      recovered: number;
+      /** Services per status. */
+      improved: number;
+    }
+
+    /**
+     * * `silent` - Silent
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
+     * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok
+     */
+    export type ServiceHealthStatusEnum = typeof ServiceHealthStatusEnum[keyof typeof ServiceHealthStatusEnum];
+
+
+    export const ServiceHealthStatusEnum = {
+      Silent: 'silent',
+      Regressed: 'regressed',
+      Degraded: 'degraded',
+      New: 'new',
+      Recovered: 'recovered',
+      Improved: 'improved',
+      Ok: 'ok',
+    } as const;
+
+    export interface _ServiceHealthRow {
+      /** Service name. */
+      service: string;
+      /** silent: spans stopped. regressed: error rate or p95 worse than the baseline. degraded: error rate 5% or more. new: no spans in the baseline. recovered, improved: the reverse of regressed.
+       *
+       * * `silent` - Silent
+       * * `regressed` - Regressed
+       * * `degraded` - Degraded
+       * * `new` - New
+       * * `recovered` - Recovered
+       * * `improved` - Improved
+       * * `ok` - Ok */
+      status: ServiceHealthStatusEnum;
+      /** Why the service has this status. Empty for ok. */
+      reason: string;
+      /** Spans in the window, in the chosen spanScope. */
+      requests: number;
+      /** Requests per minute. */
+      throughput_per_min: number;
+      /** Requests with OTel status Error. */
+      error_count: number;
+      /**
+         * Error share of requests, percent.
+         * @nullable
+         */
+      error_rate_pct: number | null;
+      /**
+         * Change from the baseline, points.
+         * @nullable
+         */
+      error_rate_delta_pp: number | null;
+      /**
+         * Median duration, ms.
+         * @nullable
+         */
+      p50_ms: number | null;
+      /**
+         * 95th percentile duration, ms.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /**
+         * p95 change from the baseline, percent.
+         * @nullable
+         */
+      p95_change_pct: number | null;
+      /**
+         * 99th percentile duration, ms.
+         * @nullable
+         */
+      p99_ms: number | null;
+      /**
+         * Baseline requests. Null without one.
+         * @nullable
+         */
+      baseline_requests: number | null;
+      /**
+         * Last span, ISO 8601 UTC.
+         * @nullable
+         */
+      last_seen: string | null;
+    }
+
+    /**
+     * The prefilled query argument.
+     */
+    export type _ServiceHealthNextCallQuery = { [key: string]: unknown };
+
+    export interface _ServiceHealthNextCall {
+      /** The tool to call next. */
+      tool: string;
+      /** What the call answers. */
+      why: string;
+      /** The prefilled query argument. */
+      query: _ServiceHealthNextCallQuery;
+    }
+
+    export interface ServiceHealthResponse {
+      /** The absolute UTC windows the server used. */
+      window: _ServiceHealthWindow;
+      /** Counts over all scored services. */
+      summary: _ServiceHealthSummary;
+      /** One row per service, in orderBy order. */
+      services: _ServiceHealthRow[];
+      /** Prefilled follow-up calls. */
+      next: _ServiceHealthNextCall[];
+      /** True when more services matched than limit. */
+      truncated: boolean;
+      /** Caveats about this result. */
+      notes: string[];
+    }
+
     export interface SessionRecordingBulkDeleteRequest {
       /**
          * Session IDs of the recordings to delete (max 100 per call).
@@ -116478,6 +116778,89 @@ export namespace Schemas {
       started_at?: string | null;
     }
 
+    export interface WizardInstallStart {
+      /** ID of the setup run. Pass it to the status endpoint. */
+      readonly run_id: string;
+      /** Current lifecycle status of the setup run.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      readonly status: WizardRunStatusEnum;
+      /** PostHog page where the user can follow their setup runs. */
+      readonly url: string;
+    }
+
+    export interface WizardInstallStartRequest {
+      /**
+         * GitHub repository to set up, in owner/name format. The project's GitHub connection must have access to it.
+         * @maxLength 255
+         */
+      repository: string;
+      /**
+         * Branch to start from and to open the pull request against. Defaults to the repository's default branch.
+         * @maxLength 255
+         */
+      branch?: string;
+      /**
+         * Unique key for this request. A retry with the same key returns the same run instead of starting another.
+         * @maxLength 255
+         */
+      idempotency_key?: string;
+    }
+
+    export interface WizardInstallTask {
+      /** Task the setup agent planned. */
+      readonly name: string;
+      /** Current task status reported by the setup agent.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed */
+      readonly status: WizardTaskStatusEnum;
+    }
+
+    export interface WizardInstallStatus {
+      /** Lifecycle status of the setup run. created and running mean it is still in progress.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      readonly status: WizardRunStatusEnum;
+      /** Step the setup run is on while it is in progress, or null otherwise.
+       *
+       * * `dispatching` - dispatching
+       * * `provisioning` - provisioning
+       * * `preparing_workspace` - preparing_workspace
+       * * `executing_wizard` - executing_wizard
+       * * `creating_artifacts` - creating_artifacts */
+      readonly stage: WizardRunStageEnum | null;
+      /**
+         * Machine-readable failure reason, or null if the run has not failed.
+         * @nullable
+         */
+      readonly error_code: string | null;
+      /**
+         * Failure explanation, or null if the run has not failed.
+         * @nullable
+         */
+      readonly error_message: string | null;
+      /**
+         * Pull request with the setup changes, or null until the run opens one.
+         * @nullable
+         */
+      readonly pull_request_url: string | null;
+      /** Tasks the setup agent planned, in order. */
+      readonly tasks: readonly WizardInstallTask[];
+      /** What happens next, in a sentence to relay to the user. */
+      readonly next_step: string;
+    }
+
     export interface WizardRunCreateRequest {
       /**
          * Registry program to run.
@@ -117496,6 +117879,15 @@ export namespace Schemas {
     } as const;
 
     export interface _LogPatternDiffEntry {
+      /** The template with variable parts masked. */
+      masked_example: string;
+      /** Up to 4 services with this pattern. */
+      services: string[];
+      /**
+         * Earliest 5-minute bucket (UTC) with this pattern, up to 14 days back. Null on body mining.
+         * @nullable
+         */
+      first_seen_ever: string | null;
       /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
        *
        * * `new` - new
@@ -117808,9 +118200,33 @@ export namespace Schemas {
       sessionId?: string;
     }
 
+    export interface _LogsPatternsDiffBody {
+      /** Date range to mine patterns from. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels before mining. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Restrict mining to these service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies before mining. */
+      searchTerm?: string;
+      /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
+      /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+      sessionId?: string;
+      /**
+         * Return at most this many entries, most interesting first. Omit for all. Sets `truncated`.
+         * @minimum 1
+         * @maximum 500
+         * @nullable
+         */
+      limit?: number | null;
+    }
+
     export interface _LogsPatternsDiffRequest {
       /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
-      query: _LogsPatternsBody;
+      query: _LogsPatternsDiffBody;
       /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
       baselineDateRange?: _DateRange;
     }
@@ -117863,6 +118279,26 @@ export namespace Schemas {
     }
 
     export interface _LogsPatternsDiffResponse {
+      /** Absolute UTC bounds of the current and baseline windows. */
+      window: LogsAgentWindow;
+      /** stored_patterns when both windows have ≥99% of rows on the same stored version, else body_mining.
+       *
+       * * `stored_patterns` - Stored Patterns
+       * * `body_mining` - Body Mining */
+      source: PatternsDiffSourceEnum;
+      /**
+         * Stored pattern version, null for mining.
+         * @nullable
+         */
+      pattern_version: number | null;
+      /** True on the body-mining fallback: counts are sample estimates. */
+      sampled: boolean;
+      /** True when `limit` cut the entry list. */
+      truncated: boolean;
+      /** Caveats that limit what the diff shows. */
+      notes: string[];
+      /** Prefilled query-logs calls for the top new or shifted patterns. */
+      next: LogsAgentNextCall[];
       /** Classified diff entries, most interesting first: "new" (by estimated count), then "rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the baseline is matched to the current window by literal-content fingerprint, so a placeholder widening between runs does not read as one pattern vanishing and another appearing. */
       entries: _LogPatternDiffEntry[];
       /** Mining metadata for the current window. */
@@ -133290,6 +133726,21 @@ export namespace Schemas {
      */
     attribute_type?: TracingSpansAttributesRetrieveAttributeType;
     /**
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
+     * @minLength 1
+     */
+    dateRange?: string;
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
      * Max results (default: 100).
      * @minimum 1
      * @maximum 100
@@ -133321,10 +133772,20 @@ export namespace Schemas {
 
     export type TracingSpansServiceNamesRetrieveParams = {
     /**
-     * JSON-encoded date range, e.g. '{"date_from": "-1h"}'.
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
      * @minLength 1
      */
     dateRange?: string;
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string;
     /**
      * Search filter for service names.
      * @minLength 1
@@ -133342,6 +133803,21 @@ export namespace Schemas {
      * @minLength 1
      */
     attribute_type?: TracingSpansValuesRetrieveAttributeType;
+    /**
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
+     * @minLength 1
+     */
+    dateRange?: string;
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string;
     /**
      * The attribute key to get values for.
      * @minLength 1
