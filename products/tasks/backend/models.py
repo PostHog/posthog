@@ -65,7 +65,7 @@ from products.tasks.backend.metrics import (
     observe_task_run_terminal,
 )
 from products.tasks.backend.pr_urls import read_pr_urls
-from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
+from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
 from products.tasks.backend.storage import append_jsonl_object
 
 logger = structlog.get_logger(__name__)
@@ -808,11 +808,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         expected_ownership_version = self.ownership_version
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
         if dedicated_stream is None:
-            distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"
-            dedicated_stream = evaluate_dedicated_stream_flag(
-                organization_id=str(self.team.organization_id),
-                distinct_id=distinct_id,
-            )
+            dedicated_stream = dedicated_stream_configured()
 
         with transaction.atomic():
             task = (
@@ -1624,11 +1620,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             "workflow_id_prefix": workflow_id_prefix,
         }
         if run_extra_state.get("use_dedicated_stream") is None:
-            distinct_id = (task.created_by.distinct_id if task.created_by else None) or f"team_{task.team_id}"
-            run_extra_state["use_dedicated_stream"] = evaluate_dedicated_stream_flag(
-                organization_id=str(task.team.organization_id),
-                distinct_id=distinct_id,
-            )
+            run_extra_state["use_dedicated_stream"] = dedicated_stream_configured()
 
         with transaction.atomic():
             task.save()

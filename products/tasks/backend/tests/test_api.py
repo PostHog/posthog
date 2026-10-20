@@ -7668,7 +7668,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_template": "default_base",
                 "agent_otel_telemetry_enabled": False,
                 "sandbox_event_ingest_enabled": False,
-                "agent_proxy_keep_stream_open": False,
                 "overlap_clone_boot_enabled": False,
                 "stream_presence_gated": True,
                 "stream_thin_tail": True,
@@ -7750,7 +7749,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_template": "vm_base",
                     "agent_otel_telemetry_enabled": True,
                     "sandbox_event_ingest_enabled": True,
-                    "agent_proxy_keep_stream_open": True,
                     "overlap_clone_boot_enabled": True,
                     "stream_presence_gated": False,
                     "stream_thin_tail": False,
@@ -7833,7 +7831,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_template"] == "default_base"
         assert run.state["agent_otel_telemetry_enabled"] is False
         assert run.state["sandbox_event_ingest_enabled"] is False
-        assert run.state["agent_proxy_keep_stream_open"] is False
         assert run.state["overlap_clone_boot_enabled"] is False
         assert run.state["stream_presence_gated"] is True
         assert run.state["stream_thin_tail"] is True
@@ -7902,7 +7899,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "github_credential_source",
                     "loop_id",
                     "agent_otel_telemetry_enabled",
-                    "agent_proxy_keep_stream_open",
                     "overlap_clone_boot_enabled",
                     "stream_presence_gated",
                     "stream_thin_tail",
@@ -7955,7 +7951,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["loop_id"] == "server-loop-id"
         assert run.state["include_live_context"] is False
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
-        assert run.state["agent_proxy_keep_stream_open"] is False
         assert run.state["overlap_clone_boot_enabled"] is False
         assert run.state["stream_presence_gated"] is True  # protected key survives removal
         assert run.state["stream_thin_tail"] is True  # protected key survives removal

@@ -469,6 +469,10 @@ Each name above is a class attribute on `ModalSandbox`, and the `MODAL_DOCKER` a
 override all four (`posthog-sandbox-modal-docker-*`, `posthog-sandbox-evals`), so local and eval runs never land
 in a production app. A new app name has to be a class attribute for that to keep holding.
 
+Task sandboxes carry `task_id` and `task_run_id` tags for exact lookup, plus a readable `workflow_label`.
+The label keeps the workflow prefix, replaces characters outside `A-Z`, `a-z`, `0-9`, `_`, `.`, and `-` with dashes, and caps the result at 63 characters.
+Use `TaskRun.workflow_id` to recover the full Temporal workflow ID from the run.
+
 ### Sandbox templates
 
 Staff can inspect the agent release pipeline at `/admin/tasks/task/infrastructure/` in each region.
