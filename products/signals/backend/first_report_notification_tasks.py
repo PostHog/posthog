@@ -1,5 +1,6 @@
 from celery import shared_task
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import with_team_scope
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -19,12 +20,14 @@ from products.signals.backend.models import SignalFirstReportNotification
 )
 @with_team_scope()
 def dispatch_first_report_notification(team_id: int) -> None:
-    deliver_first_report_email(team_id)
+    try:
+        deliver_first_report_email(team_id)
+    except Exception as error:
+        capture_exception(error)
+        raise
 
 
-@shared_task(ignore_result=True)
-@skip_team_scope_audit
-def sweep_first_report_notifications(after_id: str | None = None) -> None:
+def _sweep_first_report_notifications(after_id: str | None) -> None:
     pending = SignalFirstReportNotification.objects.unscoped().filter(
         queued_at__isnull=True, cancelled_at__isnull=True, send_started_at__isnull=True
     )
@@ -35,3 +38,13 @@ def sweep_first_report_notifications(after_id: str | None = None) -> None:
         dispatch_first_report_notification.delay(team_id)
     if len(page) == 500:
         sweep_first_report_notifications.delay(str(page[-1][0]))
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def sweep_first_report_notifications(after_id: str | None = None) -> None:
+    try:
+        _sweep_first_report_notifications(after_id)
+    except Exception as error:
+        capture_exception(error)
+        raise

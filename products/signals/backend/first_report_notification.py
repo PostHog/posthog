@@ -18,6 +18,7 @@ from posthog.transactional_email import (
 )
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import ActionabilityChoice
 from products.signals.backend.constants import SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport
@@ -44,6 +45,7 @@ def _eligible_recipient(user: User | None, team: Team) -> bool:
         and user.email
         and user.distinct_id
         and team.organization.members.filter(pk=user.pk).exists()
+        and UserAccessControl(user=user, team=team).has_project_access
         and may_read_reports(user=user, team=team)
     )
 
@@ -82,7 +84,18 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
         else:
             report = reports.order_by("first_visible_at", "id").first()
         if report is None:
-            if notification.message_data:
+            if notification.message_data and (
+                notification.report_id is None
+                or not SignalReport.objects.filter(
+                    team_id=team_id,
+                    id=notification.report_id,
+                    status__in=[
+                        SignalReport.Status.CANDIDATE,
+                        SignalReport.Status.IN_PROGRESS,
+                        SignalReport.Status.PENDING_INPUT,
+                    ],
+                ).exists()
+            ):
                 notification.cancelled_at = timezone.now()
                 notification.save(update_fields=["cancelled_at"])
             return None

@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.transactional_email import (
     TransactionalEmailDeliveryUncertain,
@@ -20,12 +21,17 @@ from posthog.transactional_email import (
     send_transactional_email,
 )
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.first_report_notification import (
     deliver_first_report_email,
     register_first_report_notification,
 )
-from products.signals.backend.first_report_notification_tasks import sweep_first_report_notifications
-from products.signals.backend.models import SignalFirstReportNotification, SignalReport
+from products.signals.backend.first_report_notification_tasks import (
+    dispatch_first_report_notification,
+    sweep_first_report_notifications,
+)
+from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
+from products.signals.backend.report_access import may_read_reports
 
 MODULE = "products.signals.backend.first_report_notification"
 TASK_MODULE = "products.signals.backend.first_report_notification_tasks"
@@ -169,6 +175,48 @@ class TestFirstReportNotification(BaseTest):
         assert initial_send.kwargs["message_data"]["report_id"] == str(first.id)
         assert self.notification().queued_at is not None
 
+    def test_project_access_is_required_even_with_task_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        recipient = User.objects.create_and_join(self.organization, "recipient@example.com", None)
+        SignalFirstReportNotification.objects.for_team(self.team.id).update(activated_by=recipient)
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        self.report()
+        assert may_read_reports(user=recipient, team=self.team)
+
+        deliver_first_report_email(self.team.id)
+
+        self.send.assert_not_called()
+        assert self.notification().cancelled_at is not None
+
+    @parameterized.expand(
+        [(SignalReport.Status.CANDIDATE,), (SignalReport.Status.IN_PROGRESS,), (SignalReport.Status.PENDING_INPUT,)]
+    )
+    def test_selected_report_waits_for_research_before_retry(self, status: str) -> None:
+        report = self.report()
+        self.send.side_effect = TransactionalEmailRetryableError("rate_limited")
+        with self.assertRaises(TransactionalEmailRetryableError):
+            deliver_first_report_email(self.team.id)
+        initial_send = self.send.call_args
+        self.send.side_effect = None
+        SignalReport.objects.filter(pk=report.pk).update(status=status)
+
+        deliver_first_report_email(self.team.id)
+
+        self.send.assert_called_once()
+        assert self.notification().cancelled_at is None
+        assert self.notification().send_started_at is None
+        SignalReport.objects.filter(pk=report.pk).update(status=SignalReport.Status.READY)
+        deliver_first_report_email(self.team.id)
+        assert self.send.call_count == 2
+        assert self.send.call_args == initial_send
+        assert self.notification().queued_at is not None
+
     @parameterized.expand(
         [
             ("ambiguous_response", TransactionalEmailDeliveryUncertain("request_failed")),
@@ -282,3 +330,43 @@ class TestFirstReportNotification(BaseTest):
         self.send.assert_not_called()
         deliver_first_report_email(self.team.id)
         self.send.assert_called_once()
+
+    @parameterized.expand([("report",), ("judgment",)])
+    def test_enqueue_failure_does_not_abort_later_commit_callbacks(self, trigger: str) -> None:
+        report = self.report(status=SignalReport.Status.IN_PROGRESS)
+        following_callback = Mock()
+        with (
+            patch(
+                f"{TASK_MODULE}.dispatch_first_report_notification.delay",
+                side_effect=RuntimeError("broker unavailable"),
+            ),
+            self.assertLogs(level="ERROR"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if trigger == "report":
+                report.status = SignalReport.Status.READY
+                report.save(update_fields=["status"])
+            else:
+                SignalReportArtefact.objects.create(
+                    team=self.team,
+                    report=report,
+                    type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                    content='{"actionability":"immediately_actionable","already_addressed":false}',
+                )
+            transaction.on_commit(following_callback)
+        following_callback.assert_called_once()
+
+    @parameterized.expand([("dispatch",), ("sweep",)])
+    def test_task_captures_and_reraises_failures(self, task_name: str) -> None:
+        error = RuntimeError("notification failed")
+        target = "deliver_first_report_email" if task_name == "dispatch" else "dispatch_first_report_notification.delay"
+        task = dispatch_first_report_notification if task_name == "dispatch" else sweep_first_report_notifications
+        args = (self.team.id,) if task_name == "dispatch" else ()
+        with (
+            patch(f"{TASK_MODULE}.{target}", side_effect=error),
+            patch(f"{TASK_MODULE}.capture_exception") as capture,
+            self.assertRaises(RuntimeError) as raised,
+        ):
+            task(*args)
+        assert raised.exception is error
+        capture.assert_called_once_with(error)

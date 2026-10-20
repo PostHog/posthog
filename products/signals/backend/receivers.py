@@ -52,6 +52,13 @@ def _enqueue_first_report_notification(team_id: int) -> None:
         dispatch_first_report_notification.delay(team_id)
 
 
+def _schedule_first_report_notification(team_id: int) -> None:
+    def enqueue() -> None:
+        _enqueue_first_report_notification(team_id)
+
+    transaction.on_commit(enqueue, robust=True)
+
+
 @receiver(post_save, sender=SignalReport)
 def enqueue_first_report_notification(
     sender: type[SignalReport],
@@ -61,7 +68,7 @@ def enqueue_first_report_notification(
     **kwargs: Any,
 ) -> None:
     if instance.status == SignalReport.Status.READY and (created or update_fields is None or "status" in update_fields):
-        transaction.on_commit(partial(_enqueue_first_report_notification, instance.team_id), robust=True)
+        _schedule_first_report_notification(instance.team_id)
 
 
 _SNOOZE_SOURCE_STATUSES = frozenset(
@@ -846,7 +853,7 @@ def sync_report_latest_actionability_on_save(
     """
     _sync_report_latest_actionability(instance)
     if instance.type == SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
-        transaction.on_commit(partial(_enqueue_first_report_notification, instance.team_id), robust=True)
+        _schedule_first_report_notification(instance.team_id)
 
 
 def _deleted_directly(origin: Any) -> bool:
