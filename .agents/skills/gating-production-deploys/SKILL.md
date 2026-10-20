@@ -73,10 +73,11 @@ Counter-example, not gated: `build-phrocs.yml`.
 
 For a new monorepo publisher or independent releases of a shared built image,
 read [Ordered image releases](references/ordered-image-releases.md). Reuse the
-repository helper and canonical policy. Selective publication evaluates each
-configured channel from its own verified publication frontier after the common
-alias attempt. Activation requires approved destinations and one explicit seed.
-Services built elsewhere retain their existing publisher family.
+repository helper and canonical policy. Use `.github/actions/shared-image-releases`
+for `inspect` and the publication helper APIs. The legacy paths-filter action
+owns manifest loading and projection. The foundation supports the common
+alias and policy helpers. Channels must stay empty; selective worker publication
+is not implemented. Services built elsewhere retain their existing publisher family.
 
 The publisher validates source policy and approved publication destinations.
 For new-service onboarding or an existing-service migration, hand the consumer's

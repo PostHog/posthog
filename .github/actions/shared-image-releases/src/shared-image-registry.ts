@@ -1,12 +1,15 @@
 import {createHash} from 'crypto'
-import {mkdtempSync, readFileSync, rmSync} from 'fs'
+import {existsSync, mkdtempSync, readFileSync, rmSync} from 'fs'
 import {tmpdir} from 'os'
 import * as path from 'path'
-import {command, CommandOptions} from './shared-image-command'
-import {DIGEST, ORDERED_ALIAS, REVISION} from './shared-image-history'
-import {CANONICAL_SOURCE_REPOSITORY, DestinationBinding, ImageBinding} from './shared-image-releases'
+import {command, CommandOptions, configureCopyClient} from './shared-image-command'
+import {DIGEST, ORDERED_ALIAS, REVISION, CANONICAL_SOURCE_REPOSITORY, DestinationBinding, ImageBinding} from './shared-image-releases'
 
 export type Outcome = 'present-at-expected-digest' | 'absent' | 'integrity-mismatch' | 'unknown'
+export interface Publication {
+  outcome: Outcome
+  reason?: string
+}
 export interface RegistryBudgets {
   registryMs: number
   copySeconds: number
@@ -27,7 +30,9 @@ export class ReleaseRegistry {
     private readonly cwd: string, private readonly regctl: string,
     private readonly helper: string, private readonly budgets: RegistryBudgets,
     private readonly deadline: number
-  ) {}
+  ) {
+    this.regctl = configureCopyClient(regctl)
+  }
 
   private options(timeoutMs = this.budgets.registryMs): CommandOptions {
     return {cwd: this.cwd, maxBuffer: this.budgets.maxBuffer, timeoutMs: Math.min(timeoutMs, this.deadline - Date.now())}
@@ -77,7 +82,9 @@ export class ReleaseRegistry {
 
   async identity(registry: string, repository: string, digest: string, tag?: string): Promise<ImageIdentity> {
     if (!DIGEST.test(digest)) throw new Error('Expected exact image digest')
-    const raw = await command(this.regctl, ['manifest', 'get', `${registry}/${repository}@${digest}`, '--format', 'raw-body'], this.options())
+    const raw = await command('client', ['manifest', 'get', `${registry}/${repository}@${digest}`, '--format', 'raw-body'], {
+      ...this.options(), env: {REGCTL: this.regctl}
+    })
     if (`sha256:${createHash('sha256').update(raw, 'utf8').digest('hex')}` !== digest) throw new Error('Manifest digest mismatch')
     const manifest = JSON.parse(raw) as {annotations?: Record<string, string>}
     const revision = manifest.annotations?.['org.opencontainers.image.revision'] ?? ''
@@ -91,11 +98,11 @@ export class ReleaseRegistry {
     return {revision, digest}
   }
 
-  async publish(source: ImageBinding, destination: DestinationBinding, digest: string, tag: string): Promise<Outcome> {
+  async publish(source: ImageBinding, destination: DestinationBinding, digest: string, tag: string): Promise<Publication> {
     const scratch = mkdtempSync(path.join(tmpdir(), 'ordered-image-'))
     const output = path.join(scratch, 'output')
     try {
-      const logs = await command('bash', [this.helper, 'publish'], {
+      const logs = await command('helper', [this.helper, 'publish'], {
         ...this.options((this.budgets.copySeconds + this.budgets.readbackSeconds + 15) * 1000),
         env: {
           SOURCE_REGISTRY: source.registry, SOURCE_REPO: source.repository,
@@ -105,11 +112,11 @@ export class ReleaseRegistry {
         }
       })
       process.stdout.write(logs)
-      const match = /^outcome=(present-at-expected-digest|absent|integrity-mismatch|unknown)$/m.exec(readFileSync(output, 'utf8'))
-      return match ? match[1] as Outcome : 'unknown'
+      const match = existsSync(output) ? /^outcome=(present-at-expected-digest|absent|integrity-mismatch|unknown)$/m.exec(readFileSync(output, 'utf8')) : undefined
+      return match ? {outcome: match[1] as Outcome} : {outcome: 'unknown', reason: 'Publication helper produced no recognized outcome'}
     } catch (error) {
       process.stderr.write(`${String(error)}\n`)
-      return 'unknown'
+      return {outcome: 'unknown', reason: String(error)}
     } finally {
       rmSync(scratch, {recursive: true, force: true})
     }

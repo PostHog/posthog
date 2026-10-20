@@ -1,13 +1,13 @@
 import {execFileSync} from 'child_process'
-import {mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync} from 'fs'
+import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'fs'
 import {tmpdir} from 'os'
 import * as path from 'path'
 import {createHash} from 'crypto'
 import * as yaml from 'js-yaml'
 import {command, CommandOptions} from '../src/shared-image-command'
-import {SourceHistory, POLICY_PATH} from '../src/shared-image-history'
-import {approvedImages, publishChannels, PublisherOptions, validateRequests} from '../src/shared-image-publisher'
-import {CANONICAL_SOURCE_REPOSITORY, loadPolicy, policyDigest} from '../src/shared-image-releases'
+import {SourceHistory} from '../src/shared-image-history'
+import {publishChannels, PublisherOptions, validateRequests} from '../src/shared-image-publisher'
+import {approvedImages, CANONICAL_SOURCE_REPOSITORY, loadPolicy, POLICY_PATH, policyDigest} from '../src/shared-image'
 
 jest.mock('../src/shared-image-command')
 const external = command as jest.MockedFunction<typeof command>
@@ -35,7 +35,7 @@ const image = (revision: string, source = `https://github.com/${CANONICAL_SOURCE
   manifests.set(digest, raw)
   return digest
 }
-const alias = (revision: string): string => new SourceHistory(repo, options.budgets).alias(revision)
+const alias = (revision: string): string => `r${git('rev-list', '--first-parent', '--count', revision).padStart(12, '0')}-${revision.slice(0, 6)}`
 const build = (): void => {
   options.revision = git('rev-parse', 'HEAD')
   options.digest = image(options.revision)
@@ -46,6 +46,7 @@ const seed = (revision: string): void => {
   for (const repository of ['workers/worker', 'workers/other']) tags.get(repository)?.set(alias(revision), digest)
 }
 const invoke = async (executable: string, args: string[], configuration: CommandOptions): Promise<string> => {
+  if (executable === 'git') return jest.requireActual<typeof import('../src/shared-image-command')>('../src/shared-image-command').command('git', args, configuration)
   if (executable === 'aws') {
     const repository = args[args.indexOf('--repository-name') + 1]
     const entries = tags.get(repository) ?? new Map<string, string>()
@@ -57,13 +58,13 @@ const invoke = async (executable: string, args: string[], configuration: Command
     const tag = args.find(argument => argument.startsWith('imageTag='))?.slice(9) ?? ''
     return entries.get(tag) ?? 'None'
   }
-  if (executable === 'regctl') {
+  if (executable === 'client') {
     const digest = args[2].split('@')[1]
     const raw = manifests.get(digest)
     if (!raw) throw new Error('missing source image')
     return raw
   }
-  if (executable === 'bash') {
+  if (executable === 'helper') {
     const env = configuration.env ?? {}
     const entries = tags.get(env.ECR_REPO ?? '') as Map<string, string>
     const existing = entries.get(env.ORDERED_ALIAS ?? '')
@@ -81,7 +82,7 @@ beforeEach(() => {
   tags = new Map(['workers/worker', 'workers/other'].map(repository => [repository, new Map<string, string>()]))
   manifests = new Map()
   options = {
-    cwd: repo, revision: '', digest: '', alias: '', buildSucceeded: true, force: [],
+    cwd: repo, revision: '', digest: '', alias: '', force: [],
     approved: approvedImages('posthog-cloud', 'registry.example.com', 'registry.example.com', JSON.stringify([
       {owner: 'worker', repository: 'workers/worker', registry: 'registry.example.com', replicas: ['replica.example.com']},
       {owner: 'other', repository: 'workers/other', registry: 'registry.example.com', replicas: ['replica.example.com']}
@@ -106,19 +107,32 @@ describe('shared-image publication', () => {
   })
 
   test.each([true, false])('unpublished relevant changes recover after build success=%s', async success => {
-    put('worker/run.py', 'relevant'); commit(); build(); options.buildSucceeded = success
+    put('worker/run.py', 'relevant'); commit(); build()
     const firstDigest = options.digest
     const firstAlias = options.alias
-    const first = await publishChannels(options)
-    expect(first.find(result => result.channel.endsWith('/worker'))?.decision).toBe(success ? 'published' : 'build-not-successful')
-    put('unrelated.txt', 'unrelated'); commit(); build(); options.buildSucceeded = true
+    if (success) expect((await publishChannels(options)).find(result => result.channel.endsWith('/worker'))?.decision).toBe('published')
+    else expect(tags.get('workers/worker')!.has(firstAlias)).toBe(false)
+    put('unrelated.txt', 'unrelated'); commit(); build()
     const results = await publishChannels(options)
     expect(results.find(result => result.channel.endsWith('/worker'))?.decision).toBe(success ? 'unchanged' : 'published')
     expect(results.find(result => result.channel.endsWith('/other'))?.decision).toBe('unchanged')
     expect(tags.get('workers/worker')?.get(success ? firstAlias : options.alias)).toBe(success ? firstDigest : options.digest)
   })
 
-  test('policy changes, including a reverted policy, qualify only the affected channel', async () => {
+  test.each(['reverted policy', 'destination rebind'])('%s affects only the selected channel', async mode => {
+    if (mode === 'destination rebind') {
+      const source = options.approved['posthog-cloud']
+      source.destinations = [...source.destinations, {...source.destinations[0], repository: 'workers/rebound'}]
+      tags.set('workers/rebound', new Map([[alias(base), image(base)]]))
+      const changed = loadPolicy(policy())
+      changed.images['posthog-cloud'].channels.worker.repository = 'workers/rebound'
+      put(POLICY_PATH, yaml.dump(changed)); commit(); build()
+      expect(await publishChannels(options)).toEqual(expect.arrayContaining([
+        expect.objectContaining({channel: 'posthog-cloud/worker', decision: 'blocked', reason: expect.stringContaining('historical destination changed')}),
+        expect.objectContaining({channel: 'posthog-cloud/other', decision: 'unchanged'})
+      ]))
+      return
+    }
     put(POLICY_PATH, policy(['worker/**', 'dependency/**'])); commit()
     put(POLICY_PATH, policy()); commit(); build()
     expect(await publishChannels(options)).toEqual(expect.arrayContaining([
@@ -172,7 +186,7 @@ describe('shared-image publication', () => {
   test('one channel failure preserves other eligible attempts and emits no success receipt', async () => {
     put('worker/run.py', 'relevant'); put('other/file.py', 'relevant'); commit(); build()
     external.mockImplementation(async (exe, args, config) => {
-      if (exe === 'bash' && config.env?.ECR_REPO === 'workers/worker') {
+      if (exe === 'helper' && config.env?.ECR_REPO === 'workers/worker') {
         writeFileSync(config.env.GITHUB_OUTPUT!, 'outcome=absent\n'); return ''
       }
       return invoke(exe, args, config)
@@ -181,6 +195,23 @@ describe('shared-image publication', () => {
       expect.objectContaining({channel: 'posthog-cloud/worker', decision: 'blocked', outcome: 'absent'}),
       expect.objectContaining({channel: 'posthog-cloud/other', decision: 'published'})
     ]))
+    expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
+    external.mockImplementation(invoke)
+    expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toMatchObject({decision: 'published', outcome: 'present-at-expected-digest'})
+  })
+
+  test.each(['rejected', 'missing outcome', 'invalid outcome'])('helper failure is unknown with its reason: %s', async mode => {
+    put('worker/run.py', 'relevant'); commit(); build()
+    external.mockImplementation(async (executable, args, config) => {
+      if (executable === 'helper' && config.env?.ECR_REPO === 'workers/worker') {
+        if (mode === 'rejected') throw new Error('copy helper crashed')
+        if (mode === 'invalid outcome') writeFileSync(config.env.GITHUB_OUTPUT!, 'outcome=invalid\n')
+        return ''
+      }
+      return invoke(executable, args, config)
+    })
+    const result = (await publishChannels(options)).find(row => row.channel.endsWith('/worker'))
+    expect(result).toMatchObject({decision: 'blocked', outcome: 'unknown', reason: expect.stringContaining(mode === 'rejected' ? 'copy helper crashed' : 'no recognized outcome')})
     expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
   })
 
@@ -199,8 +230,13 @@ describe('shared-image publication', () => {
     if (mode === 'conflict') entries.set(alias(base), image(base, 'https://example.invalid/conflict'))
     const result = (await publishChannels(options)).find(row => row.channel.endsWith('/worker'))!
     const succeeds = ['seed', 'retry after advancement', 'missing historical policy'].includes(mode)
-    expect(result.decision).toBe(succeeds ? 'published' : 'blocked')
-    if (succeeds) expect(JSON.parse(readFileSync(path.join(options.evidence, 'bootstrap/posthog-cloud/worker.json'), 'utf8'))).toMatchObject({seedRevision: base, outcome: 'present-at-expected-digest'})
+    expect(result.decision).toBe(succeeds ? mode === 'retry after advancement' ? 'present' : 'published' : 'blocked')
+    if (succeeds) expect(JSON.parse(readFileSync(path.join(options.evidence, 'bootstrap/posthog-cloud/worker.json'), 'utf8'))).toEqual({
+      version: 1, sourceRepository: CANONICAL_SOURCE_REPOSITORY, sourceImage: 'registry.example.com/posthog-cloud',
+      destination: options.approved['posthog-cloud'].destinations[0], policyRevision: options.revision,
+      policyDigest: policyDigest(['worker/**']), seedRevision: base, ordinal: Number(alias(base).slice(1, 13)),
+      tag: alias(base), digest: image(base), outcome: 'present-at-expected-digest'
+    })
   })
 
   test.each([true, false])('seed predating manifest=%s uses the immutable fingerprint until adoption', async predatesManifest => {
@@ -221,23 +257,11 @@ describe('shared-image publication', () => {
     expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toMatchObject({decision: 'blocked', reason: expect.stringContaining('cannot change')})
   })
 
-  test('missing historical trees block publication until a bounded fetch supplies them', async () => {
-    put('worker/run.py', 'unpublished'); const relevant = commit()
-    put('unrelated.txt', 'later success'); commit(); build()
-    const tree = git('rev-parse', `${relevant}^{tree}`)
-    unlinkSync(path.join(repo, '.git/objects', tree.slice(0, 2), tree.slice(2)))
-    const results = await publishChannels(options)
-    expect(results).toEqual(expect.arrayContaining([
-      expect.objectContaining({channel: 'posthog-cloud/worker', decision: 'blocked', reason: expect.stringContaining('git')})
-    ]))
-    expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
-  })
-
   test.each(['destination', 'fan-out'])('%s errors fail before any channel copy', async mode => {
-    build()
+    put('unrelated.txt', mode); commit(); build()
     if (mode === 'destination') options.approved['posthog-cloud'].destinations = []
     else options.budgets.maxChannels = 1
     await expect(publishChannels(options)).rejects.toThrow(mode === 'destination' ? /worker.*approved destination/ : /fan-out/)
-    expect(external).not.toHaveBeenCalled()
+    expect([...tags.values()].every(entries => !entries.has(options.alias))).toBe(true)
   })
 })

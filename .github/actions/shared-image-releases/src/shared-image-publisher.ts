@@ -1,0 +1,210 @@
+import {mkdirSync, writeFileSync} from 'fs'
+import * as path from 'path'
+import {SourceHistory, HistoryBudgets} from './shared-image-history'
+import {ReleaseRegistry, RegistryBudgets, Outcome, Publication} from './shared-image-registry'
+import {
+  ApprovedImages, bindChannels, CANONICAL_SOURCE_REPOSITORY, Channel, DestinationBinding,
+  Filter, ImageBinding, Policy, policyDigest, ORDERED_ALIAS, DIGEST, REVISION
+} from './shared-image'
+
+export interface PublisherBudgets extends HistoryBudgets, RegistryBudgets {
+  maxChannels: number
+  concurrency: number
+  totalMs: number
+  channelMs: number
+}
+export interface Bootstrap {
+  channel: string
+  revision: string
+  digest: string
+}
+export interface PublisherOptions {
+  cwd: string
+  revision: string
+  digest: string
+  alias: string
+  approved: ApprovedImages
+  force: string[]
+  bootstrap?: Bootstrap
+  budgets: PublisherBudgets
+  regctl: string
+  helper: string
+  evidence: string
+  policyPath?: string
+}
+export interface ChannelResult {
+  channel: string
+  decision: 'published' | 'unchanged' | 'older-revision' | 'blocked' | 'present'
+  outcome?: Outcome
+  reason?: string
+  tag?: string
+  digest?: string
+}
+
+export function channelKeys(policy: Policy): string[] {
+  return Object.entries(policy.images).flatMap(([image, definition]) => Object.keys(definition.channels).map(channel => `${image}/${channel}`))
+}
+
+export function validateRequests(policy: Policy, force: unknown, bootstrap: unknown): {force: string[]; bootstrap?: Bootstrap} {
+  const keys = channelKeys(policy)
+  if (!Array.isArray(force) || force.some(key => typeof key !== 'string' || !keys.includes(key))) {
+    throw new Error(`Force requires explicit configured channel keys: ${JSON.stringify(force)}`)
+  }
+  if (bootstrap === undefined) return {force}
+  const seed = bootstrap as Bootstrap
+  if (!seed || typeof seed !== 'object' || Object.keys(seed).sort().join(',') !== 'channel,digest,revision' ||
+      !keys.includes(seed.channel) || !REVISION.test(seed.revision) || !DIGEST.test(seed.digest) || force.length) {
+    throw new Error('Bootstrap requires one configured channel, full seed revision and digest, without force')
+  }
+  return {force, bootstrap: seed}
+}
+
+function selectedPolicy(policy: Policy | undefined, image: string, name: string, current: Channel, approved: ApprovedImages, destination: DestinationBinding): string | undefined {
+  const channel = policy?.images[image]?.channels[name]
+  if (!channel || !policy) return undefined
+  if (channel.bootstrapPolicyDigest !== undefined && channel.bootstrapPolicyDigest !== current.bootstrapPolicyDigest) {
+    throw new Error(`${image}/${name}: bootstrapPolicyDigest cannot change after adoption`)
+  }
+  const binding = bindChannels({...policy, images: {[image]: {channels: {[name]: channel}}}}, approved)[image][name]
+  if (binding.owner !== destination.owner || binding.registry !== destination.registry || binding.repository !== destination.repository ||
+      JSON.stringify(binding.replicas) !== JSON.stringify(destination.replicas)) throw new Error(`${image}/${name}: historical destination changed`)
+  return policyDigest(policy.filters[channel.filter])
+}
+
+function policyChanged(policies: (Policy | undefined)[], image: string, name: string, channel: Channel, options: PublisherOptions, destination: DestinationBinding): boolean {
+  let seen = false
+  const digests = policies.map(policy => {
+    const digest = selectedPolicy(policy, image, name, channel, options.approved, destination)
+    if (digest) seen = true
+    if (!seen) {
+      if (!channel.bootstrapPolicyDigest) throw new Error(`${image}/${name}: missing bootstrapPolicyDigest for historical policy gap`)
+      return channel.bootstrapPolicyDigest
+    }
+    return digest
+  })
+  return digests.some(digest => digest !== digests[0])
+}
+
+interface ResolvedChannel {
+  image: string
+  name: string
+  key: string
+  channel: Channel
+  destination: DestinationBinding
+  source: ImageBinding
+}
+
+interface ChannelContext {
+  options: PublisherOptions
+  policy: Policy
+  history: SourceHistory
+}
+
+async function bootstrapChannel(selected: ResolvedChannel, seed: Bootstrap, context: ChannelContext, registry: ReleaseRegistry): Promise<ChannelResult> {
+  const {image, name, key, channel, destination, source} = selected
+  const {options, policy, history} = context
+  const inventory = await registry.list(destination)
+  const tag = await history.alias(seed.revision)
+  if (await history.relation(seed.revision, options.revision) === 'older') throw new Error(`${key}: seed is newer than the executing revision`)
+  const seedPolicy = await history.policyAt(seed.revision)
+  if (selectedPolicy(seedPolicy, image, name, channel, options.approved, destination) === undefined &&
+      channel.bootstrapPolicyDigest !== policyDigest(policy.filters[channel.filter])) {
+    throw new Error(`${key}: bootstrapPolicyDigest must match the reviewed current policy`)
+  }
+  const existing = inventory.nonempty ? await registry.read(destination, tag) : undefined
+  if (inventory.nonempty && existing !== seed.digest) {
+    throw new Error(`${key}: ${existing ? 'seed digest conflict' : 'seed missing in nonempty destination'}`)
+  }
+  await verifyImage(registry, history, existing ? destination : source, seed.digest, seed.revision, tag)
+  const publicationResult: Publication = existing ? {outcome: 'present-at-expected-digest'} : await registry.publish(source, destination, seed.digest, tag)
+  if (publicationResult.outcome === 'present-at-expected-digest') {
+    const receipt = {
+      version: 1, sourceRepository: CANONICAL_SOURCE_REPOSITORY, sourceImage: `${source.registry}/${source.repository}`,
+      destination, policyRevision: options.revision, policyDigest: policyDigest(policy.filters[channel.filter]),
+      seedRevision: seed.revision, ordinal: Number(tag.slice(1, 13)), tag, digest: seed.digest, outcome: publicationResult.outcome
+    }
+    const file = path.join(options.evidence, 'bootstrap', image, `${name}.json`)
+    mkdirSync(path.dirname(file), {recursive: true})
+    writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n')
+  }
+  return publication(key, publicationResult, tag, seed.digest, Boolean(existing))
+}
+
+async function advanceChannel(selected: ResolvedChannel, force: string[], context: ChannelContext, registry: ReleaseRegistry): Promise<ChannelResult> {
+  const {image, name, key, channel, destination, source} = selected
+  const {options, policy, history} = context
+  const inventory = await registry.list(destination)
+  const frontier = [...inventory.tags].filter(tag => ORDERED_ALIAS.test(tag)).sort().pop()
+  if (!frontier) throw new Error(`${key}: empty ordered frontier requires explicit bootstrap`)
+  const digest = await registry.read(destination, frontier)
+  if (!digest) throw new Error(`${key}: frontier disappeared during readback`)
+  const identity = await registry.identity(destination.registry, destination.repository, digest, frontier)
+  if (await history.alias(identity.revision) !== frontier) throw new Error(`${key}: frontier ordinal mismatch`)
+  const relation = await history.relation(identity.revision, options.revision)
+  if (relation === 'older') return {channel: key, decision: 'older-revision'}
+  if (relation === 'equal') {
+    return publication(key, {outcome: digest === options.digest ? 'present-at-expected-digest' : 'integrity-mismatch'}, frontier, options.digest, true)
+  }
+  const comparison = await history.compare(identity.revision, options.revision)
+  const changed = policyChanged(comparison.policies, image, name, channel, options, destination)
+  const matches = new Filter(JSON.stringify({channel: policy.filters[channel.filter]})).match(comparison.files).channel.length > 0
+  if (!changed && !matches && !force.includes(key)) return {channel: key, decision: 'unchanged'}
+  await verifyImage(registry, history, source, options.digest, options.revision, options.alias)
+  return publication(key, await registry.publish(source, destination, options.digest, options.alias), options.alias, options.digest)
+}
+
+export async function publishChannels(options: PublisherOptions): Promise<ChannelResult[]> {
+  const {budgets} = options
+  for (const name of ['fetchMs', 'comparisonMs', 'maxBuffer', 'registryMs', 'copySeconds', 'readbackSeconds', 'maxChannels', 'concurrency', 'totalMs', 'channelMs'] as const) {
+    const value = budgets[name]
+    if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`Invalid publisher budget: ${name}`)
+  }
+  const deadline = Date.now() + budgets.totalMs
+  const history = new SourceHistory(options.cwd, budgets, deadline, options.policyPath)
+  await history.verify(options.revision)
+  if (await history.alias(options.revision) !== options.alias) throw new Error('Built ordered alias differs from verified source history')
+  if (!DIGEST.test(options.digest)) throw new Error('Expected successful build digest')
+  const policy = await history.current(options.revision)
+  const requests = validateRequests(policy, options.force, options.bootstrap)
+  const bindings = bindChannels(policy, options.approved)
+  const channels = Object.entries(policy.images).flatMap(([image, definition]) =>
+    Object.entries(definition.channels).map(([name, channel]) => ({image, name, channel, key: `${image}/${name}`, destination: bindings[image][name], source: options.approved[image]}))
+  )
+  if (channels.length > budgets.maxChannels) throw new Error(`Channel fan-out ${channels.length} exceeds budget ${budgets.maxChannels}`)
+  const selected = requests.bootstrap ? channels.filter(channel => channel.key === requests.bootstrap?.channel) : channels
+  const results: ChannelResult[] = []
+  const context = {options, policy, history}
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < selected.length) {
+      const channel = selected[next++]
+      let result: ChannelResult
+      try {
+        const registry = new ReleaseRegistry(options.cwd, options.regctl, options.helper, budgets, Math.min(deadline, Date.now() + budgets.channelMs))
+        result = requests.bootstrap
+          ? await bootstrapChannel(channel, requests.bootstrap, context, registry)
+          : await advanceChannel(channel, requests.force, context, registry)
+      } catch (error) {
+        result = {channel: channel.key, decision: 'blocked', reason: String(error)}
+      }
+      results.push(result)
+      process.stdout.write(JSON.stringify(result) + '\n')
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(budgets.concurrency, selected.length)}, worker))
+  mkdirSync(options.evidence, {recursive: true})
+  writeFileSync(path.join(options.evidence, 'results.json'), JSON.stringify(results, null, 2) + '\n')
+  return results
+}
+
+async function verifyImage(registry: ReleaseRegistry, history: SourceHistory, coordinate: Pick<ImageBinding, 'registry' | 'repository'>, digest: string, revision: string, tag: string): Promise<void> {
+  const identity = await registry.identity(coordinate.registry, coordinate.repository, digest, tag)
+  if (identity.revision !== revision || await history.alias(revision) !== tag) throw new Error('Image revision differs from approved source identity')
+}
+
+function publication(channel: string, result: Publication, tag: string, digest: string, present = false): ChannelResult {
+  return {
+    channel, decision: result.outcome === 'present-at-expected-digest' ? present ? 'present' : 'published' : 'blocked',
+    outcome: result.outcome, tag, digest, ...(result.reason ? {reason: result.reason} : {})
+  }
+}

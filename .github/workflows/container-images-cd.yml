@@ -1610,8 +1610,6 @@ jobs:
     ordered_image_alias:
         name: Publish ordered image alias
         needs: posthog_build
-        outputs:
-            attempted: ${{ steps.common-alias.outcome }}
         if: ${{ needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -1653,7 +1651,6 @@ jobs:
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
             - name: Publish and read back ordered image alias
-              id: common-alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 2
               shell: bash
@@ -1668,7 +1665,7 @@ jobs:
     shared_image_channels:
         name: Publish eligible shared-image channels
         needs: [posthog_build, ordered_image_alias]
-        if: ${{ !cancelled() && needs.posthog_build.result == 'success' && contains(fromJSON('["success","failure"]'), needs.ordered_image_alias.outputs.attempted) && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        if: ${{ !cancelled() && needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         runs-on: ubuntu-24.04
         timeout-minutes: 18
         continue-on-error: true
@@ -1681,11 +1678,13 @@ jobs:
 
             - name: Inspect shared-image publication channels
               id: shared-image-channels
-              uses: ./.github/actions/paths-filter
+              uses: ./.github/actions/shared-image-releases
               with:
                   shared-image-operation: inspect
-                  shared-image-force: ${{ inputs.shared-image-force || '[]' }}
-                  shared-image-bootstrap: ${{ inputs.shared-image-bootstrap }}
+                  shared-image-repository: ${{ env.ECR_REPOSITORY }}
+                  shared-image-registry: ${{ vars.SHARED_IMAGE_REGISTRY }}
+                  shared-image-destination-registry: ${{ vars.SHARED_IMAGE_DESTINATION_REGISTRY }}
+                  shared-image-destinations: ${{ vars.SHARED_IMAGE_DESTINATIONS || '[]' }}
 
             - name: Compute shared-image ordered tag
               id: ordered-release
@@ -1715,14 +1714,13 @@ jobs:
             - name: Publish and read back eligible shared-image channels
               if: ${{ !cancelled() && steps.shared-image-ecr-login.outcome == 'success' }}
               timeout-minutes: 13
-              uses: ./.github/actions/paths-filter
+              uses: ./.github/actions/shared-image-releases
               with:
                   shared-image-operation: publish
-                  shared-image-build-result: ${{ needs.posthog_build.result }}
                   shared-image-digest: ${{ needs.posthog_build.outputs.image-digest }}
                   shared-image-alias: ${{ steps.ordered-release.outputs.tag }}
                   shared-image-repository: ${{ env.ECR_REPOSITORY }}
-                  shared-image-registry: ${{ steps.shared-image-ecr-login.outputs.registry }}
+                  shared-image-registry: ${{ vars.SHARED_IMAGE_REGISTRY }}
                   shared-image-destination-registry: ${{ steps.shared-image-ecr-login.outputs.registry }}
                   shared-image-destinations: ${{ vars.SHARED_IMAGE_DESTINATIONS || '[]' }}
                   shared-image-force: ${{ inputs.shared-image-force || '[]' }}

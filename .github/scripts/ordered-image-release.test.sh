@@ -8,6 +8,7 @@ trap 'rm -rf "$scratch"' EXIT
 mkdir "$scratch/shims"
 cat > "$scratch/shims/timeout" <<'SHIM'
 #!/usr/bin/env bash
+printf '%s\n' "$2" >> "$TIMEOUT_ARGUMENTS"
 shift 2
 exec "$@"
 SHIM
@@ -30,6 +31,7 @@ export EXPECTED_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 export ORDERED_ALIAS=r000000000002-abcdef
 export COPY_ARGUMENTS="$scratch/copy-arguments"
 export READBACK_ARGUMENTS="$scratch/readback-arguments"
+export TIMEOUT_ARGUMENTS="$scratch/timeout-arguments"
 export GITHUB_OUTPUT="$scratch/output"
 
 check() {
@@ -38,11 +40,13 @@ check() {
     : > "$GITHUB_OUTPUT"
     : > "$COPY_ARGUMENTS"
     : > "$READBACK_ARGUMENTS"
+    : > "$TIMEOUT_ARGUMENTS"
     bash "$helper" publish > "$scratch/annotations"
     grep -Fxq -e 'imageTag='"$ORDERED_ALIAS" "$READBACK_ARGUMENTS"
     grep -A1 -Fx -- '--repository-name' "$READBACK_ARGUMENTS" | grep -Fxq "$ECR_REPO"
     grep -A1 -Fx -- '--registry-id' "$READBACK_ARGUMENTS" | grep -Fxq "${ECR_REGISTRY%%.*}"
     test "$(cat "$GITHUB_OUTPUT")" = "outcome=$expected"
+    test "$(cat "$TIMEOUT_ARGUMENTS")" = "$(printf '%ss\n%ss' "${COPY_TIMEOUT_SECONDS:-40}" "${READBACK_TIMEOUT_SECONDS:-40}")"
     case "$expected" in
         present-at-expected-digest) grep -q '::notice title=Ordered image alias present::' "$scratch/annotations" ;;
         absent) grep -q '::warning title=Ordered image alias absent::' "$scratch/annotations" ;;
@@ -58,6 +62,22 @@ check absent 0 0 None
 check integrity-mismatch 0 0 sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 check unknown 0 1
 check unknown 0 0 invalid
+export COPY_TIMEOUT_SECONDS=120 READBACK_TIMEOUT_SECONDS=30
+check present-at-expected-digest
+for variable in COPY_TIMEOUT_SECONDS READBACK_TIMEOUT_SECONDS; do
+    for invalid in 0 -1 1s invalid 1000; do
+        : > "$GITHUB_OUTPUT"
+        : > "$TIMEOUT_ARGUMENTS"
+        if env "$variable=$invalid" bash "$helper" publish > "$scratch/invalid-timeout" 2>&1; then
+            echo "FAIL invalid $variable=$invalid was accepted" >&2
+            exit 1
+        fi
+        test ! -s "$GITHUB_OUTPUT"
+        test ! -s "$TIMEOUT_ARGUMENTS"
+        grep -Fq 'Invalid ordered image publication timeout' "$scratch/invalid-timeout"
+    done
+done
+unset COPY_TIMEOUT_SECONDS READBACK_TIMEOUT_SECONDS
 export SOURCE_REGISTRY=source.example.com SOURCE_REPO=build/image
 check present-at-expected-digest
 grep -Fxq "source.example.com/build/image@$EXPECTED_DIGEST" "$COPY_ARGUMENTS"

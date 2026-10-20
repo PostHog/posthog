@@ -42291,6 +42291,37 @@ exports.Filter = Filter;
 
 /***/ }),
 
+/***/ 1467:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseGitDiffOutput = parseGitDiffOutput;
+const file_1 = __nccwpck_require__(3765);
+const statusMap = {
+    A: file_1.ChangeStatus.Added,
+    C: file_1.ChangeStatus.Copied,
+    D: file_1.ChangeStatus.Deleted,
+    M: file_1.ChangeStatus.Modified,
+    R: file_1.ChangeStatus.Renamed,
+    U: file_1.ChangeStatus.Unmerged
+};
+function parseGitDiffOutput(output) {
+    const tokens = output.split('\u0000').filter(s => s.length > 0);
+    const files = [];
+    for (let i = 0; i + 1 < tokens.length; i += 2) {
+        files.push({
+            status: statusMap[tokens[i]],
+            filename: tokens[i + 1]
+        });
+    }
+    return files;
+}
+
+
+/***/ }),
+
 /***/ 1243:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -42330,12 +42361,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.HEAD = exports.NULL_SHA = void 0;
+exports.HEAD = exports.NULL_SHA = exports.parseGitDiffOutput = void 0;
 exports.getChangesInLastCommit = getChangesInLastCommit;
 exports.getChanges = getChanges;
 exports.getChangesOnHead = getChangesOnHead;
 exports.getChangesSinceMergeBase = getChangesSinceMergeBase;
-exports.parseGitDiffOutput = parseGitDiffOutput;
 exports.listAllFilesAsAdded = listAllFilesAsAdded;
 exports.getCurrentRef = getCurrentRef;
 exports.getShortName = getShortName;
@@ -42343,6 +42373,9 @@ exports.isGitSha = isGitSha;
 const exec_1 = __nccwpck_require__(5236);
 const core = __importStar(__nccwpck_require__(7484));
 const file_1 = __nccwpck_require__(3765);
+const git_diff_1 = __nccwpck_require__(1467);
+var git_diff_2 = __nccwpck_require__(1467);
+Object.defineProperty(exports, "parseGitDiffOutput", ({ enumerable: true, get: function () { return git_diff_2.parseGitDiffOutput; } }));
 exports.NULL_SHA = '0000000000000000000000000000000000000000';
 exports.HEAD = 'HEAD';
 async function getChangesInLastCommit() {
@@ -42355,7 +42388,7 @@ async function getChangesInLastCommit() {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChanges(base, head) {
     const baseRef = await ensureRefAvailable(base);
@@ -42372,7 +42405,7 @@ async function getChanges(base, head) {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChangesOnHead() {
     // Get current changes - both staged and unstaged
@@ -42385,7 +42418,7 @@ async function getChangesOnHead() {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
     let baseRef;
@@ -42458,18 +42491,7 @@ async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
-}
-function parseGitDiffOutput(output) {
-    const tokens = output.split('\u0000').filter(s => s.length > 0);
-    const files = [];
-    for (let i = 0; i + 1 < tokens.length; i += 2) {
-        files.push({
-            status: statusMap[tokens[i]],
-            filename: tokens[i + 1]
-        });
-    }
-    return files;
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function listAllFilesAsAdded() {
     core.startGroup('Listing all files tracked by git');
@@ -42574,14 +42596,6 @@ function fixStdOutNullTermination() {
     // Otherwise things like ::set-output wouldn't work.
     core.info('');
 }
-const statusMap = {
-    A: file_1.ChangeStatus.Added,
-    C: file_1.ChangeStatus.Copied,
-    D: file_1.ChangeStatus.Deleted,
-    M: file_1.ChangeStatus.Modified,
-    R: file_1.ChangeStatus.Renamed,
-    U: file_1.ChangeStatus.Unmerged
-};
 
 
 /***/ }),
@@ -42691,23 +42705,17 @@ const fs = __importStar(__nccwpck_require__(9896));
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
 const filter_1 = __nccwpck_require__(9037);
-const shared_image_releases_1 = __nccwpck_require__(5945);
+const shared_image_policy_1 = __nccwpck_require__(9229);
 const file_1 = __nccwpck_require__(3765);
 const git = __importStar(__nccwpck_require__(1243));
 const shadow = __importStar(__nccwpck_require__(5763));
 const shell_escape_1 = __nccwpck_require__(6880);
 const csv_escape_1 = __nccwpck_require__(6146);
-const shared_image_publisher_1 = __nccwpck_require__(7523);
 async function run() {
     try {
         const workingDirectory = core.getInput('working-directory', { required: false });
         if (workingDirectory) {
             process.chdir(workingDirectory);
-        }
-        const operation = core.getInput('shared-image-operation');
-        if (operation) {
-            await runPublisher(operation);
-            return;
         }
         const token = core.getInput('token', { required: false });
         const ref = core.getInput('ref', { required: false });
@@ -42716,8 +42724,8 @@ async function run() {
         let filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput;
         const policyPath = core.getInput('shared-image-policy', { required: false });
         if (policyPath) {
-            const policy = (0, shared_image_releases_1.loadPolicy)(getConfigFileContent(policyPath));
-            filtersYaml = (0, shared_image_releases_1.projectLegacyFilters)(policy, filtersYaml);
+            const policy = (0, shared_image_policy_1.loadPolicy)(getConfigFileContent(policyPath));
+            filtersYaml = (0, shared_image_policy_1.projectLegacyFilters)(policy, filtersYaml);
         }
         const listFiles = core.getInput('list-files', { required: false }).toLowerCase() || 'none';
         const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', { required: false })) || 10;
@@ -42737,40 +42745,6 @@ async function run() {
     catch (error) {
         core.setFailed(getErrorMessage(error));
     }
-}
-async function runPublisher(operation) {
-    var _a;
-    if (operation === 'publish' && github.context.ref !== `refs/heads/${(_a = github.context.payload.repository) === null || _a === void 0 ? void 0 : _a.default_branch}`) {
-        throw new Error('Shared-image publication requires the default branch');
-    }
-    const policy = (0, shared_image_releases_1.loadPolicy)(getConfigFileContent('.github/shared-image-releases.yaml'));
-    const force = JSON.parse(core.getInput('shared-image-force') || '[]');
-    const bootstrapText = core.getInput('shared-image-bootstrap');
-    const requests = (0, shared_image_publisher_1.validateRequests)(policy, force, bootstrapText ? JSON.parse(bootstrapText) : undefined);
-    if ((requests.force.length || requests.bootstrap) && github.context.eventName !== 'workflow_dispatch') {
-        throw new Error('Force and bootstrap require an authorized manual default-branch invocation');
-    }
-    if (operation === 'inspect') {
-        core.setOutput('channels', (0, shared_image_publisher_1.channelKeys)(policy).length > 0 ? 'true' : 'false');
-        return;
-    }
-    if (operation !== 'publish')
-        throw new Error(`Unknown shared-image operation: ${operation}`);
-    const results = await (0, shared_image_publisher_1.publishChannels)({
-        cwd: process.cwd(), revision: github.context.sha,
-        digest: core.getInput('shared-image-digest'), alias: core.getInput('shared-image-alias'),
-        buildSucceeded: core.getInput('shared-image-build-result') === 'success',
-        approved: (0, shared_image_publisher_1.approvedImages)(core.getInput('shared-image-repository'), core.getInput('shared-image-registry'), core.getInput('shared-image-destination-registry'), core.getInput('shared-image-destinations')),
-        ...requests, budgets: JSON.parse(core.getInput('shared-image-budgets')),
-        regctl: core.getInput('shared-image-regctl'), helper: pathFromRoot('.github/scripts/ordered-image-release.sh'),
-        evidence: pathFromRoot('shared-image-releases')
-    });
-    core.setOutput('publication-results', JSON.stringify(results));
-    if (results.some(result => result.decision === 'blocked'))
-        core.setFailed('One or more shared-image channels are blocked; inspect publication evidence');
-}
-function pathFromRoot(relative) {
-    return `${process.cwd()}/${relative}`;
 }
 function isPathInput(text) {
     return !(text.includes('\n') || text.includes(':'));
@@ -43293,279 +43267,7 @@ async function report(input) {
 
 /***/ }),
 
-/***/ 5490:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.command = command;
-const child_process_1 = __nccwpck_require__(5317);
-function command(executable, args, options) {
-    if (options.timeoutMs <= 0)
-        return Promise.reject(new Error(`${executable}: budget exhausted`));
-    return new Promise((resolve, reject) => {
-        const child = (0, child_process_1.spawn)(executable, args, {
-            cwd: options.cwd, env: { ...process.env, ...options.env }, detached: true,
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
-        const stdout = [];
-        const stderr = [];
-        let bytes = 0;
-        let failure;
-        const stop = (message) => {
-            failure = new Error(`${executable}: ${message}`);
-            if (child.pid) {
-                try {
-                    process.kill(-child.pid, 'SIGKILL');
-                }
-                catch {
-                    child.kill('SIGKILL');
-                }
-            }
-        };
-        const timer = setTimeout(() => stop('timed out'), options.timeoutMs);
-        const collect = (chunks) => (chunk) => {
-            bytes += chunk.length;
-            if (bytes > options.maxBuffer)
-                stop('output budget exhausted');
-            else
-                chunks.push(chunk);
-        };
-        child.stdout.on('data', collect(stdout));
-        child.stderr.on('data', collect(stderr));
-        child.on('error', error => { clearTimeout(timer); reject(error); });
-        child.on('close', code => {
-            clearTimeout(timer);
-            if (failure)
-                reject(failure);
-            else if (code !== 0)
-                reject(new Error(`${executable}: exited ${code}: ${Buffer.concat(stderr).toString('utf8')}`));
-            else
-                resolve(Buffer.concat(stdout).toString('utf8'));
-        });
-        child.stdin.on('error', () => undefined);
-        child.stdin.end(options.input);
-    });
-}
-
-
-/***/ }),
-
-/***/ 7571:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.SourceHistory = exports.DIGEST = exports.REVISION = exports.ORDERED_ALIAS = exports.POLICY_PATH = void 0;
-const child_process_1 = __nccwpck_require__(5317);
-const shared_image_command_1 = __nccwpck_require__(5490);
-const shared_image_interval_1 = __nccwpck_require__(950);
-const shared_image_releases_1 = __nccwpck_require__(5945);
-exports.POLICY_PATH = '.github/shared-image-releases.yaml';
-exports.ORDERED_ALIAS = /^r([0-9]{12})-([0-9a-f]{6})$/;
-exports.REVISION = /^[0-9a-f]{40}$/;
-exports.DIGEST = /^sha256:[0-9a-f]{64}$/;
-class SourceHistory {
-    constructor(cwd, budgets, deadline = Infinity) {
-        this.cwd = cwd;
-        this.budgets = budgets;
-        this.deadline = deadline;
-        this.prepared = new Map();
-        this.policies = new Map();
-    }
-    git(args, deadline = Date.now() + this.budgets.comparisonMs, input) {
-        const timeout = Math.min(deadline, this.deadline) - Date.now();
-        if (timeout <= 0)
-            throw new Error('Source comparison budget exhausted');
-        return (0, child_process_1.execFileSync)('git', args, {
-            cwd: this.cwd, timeout, maxBuffer: this.budgets.maxBuffer, encoding: 'utf8', input,
-            env: { ...process.env, GIT_NO_LAZY_FETCH: '1' }, stdio: ['pipe', 'pipe', 'pipe']
-        });
-    }
-    verify(revision) {
-        const deadline = Date.now() + this.budgets.comparisonMs;
-        if (!exports.REVISION.test(revision))
-            throw new Error('Expected full source revision');
-        if (this.git(['rev-parse', '--is-shallow-repository'], deadline).trim() !== 'false')
-            throw new Error('Complete source history is unavailable');
-        if (this.git(['rev-parse', 'HEAD'], deadline).trim() !== revision)
-            throw new Error('Built revision differs from executing checkout');
-    }
-    alias(revision, deadline = Date.now() + this.budgets.comparisonMs) {
-        if (!exports.REVISION.test(revision))
-            throw new Error('Expected full source revision');
-        const ordinal = this.git(['rev-list', '--first-parent', '--count', revision], deadline).trim();
-        if (!/^[1-9][0-9]{0,11}$/.test(ordinal))
-            throw new Error('Source ordinal is out of range');
-        return `r${ordinal.padStart(12, '0')}-${revision.slice(0, 6)}`;
-    }
-    relation(base, revision) {
-        const deadline = Date.now() + this.budgets.comparisonMs;
-        if (!exports.REVISION.test(base) || !exports.REVISION.test(revision))
-            throw new Error('Expected full source revisions');
-        if (base === revision)
-            return 'equal';
-        const newer = this.alias(base, deadline) > this.alias(revision, deadline) ? base : revision;
-        const older = newer === base ? revision : base;
-        const history = this.git(['rev-list', '--first-parent', newer, '--not', older], deadline).split('\n').filter(Boolean);
-        const last = history[history.length - 1];
-        if (!last || this.git(['rev-list', '--parents', '--max-count=1', last], deadline).split(/\s+/)[1] !== older) {
-            throw new Error('Frontier is outside the executing first-parent history');
-        }
-        return newer === base ? 'older' : 'newer';
-    }
-    async fetch(objects, filter, deadline) {
-        if (!objects.length)
-            return;
-        await (0, shared_image_command_1.command)('git', [
-            'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', '--no-auto-maintenance',
-            ...(filter ? [`--filter=${filter}`] : []), 'origin', '--stdin'
-        ], {
-            cwd: this.cwd, timeoutMs: deadline - Date.now(), maxBuffer: this.budgets.maxBuffer,
-            env: { GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0' }, input: [...new Set(objects)].join('\n') + '\n'
-        });
-    }
-    async trees(revisions, fetchDeadline) {
-        const trees = [...new Set(this.git(['rev-list', '--no-walk', '--no-commit-header', '--format=%T', ...revisions], fetchDeadline).split('\n').filter(Boolean))];
-        const missing = () => {
-            if (Date.now() >= fetchDeadline)
-                throw new Error('Source tree fetch budget exhausted');
-            if (this.git(['cat-file', '--batch-check=%(objectname) %(objecttype)'], fetchDeadline, trees.join('\n') + '\n')
-                .split('\n').some(line => line.endsWith(' missing')))
-                return true;
-            const output = (0, child_process_1.execFileSync)('git', ['rev-list', '--objects', '--missing=print', '--filter=blob:none', '--stdin'], {
-                cwd: this.cwd, timeout: fetchDeadline - Date.now(), maxBuffer: this.budgets.maxBuffer,
-                encoding: 'utf8', input: trees.join('\n') + '\n', env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
-                stdio: ['pipe', 'pipe', 'pipe']
-            });
-            return output.split('\n').some(line => line.startsWith('?'));
-        };
-        if (missing())
-            await this.fetch(trees, 'blob:none', fetchDeadline);
-        if (missing())
-            throw new Error('Interval trees remain unavailable after bounded fetch');
-    }
-    async readPolicies(revisions, fetchDeadline) {
-        const blobs = revisions.map(revision => {
-            const entry = this.git(['ls-tree', revision, '--', exports.POLICY_PATH], fetchDeadline);
-            if (!entry)
-                return undefined;
-            const match = /^100(?:644|755) blob ([0-9a-f]{40})\t/.exec(entry);
-            if (!match)
-                throw new Error(`${revision}:${exports.POLICY_PATH}: expected a regular policy file`);
-            return match[1];
-        });
-        const missing = [...new Set(blobs.filter((blob) => Boolean(blob)))].filter(blob => {
-            try {
-                this.git(['cat-file', '-e', blob], fetchDeadline);
-                return false;
-            }
-            catch {
-                return true;
-            }
-        });
-        await this.fetch(missing, undefined, fetchDeadline);
-        return blobs.map(blob => {
-            if (!blob)
-                return undefined;
-            let policy = this.policies.get(blob);
-            if (!policy) {
-                policy = (0, shared_image_releases_1.loadPolicy)(this.git(['cat-file', 'blob', blob], fetchDeadline));
-                this.policies.set(blob, policy);
-            }
-            return policy;
-        });
-    }
-    async current(revision) {
-        const policy = await this.policyAt(revision);
-        if (!policy)
-            throw new Error(`${revision}:${exports.POLICY_PATH}: policy is missing`);
-        return policy;
-    }
-    async policyAt(revision) {
-        const deadline = Math.min(this.deadline, Date.now() + this.budgets.fetchMs);
-        await this.trees([revision], deadline);
-        const [policy] = await this.readPolicies([revision], deadline);
-        return policy;
-    }
-    compare(base, revision) {
-        const key = `${base}/${revision}`;
-        let result = this.prepared.get(key);
-        if (!result) {
-            result = this.prepare(base, revision);
-            this.prepared.set(key, result);
-        }
-        return result;
-    }
-    async prepare(base, revision) {
-        const fetchDeadline = Math.min(this.deadline, Date.now() + this.budgets.fetchMs);
-        const commits = this.git(['rev-list', '--first-parent', revision, '--not', base], fetchDeadline).split('\n').filter(Boolean);
-        await this.trees([base, ...commits], fetchDeadline);
-        const deadline = Math.min(this.deadline, Date.now() + this.budgets.comparisonMs);
-        const changes = this.git([
-            'log', '--first-parent', '--diff-merges=first-parent', '--format=%H', `${base}..${revision}`, '--', exports.POLICY_PATH
-        ], deadline).split('\n').filter(Boolean).reverse();
-        const policies = await this.readPolicies([base, ...changes], fetchDeadline);
-        const files = (0, shared_image_interval_1.intervalFiles)(base, revision, {
-            cwd: this.cwd, timeoutMs: deadline - Date.now(), maxBuffer: this.budgets.maxBuffer
-        });
-        return { files, policies };
-    }
-}
-exports.SourceHistory = SourceHistory;
-
-
-/***/ }),
-
-/***/ 950:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.intervalFiles = intervalFiles;
-const child_process_1 = __nccwpck_require__(5317);
-const git_1 = __nccwpck_require__(1243);
-function intervalFiles(base, revision, options) {
-    if (!/^[0-9a-f]{40}$/.test(base) || !/^[0-9a-f]{40}$/.test(revision)) {
-        throw new Error('Interval requires full source revisions');
-    }
-    const deadline = Date.now() + options.timeoutMs;
-    const git = (args) => {
-        const timeout = deadline - Date.now();
-        if (timeout <= 0)
-            throw new Error('Source history comparison timed out');
-        return (0, child_process_1.execFileSync)('git', args, {
-            cwd: options.cwd, maxBuffer: options.maxBuffer, timeout, encoding: 'utf8',
-            env: { ...process.env, GIT_NO_LAZY_FETCH: '1' }, stdio: ['ignore', 'pipe', 'pipe']
-        });
-    };
-    if (git(['rev-parse', '--is-shallow-repository']).trim() !== 'false') {
-        throw new Error('Complete executing source history is unavailable');
-    }
-    if (git(['rev-parse', 'HEAD']).trim() !== revision)
-        throw new Error('Built revision differs from executing checkout');
-    if (base === revision)
-        return [];
-    const history = git(['rev-list', '--first-parent', revision, '--not', base]).trim().split('\n').filter(Boolean);
-    const last = history[history.length - 1];
-    if (!last || git(['rev-list', '--parents', '--max-count=1', last]).trim().split(/\s+/)[1] !== base) {
-        throw new Error('Frontier is outside the executing first-parent history');
-    }
-    const output = git(['log', '--first-parent', '--diff-merges=first-parent', '--format=', '--no-renames', '--name-status', '-z', `${base}..${revision}`]);
-    const normalized = output.split('\0').filter(Boolean).map((token, index) => index % 2 === 0 && token === 'T' ? 'M' : token).join('\0');
-    const files = (0, git_1.parseGitDiffOutput)(normalized);
-    if (files.some(file => file.status === undefined))
-        throw new Error('Unsupported Git change status');
-    return files;
-}
-
-
-/***/ }),
-
-/***/ 7523:
+/***/ 9229:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -43604,397 +43306,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.channelKeys = channelKeys;
-exports.validateRequests = validateRequests;
-exports.approvedImages = approvedImages;
-exports.publishChannels = publishChannels;
-const fs_1 = __nccwpck_require__(9896);
-const path = __importStar(__nccwpck_require__(6928));
-const yaml = __importStar(__nccwpck_require__(4281));
-const filter_1 = __nccwpck_require__(9037);
-const shared_image_history_1 = __nccwpck_require__(7571);
-const shared_image_registry_1 = __nccwpck_require__(1048);
-const shared_image_releases_1 = __nccwpck_require__(5945);
-function channelKeys(policy) {
-    return Object.entries(policy.images).flatMap(([image, definition]) => Object.keys(definition.channels).map(channel => `${image}/${channel}`));
-}
-function validateRequests(policy, force, bootstrap) {
-    const keys = channelKeys(policy);
-    if (!Array.isArray(force) || force.some(key => typeof key !== 'string' || !keys.includes(key))) {
-        throw new Error(`Force requires explicit configured channel keys: ${JSON.stringify(force)}`);
-    }
-    if (bootstrap === undefined)
-        return { force };
-    const seed = bootstrap;
-    if (!seed || typeof seed !== 'object' || Object.keys(seed).sort().join(',') !== 'channel,digest,revision' ||
-        !keys.includes(seed.channel) || !shared_image_history_1.REVISION.test(seed.revision) || !shared_image_history_1.DIGEST.test(seed.digest) || force.length) {
-        throw new Error('Bootstrap requires one configured channel, full seed revision and digest, without force');
-    }
-    return { force, bootstrap: seed };
-}
-function approvedImages(image, registry, destinationRegistry, destinationsText) {
-    const destinations = JSON.parse(destinationsText || '[]');
-    if (!Array.isArray(destinations))
-        throw new Error('Approved destinations must be an infrastructure-configured array');
-    const resolved = destinations.map((value) => {
-        const binding = value;
-        if (!binding || typeof binding !== 'object' || Object.keys(binding).sort().join(',') !== 'owner,registry,replicas,repository' ||
-            typeof binding.owner !== 'string' || !binding.owner || typeof binding.repository !== 'string' || !binding.repository ||
-            !destinationRegistry || binding.registry !== destinationRegistry ||
-            !Array.isArray(binding.replicas) || binding.replicas.some(replica => typeof replica !== 'string' || !replica)) {
-            throw new Error(`Invalid approved destination: ${JSON.stringify(value)}`);
-        }
-        return binding;
-    });
-    return { [image]: { sourceRepository: shared_image_releases_1.CANONICAL_SOURCE_REPOSITORY, registry, repository: image, destinations: resolved } };
-}
-function selectedPolicy(policy, image, name, current, approved, destination) {
-    var _a;
-    const channel = (_a = policy === null || policy === void 0 ? void 0 : policy.images[image]) === null || _a === void 0 ? void 0 : _a.channels[name];
-    if (!channel || !policy)
-        return undefined;
-    if (channel.bootstrapPolicyDigest !== undefined && channel.bootstrapPolicyDigest !== current.bootstrapPolicyDigest) {
-        throw new Error(`${image}/${name}: bootstrapPolicyDigest cannot change after adoption`);
-    }
-    const binding = (0, shared_image_releases_1.bindChannels)({ ...policy, images: { [image]: { channels: { [name]: channel } } } }, approved)[image][name];
-    if (binding.owner !== destination.owner || binding.registry !== destination.registry || binding.repository !== destination.repository ||
-        JSON.stringify(binding.replicas) !== JSON.stringify(destination.replicas))
-        throw new Error(`${image}/${name}: historical destination changed`);
-    return (0, shared_image_releases_1.policyDigest)(policy.filters[channel.filter]);
-}
-function policyChanged(policies, image, name, channel, options, destination) {
-    let seen = false;
-    const digests = policies.map(policy => {
-        const digest = selectedPolicy(policy, image, name, channel, options.approved, destination);
-        if (digest)
-            seen = true;
-        if (!seen) {
-            if (!channel.bootstrapPolicyDigest)
-                throw new Error(`${image}/${name}: missing bootstrapPolicyDigest for historical policy gap`);
-            return channel.bootstrapPolicyDigest;
-        }
-        return digest;
-    });
-    return digests.some(digest => digest !== digests[0]);
-}
-async function publishChannels(options) {
-    const { budgets } = options;
-    for (const name of ['fetchMs', 'comparisonMs', 'maxBuffer', 'registryMs', 'copySeconds', 'readbackSeconds', 'maxChannels', 'concurrency', 'totalMs', 'channelMs']) {
-        const value = budgets[name];
-        if (!Number.isSafeInteger(value) || value <= 0)
-            throw new Error(`Invalid publisher budget: ${name}`);
-    }
-    const deadline = Date.now() + budgets.totalMs;
-    const history = new shared_image_history_1.SourceHistory(options.cwd, budgets, deadline);
-    history.verify(options.revision);
-    if (history.alias(options.revision) !== options.alias)
-        throw new Error('Built ordered alias differs from verified source history');
-    if (options.buildSucceeded && !shared_image_history_1.DIGEST.test(options.digest))
-        throw new Error('Expected successful build digest');
-    const policy = await history.current(options.revision);
-    const requests = validateRequests(policy, options.force, options.bootstrap);
-    const bindings = (0, shared_image_releases_1.bindChannels)(policy, options.approved);
-    const channels = Object.entries(policy.images).flatMap(([image, definition]) => Object.entries(definition.channels).map(([name, channel]) => ({ image, name, channel, key: `${image}/${name}`, destination: bindings[image][name] })));
-    if (channels.length > budgets.maxChannels)
-        throw new Error(`Channel fan-out ${channels.length} exceeds budget ${budgets.maxChannels}`);
-    const selected = requests.bootstrap ? channels.filter(channel => { var _a; return channel.key === ((_a = requests.bootstrap) === null || _a === void 0 ? void 0 : _a.channel); }) : channels;
-    const results = [];
-    let next = 0;
-    const worker = async () => {
-        while (next < selected.length) {
-            const { image, name, key, channel, destination } = selected[next++];
-            let result;
-            try {
-                if (!options.buildSucceeded) {
-                    results.push({ channel: key, decision: 'build-not-successful' });
-                    continue;
-                }
-                const registry = new shared_image_registry_1.ReleaseRegistry(options.cwd, options.regctl, options.helper, budgets, Math.min(deadline, Date.now() + budgets.channelMs));
-                const source = options.approved[image];
-                const inventory = await registry.list(destination);
-                const bootstrap = requests.bootstrap;
-                if (bootstrap) {
-                    const tag = history.alias(bootstrap.revision);
-                    if (history.relation(bootstrap.revision, options.revision) === 'older')
-                        throw new Error(`${key}: seed is newer than the executing revision`);
-                    const seedPolicy = await history.policyAt(bootstrap.revision);
-                    if (selectedPolicy(seedPolicy, image, name, channel, options.approved, destination) === undefined &&
-                        channel.bootstrapPolicyDigest !== (0, shared_image_releases_1.policyDigest)(policy.filters[channel.filter])) {
-                        throw new Error(`${key}: bootstrapPolicyDigest must match the reviewed current policy`);
-                    }
-                    if (inventory.nonempty && !inventory.tags.has(tag))
-                        throw new Error(`${key}: seed missing in nonempty destination`);
-                    const existing = inventory.nonempty ? await registry.read(destination, tag) : undefined;
-                    if (inventory.nonempty && existing !== bootstrap.digest)
-                        throw new Error(`${key}: seed digest conflict or unavailable`);
-                    await verifyImage(registry, history, existing ? destination : source, bootstrap.digest, bootstrap.revision, tag);
-                    const outcome = existing ? 'present-at-expected-digest' : await registry.publish(source, destination, bootstrap.digest, tag);
-                    result = publication(key, outcome, tag, bootstrap.digest);
-                    if (outcome === 'present-at-expected-digest') {
-                        const receipt = {
-                            version: 1, sourceRepository: shared_image_releases_1.CANONICAL_SOURCE_REPOSITORY, sourceImage: `${source.registry}/${source.repository}`,
-                            destination, policyRevision: options.revision, policyDigest: (0, shared_image_releases_1.policyDigest)(policy.filters[channel.filter]),
-                            seedRevision: bootstrap.revision, ordinal: Number(tag.slice(1, 13)), tag, digest: bootstrap.digest, outcome
-                        };
-                        const file = path.join(options.evidence, 'bootstrap', image, `${name}.json`);
-                        (0, fs_1.mkdirSync)(path.dirname(file), { recursive: true });
-                        (0, fs_1.writeFileSync)(file, JSON.stringify(receipt, null, 2) + '\n');
-                    }
-                }
-                else {
-                    const frontier = [...inventory.tags].filter(tag => shared_image_history_1.ORDERED_ALIAS.test(tag)).sort().pop();
-                    if (!frontier)
-                        throw new Error(`${key}: empty ordered frontier requires explicit bootstrap`);
-                    const digest = await registry.read(destination, frontier);
-                    if (!digest)
-                        throw new Error(`${key}: frontier disappeared during readback`);
-                    const identity = await registry.identity(destination.registry, destination.repository, digest, frontier);
-                    if (history.alias(identity.revision) !== frontier)
-                        throw new Error(`${key}: frontier ordinal mismatch`);
-                    const relation = history.relation(identity.revision, options.revision);
-                    if (relation === 'older')
-                        result = { channel: key, decision: 'older-revision' };
-                    else if (relation === 'equal')
-                        result = publication(key, digest === options.digest ? 'present-at-expected-digest' : 'integrity-mismatch', frontier, options.digest);
-                    else {
-                        const comparison = await history.compare(identity.revision, options.revision);
-                        const changed = policyChanged(comparison.policies, image, name, channel, options, destination);
-                        const matches = new filter_1.Filter(yaml.dump({ channel: policy.filters[channel.filter] })).match(comparison.files).channel.length > 0;
-                        if (!changed && !matches && !requests.force.includes(key))
-                            result = { channel: key, decision: 'unchanged' };
-                        else {
-                            await verifyImage(registry, history, source, options.digest, options.revision, options.alias);
-                            result = publication(key, await registry.publish(source, destination, options.digest, options.alias), options.alias, options.digest);
-                        }
-                    }
-                }
-            }
-            catch (error) {
-                result = { channel: key, decision: 'blocked', reason: String(error) };
-            }
-            results.push(result);
-            process.stdout.write(JSON.stringify(result) + '\n');
-        }
-    };
-    await Promise.all(Array.from({ length: Math.min(budgets.concurrency, selected.length) }, worker));
-    (0, fs_1.mkdirSync)(options.evidence, { recursive: true });
-    (0, fs_1.writeFileSync)(path.join(options.evidence, 'results.json'), JSON.stringify(results, null, 2) + '\n');
-    return results;
-}
-async function verifyImage(registry, history, coordinate, digest, revision, tag) {
-    const identity = await registry.identity(coordinate.registry, coordinate.repository, digest, tag);
-    if (identity.revision !== revision || history.alias(revision) !== tag)
-        throw new Error('Image revision differs from approved source identity');
-}
-function publication(channel, outcome, tag, digest) {
-    return { channel, decision: outcome === 'present-at-expected-digest' ? 'published' : 'blocked', outcome, tag, digest };
-}
-
-
-/***/ }),
-
-/***/ 1048:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.ReleaseRegistry = void 0;
-const crypto_1 = __nccwpck_require__(6982);
-const fs_1 = __nccwpck_require__(9896);
-const os_1 = __nccwpck_require__(857);
-const path = __importStar(__nccwpck_require__(6928));
-const shared_image_command_1 = __nccwpck_require__(5490);
-const shared_image_history_1 = __nccwpck_require__(7571);
-const shared_image_releases_1 = __nccwpck_require__(5945);
-class ReleaseRegistry {
-    constructor(cwd, regctl, helper, budgets, deadline) {
-        this.cwd = cwd;
-        this.regctl = regctl;
-        this.helper = helper;
-        this.budgets = budgets;
-        this.deadline = deadline;
-    }
-    options(timeoutMs = this.budgets.registryMs) {
-        return { cwd: this.cwd, maxBuffer: this.budgets.maxBuffer, timeoutMs: Math.min(timeoutMs, this.deadline - Date.now()) };
-    }
-    aws(destination, args) {
-        return (0, shared_image_command_1.command)('aws', ['ecr', ...args, '--registry-id', destination.registry.split('.')[0],
-            '--repository-name', destination.repository], this.options());
-    }
-    async list(destination) {
-        const tags = new Set();
-        const tokens = new Set();
-        let token;
-        let nonempty = false;
-        do {
-            const page = JSON.parse(await this.aws(destination, [
-                'list-images', '--no-paginate', '--max-results', '1000', '--output', 'json',
-                ...(token ? ['--next-token', token] : [])
-            ]));
-            if (!Array.isArray(page.imageIds))
-                throw new Error(`${destination.repository}: invalid frontier page`);
-            nonempty || (nonempty = page.imageIds.length > 0);
-            for (const image of page.imageIds) {
-                if (image.imageTag !== undefined && typeof image.imageTag !== 'string')
-                    throw new Error('Invalid frontier tag');
-                if (image.imageTag)
-                    tags.add(image.imageTag);
-            }
-            token = page.nextToken;
-            if (token !== undefined && (typeof token !== 'string' || !token || tokens.has(token))) {
-                throw new Error(`${destination.repository}: invalid or repeated pagination token`);
-            }
-            if (token)
-                tokens.add(token);
-        } while (token);
-        return { tags, nonempty };
-    }
-    async read(destination, tag) {
-        const digest = (await this.aws(destination, [
-            'batch-get-image', '--image-ids', `imageTag=${tag}`, '--accepted-media-types',
-            'application/vnd.oci.image.index.v1+json', 'application/vnd.docker.distribution.manifest.list.v2+json',
-            'application/vnd.oci.image.manifest.v1+json', 'application/vnd.docker.distribution.manifest.v2+json',
-            '--query', 'images[0].imageId.imageDigest', '--output', 'text'
-        ])).trim();
-        if (digest === 'None')
-            return undefined;
-        if (!shared_image_history_1.DIGEST.test(digest))
-            throw new Error(`${destination.repository}:${tag}: invalid image digest`);
-        return digest;
-    }
-    async identity(registry, repository, digest, tag) {
-        var _a, _b, _c;
-        if (!shared_image_history_1.DIGEST.test(digest))
-            throw new Error('Expected exact image digest');
-        const raw = await (0, shared_image_command_1.command)(this.regctl, ['manifest', 'get', `${registry}/${repository}@${digest}`, '--format', 'raw-body'], this.options());
-        if (`sha256:${(0, crypto_1.createHash)('sha256').update(raw, 'utf8').digest('hex')}` !== digest)
-            throw new Error('Manifest digest mismatch');
-        const manifest = JSON.parse(raw);
-        const revision = (_b = (_a = manifest.annotations) === null || _a === void 0 ? void 0 : _a['org.opencontainers.image.revision']) !== null && _b !== void 0 ? _b : '';
-        const source = (_c = manifest.annotations) === null || _c === void 0 ? void 0 : _c['org.opencontainers.image.source'];
-        if (!shared_image_history_1.REVISION.test(revision) || source !== `https://github.com/${shared_image_releases_1.CANONICAL_SOURCE_REPOSITORY}`) {
-            throw new Error(`${repository}: invalid canonical source/revision metadata`);
-        }
-        if (tag && (!shared_image_history_1.ORDERED_ALIAS.test(tag) || tag.slice(14) !== revision.slice(0, 6))) {
-            throw new Error(`${repository}:${tag}: alias revision mismatch`);
-        }
-        return { revision, digest };
-    }
-    async publish(source, destination, digest, tag) {
-        const scratch = (0, fs_1.mkdtempSync)(path.join((0, os_1.tmpdir)(), 'ordered-image-'));
-        const output = path.join(scratch, 'output');
-        try {
-            const logs = await (0, shared_image_command_1.command)('bash', [this.helper, 'publish'], {
-                ...this.options((this.budgets.copySeconds + this.budgets.readbackSeconds + 15) * 1000),
-                env: {
-                    SOURCE_REGISTRY: source.registry, SOURCE_REPO: source.repository,
-                    ECR_REGISTRY: destination.registry, ECR_REPO: destination.repository,
-                    EXPECTED_DIGEST: digest, ORDERED_ALIAS: tag, REGCTL: this.regctl, GITHUB_OUTPUT: output,
-                    COPY_TIMEOUT_SECONDS: String(this.budgets.copySeconds), READBACK_TIMEOUT_SECONDS: String(this.budgets.readbackSeconds)
-                }
-            });
-            process.stdout.write(logs);
-            const match = /^outcome=(present-at-expected-digest|absent|integrity-mismatch|unknown)$/m.exec((0, fs_1.readFileSync)(output, 'utf8'));
-            return match ? match[1] : 'unknown';
-        }
-        catch (error) {
-            process.stderr.write(`${String(error)}\n`);
-            return 'unknown';
-        }
-        finally {
-            (0, fs_1.rmSync)(scratch, { recursive: true, force: true });
-        }
-    }
-}
-exports.ReleaseRegistry = ReleaseRegistry;
-
-
-/***/ }),
-
-/***/ 5945:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.CANONICAL_SOURCE_REPOSITORY = void 0;
 exports.loadPolicy = loadPolicy;
-exports.bindChannels = bindChannels;
 exports.projectLegacyFilters = projectLegacyFilters;
-exports.serializePolicy = serializePolicy;
-exports.policyDigest = policyDigest;
-const crypto_1 = __nccwpck_require__(6982);
 const yaml = __importStar(__nccwpck_require__(4281));
 const filter_1 = __nccwpck_require__(9037);
 const file_1 = __nccwpck_require__(3765);
-exports.CANONICAL_SOURCE_REPOSITORY = 'PostHog/posthog';
 function object(value, location) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new Error(`${location}: expected a mapping`);
@@ -44100,39 +43416,6 @@ function loadPolicy(text) {
     }
     return { version: 1, filters, images };
 }
-function bindChannels(policy, approved) {
-    const destinations = new Set();
-    const resolved = Object.create(null);
-    for (const [image, definition] of Object.entries(policy.images)) {
-        if (!Object.prototype.hasOwnProperty.call(approved, image))
-            throw new Error(`images.${image}: unknown build input`);
-        const source = approved[image];
-        resolved[image] = Object.create(null);
-        for (const [name, channel] of Object.entries(definition.channels)) {
-            const location = `images.${image}.channels.${name}`;
-            if (!source.registry || !source.repository || source.sourceRepository !== exports.CANONICAL_SOURCE_REPOSITORY) {
-                throw new Error(`${location}: source build has no approved canonical identity and coordinates`);
-            }
-            const bindings = source.destinations.filter(destination => destination.repository === channel.repository);
-            if (bindings.length !== 1)
-                throw new Error(`${location}.repository: expected one approved destination binding`);
-            const binding = bindings[0];
-            if (!binding || !binding.registry || !binding.owner) {
-                throw new Error(`${location}.repository: destination has no approved owner, registry and replicas`);
-            }
-            for (const coordinate of [binding.registry, ...binding.replicas]) {
-                const key = `${coordinate}/${channel.repository}`;
-                if (key === `${source.registry}/${source.repository}`)
-                    throw new Error(`${location}: destination conflicts with source build repository`);
-                if (destinations.has(key))
-                    throw new Error(`${location}: conflicting destination ${key}`);
-                destinations.add(key);
-            }
-            resolved[image][name] = binding;
-        }
-    }
-    return resolved;
-}
 function projectLegacyFilters(policy, inlineYaml) {
     const inline = object(yaml.load(inlineYaml), 'legacy filters');
     const merged = Object.assign(Object.create(null), inline);
@@ -44145,20 +43428,6 @@ function projectLegacyFilters(policy, inlineYaml) {
     if (Object.values(merged).some(value => value === null))
         throw new Error('legacy filters: unresolved policy reference');
     return validatedMatcherYaml(merged);
-}
-function canonical(value) {
-    if (Array.isArray(value))
-        return value.map(canonical);
-    if (value !== null && typeof value === 'object') {
-        return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
-    }
-    return value;
-}
-function serializePolicy(entries) {
-    return JSON.stringify(canonical({ paths: entries, version: 1 }));
-}
-function policyDigest(entries) {
-    return (0, crypto_1.createHash)('sha256').update(serializePolicy(entries), 'utf8').digest('hex');
 }
 
 
