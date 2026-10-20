@@ -31,6 +31,12 @@ Marketing emails must include an unsubscribe link — render it with the built-i
 
 (`{{ unsubscribe_url_one_click }}` is also available for one-click list-unsubscribe flows.)
 
+Output is HTML-escaped by default, so a value renders as text even when it contains markup:
+
+- Don't add `| escape`. It escapes a second time, and `&` reaches the inbox as `&amp;amp;`.
+- For HTML your own backend builds, such as a summary list, add `| raw`: `{{ variables.summary_html | raw }}`. Never use `raw` on text a person typed.
+- Format money with `currency`: `{{ variables.amount | currency: "USD" }}` renders `$1,234.50`. A value that isn't a number renders unchanged.
+
 ## Click tracking and opt-out
 
 Every link is automatically rewritten through a click-tracking redirect. This breaks mobile universal links / app deeplinks, which only resolve when the href stays on their own domain. To keep a link untracked, mark its anchor (use an `html` block) with `clicktracking="off"` or `data-ph-no-track`:
@@ -68,6 +74,7 @@ Call `workflows-create-email-template` with:
     "templating": "liquid",
     "email": {
       "subject": "Welcome to {{ person.properties.company | default: 'our product' }}",
+      "preheader": "Three short steps to get you set up",
       "design": { "counters": { "u_row": 1 }, "schemaVersion": 16, "body": { "rows": ["…"] } },
       "text": "Plain-text fallback of the same message"
     }
@@ -76,6 +83,7 @@ Call `workflows-create-email-template` with:
 ```
 
 - `subject` is required for email templates.
+- `preheader` is the preview text most inboxes show after the subject. Leave the design's own `preheaderText` empty, so the email carries one preview text.
 - Always author the `design` and omit `html` - the server renders html from the design. Sending hand-written html without a design produces an email the visual editor can only show as one raw block.
 - Always provide `text` as a real plain-text rendering of the message - clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes, and a text part that doesn't match the html hurts deliverability.
 - The tool result returns an edit link into the PostHog library.
@@ -84,6 +92,17 @@ Call `workflows-create-email-template` with:
 ### Payload mechanics
 
 Pass the design directly in the tool call — no scratch files, no pre-validation subprocesses, no payload preview rounds. Liquid tags (`{{ }}`, `{% %}`), apostrophes, single quotes, and emoji are ordinary characters inside JSON strings; only standard JSON escaping applies. Never rewrite content to avoid them — converting Liquid's single quotes to double quotes inside markup attributes breaks the markup. If the tool call is rejected as malformed, fix the JSON escaping and resend the same content unchanged.
+
+## Converting an existing HTML email
+
+To move an email from another platform, rebuild it from native blocks instead of pasting its HTML into one `html` block, so people can still edit it:
+
+- Each part of the source becomes the native block it shows: a `heading`, a `text` block per paragraph, a `button` per call to action, an `image` per picture. Keep the source's colors, font sizes, and padding on each block.
+- Re-host every image through the media library (see Images). Put the file's real dimensions in `src.width` and `src.height`, and set the displayed width with `src.maxWidth` as a percentage of the content width. Source HTML often declares a height that doesn't match the file.
+- A section the source wraps in `{% if %}` becomes a block with a display condition (see [references/unlayer-design-json.md](references/unlayer-design-json.md)).
+- Rename the source platform's Liquid variables to the ones this send provides. A transactional API send provides everything the caller passes in `message_data` as `{{ variables.* }}`.
+- Buttons have no `box-shadow`. A 3px bottom border in a darker shade (`border.borderBottomWidth`, `borderBottomStyle`, `borderBottomColor`) gives the same raised look.
+- The `social` block draws only its own icon sets. To keep custom icons, put the icon row in an `html` block with the re-hosted images.
 
 ## Editing a template (read–modify–write)
 

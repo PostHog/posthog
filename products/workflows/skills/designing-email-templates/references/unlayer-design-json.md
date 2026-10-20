@@ -13,6 +13,7 @@ Adapted from [unlayer/unlayer-skills](https://github.com/unlayer/unlayer-skills)
 - Content item structure
 - Content types
 - Native blocks and spacing
+- Showing a block conditionally
 - Validation constants
 - Minimal working example
 - Editing blocks with operations
@@ -149,6 +150,31 @@ Compose every email from native blocks: a `heading`, one `text` block per paragr
 - **Button links** are an object: `"href": { "name": "web", "values": { "href": "https://example.com/setup", "target": "_blank" } }`. The editor shows the URL in the button's own link field.
 
 Write only these values. The editor fills every other key (`anchor`, `linkStyle`, `hideDesktop`, `selectable`, and so on) with its default when it loads the design.
+
+## Showing a block conditionally
+
+To show a block only when a Liquid condition holds, give it a `displayCondition`. The rendered email wraps the block's markup in `before` and `after`, so the condition removes the whole block, padding included. The editor shows the `label` on the block.
+
+```json
+{
+  "type": "text",
+  "values": {
+    "text": "<p>Your new credits are ready to use.</p>",
+    "fontSize": "16px",
+    "lineHeight": "150%",
+    "containerPadding": "8px 24px",
+    "displayCondition": {
+      "type": "liquid",
+      "label": "Credits customers only",
+      "description": "Shown when the send includes credits",
+      "before": "{% if variables.show_credits %}",
+      "after": "{% endif %}"
+    }
+  }
+}
+```
+
+Put a condition on each block it covers. Never split one `{% if %}` across the text of two blocks, because the editor can reorder or delete one of them.
 
 ## Validation constants
 
