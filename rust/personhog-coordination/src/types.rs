@@ -696,4 +696,18 @@ mod tests {
             assert_eq!(serde_json::to_string(&phase).unwrap(), expected);
         }
     }
+
+    #[test]
+    fn a_saga_cancels_only_before_the_seal() {
+        use MigrationPhase::*;
+        for phase in [
+            Freezing, Draining, Sealing, Resuming, Complete, Cancelling, Cancelled,
+        ] {
+            assert_eq!(
+                phase.may_transition_to(Cancelling),
+                matches!(phase, Freezing | Draining),
+                "{phase:?}"
+            );
+        }
+    }
 }

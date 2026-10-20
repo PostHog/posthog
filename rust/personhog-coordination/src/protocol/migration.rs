@@ -290,4 +290,19 @@ mod tests {
         let plan = plan_freeze(2, &[owned(0, "p0")], &[placing], &registered);
         assert_eq!(plan.stray_handoff.map(|(p, _)| p), Some(1));
     }
+
+    #[test]
+    fn the_freeze_names_a_holder_that_is_gone() {
+        let registered: HashSet<&str> = ["p0"].into_iter().collect();
+        let unheld = plan_freeze(2, &[owned(0, "p0"), owned(1, "gone")], &[], &registered);
+        assert_eq!(unheld.holder_died, Some((1, "gone".to_string())));
+        assert_eq!(unheld.holds, vec![(0, "p0".to_string())]);
+
+        let hold = HandoffState {
+            held_by: Some("m-1".to_string()),
+            ..handoff(1, Some("gone"), "gone")
+        };
+        let held = plan_freeze(2, &[owned(0, "p0"), owned(1, "gone")], &[hold], &registered);
+        assert_eq!(held.holder_died, Some((1, "gone".to_string())));
+    }
 }

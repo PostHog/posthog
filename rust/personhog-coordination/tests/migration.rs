@@ -552,6 +552,72 @@ async fn a_holder_dying_during_sealing_is_sealed_by_its_peers_and_replaced() {
     cancel.cancel();
 }
 
+/// A holder gone before the seal cancels the saga: its hold is deleted, the
+/// live holds resume in place, and the planner reassigns its partition.
+#[tokio::test]
+async fn a_holder_dying_before_the_seal_cancels_the_saga() {
+    let Fleet {
+        store,
+        cancel,
+        pods,
+    } = fleet("migration-holder-died-draining").await;
+    let holders = [
+        (0, "writer-0"),
+        (1, "writer-1"),
+        (2, "writer-0"),
+        (3, "writer-gone"),
+    ];
+    let assignments: Vec<_> = holders
+        .iter()
+        .map(|(partition, holder)| assignment(*partition, holder))
+        .collect();
+    store.put_assignments(&assignments).await.unwrap();
+    for (partition, holder) in holders {
+        let mut held = handoff(partition, holder, HandoffPhase::Draining, 1);
+        held.held_by = Some("m-1".to_string());
+        store.put_handoff(&held).await.unwrap();
+    }
+    let draining = MigrationState {
+        phase: MigrationPhase::Draining,
+        ..migration("m-1", 8)
+    };
+    assert!(store.create_migration(&draining).await.unwrap());
+    start_coordinator_with_config(
+        Arc::clone(&store),
+        coordinator_config("coordinator-0", 10, Duration::from_secs(86_400)),
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+
+    let archived = wait_for_archive(&store, "m-1").await;
+    assert_eq!(archived.phase, MigrationPhase::Cancelled);
+    assert_eq!(archived.cancel_reason.as_deref(), Some("holder_died"));
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap();
+            assignments.len() == PARTITIONS as usize
+                && assignments.iter().all(|a| a.owner != "writer-gone")
+                && store.list_handoffs().await.unwrap().is_empty()
+        }
+    })
+    .await;
+    for pod in &pods {
+        let events = events_of(pod).await;
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, HandoffEvent::Released(_))),
+            "a cancelled migration released a partition: {events:?}"
+        );
+    }
+    assert_eq!(
+        store.get_changelog_config().await.unwrap().unwrap().epoch,
+        1
+    );
+    cancel.cancel();
+}
+
 #[tokio::test]
 async fn a_request_that_fails_admission_is_rejected_with_its_reason() {
     let Fleet { store, cancel, .. } = fleet("migration-admission").await;
@@ -602,7 +668,7 @@ async fn a_request_that_fails_admission_is_rejected_with_its_reason() {
 }
 
 #[tokio::test]
-async fn the_flip_waits_for_every_partition_to_be_sealed() {
+async fn the_flip_waits_for_every_partition_to_be_sealed_and_cannot_be_cancelled() {
     let Fleet { store, cancel, .. } = fleet("migration-gates").await;
     start_coordinator_with_config(
         Arc::clone(&store),
@@ -622,6 +688,16 @@ async fn the_flip_waits_for_every_partition_to_be_sealed() {
         store.get_changelog_config().await.unwrap().unwrap().epoch,
         1
     );
+    let (_, rev) = store
+        .get_migration_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!store
+        .cancel_migration("m-1", rev, "operator")
+        .await
+        .unwrap());
+    assert_eq!(current_phase(&store).await.0, MigrationPhase::Sealing);
 
     // The gate is the union across leaders: half from one pod leaves the rest blocking.
     ack_seal(&store, "m-1", "writer-0", 0..2).await;

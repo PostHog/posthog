@@ -121,3 +121,66 @@ pub fn group_drained(
     let drained = partitions_drained(base, group, topic, timeout)?;
     Ok(drained.values().all(|ok| *ok))
 }
+
+#[cfg(test)]
+mod tests {
+    use rdkafka::consumer::CommitMode;
+    use rdkafka::producer::FutureRecord;
+
+    use super::*;
+
+    const TOPIC: &str = "probe-topic";
+    const GROUP: &str = "probe-writer";
+
+    fn commit(bootstrap: &str, partition: i32, offset: i64) {
+        let consumer: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", bootstrap)
+            .set("group.id", GROUP)
+            .set("enable.auto.commit", "false")
+            .create()
+            .expect("group consumer");
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset(TOPIC, partition, Offset::Offset(offset))
+            .expect("tpl");
+        consumer.assign(&tpl).expect("assign");
+        consumer.commit(&tpl, CommitMode::Sync).expect("commit");
+    }
+
+    #[tokio::test]
+    async fn a_partition_is_drained_only_once_the_group_committed_its_end() {
+        let (cluster, producer) = crate::test::create_mock_kafka().await;
+        cluster.create_topic(TOPIC, 2, 1).expect("create topic");
+        for _ in 0..3 {
+            producer
+                .send_result(FutureRecord::<(), _>::to(TOPIC).partition(0).payload("x"))
+                .expect("enqueue")
+                .await
+                .expect("produce canceled")
+                .expect("produce failed");
+        }
+        let bootstrap = cluster.bootstrap_servers();
+        let mut base = ClientConfig::new();
+        base.set("bootstrap.servers", &bootstrap);
+        let timeout = Duration::from_secs(10);
+        let drained = || {
+            let base = base.clone();
+            move || partitions_drained(&base, GROUP, TOPIC, timeout).expect("probe")
+        };
+
+        let none = tokio::task::spawn_blocking(drained()).await.unwrap();
+        assert_eq!(none, HashMap::from([(0, false), (1, true)]));
+
+        commit(&bootstrap, 0, 1);
+        let partial = tokio::task::spawn_blocking(drained()).await.unwrap();
+        assert!(!partial[&0]);
+
+        commit(&bootstrap, 0, 3);
+        let base_for_group = base.clone();
+        let all = tokio::task::spawn_blocking(move || {
+            group_drained(&base_for_group, GROUP, TOPIC, timeout).expect("probe")
+        })
+        .await
+        .unwrap();
+        assert!(all);
+    }
+}

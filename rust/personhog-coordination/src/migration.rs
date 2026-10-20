@@ -497,10 +497,9 @@ pub(crate) async fn reconcile(
         mod_revision,
         epoch: config.epoch,
     };
-    let cancellable = matches!(
-        migration.phase,
-        MigrationPhase::Freezing | MigrationPhase::Draining
-    );
+    let cancellable = migration
+        .phase
+        .may_transition_to(MigrationPhase::Cancelling);
     let age_ms = util::now_millis().saturating_sub(migration.created_at_ms);
     if cancellable && age_ms > pre_flip_deadline.as_millis() as i64 {
         return pass.cancel("pre_flip_deadline").await;
