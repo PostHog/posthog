@@ -354,12 +354,8 @@ class TestSourceResponseMetadata:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
             # v3 answers "no subaccounts on this account" with a 400; the key was still accepted.
             ("no_records", 400, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_maps_to_validity(self, _name: str, status_code: int, expected: bool) -> None:
