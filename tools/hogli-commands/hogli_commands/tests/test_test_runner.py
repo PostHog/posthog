@@ -355,6 +355,26 @@ class TestResolveToRepoRelative:
             assert result == "posthog/test_foo.py::TestBar"
 
 
+@pytest.fixture
+def source_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for rel in (
+        "posthog/api/comments.py",
+        "posthog/api/test/test_comments.py",
+        "frontend/src/scenes/dashboard/DashboardHeader.tsx",
+        "frontend/src/scenes/dashboard/DashboardHeader.test.tsx",
+        "livestream/events/filter.go",
+        "livestream/events/filter_test.go",
+        "tools/hogli-commands/hogli_commands/test_runner.py",
+        "tools/hogli-commands/hogli_commands/tests/test_test_runner.py",
+    ):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).touch()
+    for rel in ("rust/capture/src/api.rs", "rust/capture/src/v1/util.rs"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("#[cfg(test)]\nmod tests {}\n")
+    monkeypatch.setattr("hogli_commands.test_runner.REPO_ROOT", tmp_path)
+
+
 class TestIsTestFile:
     @parameterized.expand(
         [
@@ -383,6 +403,7 @@ class TestIsTestFile:
             ("rust/capture/src/v1/util.rs",),
         ]
     )
+    @pytest.mark.usefixtures("source_tree")
     def test_rs_inline_cfg_test_detected_with_batch(self, path: str) -> None:
         rs_cfg_test = _batch_find_rs_cfg_test("rust/capture/src")
         assert _is_test_file(path, rs_cfg_test=rs_cfg_test)
@@ -406,6 +427,7 @@ class TestGetChangedFiles:
         assert _get_changed_files() == ["tools/hogli-commands/hogli_commands/test_runner.py"]
 
 
+@pytest.mark.usefixtures("source_tree")
 class TestFindTestFilesForSource:
     @parameterized.expand(
         [
@@ -471,6 +493,7 @@ class TestRunChanged:
 
     @patch("hogli_commands.test_runner._run")
     @patch("hogli_commands.test_runner._get_changed_files")
+    @pytest.mark.usefixtures("source_tree")
     def test_discovers_tests_for_changed_source_files(self, mock_changed, mock_run) -> None:
         mock_changed.return_value = ["posthog/api/comments.py"]
         _run_changed([])

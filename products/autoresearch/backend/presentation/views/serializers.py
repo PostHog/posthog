@@ -40,7 +40,11 @@ VALIDATION_WARNING_CODES = api.VALIDATION_WARNING_CODES
 MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
 RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
+BASE_RATE_SOURCE_CHOICES = api.BASE_RATE_SOURCE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
+KICKOFF_REASON_CHOICES = api.KICKOFF_REASON_CHOICES
+RESEARCH_INTERVAL_DAYS_CHOICES = api.RESEARCH_INTERVAL_DAYS_CHOICES
+TRAINING_PHASE_CHOICES = api.TRAINING_PHASE_CHOICES
 ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
 SUGGESTION_PRIORITY_CHOICES = api.SUGGESTION_PRIORITY_CHOICES
 SUGGESTION_STATUS_CHOICES = api.SUGGESTION_STATUS_CHOICES
@@ -50,6 +54,7 @@ TARGET_EVENT_MAX_LENGTH = 255
 AGENT_DESCRIPTION_MAX_LENGTH = 2000
 ITERATION_SUMMARY_MAX_LENGTH = 300
 RUN_READER_SUMMARY_MAX_LENGTH = 600
+HEADLINE_MAX_LENGTH = 60
 NEXT_STEPS_MAX_ITEMS = 5
 NEXT_STEP_MAX_LENGTH = 80
 OBJECT_JSON_MAX_BYTES = 64 * 1024
@@ -216,6 +221,20 @@ class FiniteFloatField(serializers.FloatField):
         if not math.isfinite(value):
             raise serializers.ValidationError("Must be a finite number.")
         return value
+
+
+class HeadlineField(serializers.CharField):
+    """A one-line headline. Collapses whitespace and cuts to length, so a long headline never fails a run."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("allow_null", True)
+        kwargs.setdefault("allow_blank", True)
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data: Any) -> str:
+        value = " ".join(super().to_internal_value(data).split())
+        return value[:HEADLINE_MAX_LENGTH].rstrip()
 
 
 @extend_schema_field(
@@ -493,6 +512,18 @@ class MetricsBundleField(serializers.JSONField):
 # ── Core serializers ------------------------------------------------------
 
 
+@extend_schema_serializer(component_name="AutoresearchTrainingTrendPoint")
+class TrainingTrendPointSerializer(DataclassSerializer):
+    iteration_number = serializers.IntegerField(read_only=True, help_text="Iteration number inside the training run.")
+    best_holdout_score = serializers.FloatField(
+        read_only=True, help_text="Best holdout AUC of the run up to and including this iteration."
+    )
+
+    class Meta:
+        dataclass = TrainingTrendPoint
+        fields = ["iteration_number", "best_holdout_score"]
+
+
 @extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
 class LiveTrainingRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
@@ -511,6 +542,14 @@ class LiveTrainingRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Plain-language sentence on the newest experiment, for people. Null if the agent wrote none.",
     )
+    trend = TrainingTrendPointSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Best-so-far holdout AUC per experiment of this run, oldest first. "
+            "Experiments before the first holdout score are left out."
+        ),
+    )
 
     class Meta:
         dataclass = LiveTrainingRun
@@ -521,6 +560,7 @@ class LiveTrainingRunSerializer(DataclassSerializer):
             "best_holdout_score",
             "latest_agent_description",
             "latest_summary",
+            "trend",
         ]
 
 
@@ -584,18 +624,6 @@ class RealizedAucPointSerializer(DataclassSerializer):
         fields = ["prediction_date", "realized_auc"]
 
 
-@extend_schema_serializer(component_name="AutoresearchTrainingTrendPoint")
-class TrainingTrendPointSerializer(DataclassSerializer):
-    iteration_number = serializers.IntegerField(read_only=True, help_text="Iteration number inside the training run.")
-    best_holdout_score = serializers.FloatField(
-        read_only=True, help_text="Best holdout AUC of the run up to and including this iteration."
-    )
-
-    class Meta:
-        dataclass = TrainingTrendPoint
-        fields = ["iteration_number", "best_holdout_score"]
-
-
 @extend_schema_serializer(component_name="AutoresearchPipeline")
 # Read representation of a pipeline. Every field is declared explicitly so the generated
 # AutoresearchPipeline component keeps the shape it had when this was a ModelSerializer.
@@ -637,10 +665,43 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         min_value=-2147483648,
         max_value=2147483647,
         required=False,
-        help_text="Total training iterations allowed for the autoresearch loop.",
+        help_text="Deprecated: scheduled training no longer reads it. Use iterations_per_run.",
     )
     iteration_budget_remaining = serializers.IntegerField(
-        read_only=True, help_text="Iterations remaining in the current budget."
+        read_only=True, help_text="Deprecated: scheduled training no longer reads or spends it."
+    )
+    iterations_per_run = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Experiments the agent may try in each training run (1-50). Each experiment costs agent time and "
+            "queries, so a higher value costs more per run. Scheduled runs and Train now use it."
+        ),
+    )
+    research_interval_days = serializers.ChoiceField(
+        choices=RESEARCH_INTERVAL_DAYS_CHOICES,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. "
+            "Null means only when asked: no scheduled research, so the only training cost comes from runs you "
+            "start and from rescue runs for a model that cannot score. A shorter interval costs more."
+        ),
+    )
+    training_phase = serializers.ChoiceField(
+        choices=TRAINING_PHASE_CHOICES,
+        read_only=True,
+        help_text=(
+            "explore: a research run on each scoring day until a run does not promote a better model, or until "
+            "5 research runs have run. maintain: one research run every research_interval_days."
+        ),
+    )
+    next_research_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Start of the UTC day from which the daily sweep can start the next scheduled research run. "
+            "Null when research_interval_days is null."
+        ),
     )
     success_auc = serializers.FloatField(
         required=False,
@@ -658,6 +719,13 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         allow_blank=True,
         max_length=255,
         help_text="Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'.",
+    )
+    write_person_property = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether live scoring writes the champion's score to output_person_property on each scored person. "
+            "Feature flags, cohorts, workflows and insights that target people by score need it on."
+        ),
     )
     status = serializers.ChoiceField(
         choices=PIPELINE_STATUS_CHOICES,
@@ -763,9 +831,14 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "cadence_days",
             "iteration_budget",
             "iteration_budget_remaining",
+            "iterations_per_run",
+            "research_interval_days",
+            "training_phase",
+            "next_research_at",
             "success_auc",
             "plateau_iterations",
             "output_person_property",
+            "write_person_property",
             "status",
             "created_by",
             "created_at",
@@ -844,7 +917,26 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         required=False,
         min_value=1,
         max_value=500,
-        help_text="Total training iterations allowed for the autoresearch loop (1-500). Default: 50.",
+        help_text="Deprecated: scheduled training no longer reads it. Use iterations_per_run.",
+    )
+    iterations_per_run = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=50,
+        help_text=(
+            "Experiments the agent may try in each training run (1-50). Each experiment costs agent time and "
+            "queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5."
+        ),
+    )
+    research_interval_days = serializers.ChoiceField(
+        choices=RESEARCH_INTERVAL_DAYS_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. "
+            "Null means only when asked: no scheduled research, so the only training cost comes from runs you "
+            "start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7."
+        ),
     )
     success_auc = serializers.FloatField(
         required=False,
@@ -870,6 +962,15 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "non-archived pipelines."
         ),
     )
+    write_person_property = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. "
+            "Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. "
+            "Prediction events, validation and segments work without it. Turning it off, or archiving or deleting "
+            "the pipeline while it is on, removes the property from the people it scored."
+        ),
+    )
 
     class Meta:
         dataclass = PipelineWrite
@@ -884,9 +985,12 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "inference_population",
             "cadence_days",
             "iteration_budget",
+            "iterations_per_run",
+            "research_interval_days",
             "success_auc",
             "plateau_iterations",
             "output_person_property",
+            "write_person_property",
         ]
 
     # Fields a trained model was fit against. Once any model exists they are frozen: scoring keeps
@@ -984,6 +1088,19 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         if not is_update and not output_person_property:
             output_person_property = self._derive_output_person_property(replace(data, **updates) if updates else data)
             updates["output_person_property"] = output_person_property
+        if is_update and (
+            self._supplied(data, "output_person_property") or self._supplied(data, "write_person_property")
+        ):
+            stored = api.get_pipeline_definition(team.pk, self._pipeline_id)
+            writes = self._value(data, "write_person_property", stored.write_person_property)
+            if writes and not self._value(data, "output_person_property", stored.output_person_property):
+                raise serializers.ValidationError(
+                    {
+                        "output_person_property": (
+                            "Set a person property name before you turn on writing scores to person profiles."
+                        )
+                    }
+                )
         if output_person_property and api.output_person_property_taken(
             team.pk, output_person_property, exclude_pipeline_id=self._pipeline_id
         ):
@@ -1179,6 +1296,11 @@ class IterationTrailSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.",
     )
+    headline = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Short title for this experiment, for people. Null if not written.",
+    )
     model_spec = ModelSpecField(help_text="Model class and hyperparameters tried in this iteration.")
 
     class Meta:
@@ -1190,6 +1312,7 @@ class IterationTrailSerializer(DataclassSerializer):
             "train_score",
             "agent_description",
             "summary",
+            "headline",
             "model_spec",
         ]
 
@@ -1228,6 +1351,15 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         read_only=True,
         help_text="Run status: pending, running, completed, or failed.",
     )
+    kickoff_reason = serializers.ChoiceField(
+        choices=KICKOFF_REASON_CHOICES,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the run started: explore (the first burst of daily runs), scheduled (the research interval), "
+            "rescue (the champion cannot score) or manual (a person or an agent asked). Null for older runs."
+        ),
+    )
     iteration_budget = serializers.IntegerField(
         min_value=-2147483648,
         max_value=2147483647,
@@ -1249,6 +1381,11 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         read_only=True,
         allow_null=True,
         help_text="One or two plain sentences on what this run learned, for people. Null if not written.",
+    )
+    headline = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Short title for this run, for people. Null if not written.",
     )
     next_steps = serializers.ListField(
         child=serializers.CharField(),
@@ -1280,11 +1417,13 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
             "task_run_id",
             "task_url",
             "status",
+            "kickoff_reason",
             "iteration_budget",
             "iteration_count",
             "best_holdout_score",
             "summary",
             "reader_summary",
+            "headline",
             "next_steps",
             "iterations",
             "error",
@@ -1317,6 +1456,11 @@ class AutoresearchIterationSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Plain-language sentence on what this experiment tried and what happened, for people.",
     )
+    headline = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Short title for this experiment, for people.",
+    )
     agent_confidence = serializers.FloatField(
         required=False, allow_null=True, help_text="Agent's self-assessed confidence 0–1"
     )
@@ -1342,6 +1486,7 @@ class AutoresearchIterationSerializer(DataclassSerializer):
             "status",
             "agent_description",
             "summary",
+            "headline",
             "agent_confidence",
             "parent_suggestion",
             "created_at",
@@ -1544,13 +1689,13 @@ class PredictionSegmentThresholdsSerializer(serializers.Serializer):
     likely_threshold = serializers.FloatField(
         help_text=(
             "Users with a score at or above this probability are in the Likely segment: likely_lift times the "
-            "base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null."
+            "base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate_source is fixed."
         )
     )
     possible_threshold = serializers.FloatField(
         help_text=(
             "Users with a score at or above this probability and below likely_threshold are in the Possible "
-            "segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null."
+            "segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate_source is fixed."
         )
     )
     likely_lift = serializers.FloatField(
@@ -1559,11 +1704,20 @@ class PredictionSegmentThresholdsSerializer(serializers.Serializer):
     base_rate = serializers.FloatField(
         allow_null=True,
         help_text=(
-            "Fraction of the champion's scored users who did the target event, pooled over the newest checked "
-            "dates. Null, and the fixed cut points apply, until those dates hold enough positives."
+            "The base rate the cut points use. When base_rate_source is realized, the fraction of the champion's scored "
+            "users who did the target event, pooled over the newest checked dates. When base_rate_source is training, the "
+            "fraction of the champion's training population that did it. Null when base_rate_source is fixed."
         ),
     )
     base_rate_dates = serializers.IntegerField(help_text="Number of checked prediction dates the base rate pools.")
+    base_rate_source = serializers.ChoiceField(
+        choices=BASE_RATE_SOURCE_CHOICES,
+        help_text=(
+            "Where the cut points come from. realized: the checked dates hold enough positives. training: no "
+            "realized base rate yet, so the champion's training population sets it. fixed: neither is available, "
+            "so fixed cut points apply."
+        ),
+    )
     champion_mean_p_y = serializers.FloatField(
         allow_null=True,
         help_text=(
@@ -1774,7 +1928,7 @@ class StartTrainingRequestSerializer(serializers.Serializer):
         required=False,
         min_value=1,
         max_value=500,
-        help_text="Override the pipeline iteration budget for this training run.",
+        help_text="Iterations for this training run. Defaults to the pipeline's iterations_per_run.",
     )
 
 
@@ -1788,7 +1942,7 @@ class OpenTrainingRunSerializer(serializers.Serializer):
         required=False,
         min_value=1,
         max_value=500,
-        help_text="Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.",
+        help_text="Iteration budget for this run. Defaults to the pipeline's iterations_per_run if omitted.",
     )
 
 
@@ -1842,6 +1996,12 @@ class RecordIterationSerializer(serializers.Serializer):
         help_text=(
             "One plain sentence for people on what this experiment tried and what happened. "
             f"Max {ITERATION_SUMMARY_MAX_LENGTH} characters."
+        ),
+    )
+    headline = HeadlineField(
+        help_text=(
+            f"A short title for people, at most {HEADLINE_MAX_LENGTH} characters, on what this experiment tried. "
+            "Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected."
         ),
     )
     agent_confidence = FiniteFloatField(
@@ -1937,6 +2097,12 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
         help_text=(
             "One or two plain sentences for people on what this run learned. "
             f"Max {RUN_READER_SUMMARY_MAX_LENGTH} characters."
+        ),
+    )
+    headline = HeadlineField(
+        help_text=(
+            f"A short title for people, at most {HEADLINE_MAX_LENGTH} characters, on what this run learned. "
+            "Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected."
         ),
     )
     next_steps = serializers.ListField(

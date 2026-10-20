@@ -221,17 +221,39 @@ describe('StateManager', () => {
         })
 
         it.each([
-            { label: 'a 401', message: 'INVALID_API_KEY: token revoked', rejected: true },
-            { label: 'an outage', message: 'Network error: fetch failed', rejected: false },
+            { label: 'a 401', error: new Error('INVALID_API_KEY: token revoked'), rejected: true },
+            {
+                label: 'a 403 for an unknown token',
+                error: new PostHogApiError({
+                    status: 403,
+                    statusText: 'Forbidden',
+                    body: '',
+                    url: 'https://us.posthog.com/oauth/introspect',
+                    method: 'POST',
+                }),
+                rejected: true,
+            },
+            {
+                label: 'a 503',
+                error: new PostHogApiError({
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    body: '',
+                    url: 'https://us.posthog.com/oauth/introspect',
+                    method: 'POST',
+                }),
+                rejected: false,
+            },
+            { label: 'an outage', error: new Error('Network error: fetch failed'), rejected: false },
         ])(
-            'reports an introspection failure from $label as a rejection only for a 401',
-            async ({ message, rejected }) => {
+            'reports an introspection failure from $label as a rejection only when the token is refused',
+            async ({ error: introspectError, rejected }) => {
                 const api = {
                     config: { apiToken: 'pha_test' },
                     apiKeys: () => ({
                         current: async () => ({ success: false, error: { message: 'not a personal key' } }),
                     }),
-                    oauth: () => ({ introspect: async () => ({ success: false, error: new Error(message) }) }),
+                    oauth: () => ({ introspect: async () => ({ success: false, error: introspectError }) }),
                 } as unknown as ApiClient
 
                 const error = await new StateManager(cache, api).getApiKey().catch((e: Error) => e)

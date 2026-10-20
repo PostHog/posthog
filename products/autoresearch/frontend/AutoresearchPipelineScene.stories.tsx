@@ -11,6 +11,7 @@ import type {
     AutoresearchModelApi,
     AutoresearchPipelineApi,
     AutoresearchRunApi,
+    AutoresearchSuggestionApi,
     AutoresearchTrainingRunApi,
 } from './generated/api.schemas'
 
@@ -29,6 +30,10 @@ const pipeline = {
     cadence_days: 1,
     iteration_budget: 20,
     iteration_budget_remaining: 6,
+    iterations_per_run: 5,
+    research_interval_days: 7,
+    training_phase: 'maintain',
+    next_research_at: '2026-11-12T00:00:00Z',
     success_auc: null,
     plateau_iterations: 5,
     output_person_property: 'p_file_shared_7d',
@@ -104,11 +109,24 @@ const runs = [
     },
 ] as unknown as AutoresearchRunApi[]
 
+const challenger = {
+    ...champion,
+    id: '0190c3f2-0000-7000-8000-0000000000c2',
+    role: 'challenger',
+    holdout_score: 0.84,
+    realized_score: 0.83,
+    source_training_run: 'training-4',
+    agent_description: 'Gradient boosting with share counts measured up to midnight.',
+    promoted_at: null,
+    created_at: '2026-02-25T11:00:00Z',
+} as unknown as AutoresearchModelApi
+
 function iteration(
     iteration_number: number,
     status: 'kept' | 'discarded' | 'crashed',
     holdout_score: number | null,
-    agent_description: string
+    agent_description: string,
+    summary: string | null = null
 ): Record<string, unknown> {
     return {
         iteration_number,
@@ -116,7 +134,11 @@ function iteration(
         holdout_score,
         train_score: null,
         agent_description,
-        model_spec: { model_class: 'sklearn.ensemble.HistGradientBoostingClassifier', model_params: { max_depth: 4 } },
+        summary,
+        model_spec: {
+            model_class: 'sklearn.ensemble.HistGradientBoostingClassifier',
+            model_params: { max_depth: 4, learning_rate: 0.05, random_state: 7 },
+        },
     }
 }
 
@@ -164,16 +186,75 @@ const onlinePerformance = {
         likely_lift: 3,
         base_rate: 0.03,
         base_rate_dates: 5,
+        base_rate_source: 'realized',
         champion_mean_p_y: 0.033,
         champion_base_rate: 0.03,
         scores_miscalibrated: false,
     },
 }
 
+const newestRun = {
+    id: 'training-4',
+    pipeline: PIPELINE_ID,
+    task_url: null,
+    status: 'completed',
+    iteration_count: 3,
+    best_holdout_score: 0.84,
+    reader_summary:
+        'Found why scores on real outcomes lagged. Training counted shares up to a random time of day, but scoring counts them up to midnight. Its model is now scored next to the live one.',
+    next_steps: [
+        'Check the midnight cutoff on two more weeks of outcomes.',
+        'Try shares per active day.',
+        'Drop features that never rank in the top ten.',
+    ],
+    summary: {
+        distillation: 'MATCHED CUTOFFS. Midnight cutoffs close most of the gap between holdout and realized AUC.',
+        recommended_next: 'Validate on more matured dates before any new features.',
+        kept_ladder: [],
+        dead_ends: [
+            { iteration_number: 1, holdout_score: 0.82, model_class: 'x', agent_description: 'Hour of day weights.' },
+        ],
+    },
+    iterations: [
+        iteration(
+            0,
+            'kept',
+            0.82,
+            'SHIPPED BUNDLE. Re-scored the live recipe the way the scoring job runs it, to get a fair baseline.',
+            'Re-scored the live recipe the way scoring runs it'
+        ),
+        iteration(1, 'discarded', 0.82, 'Weight training rows by hour of day. No gain over the baseline.'),
+        iteration(
+            2,
+            'kept',
+            0.84,
+            'Moved every training cutoff to midnight to match how scoring counts shares. This closes part of the gap.',
+            'Moved training cutoffs to midnight'
+        ),
+    ],
+    error: '',
+    started_at: '2026-02-25T09:00:00Z',
+    completed_at: '2026-02-25T09:39:00Z',
+    created_at: '2026-02-25T09:00:00Z',
+}
+
+const suggestions = [
+    {
+        id: 'suggestion-1',
+        pipeline: PIPELINE_ID,
+        prompt: 'Try the number of people each file was shared with.',
+        priority: 'consider',
+        status: 'queued',
+        agent_response: '',
+        created_at: '2026-02-28T09:00:00Z',
+    },
+] as unknown as AutoresearchSuggestionApi[]
+
 const trainingRuns = [
     {
         id: 'training-3',
         pipeline: PIPELINE_ID,
+        kickoff_reason: 'scheduled',
         task_url: null,
         status: 'failed',
         iteration_count: 0,
@@ -191,6 +272,7 @@ const trainingRuns = [
     {
         id: 'training-2',
         pipeline: PIPELINE_ID,
+        kickoff_reason: 'explore',
         task_url: null,
         status: 'completed',
         iteration_count: 5,
@@ -214,6 +296,7 @@ const trainingRuns = [
     {
         id: 'training-1',
         pipeline: PIPELINE_ID,
+        kickoff_reason: 'manual',
         task_url: null,
         status: 'completed',
         iteration_count: 4,
@@ -246,11 +329,16 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/`]: pipeline,
-                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/models/`]: toPaginatedResponse([champion]),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/models/`]: toPaginatedResponse([
+                    champion,
+                    challenger,
+                ]),
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/runs/`]: toPaginatedResponse(runs),
-                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/training_runs/`]:
-                    toPaginatedResponse(trainingRuns),
-                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/suggestions/`]: toPaginatedResponse([]),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/training_runs/`]: toPaginatedResponse([
+                    newestRun,
+                    ...trainingRuns,
+                ]),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/suggestions/`]: toPaginatedResponse(suggestions),
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/online_performance/`]: onlinePerformance,
             },
         }),
@@ -278,6 +366,24 @@ export const AgentResearchNarrow: Story = {
     parameters: {
         pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=agent_research`,
         testOptions: { viewportWidths: ['narrow'] },
+    },
+}
+
+// Runs from before the plain-language notes existed: the brief falls back to a line built from the scores.
+export const AgentResearchWithoutReaderNotes: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/models/`]: toPaginatedResponse([champion]),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/training_runs/`]:
+                    toPaginatedResponse(trainingRuns),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/suggestions/`]: toPaginatedResponse([]),
+            },
+        }),
+    ],
+    parameters: {
+        pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=agent_research`,
+        testOptions: { viewportWidths: ['wide'] },
     },
 }
 

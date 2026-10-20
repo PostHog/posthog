@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 import pytest
@@ -19,7 +20,12 @@ DASHBOARD: dict[str, Any] = {
     "time": {"from": "now-6h", "to": "now"},
     "templating": {
         "list": [
-            {"name": "job", "type": "query", "current": {"text": "checkout", "value": "checkout"}},
+            {
+                "name": "job",
+                "type": "query",
+                "query": {"query": "label_values(up, job)", "refId": "PrometheusVariableQueryEditor-VariableQuery"},
+                "current": {"text": "checkout", "value": "checkout"},
+            },
             {
                 "name": "instance",
                 "type": "query",
@@ -122,6 +128,17 @@ def test_parses_panels_into_queries_displays_and_a_grid_without_overlaps() -> No
         "p8": "timeseries",
     }
     assert panels["p2"].targets[0].expr == 'sum by (code) (rate(orders_total{job="checkout"}))'
+    assert panels["p2"].targets[0].templated_expr == 'sum by (code) (rate(orders_total{job="$job"}))'
+    assert panels["p3"].targets[0].templated_expr == 'sum(rate(order_errors_total{route=~"$route"}[5m]))'
+    assert spec.metric_variables == [
+        {
+            "name": "job",
+            "source": "promql",
+            "query": "label_values(up, job)",
+            "current": {"values": ["checkout"]},
+        },
+        {"name": "route", "source": "custom", "customValues": ["/a", "/b.c"], "current": {"values": ["/a", "/b.c"]}},
+    ]
     assert (panels["p2"].display.type, panels["p2"].display.unit) == ("area", "{req}/s")
     assert panels["p3"].targets[0].expr == 'sum(rate(order_errors_total{route=~"(/a|/b\\\\.c)"}[5m]))'
     assert (panels["p3"].display.unit, panels["p3"].display.reduce) == ("1", "mean")
@@ -306,8 +323,12 @@ def _comparable(raw: dict[str, Any]) -> list[tuple[Any, ...]]:
 def test_reads_a_v2_resource_like_the_same_classic_dashboard(alpha: bool) -> None:
     v2 = _v2_dashboard(alpha=alpha)
 
-    assert GrafanaDashboardParser(v2).parse().date_from == "-6h"
+    spec = GrafanaDashboardParser(v2).parse()
+    assert spec.date_from == "-6h"
     assert _comparable(v2) == _comparable(DASHBOARD)
+    assert {variable["name"]: variable.get("query") for variable in spec.metric_variables}["instance"] == (
+        "label_values(instance)"
+    )
 
 
 def test_places_v2_auto_grid_panels_in_columns_under_each_tab() -> None:
@@ -410,6 +431,10 @@ def test_rewrites_grafana_ranges_to_the_query_step(expr: str, expected: str, cha
         ('up{job=~".*", env="prod"}', 'up{env="prod"}'),
         ('up{job=~".*"}', "up"),
         ('up{job=~".+"}', 'up{job=~".+"}'),
+        ('{__name__=~".*"}', '{__name__=~".+"}'),
+        ('up or {job=~".*"}', 'up or {__name__=~".+"}'),
+        ('{job=~".*", env!="dev"}', '{__name__=~".+", env!="dev"}'),
+        ('{job=~".*", env="prod"}', '{env="prod"}'),
     ],
 )
 def test_drops_matchers_that_match_everything(expr: str, expected: str) -> None:
@@ -445,7 +470,228 @@ def test_all_without_an_all_value_uses_every_option(expr: str, expected: str) ->
             }
         ]
     )
-    assert variables.substitute(expr) == (expected, [])
+    substitution = variables.substitute(expr)
+    assert (substitution.text, substitution.unresolved) == (expected, ())
+
+
+def test_live_variable_queries_get_the_saved_values_of_other_variables() -> None:
+    variables = TemplateVariables.from_templating(
+        [
+            {"name": "window", "type": "interval", "current": {"value": "5m"}},
+            {"name": "env", "type": "custom", "query": "prod,dev", "current": {"value": "prod"}},
+            {
+                "name": "job",
+                "type": "query",
+                "query": 'query_result(rate(up{env="$env"}[$window]))',
+                "current": {"value": "api"},
+            },
+        ]
+    )
+
+    queries = {definition.name: definition.query for definition in variables.definitions()}
+    assert queries["job"] == 'query_result(rate(up{env="$env"}[5m]))'
+
+
+def test_imported_variable_regex_keeps_its_flags() -> None:
+    variables = TemplateVariables.from_templating(
+        [{"name": "job", "type": "query", "query": "label_values(job)", "regex": "/api-(.*)/i", "current": {}}]
+    )
+
+    assert [definition.regex for definition in variables.definitions()] == ["/api-(.*)/i"]
+
+
+@pytest.mark.parametrize(
+    "expr, all_value",
+    [('up{job=~"$job"}', "api\\\\..*"), ("up{job=~`$job`}", "api\\..*")],
+)
+def test_an_all_value_keeps_its_grafana_text(expr: str, all_value: str) -> None:
+    variables = TemplateVariables.from_templating(
+        [{"name": "job", "type": "custom", "query": "a,b", "allValue": all_value, "current": {"value": "$__all"}}]
+    )
+
+    assert variables.substitute(expr).text == expr.replace("$job", all_value)
+    assert variables.definitions() == []
+
+
+def test_a_panel_that_formats_a_listed_all_keeps_the_saved_values() -> None:
+    variables = TemplateVariables.from_templating(
+        [{"name": "env", "type": "custom", "query": "prod,dev", "includeAll": True, "current": {"value": "$__all"}}]
+    )
+
+    assert variables.template('up{env="${env:csv}"}') is None
+    assert variables.template('up{env=~"$env"}') == 'up{env=~"$env"}'
+
+
+def test_a_listed_all_matches_only_the_listed_values() -> None:
+    variables = TemplateVariables.from_templating(
+        [{"name": "env", "type": "custom", "query": "prod,dev", "includeAll": True, "current": {"value": "$__all"}}]
+    )
+
+    assert [definition.allValue for definition in variables.definitions()] == ["(prod|dev)"]
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        pytest.param(
+            {"name": "env", "type": "custom", "query": "a.b,c", "includeAll": True, "current": {"value": "$__all"}},
+            id="listed_all_with_regex_syntax",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": 'label_values(up{env="prod"}, job)', "includeAll": True},
+            id="query_all_that_filters_its_options",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "api-.*", "includeAll": True},
+            id="query_all_with_a_regex",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "query_result(rate(up[$__rate_interval]))"},
+            id="range_macro",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "query_result(" + "x" * 10_000 + ")"},
+            id="query_over_the_api_limit",
+        ),
+        pytest.param({"name": "env", "type": "custom", "query": "a," + "b" * 1025}, id="value_over_the_api_limit"),
+        pytest.param({"name": "e" * 129, "type": "textbox", "query": "prod"}, id="name_over_the_api_limit"),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "/^api-(?!test).*$/"},
+            id="regex_that_re2_cannot_run",
+        ),
+        pytest.param(
+            {"name": "pod", "type": "query", "query": 'label_values({app="api"}, pod)', "datasource": "Loki"},
+            id="other_datasource",
+        ),
+        pytest.param({"name": "job", "type": "textbox", "query": "api-.*"}, id="text_box_regex"),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "/(?<text>[^:]+):(?<value>.+)/"},
+            id="named_value_capture",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "a" * 1025},
+            id="regex_over_the_api_limit",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "/([^,]+)/g"},
+            id="regex_with_the_global_flag",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "/^${env}-(.*)$/"},
+            id="regex_with_a_variable",
+        ),
+    ],
+)
+def test_variables_that_cannot_stay_live_keep_their_saved_values(item: dict[str, Any]) -> None:
+    datasource_type = lambda datasource: "loki" if datasource == "Loki" else None  # noqa: E731
+    assert TemplateVariables.from_templating([item], datasource_type).definitions() == []
+
+
+def test_a_text_box_regex_stays_a_regex() -> None:
+    variables = TemplateVariables.from_templating([{"name": "job", "type": "textbox", "query": "api-.*"}])
+
+    assert variables.substitute('up{job=~"$job"}').text == 'up{job=~"api-.*"}'
+
+
+def test_a_variable_whose_query_cannot_resolve_stays_static() -> None:
+    variables = TemplateVariables.from_templating(
+        [
+            {"name": "window", "type": "interval", "current": {}},
+            {"name": "job", "type": "query", "query": "query_result(rate(up[$window]))", "current": {"value": "a"}},
+            {"name": "pod", "type": "query", "query": 'label_values(up{job="$job"}, pod)', "current": {"value": "b"}},
+        ]
+    )
+
+    assert [(definition.name, definition.query) for definition in variables.definitions()] == [
+        ("pod", 'label_values(up{job="a"}, pod)')
+    ]
+    assert variables.template('up{job="$job"}') is None
+
+
+def test_a_query_that_saved_values_would_make_too_long_stays_static() -> None:
+    big = {"name": "big", "type": "interval", "current": {"value": ["x" * 1000] * 20}}
+    job = {"name": "job", "type": "query", "query": 'label_values(up{a=~"$big"}, b)', "current": {"value": "a"}}
+
+    assert TemplateVariables.from_templating([big, job]).definitions() == []
+
+
+def test_the_size_bound_counts_both_escapes() -> None:
+    dots = {"name": "dots", "type": "interval", "current": {"value": "." * 1000}}
+    query = "label_values(up{" + ", ".join(f'l{index}=~"$dots"' for index in range(4)) + "}, b)"
+    job = {"name": "job", "type": "query", "query": query, "current": {"value": "a"}}
+
+    assert TemplateVariables.from_templating([dots, job]).definitions() == []
+
+
+def test_a_custom_list_reads_grafana_text_and_value_items() -> None:
+    variables = TemplateVariables.from_templating(
+        [{"name": "env", "type": "custom", "query": "Production : prod, Development : dev, a\\,b", "current": {}}]
+    )
+
+    assert [definition.customValues for definition in variables.definitions()] == [["prod", "dev", "a,b"]]
+
+
+def test_a_custom_list_too_large_for_the_api_stays_static() -> None:
+    query = "a," + "b" * 5_000_000
+    started = time.monotonic()
+
+    variables = TemplateVariables.from_templating([{"name": "env", "type": "custom", "query": query, "current": {}}])
+
+    assert variables.definitions() == []
+    assert time.monotonic() - started < 1
+
+
+def test_a_long_custom_list_item_parses_in_linear_time() -> None:
+    item = "a" + " " * 200_000 + "b"
+    started = time.monotonic()
+
+    TemplateVariables.from_templating([{"name": "env", "type": "custom", "query": f"x, {item}, y", "current": {}}])
+
+    assert time.monotonic() - started < 1
+
+
+def test_only_the_first_variables_stay_live() -> None:
+    items = [{"name": f"v{index}", "type": "custom", "query": "a,b", "current": {"value": "a"}} for index in range(60)]
+
+    assert len(TemplateVariables.from_templating(items).definitions()) == 50
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        pytest.param(
+            [{"name": "job", "type": "query", "query": 'label_values(up{job="$job"}, job)', "current": {"value": "a"}}],
+            id="self_reference",
+        ),
+        pytest.param(
+            [
+                {"name": "a", "type": "query", "query": 'label_values(up{b="$b"}, a)', "current": {"value": "x"}},
+                {"name": "b", "type": "query", "query": 'label_values(up{a="$a"}, b)', "current": {"value": "y"}},
+            ],
+            id="two_variable_loop",
+        ),
+    ],
+)
+def test_variables_in_a_loop_stay_static(items: list[dict[str, Any]]) -> None:
+    parent = items[0]
+    query = f'label_values(up{{job="${parent["name"]}"}}, pod)'
+    pod = {"name": "pod", "type": "query", "query": query, "current": {"value": "p"}}
+
+    definitions = TemplateVariables.from_templating([*items, pod]).definitions()
+
+    saved = parent["current"]["value"]
+    assert [(definition.name, definition.query) for definition in definitions] == [
+        ("pod", f'label_values(up{{job="{saved}"}}, pod)')
+    ]
+
+
+def test_a_long_chain_of_unresolvable_variables_stays_static() -> None:
+    chain = [
+        {"name": f"v{index}", "type": "query", "query": f'label_values(up{{x="$v{index + 1}"}}, y)'}
+        for index in range(2000)
+    ]
+
+    assert TemplateVariables.from_templating(chain).definitions() == []
 
 
 @pytest.mark.parametrize(

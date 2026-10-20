@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -58,6 +59,16 @@ class MailgunSource(
     ResumableSource[MailgunSourceConfig, MailgunResumeConfig],
     WebhookSource[MailgunSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^MAILGUN_",),
+        npm=("mailgun.js", "mailgun-js"),
+        pypi=("mailgun",),
+        composer=("mailgun/mailgun-php",),
+        go=("github.com/mailgun/mailgun-go",),
+        maven=("com.mailgun:mailgun-java",),
+        rubygems=("mailgun-ruby",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Mailgun versions each resource in its own URL path (no account or header version), so the
@@ -94,8 +105,9 @@ class MailgunSource(
             "403 Client Error: Forbidden for url: https://api.eu.mailgun.net": "Mailgun denied access. Please check that your API key has the required permissions.",
             # Raised by get_rows when every sending domain on the account rejected a domain-scoped
             # endpoint (inactive/unverified domains, or a key without access to them) — retrying
-            # hits the same domains with the same result.
-            "request for every sending domain": "Mailgun rejected every sending domain on this account for this table. Check that your sending domains are active in Mailgun and that your API key can read them.",
+            # hits the same domains with the same result. Keep the raw message: it names the HTTP
+            # status per domain, which tells disabled domains apart from a key without access.
+            "request for every sending domain": None,
         }
 
     @property

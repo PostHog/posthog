@@ -1,3 +1,5 @@
+from dataclasses import field
+
 from django.db import models
 
 from posthog.dataclasses import frozen
@@ -69,3 +71,6 @@ class EventMatchAnswer:
 
     matches: list[EventMatch]
     outcome: EventMatchOutcome
+    # Likely core events the project never sent, strongest first. Filled only for NOT_INGESTED, so the picker can say
+    # what the search probably means instead of showing nothing.
+    unsent: list[EventMatch] = field(default_factory=list)

@@ -154,7 +154,7 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
             status=ErrorTrackingIssue.Status.ACTIVE,
         )
         .order_by("-created_at")
-        .values("team_id", "name", "id")
+        .values("team_id", "name", "description", "id")
     )
 
 
@@ -314,6 +314,13 @@ def list_releases(
     total = qs.count()
     rows = qs if limit is None else qs[offset : offset + limit]
     return [_to_release(release) for release in rows], total
+
+
+def list_releases_created_between(
+    team_id: int, *, start: datetime, end: datetime, limit: int
+) -> list[contracts.ErrorTrackingRelease]:
+    rows = logic.list_releases(team_id).filter(created_at__gte=start, created_at__lte=end)[:limit]
+    return [_to_release(release) for release in rows]
 
 
 def get_release(team_id: int, release_id: str) -> contracts.ErrorTrackingRelease | None:

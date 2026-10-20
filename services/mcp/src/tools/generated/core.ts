@@ -544,6 +544,7 @@ const mediaImagesList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 purpose: params.purpose,
+                search: params.search,
             },
         })
         return withInformationalResponse(
@@ -744,6 +745,9 @@ const projectSettingsUpdate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
             body['name'] = params.name
+        }
+        if (params.logo_media_id !== undefined) {
+            body['logo_media_id'] = params.logo_media_id
         }
         if (params.product_description !== undefined) {
             body['product_description'] = params.product_description

@@ -45,7 +45,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class LeadfeederEndpointConfig:
     name: str
     # Legacy-API path relative to the base. Fan-out endpoints carry an `{account_id}` placeholder
@@ -68,6 +68,8 @@ class LeadfeederEndpointConfig:
     # When True the endpoint honours the server-side `start_date`/`end_date` date-range filter, which
     # makes it genuinely incremental. Endpoints without a server filter are full refresh only.
     supports_date_filter: bool = False
+    # False when the endpoint returns its whole result set in one response with no page params.
+    paginated: bool = True
     should_sync_default: bool = True
 
 
@@ -113,6 +115,17 @@ LEADFEEDER_ENDPOINTS: dict[str, LeadfeederEndpointConfig] = {
         incremental_fields=[
             _datetime_field("started_at"),
         ],
+    ),
+    # Saved lead segments (custom feeds) of each account. Neither generation paginates this list or
+    # filters it by date, so full refresh only. Built-in feed ids such as `all_leads` repeat in every
+    # account on the legacy API, so the account id is part of the key.
+    "custom_feeds": LeadfeederEndpointConfig(
+        name="custom_feeds",
+        path="/accounts/{account_id}/custom-feeds",
+        unified_path="/v1/web-visits/custom-feeds",
+        primary_keys=["account_id", "id"],
+        fan_out_over_accounts=True,
+        paginated=False,
     ),
 }
 

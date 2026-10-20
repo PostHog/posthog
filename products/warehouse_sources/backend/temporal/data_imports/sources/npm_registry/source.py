@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NpmRegistrySource(ResumableSource[NpmRegistrySourceConfig, NpmRegistryResumeConfig]):
+    codebase_detection = detect(env=("^(NPM_REGISTRY|NPMREGISTRY)_", "^NPM_TOKEN$"), npm=("npm-registry-fetch",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://github.com/npm/registry/blob/master/docs/download-counts.md"
 

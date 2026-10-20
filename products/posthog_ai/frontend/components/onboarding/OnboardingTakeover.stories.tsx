@@ -24,7 +24,6 @@ const meta: Meta<OnboardingTakeoverProps> = {
                 onStepIndexChange={setStepIndex}
                 stepActions={stepActions}
                 onDismiss={() => {}}
-                onFinish={() => {}}
             />
         )
     },

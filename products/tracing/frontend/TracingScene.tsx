@@ -4,9 +4,12 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo } from 'react'
 
 import { LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -103,6 +106,7 @@ function TracingSceneContents(): JSX.Element {
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
         traceSpansLoadingMore,
+        selectedTraceLoadFailed,
         aggregation,
         aggregationLoading,
         filters,
@@ -125,7 +129,9 @@ function TracingSceneContents(): JSX.Element {
         sceneTabsEnabled,
         activeSceneTab,
     } = useValues(tracingSceneLogic())
+    const { traceLoadFiltersActive } = useValues(tracingDataLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         openTrace,
         closeTrace,
@@ -137,6 +143,7 @@ function TracingSceneContents(): JSX.Element {
         fetchNextPage,
         fetchSpans,
         fetchSparkline,
+        loadTraceSpans,
         loadMoreTraceSpans,
         setVisibleRowRange,
         selectInspectorTab,
@@ -227,20 +234,41 @@ function TracingSceneContents(): JSX.Element {
                     type: 'tracing',
                 }}
                 actions={
-                    <>
-                        <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
-                            Feedback
-                        </LemonButton>
-                        <LemonButton
-                            to={TRACING_DOCS_URL}
-                            onClick={onDocsLinkClick}
-                            type="secondary"
-                            size="small"
-                            targetBlank
-                        >
-                            Documentation
-                        </LemonButton>
-                    </>
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button variant="outline" onClick={onFeedbackClick}>
+                                <IconFeedback />
+                                Feedback
+                            </Button>
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to={TRACING_DOCS_URL} target="_blank" />}
+                                onClick={onDocsLinkClick}
+                            >
+                                Documentation
+                            </Button>
+                        </div>
+                    ) : (
+                        <>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconFeedback />}
+                                onClick={onFeedbackClick}
+                            >
+                                Feedback
+                            </LemonButton>
+                            <LemonButton
+                                to={TRACING_DOCS_URL}
+                                onClick={onDocsLinkClick}
+                                type="secondary"
+                                size="small"
+                                targetBlank
+                            >
+                                Documentation
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
             {sceneTabsEnabled && (
@@ -362,6 +390,13 @@ function TracingSceneContents(): JSX.Element {
                 errorsScope={errorsScope}
                 onSelectInspectorTab={selectInspectorTab}
                 loading={isLoadingFullTrace}
+                loadFailed={selectedTraceLoadFailed}
+                filtersActive={traceLoadFiltersActive}
+                onRetry={
+                    selectedTraceId
+                        ? () => loadTraceSpans({ traceId: selectedTraceId, ts: selectedTraceTs })
+                        : undefined
+                }
                 hasMoreSpans={canLoadMoreTraceSpans}
                 loadingMoreSpans={traceSpansLoadingMore}
                 onLoadMoreSpans={loadMoreTraceSpans}

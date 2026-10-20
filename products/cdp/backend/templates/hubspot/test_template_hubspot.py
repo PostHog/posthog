@@ -1,9 +1,9 @@
 import pytest
-from posthog.test.base import BaseTest
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
+from django.test import SimpleTestCase
 
 from products.cdp.backend.models.plugin import PluginConfig
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.hubspot.template_hubspot import (
     TemplateHubspotMigrator,
     template as template_hubspot,
@@ -399,7 +399,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
                 )
 
 
-class TestTemplateMigration(BaseTest):
+class TestTemplateMigration(SimpleTestCase):
     def get_plugin_config(self, config: dict):
         _config = {
             "hubspotAccessToken": "toky",

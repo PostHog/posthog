@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   ContentBlock,
+  PromptRequest,
   PromptResponse,
   RequestPermissionRequest,
   RequestPermissionResponse,
@@ -130,6 +131,7 @@ import type {
   TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
+import { attachmentFilePath, safeArtifactFileName } from "../utils/attachments";
 import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { Logger } from "../utils/logger";
@@ -137,6 +139,7 @@ import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
+  hiddenTextBlock,
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
@@ -144,6 +147,7 @@ import {
   CodexSubscriptionTokenClient,
   codexSubscriptionRefreshFailureMessage,
 } from "./codex-subscription-token";
+import { ContextSelection, type HumanMessage } from "./context-selection";
 import { CredentialRelay, CredentialRelayError } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import {
@@ -224,6 +228,13 @@ export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
 // cut once, without letting a hard upstream outage loop forever.
 const MAX_UPSTREAM_TURN_RETRIES = 2;
 const UPSTREAM_TURN_RETRY_DELAY_MS = 5_000;
+
+// The delay doubles per attempt. Half of it is random, so many runs that hit
+// the same capacity gap do not retry at the same moment.
+export function upstreamTurnRetryDelayMs(attempt: number): number {
+  const ceiling = UPSTREAM_TURN_RETRY_DELAY_MS * 2 ** (attempt - 1);
+  return ceiling / 2 + Math.random() * (ceiling / 2);
+}
 const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
@@ -318,6 +329,8 @@ interface SseController {
 }
 
 interface ActiveSession {
+  contextSelection: ContextSelection;
+  cancellationVersion: number;
   payload: JwtPayload;
   acpSessionId: string;
   acpConnection: InProcessAcpConnection;
@@ -343,6 +356,7 @@ interface InstalledSkillBundle {
 }
 
 interface BuiltPrompt {
+  humanMessage?: HumanMessage;
   prompt: ContentBlock[];
   meta?: Record<string, unknown>;
   messageId?: string;
@@ -372,14 +386,6 @@ const SUBSCRIPTION_TOKEN_FAILURE = {
     message: CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
   },
 } as const;
-
-function hiddenTextBlock(text: string): ContentBlock {
-  return {
-    type: "text",
-    text,
-    _meta: { ui: { hidden: true } },
-  } as ContentBlock;
-}
 
 function hiddenPromptBlock(block: ContentBlock): ContentBlock {
   const meta = block._meta as
@@ -547,6 +553,8 @@ export class AgentServer {
   private session: ActiveSession | null = null;
   private app: Hono;
   private posthogAPI: PostHogAPIClient;
+  private contextSelectionAPI: PostHogAPIClient;
+  private contextSelectionApiKey: string;
   private eventStreamSender: TaskRunEventStreamSender | null = null;
   private readonly nextEventId = createEventIdSource();
   private rtkSavingsAttempted = false;
@@ -709,6 +717,13 @@ export class AgentServer {
       apiUrl: config.apiUrl,
       projectId: config.projectId,
       getApiKey: () => config.apiKey,
+      userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
+    });
+    this.contextSelectionApiKey = config.apiKey;
+    this.contextSelectionAPI = new PostHogAPIClient({
+      apiUrl: config.apiUrl,
+      projectId: config.projectId,
+      getApiKey: () => this.contextSelectionApiKey,
       userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
     });
     if (config.eventIngestToken) {
@@ -1097,6 +1112,11 @@ export class AgentServer {
         apiClient: this.posthogAPI,
         logger: new Logger({ debug: true, prefix: "[Resume]" }),
       });
+      if (this.session?.payload.run_id === currentRunId) {
+        this.session.contextSelection.resetHistory(
+          formatConversationForResume(this.resumeState.conversation),
+        );
+      }
       this.logger.debug("Resume state loaded", {
         conversationTurns: this.resumeState.conversation.length,
         logEntries: this.resumeState.logEntryCount,
@@ -1614,17 +1634,22 @@ export class AgentServer {
             } else {
               const runPrompt = () => {
                 this.emitFirstCommandDispatched();
-                const promptResult = commandSession.clientConnection.prompt({
-                  sessionId: commandSession.acpSessionId,
-                  prompt,
-                  ...(Object.keys(promptMeta).length > 0
-                    ? { _meta: promptMeta }
-                    : {}),
-                });
-                if (!promptResult) {
-                  throw new Error("Agent connection did not accept the prompt");
-                }
-                return promptResult;
+                return this.dispatchPrompt(
+                  commandSession,
+                  {
+                    sessionId: commandSession.acpSessionId,
+                    prompt,
+                    ...(Object.keys(promptMeta).length > 0
+                      ? { _meta: promptMeta }
+                      : {}),
+                  },
+                  messageId
+                    ? {
+                        messageId,
+                        text: promptBlocksToText(builtPrompt.prompt),
+                      }
+                    : undefined,
+                );
               };
               const runTurn = () => {
                 if (this.prewarmedStartupTurnPending) {
@@ -1763,6 +1788,7 @@ export class AgentServer {
 
       case POSTHOG_NOTIFICATIONS.CANCEL:
       case "cancel": {
+        this.session.cancellationVersion += 1;
         this.logger.debug("Cancel requested", {
           acpSessionId: this.session.acpSessionId,
         });
@@ -1812,6 +1838,21 @@ export class AgentServer {
           : [];
         const authorship =
           typeof params.authorship === "string" ? params.authorship : "";
+
+        if (mcpServers.length > 0) {
+          const posthog = toAcpMcpServers(mcpServers).find(
+            (server) => server.name === "posthog" && "headers" in server,
+          );
+          const authorization =
+            posthog && "headers" in posthog
+              ? posthog.headers.find(
+                  (header) => header.name.toLowerCase() === "authorization",
+                )?.value
+              : undefined;
+          this.contextSelectionApiKey = authorization?.startsWith("Bearer ")
+            ? authorization.slice(7)
+            : "";
+        }
 
         if (refreshedCredentials.length > 0) {
           const owner = authorship ? ` (${authorship})` : "";
@@ -1936,6 +1977,25 @@ export class AgentServer {
     const result = await this.bootTracker.measure(phase, work);
     this.shutdownController.signal.throwIfAborted();
     return result;
+  }
+
+  private createContextSelection(
+    runId: string,
+    history: string,
+  ): ContextSelection {
+    return new ContextSelection(
+      this.contextSelectionAPI,
+      runId,
+      (event) =>
+        this.emitConsoleLog(
+          "debug",
+          "context_selection",
+          "context_selection",
+          event,
+        ),
+      this.config.version ?? packageJson.version,
+      history,
+    );
   }
 
   private async initializeSession(
@@ -2160,6 +2220,7 @@ export class AgentServer {
         : null,
       prewarmed: preTaskRun ? this.prewarmedRun : null,
       executionEnvironment: "cloud",
+      sharedPromptCache: preTaskRun?.state.codex_shared_prompt_cache === true,
     });
 
     // Only that stamped header makes the run id a trace the generations land
@@ -2576,7 +2637,15 @@ export class AgentServer {
 
     this.shutdownController.signal.throwIfAborted();
     this.initializingConnection = null;
+    const resumeState = this.resumeState as ResumeState | null;
     this.session = {
+      contextSelection: this.createContextSelection(
+        payload.run_id,
+        resumeState
+          ? formatConversationForResume(resumeState.conversation)
+          : "",
+      ),
+      cancellationVersion: 0,
       payload,
       acpSessionId,
       acpConnection,
@@ -2768,6 +2837,36 @@ export class AgentServer {
     return release;
   }
 
+  private async dispatchPrompt(
+    session: ActiveSession,
+    request: PromptRequest,
+    humanMessage?: HumanMessage,
+  ): Promise<PromptResponse> {
+    const cancellationVersion = session.cancellationVersion;
+    const context = humanMessage
+      ? await session.contextSelection.prepare(humanMessage)
+      : "";
+    if (
+      this.session !== session ||
+      session.cancellationVersion !== cancellationVersion
+    ) {
+      return { stopReason: "cancelled" };
+    }
+    const result = await session.clientConnection.prompt({
+      ...request,
+      prompt: context
+        ? [...request.prompt, hiddenTextBlock(context)]
+        : request.prompt,
+    });
+    if (result.stopReason !== "cancelled" && this.session === session) {
+      session.contextSelection.recordTurn(
+        humanMessage,
+        session.logWriter.getFullAgentResponse(session.payload.run_id) ?? "",
+      );
+    }
+    return result;
+  }
+
   /**
    * Send an initial/resume turn prompt, absorbing transient upstream
    * failures with a bounded number of retries. These turns run unattended
@@ -2778,12 +2877,9 @@ export class AgentServer {
    * never have been processed re-send the original prompt instead.
    */
   private async promptWithUpstreamRetry(
-    request: {
-      sessionId: string;
-      prompt: ContentBlock[];
-      _meta?: Record<string, unknown>;
-    },
+    request: PromptRequest,
     recordFailedUsage = true,
+    humanMessage?: HumanMessage,
   ): Promise<PromptResponse> {
     const originatingSession = this.session;
     if (
@@ -2825,7 +2921,11 @@ export class AgentServer {
                 : request.prompt,
           };
       try {
-        const response = await session.clientConnection.prompt(attempt);
+        const response = await this.dispatchPrompt(
+          session,
+          attempt,
+          humanMessage,
+        );
         if (this.session !== originatingSession) {
           throw new Error(
             "Agent session changed before the turn result was handled",
@@ -2872,7 +2972,7 @@ export class AgentServer {
           },
         );
         await new Promise((resolve) =>
-          setTimeout(resolve, UPSTREAM_TURN_RETRY_DELAY_MS),
+          setTimeout(resolve, upstreamTurnRetryDelayMs(retries)),
         );
         if (this.session !== originatingSession) {
           throw new Error(
@@ -3003,6 +3103,16 @@ export class AgentServer {
         "Could not load task run to determine its initial prompt",
       );
     }
+    const acknowledgementPath = this.pendingPromptAcknowledgementPath(taskRun);
+    if (acknowledgementPath) {
+      try {
+        await access(acknowledgementPath);
+        await this.clearPendingInitialPromptState(payload, taskRun);
+        return { taskRun, action: "idle" };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
     const taskRunState = taskRun.state;
     const prewarmed = taskRunState.prewarmed === true;
     const sameRunResume =
@@ -3056,6 +3166,21 @@ export class AgentServer {
   }
 
   private async sendInitialTaskMessage(
+    payload: JwtPayload,
+    prepared: PreparedInitialTaskMessage,
+  ): Promise<void> {
+    if (prepared.action === "wait" || prepared.action === "idle") {
+      return this.sendInitialTaskMessageInOrder(payload, prepared);
+    }
+    const release = await this.acquireNonSteerDeliveryTurn();
+    try {
+      await this.sendInitialTaskMessageInOrder(payload, prepared);
+    } finally {
+      release();
+    }
+  }
+
+  private async sendInitialTaskMessageInOrder(
     payload: JwtPayload,
     { taskRun, action }: PreparedInitialTaskMessage,
   ): Promise<void> {
@@ -3140,11 +3265,18 @@ export class AgentServer {
       }
       promptDispatched = true;
 
-      const result = await this.promptWithUpstreamRetry({
-        sessionId: acpSessionId,
-        prompt: initialPrompt,
-        ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
-      });
+      const result = await this.promptWithUpstreamRetry(
+        {
+          sessionId: acpSessionId,
+          prompt: initialPrompt,
+          ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
+        },
+        true,
+        {
+          messageId: initialPromptMessageId ?? `initial:${payload.run_id}`,
+          text: promptBlocksToText(initialPrompt),
+        },
+      );
 
       this.logger.debug("Initial task message completed", {
         stopReason: result.stopReason,
@@ -3238,6 +3370,7 @@ export class AgentServer {
             prompt: resumePromptBlocks,
             ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
             messageId: resumePromptMessageId,
+            humanMessage: pendingUserPrompt?.humanMessage,
           };
         },
         reservedMessageId ? { reservedMessageId } : {},
@@ -3406,6 +3539,7 @@ export class AgentServer {
               ? { meta: pendingUserPrompt.meta }
               : {}),
             messageId: pendingUserPrompt?.messageId,
+            humanMessage: pendingUserPrompt?.humanMessage,
           };
         },
         { retryOnOversizedPrompt: true },
@@ -3532,11 +3666,15 @@ export class AgentServer {
       this.session.logWriter.resetTurnMessages(payload.run_id);
       promptDispatched = true;
 
-      const result = await this.promptWithUpstreamRetry({
-        sessionId: acpSessionId,
-        prompt: builtPrompt.prompt,
-        ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
-      });
+      const result = await this.promptWithUpstreamRetry(
+        {
+          sessionId: acpSessionId,
+          prompt: builtPrompt.prompt,
+          ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
+        },
+        true,
+        builtPrompt.humanMessage,
+      );
 
       this.logger.debug(`${logLabel} completed`, {
         stopReason: result.stopReason,
@@ -3693,7 +3831,14 @@ export class AgentServer {
     if (prompt.prompt.length === 0) {
       return null;
     }
-    return { ...prompt, messageId: pendingMessageId };
+    return {
+      ...prompt,
+      messageId: pendingMessageId,
+      humanMessage: {
+        messageId: pendingMessageId ?? `pending:${taskRun.id}`,
+        text: promptBlocksToText(prompt.prompt),
+      },
+    };
   }
 
   private async resolvePendingArtifactManifest(
@@ -3776,6 +3921,30 @@ export class AgentServer {
     return pendingKeys.length > 0 ? pendingKeys : null;
   }
 
+  private pendingPromptAcknowledgementPath(
+    taskRun: TaskRun | null,
+  ): string | null {
+    if (
+      !this.config.agentStateDir ||
+      !taskRun ||
+      !this.getClearedPendingUserState(taskRun)
+    )
+      return null;
+    const state = taskRun.state;
+    const key = createHash("sha256")
+      .update(
+        JSON.stringify([
+          taskRun.id,
+          state.pending_user_message_id,
+          state.pending_user_message_ts,
+          state.pending_user_message,
+          state.pending_user_artifact_ids,
+        ]),
+      )
+      .digest("hex");
+    return join(this.config.agentStateDir, "prompt-acknowledgements", key);
+  }
+
   private async clearPendingInitialPromptState(
     payload: JwtPayload,
     taskRun: TaskRun | null,
@@ -3783,6 +3952,12 @@ export class AgentServer {
     const stateRemoveKeys = this.getClearedPendingUserState(taskRun);
     if (!stateRemoveKeys) {
       return;
+    }
+
+    const acknowledgementPath = this.pendingPromptAcknowledgementPath(taskRun);
+    if (acknowledgementPath) {
+      await mkdir(dirname(acknowledgementPath), { recursive: true });
+      await writeFile(acknowledgementPath, "");
     }
 
     try {
@@ -4113,7 +4288,7 @@ export class AgentServer {
       throw new Error(`Skill bundle ${skillName} failed checksum validation`);
     }
 
-    const safeSkillName = this.getSafeArtifactName(skillName);
+    const safeSkillName = safeArtifactFileName(skillName);
     const skillRoot = join(
       this.config.repositoryPath ?? "/tmp/workspace",
       ".posthog",
@@ -4245,32 +4420,18 @@ export class AgentServer {
       throw new Error(`Failed to download artifact ${artifact.name}`);
     }
 
-    const safeName = this.getSafeArtifactName(artifact.name);
-    const artifactDir = join(
-      this.config.repositoryPath ?? "/tmp/workspace",
-      ".posthog",
-      "attachments",
+    const artifactPath = attachmentFilePath(
+      this.config.repositoryPath,
       runId,
-      artifact.id ?? safeName,
+      artifact,
     );
-    await mkdir(artifactDir, { recursive: true });
-
-    const artifactPath = join(artifactDir, safeName);
+    await mkdir(dirname(artifactPath), { recursive: true });
     await writeFile(artifactPath, Buffer.from(data));
 
     return resourceLink(pathToFileURL(artifactPath).toString(), artifact.name, {
       ...(artifact.content_type ? { mimeType: artifact.content_type } : {}),
       ...(typeof artifact.size === "number" ? { size: artifact.size } : {}),
     });
-  }
-
-  private getSafeArtifactName(name: string): string {
-    const baseName = basename(name).trim();
-    const normalizedName = baseName.replace(/[^\w.-]/g, "_");
-    if (normalizedName.length === 0 || /^\.+$/.test(normalizedName)) {
-      return "attachment";
-    }
-    return normalizedName;
   }
 
   /**
@@ -5665,6 +5826,15 @@ export class AgentServer {
   }
 
   private handleAcpTransportMessage(message: unknown, eventId?: string): void {
+    if (
+      this.session &&
+      typeof message === "object" &&
+      message !== null &&
+      "method" in message &&
+      message.method === POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED
+    ) {
+      this.session.contextSelection.resetHistory();
+    }
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {
       this.lastBudgetSnapshot = budget;

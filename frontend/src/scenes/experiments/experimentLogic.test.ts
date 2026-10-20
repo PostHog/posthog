@@ -1,5 +1,6 @@
 import { api } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -7,9 +8,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
 import { tagsModel } from '~/models/tagsModel'
@@ -46,9 +48,6 @@ const mockShowApprovalRequiredToast = jest.fn()
 jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
     showApprovalRequiredToast: (...args: any[]) => mockShowApprovalRequiredToast(...args),
 }))
-
-const RUNNING_EXP_ID = 45
-const RUNNING_FUNNEL_EXP_ID = 46
 
 const setHealthFindingsFlag = (enabled: boolean): void => {
     featureFlagLogic.actions.setFeatureFlags(
@@ -90,38 +89,6 @@ describe('experimentLogic', () => {
                     results: [],
                 },
                 '/api/projects/:team/experiments/:id': experiment,
-                [`/api/projects/:team/experiments/${RUNNING_EXP_ID}/results`]: {
-                    filters: { breakdown: '$feature/test-experiment', breakdown_type: 'event', insight: 'TRENDS' },
-                    insight: [
-                        { breakdown_value: 'control', count: 200 },
-                        { breakdown_value: 'test_1', count: 400 },
-                        { breakdown_value: 'test_2', count: 500 },
-                        { breakdown_value: 'test_3', count: 100 },
-                    ],
-                    probability: { control: 0.7, test_1: 0.1, test_2: 0.2, test_3: 0 },
-                },
-                [`/api/projects/:team/experiments/${RUNNING_FUNNEL_EXP_ID}/results`]: {
-                    filters: { breakdown: '$feature/test-experiment', breakdown_type: 'event', insight: 'FUNNELS' },
-                    insight: [
-                        [
-                            { breakdown_value: ['control'], count: 200, order: 0 },
-                            { breakdown_value: ['control'], count: 100, order: 1 },
-                        ],
-                        [
-                            { breakdown_value: ['test_1'], count: 200, order: 0 },
-                            { breakdown_value: ['test_1'], count: 120, order: 1 },
-                        ],
-                        [
-                            { breakdown_value: ['test_2'], count: 200, order: 0 },
-                            { breakdown_value: ['test_2'], count: 140, order: 1 },
-                        ],
-                        [
-                            { breakdown_value: ['test_3'], count: 200, order: 0 },
-                            { breakdown_value: ['test_3'], count: 160, order: 1 },
-                        ],
-                    ],
-                    probability: { control: 0.7, test_1: 0.1, test_2: 0.2, test_3: 0 },
-                },
             },
         })
         initKeaTests()
@@ -131,6 +98,34 @@ describe('experimentLogic', () => {
     })
 
     describe('refreshExperimentResults', () => {
+        it.each([
+            [
+                'sends no queries for a legacy experiment',
+                [
+                    {
+                        kind: NodeKind.ExperimentTrendsQuery,
+                        uuid: 'legacy-metric',
+                        count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    },
+                ],
+                false,
+            ],
+            ['sends queries for a new-engine experiment', experiment.metrics, true],
+        ])('%s', async (_, metrics, expectQueries) => {
+            const queryHandler = jest.fn(() => [200, {}])
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': queryHandler,
+                    '/api/environments/:team/query/:kind': queryHandler,
+                },
+            })
+            logic.actions.setExperiment({ ...experiment, metrics } as Experiment)
+
+            await logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            expect(queryHandler.mock.calls.length > 0).toBe(expectQueries)
+        })
+
         const unevenExposures = {
             timeseries: [{ variant: 'control' }, { variant: 'test' }, { variant: '$multiple' }],
             total_exposures: { control: 600, test: 350, $multiple: 50 },
@@ -212,7 +207,6 @@ describe('experimentLogic', () => {
             'reports the exposure state with the completed refresh: $desc',
             async ({ exposures, handling, expected }) => {
                 const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
-                // The fixture holds legacy metrics, so the refresh keeps the exposures that are set here.
                 logic.actions.setExperiment({
                     ...experiment,
                     exposure_criteria: { ...experiment.exposure_criteria, multiple_variant_handling: handling },
@@ -222,10 +216,17 @@ describe('experimentLogic', () => {
                 }
                 useMocks({
                     post: {
-                        '/api/environments/:team/query': () => [
-                            200,
-                            { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
-                        ],
+                        // The exposure query fails, so the refresh keeps the exposures that are set here.
+                        '/api/environments/:team/query/:kind': ({ params }) =>
+                            params.kind === NodeKind.ExperimentExposureQuery
+                                ? [500, { detail: 'Exposures are unavailable' }]
+                                : [
+                                      200,
+                                      {
+                                          cache_key: 'cache_key',
+                                          query_status: experimentMetricResultsSuccessJson.query_status,
+                                      },
+                                  ],
                     },
                     get: {
                         '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
@@ -1072,6 +1073,46 @@ describe('experimentLogic', () => {
                 .toFinishAllListeners()
 
             expect(logic.values.experiment.metrics).toEqual([otherPrimaryMetric, primaryMetric])
+        })
+    })
+    describe('migrateLegacyExperiment', () => {
+        const MIGRATED_EXP_ID = 777
+
+        it.each([
+            {
+                name: 'opens the migrated experiment when the migration succeeds',
+                response: [200, { ...experiment, id: MIGRATED_EXP_ID }],
+                expectedPath: urls.experiment(MIGRATED_EXP_ID),
+            },
+            {
+                name: 'stays on the legacy experiment when the migration fails',
+                response: [400, { type: 'validation_error', detail: "Couldn't migrate this experiment" }],
+                expectedPath: urls.experiment(experiment.id),
+            },
+        ])('$name', async ({ response, expectedPath }) => {
+            useMocks({
+                get: { '/api/projects/:team/experiments/:id': experiment },
+                post: {
+                    '/api/projects/:team/experiments/:id/migrate': () => response,
+                    '/api/environments/:team/query': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+            })
+            router.actions.push(urls.experiment(experiment.id))
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            await expectLogic(keyed).toFinishAllListeners()
+
+            await expectLogic(keyed, () => {
+                keyed.actions.migrateLegacyExperiment()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ migrateLegacyExperimentLoading: false })
+
+            expect(router.values.location.pathname).toContain(expectedPath)
+            keyed.unmount()
         })
     })
     describe('tags refresh', () => {
@@ -2297,8 +2338,17 @@ describe('experimentLogic', () => {
         })
 
         const running = { start_date: '2020-01-01', end_date: undefined }
-        // The fixture holds legacy metrics, and a legacy experiment never shows the health panel.
         const newEngineMetrics = { metrics: [], metrics_secondary: [], saved_metrics: [] }
+        // A legacy experiment never shows the health panel.
+        const legacyMetrics = {
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    uuid: 'legacy-metric',
+                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                },
+            ],
+        } as Partial<Experiment>
 
         it.each<{
             desc: string
@@ -2490,10 +2540,18 @@ describe('experimentLogic', () => {
             expect(logic.values.experimentWarning).toEqual(expected)
         })
 
+        const healthUrl = '/api/projects/:team/experiments/7/health/'
+        const mountKeyedLogic = (): ReturnType<typeof experimentLogic.build> => {
+            const keyedLogic = experimentLogic({ experimentId: 7 })
+            keyedLogic.mount()
+            return keyedLogic
+        }
+
         it.each<{
             desc: string
             overrides: Partial<Experiment>
-            health: ExperimentHealthApi
+            // null makes the health request fail.
+            health: ExperimentHealthApi | null
             expected: Record<string, unknown>
             healthFindingsFlag?: boolean
         }>([
@@ -2503,13 +2561,28 @@ describe('experimentLogic', () => {
                 health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
                 expected: {
                     health_ui: 'panel',
+                    request_failed: false,
                     health_finding_codes: ['flag_off_while_running'],
                     health_finding_subcodes: ['flag_off_while_running:running_but_flag_disabled'],
+                    health_findings: ['flag_off_while_running:running_but_flag_disabled:warning:'],
                     health_finding_count: 1,
                     flag_state_browser: null,
                     flag_state_server: 'running_but_flag_disabled',
                     no_metric_server: false,
                 },
+            },
+            {
+                desc: 'an info finding with a reason',
+                overrides: { ...running, feature_flag: flag(true, multivariantFilters) },
+                health: {
+                    findings: [
+                        {
+                            ...healthFinding('split_changed_mid_run', 'not_checked', { reason: 'exposure_filters' }),
+                            severity: 'info',
+                        },
+                    ],
+                },
+                expected: { health_findings: ['split_changed_mid_run:not_checked:info:exposure_filters'] },
             },
             {
                 desc: 'a server subcode the page does not know',
@@ -2519,7 +2592,7 @@ describe('experimentLogic', () => {
             },
             {
                 desc: 'a reader with the flag on a legacy experiment, which shows the separate warnings',
-                overrides: { ...running, feature_flag: flag(true, multivariantFilters) },
+                overrides: { ...running, ...legacyMetrics, feature_flag: flag(true, multivariantFilters) },
                 health: { findings: [] },
                 expected: { health_ui: 'warnings', health_finding_count: 0 },
             },
@@ -2535,27 +2608,39 @@ describe('experimentLogic', () => {
                     flag_state_server: 'running_but_flag_disabled',
                 },
             },
+            {
+                desc: 'a failed request, which leaves the server values empty',
+                overrides: { ...running, feature_flag: flag(false, multivariantFilters) },
+                health: null,
+                expected: {
+                    request_failed: true,
+                    health_finding_codes: null,
+                    health_finding_count: null,
+                    flag_state_browser: 'running_but_flag_disabled',
+                    flag_state_server: null,
+                    no_metric_server: null,
+                },
+            },
         ])(
             'compares the local rules with the server checks when the health loads: $desc',
-            ({ overrides, health, expected, healthFindingsFlag = true }) => {
+            async ({ overrides, health, expected, healthFindingsFlag = true }) => {
                 setHealthFindingsFlag(healthFindingsFlag)
+                useMocks({
+                    get: { [healthUrl]: () => (health ? [200, health] : [500, { detail: 'Server error' }]) },
+                })
+                const keyedLogic = mountKeyedLogic()
                 const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+                keyedLogic.actions.setExperiment(createExperiment({ id: 7, ...overrides }))
 
-                logic.actions.setExperiment(createExperiment(overrides))
-                logic.actions.loadExperimentHealthSuccess(health, 'experiment_load')
+                await expectLogic(keyedLogic, () => {
+                    keyedLogic.actions.loadExperimentHealth('experiment_load')
+                }).toDispatchActions(['loadExperimentHealthSuccess'])
 
                 const checkedEvents = captureSpy.mock.calls.filter(([event]) => event === 'experiment health checked')
                 expect(checkedEvents).toHaveLength(1)
-                expect(checkedEvents[0][1]).toMatchObject(expected)
+                expect(checkedEvents[0][1]).toMatchObject({ duration_ms: expect.any(Number), ...expected })
             }
         )
-
-        const healthUrl = '/api/projects/:team/experiments/7/health/'
-        const mountKeyedLogic = (): ReturnType<typeof experimentLogic.build> => {
-            const keyedLogic = experimentLogic({ experimentId: 7 })
-            keyedLogic.mount()
-            return keyedLogic
-        }
 
         it('loads the health with each experiment load and after a changed input, comparing only once', async () => {
             const health: ExperimentHealthApi = { findings: [] }
@@ -2647,6 +2732,7 @@ describe('experimentLogic', () => {
                 .map(([event, properties]) => [event, properties])
 
         it('reports a shown finding once per experiment load, without customer text', () => {
+            setHealthFindingsFlag(false)
             const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
             const draft = { ...experiment, id: 7, status: ExperimentStatus.Draft, start_date: undefined } as Experiment
             const finding: ExperimentHealthFinding = {
@@ -2667,6 +2753,8 @@ describe('experimentLogic', () => {
                         experiment_days_since_start: null,
                         finding_code: 'flag_live_before_launch',
                         finding_variant: 'not_started_but_multiple_variants_rolled_out',
+                        finding_severity: null,
+                        finding_reason: null,
                         health_ui: 'warnings',
                         surface: 'experiment_page',
                         source: 'web',
@@ -2706,6 +2794,8 @@ describe('experimentLogic', () => {
                         experiment_days_since_start: 3,
                         finding_code: 'bias_risk_multiple_excluded',
                         finding_variant: null,
+                        finding_severity: null,
+                        finding_reason: null,
                         health_ui: 'panel',
                         surface: 'experiment_page',
                         source: 'web',
@@ -2717,6 +2807,7 @@ describe('experimentLogic', () => {
         })
 
         it('reports a finding as shown before it reports the finding as opened', () => {
+            setHealthFindingsFlag(false)
             const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
             const running = {
                 ...experiment,
@@ -2730,6 +2821,8 @@ describe('experimentLogic', () => {
                 experiment_days_since_start: 3,
                 finding_code: 'zero_exposures',
                 finding_variant: null,
+                finding_severity: null,
+                finding_reason: null,
                 health_ui: 'warnings',
                 surface: 'experiment_page',
                 source: 'web',

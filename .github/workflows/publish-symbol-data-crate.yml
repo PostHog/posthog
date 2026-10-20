@@ -6,6 +6,12 @@ on:
             - master
         paths:
             - 'rust/common/symbol_data/.sampo/changesets/*.md'
+    workflow_dispatch:
+        inputs:
+            release_commit:
+                description: Merge commit of the symbol data release pull request
+                required: true
+                type: string
 
 permissions:
     contents: read
@@ -48,7 +54,8 @@ jobs:
         name: Notify Slack - Approval Needed
         needs: check-changesets
         if: >-
-            github.repository == 'PostHog/posthog'
+            github.event_name == 'push'
+            && github.repository == 'PostHog/posthog'
             && needs.check-changesets.result == 'success'
             && needs.check-changesets.outputs.has-changesets == 'true'
         uses: posthog/.github/.github/workflows/notify-approval-needed.yml@03565438486849ac0d19543de36c248a27d32a2f
@@ -67,6 +74,7 @@ jobs:
         needs: [check-changesets, identify-release, notify-approval-needed, publish]
         if: >-
             !cancelled()
+            && github.event_name == 'push'
             && github.repository == 'PostHog/posthog'
             && needs.check-changesets.result == 'success'
             && needs.identify-release.result == 'success'
@@ -392,10 +400,20 @@ jobs:
             new-version: ${{ steps.release-metadata.outputs.new-version }}
             release-commit: ${{ steps.release-metadata.outputs.release-commit }}
         steps:
+            - name: Validate manual release branch
+              if: github.event_name == 'workflow_dispatch'
+              env:
+                  RELEASE_REF: ${{ github.ref }}
+              run: |
+                  if [ "$RELEASE_REF" != 'refs/heads/master' ]; then
+                      echo '::error::Run this workflow from master to retry a release.'
+                      exit 1
+                  fi
+
             - name: Checkout release metadata
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ github.sha }}
+                  ref: ${{ inputs.release_commit || github.sha }}
                   fetch-depth: 2
                   sparse-checkout: |
                       rust/Cargo.lock
@@ -409,7 +427,8 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   RELEASE_APP: scheduled-actions-posthog[bot]
-                  RELEASE_COMMIT: ${{ github.sha }}
+                  RELEASE_COMMIT: ${{ inputs.release_commit || github.sha }}
+                  EVENT_NAME: ${{ github.event_name }}
                   REPOSITORY: ${{ github.repository }}
               run: |
                   release_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
@@ -420,6 +439,10 @@ jobs:
                       exit 1
                   fi
                   if [ "$release_pr_count" -eq 0 ]; then
+                      if [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
+                          echo "::error::$RELEASE_COMMIT is not the merge commit of a merged posthog-symbol-data release pull request. Enter its merge commit SHA and retry."
+                          exit 1
+                      fi
                       echo "No merged posthog-symbol-data release pull request found for $RELEASE_COMMIT"
                       exit 0
                   fi
@@ -485,6 +508,7 @@ jobs:
         if: >-
             !cancelled()
             && github.repository == 'PostHog/posthog'
+            && github.ref == 'refs/heads/master'
             && needs.identify-release.result == 'success'
             && needs.identify-release.outputs.release-commit != ''
         runs-on: ubuntu-24.04
@@ -498,8 +522,6 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ needs.identify-release.outputs.release-commit }}
-                  sparse-checkout: rust
-                  sparse-checkout-cone-mode: false
 
             - name: Install Rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9

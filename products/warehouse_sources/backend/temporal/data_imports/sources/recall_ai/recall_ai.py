@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -50,7 +51,12 @@ def _to_iso8601(value: Any) -> Optional[str]:
 def _scrub_fields(fields: tuple[str, ...]):
     def scrub(item: dict[str, Any]) -> dict[str, Any]:
         for field in fields:
-            item.pop(field, None)
+            *parents, leaf = field.split(".")
+            target: Any = item
+            for parent in parents:
+                target = target.get(parent) if isinstance(target, dict) else None
+            if isinstance(target, dict):
+                target.pop(leaf, None)
         return item
 
     return scrub
@@ -82,12 +88,15 @@ def get_resource(
         if should_use_incremental_field
         else "replace",
         "endpoint": {
-            "data_selector": "results",
             "path": config.path,
             "params": params,
-            # Every list response carries an absolute next-page URL in its body, which also
-            # keeps any filter params on later pages.
-            "paginator": JSONResponsePaginator(next_url_path="next"),
+            # Paginated list responses carry an absolute next-page URL in their body, which
+            # also keeps any filter params on later pages.
+            **(
+                {"data_selector": "results", "paginator": JSONResponsePaginator(next_url_path="next")}
+                if config.paginated
+                else {"paginator": SinglePagePaginator()}
+            ),
         },
         "table_format": "delta",
     }
@@ -121,9 +130,10 @@ def recall_ai_source(
             # or internal destination. Pair host-pinning with rejecting redirects outright.
             "allowed_hosts": [],
             "allow_redirects": False,
-            # Calendar rows carry OAuth client secrets/refresh tokens (scrubbed below before
-            # they reach the warehouse), which aren't covered by the generic sample denylist —
-            # disable diagnostic HTTP capture for this endpoint so raw responses are never stored.
+            # Rows of scrubbed endpoints carry credentials (calendar OAuth secrets, SDK upload
+            # tokens, meeting platform tokens), scrubbed below before they reach the warehouse,
+            # which aren't covered by the generic sample denylist — disable diagnostic HTTP
+            # capture for these endpoints so raw responses are never stored.
             **({"capture": False} if endpoint_config.scrub_fields else {}),
         },
         "resources": [get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)],

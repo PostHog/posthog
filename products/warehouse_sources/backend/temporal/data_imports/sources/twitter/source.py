@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
+    codebase_detection = detect(
+        env=("^TWITTER_",),
+        script_hosts=("platform.twitter.com",),
+        npm=("@xdevplatform/xdk", "twitter-api-sdk", "twitter-api-v2"),
+        pypi=("xdk", "tweepy"),
+        rubygems=("twitter",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (API_VERSION_2,)
     default_version = API_VERSION_2
@@ -50,6 +59,9 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.x.com": "X rejected the bearer token. Generate a new one in the X developer portal and reconnect the source.",
             "403 Client Error: Forbidden for url: https://api.x.com": "Your X app cannot read this endpoint. Check the project's API access and credit balance in the X developer portal, or stop syncing this table.",
+            # X's pay-per-use plan answers 402 once the project's prepaid credits run out, mirroring
+            # the check in `validate_credentials` — retrying a sync won't refill the balance.
+            "402 Client Error: Payment Required for url: https://api.x.com": "Your X developer project has run out of API credits. Add credits in the X developer portal, then try again.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

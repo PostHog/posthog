@@ -54,7 +54,7 @@
       td .bar { height: 6px; border-radius: 3px; background: var(--accent); min-width: 2px; }
       .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
       .pill.healthy, .pill.committed { background: rgba(63,185,80,0.16); color: var(--good); }
-      .pill.degraded, .pill.retrying, .pill.stashed { background: rgba(210,153,34,0.16); color: var(--warn); }
+      .pill.degraded, .pill.retrying, .pill.partial { background: rgba(210,153,34,0.16); color: var(--warn); }
       .pill.unhealthy, .pill.stalled, .pill.failed { background: rgba(248,81,73,0.16); color: var(--error); }
       .pill.draining, .pill.inflight { background: rgba(139,147,161,0.18); color: var(--muted); }
       .pill.accent { background: rgba(79,124,255,0.18); color: #a9c0ff; }
@@ -81,9 +81,9 @@
       .controls { display: flex; gap: 8px; align-items: center; }
       .controls label { color: var(--muted); font-size: 11px; }
 
-      /* batches list: grows with content — the page (or embedding iframe)
+      /* polls list: grows with content — the page (or embedding iframe)
          expands instead of squeezing the list into an inner scroll box. */
-      #batches-view { overflow-y: visible; }
+      #polls-view { overflow-y: visible; }
       .brow { display: grid; grid-template-columns: 96px 90px 1fr auto; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
       .brow:hover { background: var(--panel-2); }
       .brow .id { font-family: var(--mono); color: #d2a8ff; }
@@ -101,7 +101,6 @@
       .node { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 150px; }
       .node .title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
       .node .big { font-family: var(--mono); font-size: 15px; }
-      .node.stash { border-color: rgba(210,153,34,0.5); }
       .node.worker.acked { border-color: rgba(63,185,80,0.4); }
       .node.worker.stalled { border-color: rgba(248,81,73,0.5); }
       .arrow { align-self: center; color: var(--muted); font-size: 20px; }
@@ -111,7 +110,6 @@
       .flow { position: relative; padding: 6px 4px 10px; overflow-x: auto; margin-bottom: 18px; }
       .flow-main { display: flex; gap: 82px; align-items: center; }
       .flow-col { display: flex; flex-direction: column; gap: 16px; justify-content: center; }
-      .flow-defer { margin-top: 32px; padding-left: 250px; }
       .flow .node { position: relative; z-index: 1; min-width: 122px; }
       .flow svg { position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; overflow: visible; }
       .node.src { border-color: rgba(79,124,255,0.45); }
@@ -158,16 +156,16 @@
       <!-- left: live state -->
       <div style="display:flex; flex-direction:column; gap:14px;">
         <section class="panel">
-          <h2>Dispatcher load</h2>
+          <h2>Batcher load</h2>
           <div class="stats" id="disp-stats"></div>
         </section>
         <section class="panel">
           <h2>Workers</h2>
           <table>
             <thead>
-              <tr><th>Worker</th><th>State</th><th>In-flight</th><th>Fails</th><th>Err</th></tr>
+              <tr><th>Worker</th><th>State</th><th>Requests</th><th>Messages</th><th>Fails</th><th>Err</th></tr>
             </thead>
-            <tbody id="workers"><tr><td class="empty" colspan="5">Waiting for data…</td></tr></tbody>
+            <tbody id="workers"><tr><td class="empty" colspan="6">Waiting for data…</td></tr></tbody>
           </table>
         </section>
       </div>
@@ -176,7 +174,7 @@
       <section class="panel">
         <div class="tabs">
           <div class="tab active" data-tab="feed">Live feed</div>
-          <div class="tab" data-tab="batches">Batches <span class="badge" id="badge-batches"></span></div>
+          <div class="tab" data-tab="polls">Polls <span class="badge" id="badge-polls"></span></div>
           <div class="tab" data-tab="commits">Commits <span class="badge" id="badge-commits"></span></div>
         </div>
 
@@ -185,21 +183,20 @@
             Event stream
             <span class="controls">
               <label><input type="checkbox" id="pause" /> pause</label>
-              <label><input type="checkbox" id="hide-resolved" /> hide resolves</label>
             </span>
           </h2>
           <div id="feed"><div class="empty">Waiting for events…</div></div>
         </div>
 
-        <div id="tab-batches" style="display:none;">
+        <div id="tab-polls" style="display:none;">
           <h2>
-            Batches
+            Polls
             <span class="controls">
-              <label><input type="checkbox" id="batches-pause" /> pause list</label>
-              <label><input type="checkbox" id="batches-issues" /> issues only</label>
+              <label><input type="checkbox" id="polls-pause" /> pause list</label>
+              <label><input type="checkbox" id="polls-issues" /> issues only</label>
             </span>
           </h2>
-          <div id="batches-view"><div class="empty">Waiting for batches…</div></div>
+          <div id="polls-view"><div class="empty">Waiting for polls…</div></div>
         </div>
 
         <div id="tab-commits" style="display:none;">
@@ -211,18 +208,22 @@
 
     <script>
       const MAX_FEED = 600;
-      const MAX_BATCHES = 400;
+      const MAX_POLLS = 400;
+      const MAX_REQUESTS = 2000;
+      const MAX_POLL_EVENTS = 500;
       const MAX_COMMITS = 400;
 
       const seen = new Set();
       let feedEmpty = true;
       let activeTab = "feed";
-      let selectedBatch = null;
+      let selectedPoll = null;
       let openDetailId = null;
 
       // client-side models rebuilt from the event stream
-      let batches = {};
-      let batchOrder = [];
+      let polls = {};
+      let pollOrder = [];
+      let requests = {};
+      let requestOrder = [];
       let commits = [];
       let partitionHigh = {}; // "topic/partition" -> highest committed offset
       let oooCount = 0;
@@ -250,6 +251,7 @@
         const d = new Date(ms);
         return d.toLocaleTimeString("en-US", { hour12: false }) + "." + String(d.getMilliseconds()).padStart(3, "0");
       };
+      const fmtBytes = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
       const fmtDur = (ms) => {
         if (ms == null || !isFinite(ms) || ms < 0) return "—";
         if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -287,24 +289,29 @@
         $("routing").textContent = routingText;
         const sliceSet = new Set(r.slice || []);
 
-        const d = s.dispatcher;
-        // In-flight is transient (a batch is assigned→sent→resolved in ms), so a
+        // A consumer pod from before the batcher rename still answers with
+        // `dispatcher`; read whichever key the pod sends during a rollout.
+        const d = s.batcher || s.dispatcher || {};
+        // In-flight is transient (a request is sent→resolved in ms), so a
         // single sample often reads 0. Hold the peak over a short window so the
         // panel reflects the concurrency actually happening.
         const now = Date.now();
-        loadSamples.push({ t: now, v: d.total_in_flight });
+        loadSamples.push({ t: now, v: d.total_in_flight ?? 0 });
         loadSamples = loadSamples.filter((x) => now - x.t <= PEAK_WINDOW_MS);
         const peak = loadSamples.reduce((m, x) => Math.max(m, x.v), 0);
 
         $("disp-stats").innerHTML = [
-          ["in-flight", d.total_in_flight],
+          ["in-flight", d.total_in_flight ?? 0],
           ["peak 4s", peak],
-          ["pins", d.pin_count],
-          ["stashed", d.stashed_messages],
-          ["stash batches", d.stashed_batches],
+          ["requests", d.in_flight_requests ?? 0],
+          ["pending", d.pending_messages ?? 0],
+          ["queued", fmtBytes(d.queued_bytes ?? 0)],
+          ["keys", d.keys ?? 0],
+          ["claimed", d.claimed_keys ?? 0],
+          ["waiting", d.waiting_keys ?? 0],
         ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
-        const maxLoad = Math.max(1, ...s.workers.map((w) => w.in_flight_messages));
+        const maxLoad = Math.max(1, ...s.workers.map((w) => w.in_flight_messages ?? 0));
         // Stable order — slice members first, then by IP. Sorting by load made
         // rows jump around on every poll.
         const workerSortKey = (url) => {
@@ -320,66 +327,162 @@
               workerSortKey(a.url).localeCompare(workerSortKey(b.url))).map((w) => {
               const cls = w.draining ? "draining" : w.state;
               const label = w.draining ? "draining" : w.state;
-              const pct = Math.round((w.in_flight_messages / maxLoad) * 100);
               const rate = (w.passive_error_rate * 100).toFixed(0) + "%";
-              const slice = sliceSet.has(w.url) ? ` <span class="badge-min" title="in this dispatcher's aperture slice">slice</span>` : "";
+              const inFlight = w.in_flight_messages ?? 0;
+              const pct = Math.round((inFlight / maxLoad) * 100);
+              const slice = sliceSet.has(w.url) ? ` <span class="badge-min" title="in this consumer's aperture slice">slice</span>` : "";
               return `<tr>
                 <td class="mono">${shortWorker(w.url)}${slice}</td>
                 <td><span class="pill ${cls}">${label}</span></td>
+                <td class="mono">${w.in_flight_requests ?? 0}</td>
                 <td class="mono"><div style="display:flex;align-items:center;gap:8px;">
-                  <div class="bar" style="width:${pct}%"></div><span>${w.in_flight_messages}</span></div></td>
+                  <div class="bar" style="width:${pct}%"></div><span>${inFlight}</span></div></td>
                 <td class="mono">${w.consecutive_probe_failures}</td>
                 <td class="mono">${rate}</td>
               </tr>`;
             }).join("")
-          : `<tr><td class="empty" colspan="5">No workers</td></tr>`;
+          : `<tr><td class="empty" colspan="6">No workers</td></tr>`;
       }
 
       // ---------- event → model ----------
+      // A poll is one Kafka batch the consumer submitted; a request is one
+      // send the batcher made. A request can merge messages from consecutive
+      // polls, so the two are matched by the topic-partition offset ranges
+      // both events carry.
       function resetModels() {
         seen.clear();
-        batches = {}; batchOrder = []; commits = []; partitionHigh = {}; oooCount = 0;
-        selectedBatch = null;
+        polls = {}; pollOrder = []; requests = {}; requestOrder = []; commits = []; partitionHigh = {}; oooCount = 0;
+        selectedPoll = null;
         $("feed").innerHTML = '<div class="empty">Waiting for events…</div>';
         feedEmpty = true;
         scheduleRender();
       }
 
-      function batchFor(id) {
-        let b = batches[id];
-        if (!b) {
-          b = { id, ts: null, messages: 0, distinct_ids: 0, partitions: [],
-                assigned: [], flushed: [], deferred: [], retries: [], exhausted: [], splits: [],
-                committed: null, events: [] };
-          batches[id] = b;
-          batchOrder.push(id);
-          while (batchOrder.length > MAX_BATCHES) delete batches[batchOrder.shift()];
+      function pollFor(id) {
+        let p = polls[id];
+        if (!p) {
+          p = { id, ts: null, messages: 0, partitions: [], assignment_epoch: null, spans: [], requests: [],
+                committed: null, failed: null, events: [] };
+          polls[id] = p;
+          pollOrder.push(id);
+          while (pollOrder.length > MAX_POLLS) delete polls[pollOrder.shift()];
         }
-        return b;
+        return p;
+      }
+
+      function requestFor(id) {
+        let r = requests[id];
+        if (!r) {
+          r = { id, ts: null, worker: null, messages: 0, routing_keys: 0, bytes: 0, replay: false, budgeted: false,
+                assignment_epoch: null, spans: [], polls: [], resolved: null, failed: null, events: [] };
+          requests[id] = r;
+          requestOrder.push(id);
+          if (requestOrder.length > MAX_REQUESTS) evictRequest();
+        }
+        return r;
+      }
+
+      // Drop the oldest settled request, and only an unsettled one when
+      // nothing settled is left: its response is still to come, and the poll
+      // that carries it would otherwise lose the outcome.
+      function evictRequest() {
+        let index = requestOrder.findIndex((id) => { const r = requests[id]; return !r || r.resolved || r.failed; });
+        if (index < 0) index = 0;
+        const [id] = requestOrder.splice(index, 1);
+        const r = requests[id];
+        delete requests[id];
+        if (!r) return;
+        r.polls.forEach((pid) => {
+          const p = polls[pid];
+          if (!p) return;
+          p.requests = p.requests.filter((rid) => rid !== id);
+          p.events = p.events.filter((ev) => ev.request_id !== id);
+        });
+      }
+
+      const overlaps = (a, b) => a.some((x) => b.some((y) =>
+        x.topic === y.topic && x.partition === y.partition &&
+        x.ranges.some(([xf, xl]) => y.ranges.some(([yf, yl]) => xf <= yl && yf <= xl))));
+
+      // Attach a request to every poll whose offsets it carries. The epoch
+      // must match too: after a partition is revoked and read again, the new
+      // assignment's requests repeat offsets the old assignment's polls hold.
+      function linkRequest(r) {
+        for (let i = pollOrder.length - 1; i >= 0; i--) {
+          const p = polls[pollOrder[i]];
+          if (!p || p.assignment_epoch !== r.assignment_epoch || p.requests.includes(r.id) || !overlaps(r.spans, p.spans)) continue;
+          p.requests.push(r.id);
+          r.polls.push(p.id);
+        }
+      }
+
+      // A request's events also go on the timeline of every poll it carries.
+      // A poll that retries for long keeps its own events and the newest
+      // request events only.
+      function noteRequestEvent(r, ev) {
+        r.events.push(ev);
+        r.polls.forEach((id) => {
+          const p = polls[id];
+          if (!p) return;
+          p.events.push(ev);
+          if (p.events.length > MAX_POLL_EVENTS) {
+            const oldest = p.events.findIndex((e) => e.request_id !== undefined);
+            if (oldest >= 0) p.events.splice(oldest, 1);
+          }
+        });
       }
 
       function updateModel(ev) {
-        const id = ev.batch_id;
-        if (id) {
-          const b = batchFor(id);
-          if (b.ts === null) b.ts = ev.ts_ms;
-          b.events.push(ev);
-          switch (ev.type) {
-            case "BatchDispatched": b.messages = ev.messages; b.partitions = ev.partitions; break;
-            case "BatchAssigned":
-              b.assigned = ev.sub_batches; b.distinct_ids = ev.distinct_ids;
-              b.deferredGroups = (b.deferredGroups || 0) + ev.deferred_groups + ev.unroutable_groups; break;
-            case "Deferred": b.deferred.push({ reason: ev.reason, groups: ev.groups, ts: ev.ts_ms }); break;
-            case "DeferredFlushed": ev.sub_batches.forEach((s) => b.flushed.push({ ...s, ts: ev.ts_ms })); break;
-            case "SendRetry": b.retries.push({ worker: ev.worker, attempt: ev.attempt, reason: ev.reason, ts: ev.ts_ms }); break;
-            case "SendSplit": b.splits.push({ worker: ev.worker, reason: ev.reason, chunks: ev.chunks, messages: ev.messages, ts: ev.ts_ms }); break;
-            case "SendExhausted": b.exhausted.push({ worker: ev.worker, error: ev.error, ts: ev.ts_ms }); break;
-            case "BatchCommitted":
-              b.committed = { accepted: ev.accepted, duration_ms: ev.duration_ms, partitions: ev.partitions, ts: ev.ts_ms };
-              recordCommit(ev); break;
+        switch (ev.type) {
+          case "ConsumerStarted":
+            polls = {}; pollOrder = []; requests = {}; requestOrder = []; commits = []; partitionHigh = {}; oooCount = 0;
+            break;
+          case "BatchDispatched": {
+            const p = pollFor(ev.batch_id);
+            p.ts = ev.ts_ms; p.messages = ev.messages; p.partitions = ev.partitions;
+            p.assignment_epoch = ev.assignment_epoch; p.spans = ev.spans || [];
+            p.events.push(ev);
+            break;
+          }
+          case "BatchCommitted": {
+            const p = pollFor(ev.batch_id);
+            if (p.ts === null) p.ts = ev.ts_ms;
+            p.committed = { accepted: ev.accepted, duration_ms: ev.duration_ms, partitions: ev.partitions, ts: ev.ts_ms };
+            p.events.push(ev);
+            recordCommit(ev);
+            break;
+          }
+          case "BatchFailed": {
+            if (!ev.batch_id) break;
+            const p = pollFor(ev.batch_id);
+            p.failed = { error: ev.error, ts: ev.ts_ms };
+            p.events.push(ev);
+            break;
+          }
+          case "RequestSent": {
+            const r = requestFor(ev.request_id);
+            r.ts = ev.ts_ms; r.worker = ev.worker; r.messages = ev.messages; r.routing_keys = ev.routing_keys;
+            r.bytes = ev.bytes; r.replay = ev.replay; r.budgeted = ev.budgeted;
+            r.assignment_epoch = ev.assignment_epoch; r.spans = ev.spans || [];
+            linkRequest(r);
+            noteRequestEvent(r, ev);
+            break;
+          }
+          case "RequestResolved": {
+            const r = requestFor(ev.request_id);
+            r.worker = r.worker || ev.worker;
+            r.resolved = { accepted: ev.accepted, unfinished: ev.unfinished, ts: ev.ts_ms };
+            noteRequestEvent(r, ev);
+            break;
+          }
+          case "RequestFailed": {
+            const r = requestFor(ev.request_id);
+            r.worker = r.worker || ev.worker;
+            r.failed = { cause: ev.cause, messages: ev.messages, ts: ev.ts_ms };
+            noteRequestEvent(r, ev);
+            break;
           }
         }
-        if (ev.type === "ConsumerStarted") { batches = {}; batchOrder = []; commits = []; partitionHigh = {}; oooCount = 0; }
       }
 
       function recordCommit(ev) {
@@ -396,43 +499,42 @@
         while (commits.length > MAX_COMMITS) commits.pop();
       }
 
-      function batchStatus(b) {
-        if (b.committed) return "committed";
-        if (b.exhausted.length) return "stalled";
-        if (b.deferred.length) return "stashed";
-        if (b.retries.length) return "retrying";
+      const pollRequests = (p) => p.requests.map((id) => requests[id]).filter(Boolean);
+      const isPartial = (r) => r.resolved && r.resolved.unfinished > 0;
+
+      function pollStatus(p) {
+        if (p.committed) return "committed";
+        if (p.failed) return "failed";
+        const rs = pollRequests(p);
+        if (rs.some((r) => r.failed)) return "retrying";
+        if (rs.some(isPartial)) return "partial";
         return "inflight";
       }
 
-      // A batch whose lifecycle involved a retry or stash — the interesting ones,
-      // even if they ultimately committed cleanly.
-      function hadIssue(b) {
-        return b.retries.length || b.deferred.length || b.exhausted.length;
+      // A poll whose requests failed, came back partial, or were replays: the
+      // interesting ones, even if they ultimately committed cleanly.
+      function hadIssue(p) {
+        return p.failed || pollRequests(p).some((r) => r.failed || r.replay || isPartial(r));
       }
 
       // ---------- live feed rendering ----------
       function describe(ev) {
         switch (ev.type) {
           case "ConsumerStarted": return ["accent", `▶ consumer started — group <code>${ev.group_id}</code>, ${ev.workers.length} worker(s)`];
-          case "BatchDispatched": return ["", `batch <code>${shortId(ev.batch_id)}</code> dispatched — ${ev.messages} msgs, ${ev.partitions.length} partition(s)`];
-          case "BatchAssigned": {
-            const routes = ev.sub_batches.map((s) => `${shortWorker(s.worker)}:${s.messages}`).join("  ");
-            let extra = "";
-            if (ev.deferred_groups) extra += `  ⏸${ev.deferred_groups} deferred`;
-            if (ev.unroutable_groups) extra += `  ⚠${ev.unroutable_groups} unroutable`;
-            return ["accent", `batch <code>${shortId(ev.batch_id)}</code> assigned — ${ev.distinct_ids} distinct_ids → ${routes || "—"}<span class="tag">${extra}</span>`];
+          case "BatchDispatched": return ["", `poll <code>${shortId(ev.batch_id)}</code> dispatched — ${ev.messages} msgs, ${ev.partitions.length} partition(s)`];
+          case "RequestSent": {
+            const tags = [];
+            if (ev.replay) tags.push("replay");
+            if (ev.budgeted) tags.push("budget");
+            return ["accent", `→ request <code>#${ev.request_id}</code> to ${shortWorker(ev.worker)} — ${ev.messages} msgs, ${ev.routing_keys} key(s), ${fmtBytes(ev.bytes)}${tags.length ? `<span class="tag"> · ${tags.join(" · ")}</span>` : ""}`];
           }
-          case "SubBatchResolved": return ["", `resolved — ${shortWorker(ev.worker)} acked ${ev.messages} msgs (${ev.distinct_ids} ids)${ev.cleared_deferral ? '<span class="tag"> · cleared deferral</span>' : ""}`];
-          case "Deferred": return ["warn", `⏸ deferred [${ev.reason}] — ${ev.groups} group(s), batch <code>${shortId(ev.batch_id)}</code>`];
-          case "DeferredFlushed": {
-            const routes = ev.sub_batches.map((s) => `${shortWorker(s.worker)}:${s.messages}`).join("  ");
-            return ["warn", `↻ flushed deferred — batch <code>${shortId(ev.batch_id)}</code> → ${routes}`];
-          }
-          case "BatchCommitted": return ["good", `✓ committed batch <code>${shortId(ev.batch_id)}</code> — ${ev.accepted} msgs in ${ev.duration_ms}ms`];
-          case "BatchFailed": return ["error", `✗ batch failed — ${ev.error}`];
-          case "SendRetry": return ["warn", `↻ retry #${ev.attempt} [${ev.reason}] — ${shortWorker(ev.worker)}, batch <code>${shortId(ev.batch_id)}</code>`];
-          case "SendSplit": return ["warn", `✂ split [${ev.reason}] — ${ev.messages} msgs → ${ev.chunks} chunk(s), ${shortWorker(ev.worker)}, batch <code>${shortId(ev.batch_id)}</code>`];
-          case "SendExhausted": return ["error", `✗ send exhausted — ${shortWorker(ev.worker)}: ${ev.error}`];
+          case "RequestResolved": return ev.unfinished
+            ? ["warn", `◐ request <code>#${ev.request_id}</code> partial — ${shortWorker(ev.worker)} acked ${ev.accepted}, ${ev.unfinished} unfinished`]
+            : ["", `✓ request <code>#${ev.request_id}</code> acked — ${shortWorker(ev.worker)}, ${ev.accepted} msgs`];
+          case "RequestFailed": return [ev.cause === "busy" ? "warn" : "error", `✗ request <code>#${ev.request_id}</code> failed [${ev.cause}] — ${shortWorker(ev.worker)}, ${ev.messages} msgs requeued`];
+          case "BatchCommitted": return ["good", `✓ committed poll <code>${shortId(ev.batch_id)}</code> — ${ev.accepted} msgs in ${ev.duration_ms}ms`];
+          case "BatchFailed": return ["error", `✗ poll failed — ${ev.error}`];
+          case "CommitFailed": return ["error", `✗ commit failed — ${ev.error}`];
           case "WorkerStateChanged": return [ev.to === "unhealthy" ? "error" : ev.to === "healthy" ? "good" : "warn", `worker ${shortWorker(ev.worker)} ${ev.from} → ${ev.to}`];
           case "WorkerMembership": return ["accent", `worker ${shortWorker(ev.worker)} ${ev.action}`];
           default: return ["", ev.type];
@@ -440,7 +542,6 @@
       }
 
       function appendFeed(ev) {
-        if (ev.type === "SubBatchResolved" && $("hide-resolved").checked) return;
         const [cls, html] = describe(ev);
         const feed = $("feed");
         if (feedEmpty) { feed.innerHTML = ""; feedEmpty = false; }
@@ -460,203 +561,191 @@
         scheduleRender();
       }
 
-      // ---------- batches + commits rendering (throttled) ----------
+      // ---------- polls + commits rendering (throttled) ----------
       function scheduleRender() {
         if (renderPending) return;
         renderPending = true;
         setTimeout(() => {
           renderPending = false;
-          $("badge-batches").textContent = batchOrder.length ? `(${batchOrder.length})` : "";
+          $("badge-polls").textContent = pollOrder.length ? `(${pollOrder.length})` : "";
           $("badge-commits").textContent = commits.length ? (oooCount ? `(${commits.length} · ⚠${oooCount})` : `(${commits.length})`) : "";
-          // While the list is paused, freeze it so a stashed batch doesn't scroll
-          // away before you can click it — but keep an open detail view live.
-          if (activeTab === "batches" && (!$("batches-pause").checked || selectedBatch)) renderBatches();
+          // While the list is paused, freeze it so a poll doesn't scroll away
+          // before you can click it, but keep an open detail view live.
+          if (activeTab === "polls" && (!$("polls-pause").checked || selectedPoll)) renderPolls();
           if (activeTab === "commits") renderCommits();
         }, 250);
       }
 
-      function workerAgg(b) {
+      // A poll's requests, grouped by the worker that received them.
+      function workerAgg(p) {
         const m = {};
-        const touch = (w) => (m[w] = m[w] || { worker: w, messages: 0, assignedMsgs: 0, flushedMsgs: 0, flushCount: 0, retries: 0, splits: 0, flushed: false, exhausted: false });
-        b.assigned.forEach((s) => { const x = touch(s.worker); x.messages += s.messages; x.assignedMsgs += s.messages; });
-        b.flushed.forEach((s) => { const x = touch(s.worker); x.messages += s.messages; x.flushedMsgs += s.messages; x.flushed = true; x.flushCount += 1; });
-        b.retries.forEach((r) => (touch(r.worker).retries += 1));
-        b.splits.forEach((s) => (touch(s.worker).splits += 1));
-        b.exhausted.forEach((e) => (touch(e.worker).exhausted = true));
+        const touch = (w) => (m[w] = m[w] || { worker: w, requests: 0, messages: 0, acked: 0, unfinished: 0, failed: 0, replays: 0, pending: 0 });
+        pollRequests(p).forEach((r) => {
+          const x = touch(r.worker || "?");
+          x.requests += 1; x.messages += r.messages;
+          if (r.replay) x.replays += 1;
+          if (r.resolved) { x.acked += r.resolved.accepted; x.unfinished += r.resolved.unfinished; }
+          else if (r.failed) x.failed += 1;
+          else x.pending += 1;
+        });
         return Object.values(m);
       }
 
-      function renderBatches() {
-        const view = $("batches-view");
-        if (selectedBatch && batches[selectedBatch]) { renderBatchDetail(batches[selectedBatch]); return; }
-        selectedBatch = null;
+      function renderPolls() {
+        const view = $("polls-view");
+        if (selectedPoll && polls[selectedPoll]) { renderPollDetail(polls[selectedPoll]); return; }
+        selectedPoll = null;
         openDetailId = null;
-        const issuesOnly = $("batches-issues").checked;
-        let ids = batchOrder.slice().reverse();
-        if (issuesOnly) ids = ids.filter((id) => hadIssue(batches[id]));
+        const issuesOnly = $("polls-issues").checked;
+        let ids = pollOrder.slice().reverse();
+        if (issuesOnly) ids = ids.filter((id) => hadIssue(polls[id]));
         if (!ids.length) {
-          view.innerHTML = `<div class="empty">${issuesOnly ? "No batches with retries or stash yet…" : "Waiting for batches…"}</div>`;
+          view.innerHTML = `<div class="empty">${issuesOnly ? "No polls with failed, partial or replayed requests yet…" : "Waiting for polls…"}</div>`;
           return;
         }
         const rows = ids.map((id) => {
-          const b = batches[id];
-          const st = batchStatus(b);
-          const workers = workerAgg(b);
-          const badges = [];
-          badges.push(`<span class="badge-min">${workers.length}w</span>`);
-          const retries = b.retries.length;
-          if (retries) badges.push(`<span class="badge-min warn">↻${retries}</span>`);
-          if (b.splits.length) badges.push(`<span class="badge-min warn">✂${b.splits.length}</span>`);
-          if (b.deferred.length) badges.push(`<span class="badge-min warn">⏸${b.deferred.length}</span>`);
-          if (b.exhausted.length) badges.push(`<span class="badge-min error">✗${b.exhausted.length}</span>`);
+          const p = polls[id];
+          const st = pollStatus(p);
+          const rs = pollRequests(p);
+          const workers = new Set(rs.map((r) => r.worker)).size;
+          const replays = rs.filter((r) => r.replay).length;
+          const partial = rs.filter(isPartial).length;
+          const failed = rs.filter((r) => r.failed).length;
+          const badges = [`<span class="badge-min">${rs.length}req · ${workers}w</span>`];
+          if (replays) badges.push(`<span class="badge-min warn">↻${replays}</span>`);
+          if (partial) badges.push(`<span class="badge-min warn">◐${partial}</span>`);
+          if (failed) badges.push(`<span class="badge-min error">✗${failed}</span>`);
           return `<div class="brow" data-id="${id}">
             <span class="id">${shortId(id)}</span>
             <span><span class="pill ${st}">${st === "inflight" ? "in-flight" : st}</span></span>
             <span class="badges">${badges.join("")}</span>
-            <span class="tm">${b.messages} msg · ${b.ts ? fmtTime(b.ts) : ""}</span>
+            <span class="tm">${p.messages} msg · ${p.ts ? fmtTime(p.ts) : ""}</span>
           </div>`;
         }).join("");
         setHTML(view, `<div class="blist">${rows}</div>`, "prepend");
-        view.querySelectorAll(".brow").forEach((el) => el.addEventListener("click", () => { selectedBatch = el.dataset.id; renderBatchDetail(batches[selectedBatch]); }));
+        view.querySelectorAll(".brow").forEach((el) => el.addEventListener("click", () => { selectedPoll = el.dataset.id; renderPollDetail(polls[selectedPoll]); }));
       }
 
-      function renderBatchDetail(b) {
-        const view = $("batches-view");
-        const st = batchStatus(b);
-        const workers = workerAgg(b);
+      function requestOutcome(r) {
+        if (r.resolved) {
+          return r.resolved.unfinished
+            ? `<span class="pill partial">partial · ${r.resolved.unfinished} unfinished</span>`
+            : `<span class="pill committed">acked ${r.resolved.accepted}</span>`;
+        }
+        if (r.failed) return `<span class="pill ${r.failed.cause === "busy" ? "retrying" : "failed"}">${r.failed.cause}</span>`;
+        return `<span class="pill inflight">in-flight</span>`;
+      }
+
+      function renderPollDetail(p) {
+        const view = $("polls-view");
+        const st = pollStatus(p);
+        const rs = pollRequests(p);
+        const workers = workerAgg(p);
 
         const sum = [
           ["status", `<span class="pill ${st}">${st === "inflight" ? "in-flight" : st}</span>`],
-          ["messages", b.messages],
-          ["distinct_ids", b.distinct_ids],
+          ["messages", p.messages],
+          ["requests", rs.length],
           ["workers", workers.length],
-          ["retries", b.retries.length],
-          ["splits", b.splits.length],
-          ["stashed", b.deferred.reduce((a, d) => a + d.groups, 0)],
+          ["replays", rs.filter((r) => r.replay).length],
+          ["partial", rs.filter(isPartial).length],
+          ["failed", rs.filter((r) => r.failed).length],
         ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
-        const flow = buildFlow(b, workers);
+        const flow = buildFlow(p, workers);
 
-        // Annotate flushes with the stash dwell time so defer → retry gaps are
-        // readable without diffing timestamps by hand. Measured from the first
-        // deferral of the current stash cycle: several Deferred events can pile
-        // up before one flush, and the earliest is what waited longest.
-        let cycleDeferTs = null;
-        const timeline = b.events.map((ev) => {
+        const requestRows = rs.map((r) => {
+          const settled = r.resolved ? r.resolved.ts : r.failed ? r.failed.ts : null;
+          const tags = [r.replay ? "replay" : "", r.budgeted ? "budget" : "", r.polls.length > 1 ? `${r.polls.length} polls` : ""].filter(Boolean).join(" · ");
+          return `<tr>
+            <td class="mono">#${r.id}</td>
+            <td class="mono">${shortWorker(r.worker)}</td>
+            <td class="mono">${r.messages}</td>
+            <td class="mono">${r.routing_keys}</td>
+            <td class="mono">${fmtBytes(r.bytes)}</td>
+            <td>${requestOutcome(r)}</td>
+            <td class="mono">${settled !== null ? fmtDur(settled - r.ts) : "—"}</td>
+            <td class="mono">${tags}</td>
+          </tr>`;
+        }).join("") || `<tr><td class="empty" colspan="8">No request carries this poll's offsets yet</td></tr>`;
+
+        // A request's events sit on every poll it carries, so order the
+        // timeline by sequence to interleave them with the poll's own.
+        const timeline = p.events.slice().sort((a, b) => a.seq - b.seq).map((ev) => {
           const [cls, html] = describe(ev);
-          let extra = "";
-          if (ev.type === "Deferred" && cycleDeferTs === null) cycleDeferTs = ev.ts_ms;
-          if (ev.type === "DeferredFlushed" && cycleDeferTs !== null) {
-            extra = `<span class="tag"> · waited ${fmtDur(ev.ts_ms - cycleDeferTs)}</span>`;
-            cycleDeferTs = null;
-          }
-          return `<div class="item ${cls}"><span class="t">${fmtTime(ev.ts_ms)}</span>${html}${extra}</div>`;
+          return `<div class="item ${cls}"><span class="t">${fmtTime(ev.ts_ms)}</span>${html}</div>`;
         }).join("");
 
-        const fresh = openDetailId !== b.id;
-        openDetailId = b.id;
+        const fresh = openDetailId !== p.id;
+        openDetailId = p.id;
         const detailHtml = `<div class="detail">
-          <span class="back" id="back">← all batches</span>
+          <span class="back" id="back">← all polls</span>
           <div class="dsum">${sum}</div>
-          <h2 style="border:none;padding:0 0 8px;">Flow · batch ${shortId(b.id)}</h2>
+          <h2 style="border:none;padding:0 0 8px;">Flow · poll ${shortId(p.id)}</h2>
           <div class="flow-legend">
-            <span><i style="background:#4f7cff"></i>routed</span>
-            <span><i style="background:#d29922"></i>deferred / flushed</span>
-            <span><i style="background:#f85149"></i>send failed</span>
+            <span><i style="background:#4f7cff"></i>sent</span>
+            <span><i style="background:#d29922"></i>replay / partial</span>
+            <span><i style="background:#f85149"></i>failed</span>
             <span><i style="background:#3fb950"></i>acked / committed</span>
           </div>
           ${flow.html}
-          <h2 style="border:none;padding:0 0 8px;">Lifecycle</h2>
+          <h2 style="border:none;padding:0 0 8px;">Requests</h2>
+          <table><thead><tr><th>Request</th><th>Worker</th><th>Msgs</th><th>Keys</th><th>Bytes</th><th>Outcome</th><th>Took</th><th></th></tr></thead><tbody>${requestRows}</tbody></table>
+          <h2 style="border:none;padding:12px 0 8px;">Lifecycle</h2>
           <div class="tl">${timeline}</div>
         </div>`;
         setHTML(view, detailHtml, fresh ? "none" : "append");
-        $("back").addEventListener("click", () => { selectedBatch = null; renderBatches(); });
+        $("back").addEventListener("click", () => { selectedPoll = null; renderPolls(); });
         requestAnimationFrame(() => drawEdges(document.getElementById("flow"), flow.edges));
       }
 
-      // Build the node/edge model for a batch's flow graph. Nodes sit in four
-      // lanes (Kafka → assign → workers → commit); the stash lane hangs below and
-      // the defer/flush edges connect it explicitly to assign and the workers.
-      function buildFlow(b, workers) {
-        const idx = {};
-        workers.forEach((w, i) => (idx[w.worker] = i));
-        const deferBy = { drain: 0, queued_behind_deferral: 0, unroutable: 0, send_failed: 0 };
-        b.deferred.forEach((d) => (deferBy[d.reason] = (deferBy[d.reason] || 0) + d.groups));
-        const hasStash = b.deferred.length > 0;
-        const totalDeferred = b.deferred.reduce((a, d) => a + d.groups, 0);
-        const firstDefer = hasStash ? b.deferred[0].ts : null;
-        const firstFlush = b.flushed.length ? Math.min(...b.flushed.map((s) => s.ts)) : null;
-        const flushedBy = {};
-        b.flushed.forEach((s) => {
-          const f = (flushedBy[s.worker] = flushedBy[s.worker] || { messages: 0, ts: s.ts });
-          f.messages += s.messages;
-          f.ts = Math.max(f.ts, s.ts);
-        });
-
-        const partsShort = b.partitions.map((p) => `${p.partition}@${p.offset}`).join(" ") || "—";
-        const sourceNode = `<div class="node src" id="n-source"><div class="title">Kafka batch</div><div class="big">${b.messages}</div><div class="sub">msgs · p ${partsShort}</div></div>`;
-        const assignNode = `<div class="node" id="n-assign"><div class="title">Assign</div><div class="big">${b.distinct_ids}</div><div class="sub">distinct_ids</div></div>`;
+      // Build the node/edge model for a poll's flow graph. Nodes sit in four
+      // lanes (Kafka → batcher → workers → commit).
+      function buildFlow(p, workers) {
+        const partsShort = p.partitions.map((pp) => `${pp.partition}@${pp.offset}`).join(" ") || "—";
+        const sourceNode = `<div class="node src" id="n-source"><div class="title">Kafka poll</div><div class="big">${p.messages}</div><div class="sub">msgs · p ${partsShort}</div></div>`;
+        const rs = pollRequests(p);
+        const keyRuns = rs.reduce((a, r) => a + r.routing_keys, 0);
+        const batcherNode = `<div class="node" id="n-batcher"><div class="title">Batcher</div><div class="big">${rs.length}</div><div class="sub">request(s) · ${keyRuns} key run(s)</div></div>`;
 
         const workerNodes = workers.map((w, i) => {
-          const cls = w.exhausted ? "stalled" : b.committed ? "acked" : "";
-          // Headline = messages this worker was initially assigned (bounded by the
-          // batch), or, for a worker that only received re-routed work, the flushed
-          // count. Re-routes are shown as a count, not summed into the headline —
-          // a re-flushed sub-batch is the same messages retried, not new ones.
-          const primary = w.assignedMsgs > 0 ? w.assignedMsgs : w.flushedMsgs;
+          const settled = w.pending === 0 && w.requests > 0;
+          const cls = w.failed ? "stalled" : settled ? "acked" : "";
           const badges = [];
-          if (w.retries) badges.push(`<span class="badge-min warn">↻${w.retries}</span>`);
-          if (w.splits) badges.push(`<span class="badge-min warn">✂×${w.splits}</span>`);
-          if (w.flushCount) badges.push(`<span class="badge-min warn">re-routed ×${w.flushCount}</span>`);
-          if (w.exhausted) badges.push(`<span class="badge-min error">exhausted</span>`);
-          if (!w.exhausted && b.committed) badges.push(`<span class="badge-min">✓ acked</span>`);
-          return `<div class="node worker ${cls}" id="n-w-${i}"><div class="title">${shortWorker(w.worker)}</div><div class="big">${primary}</div><div class="sub">${badges.join(" ") || "sent"}</div></div>`;
-        }).join("") || '<div class="node" id="n-w-none"><div class="sub">not yet assigned</div></div>';
+          if (w.replays) badges.push(`<span class="badge-min warn">↻${w.replays}</span>`);
+          if (w.unfinished) badges.push(`<span class="badge-min warn">◐${w.unfinished}</span>`);
+          if (w.failed) badges.push(`<span class="badge-min error">✗${w.failed}</span>`);
+          if (settled && !w.failed) badges.push(`<span class="badge-min">✓ acked ${w.acked}</span>`);
+          return `<div class="node worker ${cls}" id="n-w-${i}"><div class="title">${shortWorker(w.worker)}</div><div class="big">${w.messages}</div><div class="sub">${w.requests} req · ${badges.join(" ") || "in flight"}</div></div>`;
+        }).join("") || '<div class="node" id="n-w-none"><div class="sub">no request yet</div></div>';
 
-        const reasons = Object.entries(deferBy).filter(([, n]) => n > 0).map(([r, n]) => `${r}: ${n}`).join(" · ");
-        const stashTiming = b.flushed.length
-          ? `↻ flushed after ${fmtDur(firstFlush - firstDefer)}`
-          : "awaiting flush";
-        const stashNode = hasStash
-          ? `<div class="node stash" id="n-stash"><div class="title">Stash / defer</div><div class="big">${totalDeferred}</div><div class="sub">${reasons}</div><div class="sub">⏸ ${fmtTime(firstDefer)}</div><div class="sub">${stashTiming}</div></div>`
-          : "";
-
-        const sinkNode = b.committed
-          ? `<div class="node sink-ok" id="n-sink"><div class="title">Committed</div><div class="big">${b.committed.accepted}</div><div class="sub">${b.committed.duration_ms}ms · ${b.committed.partitions.map((p) => `${p.partition}@${p.offset}`).join(" ")}</div></div>`
-          : `<div class="node sink-pending" id="n-sink"><div class="title">In-flight</div><div class="sub">not committed</div></div>`;
+        const sinkNode = p.committed
+          ? `<div class="node sink-ok" id="n-sink"><div class="title">Committed</div><div class="big">${p.committed.accepted}</div><div class="sub">${p.committed.duration_ms}ms · ${p.committed.partitions.map((pp) => `${pp.partition}@${pp.offset}`).join(" ")}</div></div>`
+          : p.failed
+            ? `<div class="node worker stalled" id="n-sink"><div class="title">Failed</div><div class="sub">${escapeXml(p.failed.error)}</div></div>`
+            : `<div class="node sink-pending" id="n-sink"><div class="title">In-flight</div><div class="sub">not committed</div></div>`;
 
         const html = `<div class="flow" id="flow">
           <div class="flow-main">
             <div class="flow-col">${sourceNode}</div>
-            <div class="flow-col">${assignNode}</div>
+            <div class="flow-col">${batcherNode}</div>
             <div class="flow-col">${workerNodes}</div>
             <div class="flow-col">${sinkNode}</div>
           </div>
-          ${hasStash ? `<div class="flow-defer">${stashNode}</div>` : ""}
           <svg></svg>
         </div>`;
 
         const C = { muted: "#8b93a1", warn: "#d29922", good: "#3fb950", error: "#f85149", accent: "#4f7cff" };
         const edges = [];
-        edges.push({ from: "n-source", to: "n-assign", label: `${b.messages} msgs`, color: C.accent });
-        workers.forEach((w, i) => { if (w.assignedMsgs > 0) edges.push({ from: "n-assign", to: `n-w-${i}`, label: `sent ${w.assignedMsgs}${w.retries ? ` · ↻${w.retries}` : ""}`, color: w.retries ? C.warn : C.muted }); });
+        edges.push({ from: "n-source", to: "n-batcher", label: `${p.messages} msgs`, color: C.accent });
+        workers.forEach((w, i) => {
+          const color = w.failed ? C.error : (w.replays || w.unfinished) ? C.warn : C.muted;
+          edges.push({ from: "n-batcher", to: `n-w-${i}`, label: `${w.requests} req · ${w.messages} msgs`, color });
+        });
 
-        if (hasStash) {
-          let incoming = 0;
-          const da = deferBy.drain + deferBy.queued_behind_deferral + deferBy.unroutable;
-          if (da > 0) {
-            const lbl = [deferBy.drain ? "drain" : "", deferBy.queued_behind_deferral ? "queued" : "", deferBy.unroutable ? "unroutable" : ""].filter(Boolean).join("/");
-            edges.push({ from: "n-assign", to: "n-stash", label: `deferred (${lbl})`, color: C.warn });
-            incoming++;
-          }
-          workers.forEach((w, i) => { if (w.exhausted) { edges.push({ from: `n-w-${i}`, to: "n-stash", label: "send failed", color: C.error }); incoming++; } });
-          if (deferBy.send_failed > 0 && incoming === 0) edges.push({ from: "n-assign", to: "n-stash", label: "send failed", color: C.error });
-          Object.entries(flushedBy).forEach(([worker, f]) => { const i = idx[worker]; if (i != null) edges.push({ from: "n-stash", to: `n-w-${i}`, label: `flushed ${f.messages} · +${fmtDur(f.ts - firstDefer)}`, color: C.warn }); });
-        }
-
-        if (b.committed) {
-          if (workers.length) workers.forEach((w, i) => { if (!w.exhausted) edges.push({ from: `n-w-${i}`, to: "n-sink", label: "acked", color: C.good }); });
-          else edges.push({ from: "n-assign", to: "n-sink", label: "", color: C.good });
+        if (p.committed) {
+          if (workers.length) workers.forEach((w, i) => { if (!w.failed) edges.push({ from: `n-w-${i}`, to: "n-sink", label: "acked", color: C.good }); });
+          else edges.push({ from: "n-batcher", to: "n-sink", label: "", color: C.good });
         }
 
         return { html, edges };
@@ -751,19 +840,19 @@
           activeTab = t.dataset.tab;
           document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
           $("tab-feed").style.display = activeTab === "feed" ? "" : "none";
-          $("tab-batches").style.display = activeTab === "batches" ? "" : "none";
+          $("tab-polls").style.display = activeTab === "polls" ? "" : "none";
           $("tab-commits").style.display = activeTab === "commits" ? "" : "none";
-          if (activeTab === "batches") renderBatches();
+          if (activeTab === "polls") renderPolls();
           if (activeTab === "commits") renderCommits();
         })
       );
 
-      // Re-render immediately when the batch filters change (and on un-pause).
-      $("batches-issues").addEventListener("change", renderBatches);
-      $("batches-pause").addEventListener("change", () => { if (!$("batches-pause").checked) renderBatches(); });
+      // Re-render immediately when the poll filters change (and on un-pause).
+      $("polls-issues").addEventListener("change", renderPolls);
+      $("polls-pause").addEventListener("change", () => { if (!$("polls-pause").checked) renderPolls(); });
       // Redraw the flow graph's edges when the layout width changes.
       window.addEventListener("resize", () => {
-        if (activeTab === "batches" && selectedBatch && batches[selectedBatch]) renderBatchDetail(batches[selectedBatch]);
+        if (activeTab === "polls" && selectedPoll && polls[selectedPoll]) renderPollDetail(polls[selectedPoll]);
       });
 
       // ---------- live SSE ----------

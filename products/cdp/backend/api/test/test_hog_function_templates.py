@@ -7,13 +7,13 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.templates.fixtures import template_slack
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
 MOCK_NODE_TEMPLATES = json.loads(
     open(os.path.join(os.path.dirname(__file__), "__data__/hog_function_templates.json")).read()
@@ -198,7 +198,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
     def test_template_updates_are_reflected(self):
         """Test that template updates are reflected in API responses"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+        from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
         # Initial sha of the template
         initial_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")

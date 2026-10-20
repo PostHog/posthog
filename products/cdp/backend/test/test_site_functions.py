@@ -10,7 +10,6 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.user import User
@@ -20,6 +19,7 @@ from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import TranspilerError
 from products.cdp.backend.site_functions import get_transpiled_function
+from products.cdp.backend.templates.helpers import mock_transpile
 from products.cohorts.backend.models.cohort import Cohort
 
 

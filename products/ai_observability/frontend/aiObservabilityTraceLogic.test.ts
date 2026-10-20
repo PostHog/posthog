@@ -107,6 +107,30 @@ describe('aiObservabilityTraceLogic', () => {
         })
     })
 
+    it.each([
+        [
+            'restores a `+` offset that the URL decoded to a space',
+            { timestamp: '2026-10-12T10:20:30.310693 00:00' },
+            '2026-10-12T10:20:30.310693+00:00',
+        ],
+        [
+            'keeps a valid timestamp that ends in a space-separated time',
+            { timestamp: '2026-10-12 10:20' },
+            '2026-10-12 10:20',
+        ],
+        ['ignores a timestamp that is not a date', { timestamp: 'not-a-date' }, null],
+        ['ignores an exception_ts that is not a date', { exception_ts: 'not-a-date' }, null],
+    ])('%s', async (_, params, expectedDateFrom) => {
+        const traceUrl = combineUrl(urls.aiObservabilityTrace('broken-date-trace', params))
+
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toMatchValues({
+            traceId: 'broken-date-trace',
+            dateRange: { dateFrom: expectedDateFrom, dateTo: null },
+        })
+        expect(() => logic.values.query).not.toThrow()
+    })
+
     it('preserves timestamp when both timestamp and tab parameters are present', async () => {
         const traceId = 'test-trace-id'
         const timestamp = '2024-01-15T12:00:00Z'

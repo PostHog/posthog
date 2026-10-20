@@ -40,6 +40,7 @@ import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutStructuredOutputSection } from './ScoutStructuredOutputSection'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
+import { ScoutToolsSection } from './ScoutToolsSection'
 import { ScoutWriteAccessSection } from './ScoutWriteAccessSection'
 
 interface ScoutConfigControlsProps {
@@ -210,7 +211,9 @@ export function ScoutConfigForm({
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex flex-col min-w-0">
                         <span className="text-xs text-default">Run time</span>
-                        <span className="text-[11.5px] text-muted">Uses the project timezone ({projectTimezone})</span>
+                        <span className="text-[11.5px] text-muted">
+                            Uses the project timezone ({projectTimezone}). Starts within 20 minutes of this time.
+                        </span>
                     </div>
                     <LemonInput
                         key={config.run_cron_schedule ?? 'unset'}
@@ -383,6 +386,7 @@ export function ScoutConfigForm({
                 updating={updating}
                 onUnsavedChange={setSchemaUnsaved}
             />
+            <ScoutToolsSection config={config} onUpdate={onUpdate} updating={updating} surface={surface} />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}

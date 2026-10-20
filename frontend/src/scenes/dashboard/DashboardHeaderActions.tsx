@@ -6,7 +6,6 @@ import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -21,75 +20,37 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Dash
 
 import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/DashboardCustomizeMenu/DashboardCustomizeMenu'
 
+import { DashboardAddTileHandlers, DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
 import { DashboardCustomizeButton } from './DashboardCustomizeButton'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
+// pinned: autocapture data-attrs for the header's Add menu items
+const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
+    insight: 'dashboard-add-insight',
+    text: 'dashboard-add-text-tile',
+    image: 'dashboard-add-image-tile',
+    button: 'dashboard-add-button-tile',
+    widget: 'dashboard-add-widget',
+    'widget-preview': 'dashboard-add-widget-preview',
+}
+
 export function getAddTileMenuItems({
-    dashboardWidgetsEnabled,
-    onAddInsight,
-    onAddText,
-    onAddImage,
-    onAddButton,
-    push,
-    setAddWidgetModalOpen,
     onBeforeSelect,
-}: {
-    dashboardWidgetsEnabled: boolean
-    onAddInsight: () => void
-    onAddText: () => void
-    onAddImage: () => void
-    onAddButton: () => void
-    push: (url: string) => void
-    setAddWidgetModalOpen: (open: boolean) => void
-    onBeforeSelect?: () => void
-}): LemonMenuItems {
-    const withBeforeSelect =
-        (onClick: () => void): (() => void) =>
-        () => {
+    ...handlers
+}: DashboardAddTileHandlers & { onBeforeSelect?: () => void }): LemonMenuItems {
+    const items: LemonMenuItem[] = getDashboardAddTileOptions(handlers).map((option) => ({
+        label: option.label,
+        tag: option.tag,
+        tooltip: option.tooltip,
+        onClick: () => {
             onBeforeSelect?.()
-            onClick()
-        }
+            option.onClick()
+        },
+        'data-attr': ADD_TILE_MENU_DATA_ATTRS[option.key],
+    }))
 
-    const contentItems: LemonMenuItem[] = [
-        {
-            label: 'Charts',
-            onClick: withBeforeSelect(onAddInsight),
-            'data-attr': 'dashboard-add-insight',
-        },
-        {
-            label: 'Add text',
-            onClick: withBeforeSelect(onAddText),
-            'data-attr': 'dashboard-add-text-tile',
-        },
-        {
-            label: 'Image',
-            tag: 'new' as const,
-            onClick: withBeforeSelect(onAddImage),
-            'data-attr': 'dashboard-add-image-tile',
-        },
-        {
-            label: 'Button',
-            onClick: withBeforeSelect(onAddButton),
-            'data-attr': 'dashboard-add-button-tile',
-        },
-        dashboardWidgetsEnabled
-            ? {
-                  label: 'Widget',
-                  tag: 'new' as const,
-                  onClick: withBeforeSelect(() => setAddWidgetModalOpen(true)),
-                  'data-attr': 'dashboard-add-widget',
-              }
-            : {
-                  label: 'Widget',
-                  tag: 'beta' as const,
-                  tooltip: 'Opens settings to enable the Dashboard widgets beta',
-                  onClick: withBeforeSelect(() => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))),
-                  'data-attr': 'dashboard-add-widget-preview',
-              },
-    ]
-
-    return [{ title: 'Content', items: contentItems }]
+    return [{ title: 'Content', items }]
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
@@ -239,13 +200,28 @@ export function DashboardEditSaveCancelButtons({
 }
 
 export function EditModeActions(): JSX.Element {
-    const { canEditDashboard, layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
+    const {
+        canEditDashboard,
+        layoutEditMode,
+        tiles,
+        dashboardCustomizeMenuOpen,
+        showTextTileModal,
+        showImageTileModal,
+        showButtonTileModal,
+        addWidgetModalOpen,
+    } = useValues(dashboardLogic)
     const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
 
     return (
         <>
             <DashboardSubscribeButton />
-            {layoutEditMode && <DashboardEditSaveCancelButtons />}
+            {layoutEditMode && (
+                <DashboardEditSaveCancelButtons
+                    withShortcuts={
+                        !(showTextTileModal || showImageTileModal || showButtonTileModal || addWidgetModalOpen)
+                    }
+                />
+            )}
             {canEditDashboard && !layoutEditMode && tiles.length > 0 && <DashboardCustomizeButton />}
             {layoutEditMode && tiles.length > 0 && (
                 <LemonMenu

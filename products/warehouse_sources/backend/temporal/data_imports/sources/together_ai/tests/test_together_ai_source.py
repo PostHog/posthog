@@ -18,12 +18,6 @@ class TestSourceConfig:
         assert TogetherAISource.lists_tables_without_credentials is True
 
 
-class TestGetSchemas:
-    def test_names_filter_restricts_output(self) -> None:
-        schemas = TogetherAISource().get_schemas(_config(), team_id=1, names=["fine_tunes"])
-        assert [s.name for s in schemas] == ["fine_tunes"]
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [

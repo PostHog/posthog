@@ -594,6 +594,8 @@ export const cohortsModel = kea<cohortsModelType>([
                         }
                     }
                 },
+                // The reducers already removed the cohort, so reload to bring back its name in breadcrumbs and pickers.
+                onError: () => actions.loadAllCohorts(),
             })
         },
     })),

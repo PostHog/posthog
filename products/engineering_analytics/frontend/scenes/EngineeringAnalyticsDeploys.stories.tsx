@@ -184,7 +184,7 @@ type Story = StoryObj<typeof meta>
 
 export const Deploys: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsDeploys() },
+    parameters: { pageUrl: urls.engineeringAnalyticsDeploys('PostHog/posthog') },
 }
 
 // A docked side panel leaves the scene about 520px wide, where the lead-time controls must wrap.
@@ -210,7 +210,7 @@ export const DeploysWithLimitedDeploymentCoverage: Story = {
 export const DeploysWithoutAttributedPullRequests: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsDeploys(),
+        pageUrl: urls.engineeringAnalyticsDeploys('PostHog/posthog'),
         testOptions: {
             waitForSelector: '[data-attr="engineering-analytics-dora-unattributed-empty"]',
         },
@@ -241,7 +241,7 @@ export const DeploysWithoutAttributedPullRequests: Story = {
 export const DeploysWithoutDeployData: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsDeploys(),
+        pageUrl: urls.engineeringAnalyticsDeploys('PostHog/posthog'),
         testOptions: {
             waitForSelector: '[data-attr="engineering-analytics-dora-no-deploy-data"]',
         },
