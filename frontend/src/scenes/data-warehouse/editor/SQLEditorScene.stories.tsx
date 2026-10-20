@@ -6,6 +6,7 @@ import { BindLogic } from 'kea'
 import { delay } from 'msw'
 import { useEffect, useRef } from 'react'
 
+import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -14,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { IMAGE_QUERY, IMAGE_RESULTS } from '~/queries/nodes/HogQLX/image.fixtures'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
 import {
     DatabaseSchemaMaterializedViewTable,
@@ -93,6 +95,26 @@ const SQL_RESULTS = {
     ],
 }
 
+const HARNESS_SQL = `SELECT properties.$virt_mcp_harness AS harness, count() AS calls
+FROM events
+WHERE event = '$mcp_tool_call'
+GROUP BY harness
+ORDER BY calls DESC`
+
+const HARNESS_RESULTS = {
+    columns: ['harness', 'calls'],
+    column_formats: ['mcp_harness', null],
+    types: [
+        ['harness', 'String'],
+        ['calls', 'UInt64'],
+    ],
+    results: [
+        ['Claude Code', 12],
+        ['OpenAI Codex', 7],
+        ['Other', 2],
+    ],
+}
+
 // The empty-warehouse notice in the sidebar renders a SourceIcon per provider, each of which shows a
 // LemonSkeleton until availableSourcesLogic resolves. Without this mock the skeletons never settle and
 // the visual-regression runner times out waiting for loaders to disappear.
@@ -169,6 +191,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/external_data_sources/wizard': () => [200, AVAILABLE_SOURCES],
                 '/api/:scope/:team_id/external_data_sources/connections/': [],
                 '/api/:scope/:team_id/external_data_sources/direct_connection_options/': [],
+                '/api/projects/:team_id/query_tab_state/user': [200, { tabs: [] }],
             },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
@@ -182,6 +205,9 @@ const meta: Meta = {
                     }
                     if (body?.query?.query === 'SELECT category, revenue FROM example_sales') {
                         return [200, CHART_EXPERIMENT_RESULTS]
+                    }
+                    if (JSON.stringify(body?.query ?? {}).includes('$virt_mcp_harness')) {
+                        return [200, HARNESS_RESULTS]
                     }
                     return [200, SQL_RESULTS]
                 },
@@ -207,6 +233,40 @@ export default meta
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
 
+export const CustomerImages: Story = {
+    tags: ['hogqlx-images'],
+    parameters: {
+        pageUrl: urls.sqlEditor({ query: IMAGE_QUERY }),
+        testOptions: { waitForSelector: 'img[alt="Custom SVG"]', viewport: { width: 1600, height: 900 } },
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': IMAGE_RESULTS,
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const editor = sqlEditorLogic({ tabId: 'default' })
+        await waitFor(() => {
+            expect(editor.values.queryInput).toBe(IMAGE_QUERY)
+            expect(dataNodeLogic.findMounted({ key: editor.values.dataLogicKey })).toBeDefined()
+        })
+        const runButton = canvasElement.querySelector('[data-attr="sql-editor-run-button"]')
+        expect(runButton).not.toBeNull()
+        await userEvent.click(runButton!)
+        await waitFor(() => {
+            const image = canvasElement.querySelector('img[alt="Custom SVG"]')
+            expect(image).not.toBeNull()
+            expect(image!.getBoundingClientRect().height).toBeLessThanOrEqual(24)
+            const labels = canvasElement.querySelectorAll('[data-attr="hogqlx-brand-mark-label"]')
+            expect(Array.from(labels, (label) => label.textContent)).toEqual(['true', 'false'])
+        })
+        const dataLogic = dataNodeLogic.findMounted({ key: editor.values.dataLogicKey })!
+        dataLogic.actions.setElapsedTime(180)
+    },
+}
+
 export const HostedTrino: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
@@ -219,6 +279,36 @@ export const HostedTrino: Story = {
                 },
             },
         },
+    },
+}
+
+export const HarnessLogoInResults: Story = {
+    tags: ['harness-result-visual'],
+    parameters: {
+        pageUrl: urls.sqlEditor({ query: HARNESS_SQL }),
+        testOptions: {
+            waitForSelector: '.rdg [data-attr="hogqlx-brand-mark-label"]',
+            viewport: { width: 1600, height: 900 },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(
+            () => {
+                const logic = sqlEditorLogic({ tabId: 'default' })
+                expect(logic.values.queryInput).toBe(HARNESS_SQL)
+                expect(dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })).toBeTruthy()
+            },
+            { timeout: 15000 }
+        )
+        const runButton = await canvas.findByRole('button', { name: 'Run' }, { timeout: 15000 })
+        await waitFor(() => expect(runButton).toHaveAttribute('aria-disabled', 'false'), { timeout: 15000 })
+        mcpHintLogic.actions.recordShown(Date.now())
+        await userEvent.click(runButton)
+        await expect(
+            await canvas.findByText('Claude Code', { selector: '.rdg span' }, { timeout: 15000 })
+        ).toBeVisible()
+        await expect(canvas.getByText('OpenAI Codex')).toBeVisible()
     },
 }
 
@@ -962,7 +1052,7 @@ const CHART_EXPERIMENT_RESULTS = {
 }
 
 const chartExperimentParameters = (approved: boolean, decisionDelay = 0, queryDelay = 0): Record<string, unknown> => ({
-    featureFlags: ['ml-inference-decisions', 'jev-chart-autodetection'],
+    featureFlags: ['ml-inference-decisions'],
     pageUrl: urls.sqlEditor({ query: 'SELECT category, revenue FROM example_sales' }),
     msw: {
         mocks: {

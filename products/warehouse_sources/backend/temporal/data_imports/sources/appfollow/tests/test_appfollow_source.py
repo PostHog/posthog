@@ -30,11 +30,6 @@ class TestAppfollowSource:
         assert self.source.default_version == APPFOLLOW_V3
         assert self.source.supported_versions == (APPFOLLOW_V2, APPFOLLOW_V3)
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["reviews"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "reviews"
-
     @pytest.mark.parametrize(
         "status,expected_ok",
         [

@@ -83,6 +83,12 @@ ENDPOINTS: dict[str, GlueEndpoint] = {
         primary_keys=("region", "result_id"),
         timestamp_columns=("started_on",),
     ),
+    "data_quality_results_v2": GlueEndpoint(
+        operation="ListDataQualityResultsV2",
+        result_key="Results",
+        primary_keys=("region", "result_id"),
+        timestamp_columns=("result_published_on",),
+    ),
 }
 
 # ListWorkflows returns only names, so it feeds workflow_runs without being a table of its own.
@@ -107,6 +113,7 @@ ENDPOINT_DESCRIPTIONS = {
     "table_versions": "Schema and metadata history for each catalog table.",
     "workflow_runs": "Workflow run history, status, timing, and action statistics.",
     "data_quality_results": "Data quality evaluation runs, with the evaluated table and the job run.",
+    "data_quality_results_v2": "Data quality results published from any supported engine, with the evaluated table and run context.",
 }
 
 ERROR_MESSAGES = {

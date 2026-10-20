@@ -54,6 +54,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.quota import SelfDrivingQuotaGate
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
@@ -4299,7 +4300,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     def _sync_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
 
-    def test_sync_materializes_fleet_for_fresh_team(self) -> None:
+    @parameterized.expand([(None, True), ("onboarding", False)])
+    def test_sync_materializes_fleet_for_fresh_team(self, surface: str | None, enabled: bool) -> None:
         canonical_names = {c.name for c in discover_canonical_skills()}
         scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
         companion_names = canonical_names - scout_names
@@ -4307,7 +4309,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert "authoring-scouts" in companion_names
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
-        response = self.client.post(self._sync_url())
+        response = self.client.post(self._sync_url() + (f"?surface={surface}" if surface else ""))
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -4315,10 +4317,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # into the team's LLMSkill namespace below but never materialize a scout config.
         assert {c["skill_name"] for c in body} == scout_names
         assert [c["skill_name"] for c in body] == sorted(scout_names)
-        assert all(c["enabled"] is True for c in body)
+        assert all(c["enabled"] is enabled for c in body)
         assert all(c["emit"] is True for c in body)
         assert all(c["run_interval_minutes"] == 1440 for c in body)
         assert SignalScoutConfig.objects.filter(team=self.team).count() == len(scout_names)
+        register_missing_configs(self.team.id)
+        assert not SignalScoutConfig.objects.filter(team=self.team).exclude(enabled=enabled).exists()
         # Every canonical skill — fleet and companions — was seeded into the team's
         # LLMSkill namespace.
         assert (
@@ -4477,7 +4481,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
-    def test_sync_is_idempotent_and_preserves_tuned_configs(self) -> None:
+    @parameterized.expand([(None,), ("onboarding",)])
+    def test_sync_is_idempotent_and_preserves_tuned_configs(self, surface: str | None) -> None:
         first = self.client.post(self._sync_url())
         assert first.status_code == status.HTTP_200_OK
         fleet_size = len(first.json())
@@ -4488,13 +4493,14 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         tuned.enabled = False
         tuned.save(update_fields=["enabled"])
 
-        second = self.client.post(self._sync_url())
+        second = self.client.post(self._sync_url() + (f"?surface={surface}" if surface else ""))
 
         assert second.status_code == status.HTTP_200_OK
         assert len(second.json()) == fleet_size
         assert SignalScoutConfig.objects.filter(team=self.team).count() == fleet_size
         tuned.refresh_from_db()
         assert tuned.enabled is False, "sync must not reset existing configs"
+        assert sum(config["enabled"] for config in second.json()) == fleet_size - 1
 
     def test_list_is_side_effect_free_for_unregistered_scout_skills(self) -> None:
         # The list MCP tool is annotated readOnly — a scout skill without a config must not

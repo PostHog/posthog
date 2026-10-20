@@ -73,6 +73,12 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     ],
 )
 
+SANDBOX_RUN_START_TOTAL = Counter(
+    "posthog_tasks_sandbox_run_start_total",
+    "Run starts requested by task sandboxes, by endpoint and outcome",
+    labelnames=["endpoint", "outcome"],
+)
+
 TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
     "posthog_tasks_task_run_dispatch_callback_total",
     "on_commit workflow-dispatch callback lifecycle: 'scheduled' when registered, 'fired' when it runs. "
@@ -530,6 +536,10 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_sandbox_run_start(*, endpoint: str, outcome: str) -> None:
+    SANDBOX_RUN_START_TOTAL.labels(endpoint=endpoint, outcome=outcome).inc()
 
 
 def observe_task_run_dispatch_callback(task_run: "TaskRun | None", *, phase: Literal["scheduled", "fired"]) -> None:

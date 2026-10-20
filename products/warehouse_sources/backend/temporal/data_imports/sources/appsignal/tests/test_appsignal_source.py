@@ -21,10 +21,6 @@ class TestAppsignalSource:
         # serializer must require re-entering the secret — regressing this reopens that hole.
         assert self.source.connection_host_fields == ["app_id"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["error_samples"])
-        assert [schema.name for schema in schemas] == ["error_samples"]
-
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [

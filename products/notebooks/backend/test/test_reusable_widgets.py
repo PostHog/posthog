@@ -490,8 +490,7 @@ class TestReusableWidgets(APIBaseTest):
         assert entries[0]["inputs"][0]["slot"] == self.input_name
         assert "demo_data" not in entries[0]
         assert "MDX" in context
-        with patch("products.notebooks.backend.reusable_widgets.is_notebook_widget_enabled", return_value=False):
-            assert reusable_widget_catalog_context(team_id=self.team.id, user=self.user) == ""
+        assert reusable_widget_catalog_context(team_id=self.team.id, user=None) == ""
 
     def test_catalog_detail_and_demo_frame_start_without_notebook_rows(self) -> None:
         self._publish()

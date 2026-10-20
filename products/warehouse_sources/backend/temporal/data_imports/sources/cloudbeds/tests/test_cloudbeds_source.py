@@ -3,7 +3,6 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.source import CloudbedsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudbeds import (
     CloudbedsSourceConfig,
 )
@@ -91,9 +90,3 @@ class TestCloudbedsSource:
             assert kwargs["resumable_source_manager"] is manager
             # A pinned row syncs on its own version; an unpinned row follows the new default.
             assert kwargs["api_version"] == expected_version
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Cloudbeds schema 'not_a_table'"

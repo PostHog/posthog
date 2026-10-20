@@ -77,9 +77,14 @@ export function useTrendsPartOfWholeChart({
         isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
+        [querySource]
+    )
+
     const seriesIdentification = useMemo(
-        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
-        [indexedResults]
+        () => getSeriesIdentification((indexedResults ?? []).map(buildMeta)),
+        [indexedResults, buildMeta]
     )
 
     const resolvedGroupTypeLabel =
@@ -97,6 +102,7 @@ export function useTrendsPartOfWholeChart({
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
+                querySource,
                 breakdownFilter,
                 cohorts: allCohorts.results,
                 formatPropertyValueForDisplay,
@@ -104,6 +110,7 @@ export function useTrendsPartOfWholeChart({
                 seriesIdentification,
             }),
         [
+            querySource,
             breakdownFilter,
             allCohorts.results,
             formatPropertyValueForDisplay,
@@ -115,13 +122,14 @@ export function useTrendsPartOfWholeChart({
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             buildTrendsPieSeries(indexedResults ?? [], {
+                querySource,
                 getColor: getTrendsColor,
                 // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
                 // of being dropped here, so the legend can restore them.
                 getHidden: undefined,
                 getLabel,
             }),
-        [indexedResults, getTrendsColor, getLabel]
+        [indexedResults, querySource, getTrendsColor, getLabel]
     )
 
     const visibleResults = useMemo(
@@ -173,14 +181,7 @@ export function useTrendsPartOfWholeChart({
             }
             openPersonsModal({
                 title: label || '',
-                query: datasetToActorsQuery({
-                    dataset: {
-                        action: result.action,
-                        breakdown_value: result.breakdown_value,
-                        compare_label: result.compare_label,
-                    },
-                    query: querySource,
-                }),
+                query: datasetToActorsQuery({ dataset: result, query: querySource }),
                 additionalSelect: {
                     value_at_data_point: 'event_count',
                     matched_recordings: 'matched_recordings',

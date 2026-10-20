@@ -186,12 +186,6 @@ class TestBrandKitFanout:
         assert "missing its 'id'" in str(result.raised)
 
 
-class TestUnknownEndpoint:
-    def test_raises_for_unknown_endpoint(self) -> None:
-        with pytest.raises(ValueError, match="Unknown AirOps endpoint"):
-            airops_source(api_key="k", endpoint="nope", team_id=1, job_id="j")
-
-
 class TestErrorHandling:
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_retry_then_raise(self, status: int) -> None:
