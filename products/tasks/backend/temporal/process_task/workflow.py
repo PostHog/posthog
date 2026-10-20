@@ -460,6 +460,8 @@ _PATCH_ID_PRESERVE_COMPLETION_DURING_DELIVERY = "tasks-preserve-completion-durin
 
 _PATCH_ID_ROTATION_ACTIVITY_GUARD = "tasks-rotation-activity-guard"
 
+_PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT = "tasks-rotation-activity-before-boot"
+
 
 def _turn_opens_on_dispatch() -> bool:
     if not workflow.in_workflow():
@@ -483,6 +485,12 @@ def _rotation_activity_guard() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_ROTATION_ACTIVITY_GUARD)
+
+
+def _check_rotation_activity_before_boot() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT)
 
 
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
@@ -3275,9 +3283,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._cancel_relay(credential_refresh_task)
             credential_refresh_task = None
 
+        check_activity_before_boot = _check_rotation_activity_before_boot()
         try:
             try:
                 sandbox_output = await self._get_sandbox_for_repository()
+                if check_activity_before_boot and guard_activity and self._sandbox_activity_count != activity_count:
+                    return await self._abandon_rotation(
+                        live_sandbox, reason="activity_during_handoff", snapshot_activity_count=activity_count
+                    )
                 await self._start_agent_server(sandbox_output)
             finally:
                 if relay_task is not None:
@@ -3319,7 +3332,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 snapshot_activity_count=activity_count if guard_activity else None,
             )
 
-        if guard_activity and self._sandbox_activity_count != activity_count:
+        if not check_activity_before_boot and guard_activity and self._sandbox_activity_count != activity_count:
             return await self._abandon_rotation(
                 live_sandbox, reason="activity_during_handoff", snapshot_activity_count=activity_count
             )
