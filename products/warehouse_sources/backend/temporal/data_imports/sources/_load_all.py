@@ -303,6 +303,7 @@ from .commission_junction.source import CommissionJunctionSource
 from .commslayer.source import CommslayerSource
 from .companycam.source import CompanycamSource
 from .concord.source import ConcordSource
+from .conecto_crm.source import ConectoCRMSource
 from .conekta.source import ConektaSource
 from .configcat.source import ConfigCatSource
 from .confluence.source import ConfluenceSource
@@ -679,6 +680,7 @@ from .kinde.source import KindeSource
 from .kion.source import KionSource
 from .kisi.source import KisiSource
 from .kissmetrics.source import KissmetricsSource
+from .klar.source import KlarSource
 from .klarna.source import KlarnaSource
 from .klaus.source import KlausSource
 from .klaviyo.source import KlaviyoSource
@@ -1264,6 +1266,7 @@ from .torii.source import ToriiSource
 from .track_pms.source import TrackPMSSource
 from .tracklution.source import TracklutionSource
 from .tradable_bits.source import TradableBitsSource
+from .trafficstars.source import TrafficStarsSource
 from .transistor.source import TransistorSource
 from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource
