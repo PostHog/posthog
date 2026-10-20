@@ -109,7 +109,6 @@ tools:
             save_draft: true
         ui_app: workflow-data-suggestions
         hooks: workflows/dataSuggestionCreateHooks
-        feature_flag: workflows-data-suggestions
         response:
             include:
                 - status
@@ -126,7 +125,6 @@ tools:
             up to five minutes. 'ready' lists the suggestions, 'unavailable' or 'ai_not_approved' means there are none
             to show. Present them the same way as workflows-data-suggestions-list.
         ui_app: workflow-data-suggestions
-        feature_flag: workflows-data-suggestions
         response:
             include:
                 - status
@@ -160,7 +158,6 @@ tools:
             workflows-data-suggestions-create. 'ai_not_approved' means the organization has not approved AI data
             processing; 'unavailable' means there is nothing to suggest right now.
         ui_app: workflow-data-suggestions
-        feature_flag: workflows-data-suggestions
         response:
             include:
                 - status
@@ -460,8 +457,8 @@ tools:
             workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet.
             For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen
             in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it
-            is. Automations that only post to Slack or call webhooks need none of these steps. When
-            data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.
+            is. Automations that only post to Slack or call webhooks need none of these steps. Offer
+            workflows-data-suggestions-list once setup is done.
         ui_app: workflow-setup-status
         feature_flag: workflows-mcp-onboarding
     workflows-stats:

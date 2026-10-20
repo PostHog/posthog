@@ -104,7 +104,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'warehouse-suggestions': true,
         'scouts-tool-access': true,
         'subscription-source-summaries': true,
-        'workflows-data-suggestions': true,
         'workflows-mcp-onboarding': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>

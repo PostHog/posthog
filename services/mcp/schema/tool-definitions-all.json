@@ -15673,8 +15673,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-data-suggestions"
+        }
     },
     "workflows-data-suggestions-get": {
         "description": "Read the suggested workflows without starting anything. Use it to check on a run that workflows-data-suggestions-list started: while status is 'generating', call it again every few seconds, for up to five minutes. 'ready' lists the suggestions, 'unavailable' or 'ai_not_approved' means there are none to show. Present them the same way as workflows-data-suggestions-list.",
@@ -15688,8 +15687,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-data-suggestions"
+        }
     },
     "workflows-data-suggestions-list": {
         "description": "Up to three workflows suggested from the project's own events, such as a welcome email for a sign-up event. Use it to help a user who is getting started with workflows. Returns the cached suggestions, or starts making them and returns status 'generating', which takes about 10 to 30 seconds: then call workflows-data-suggestions-get every few seconds until status is 'ready'. Clients that show apps render the suggestions as cards with a Create workflow button, so do not list them again. Otherwise show one line per suggestion, like 'Welcome new sign-ups: a welcome email, then tips (user_signed_up, 57 this week)', and ask which one to create. Always let the user pick, even when they only asked to set up a workflow; create one without asking only when they already named it. When email_sender_ready is false, say that first: the project has no verified email sender, so email workflows can be saved as drafts but cannot send until a sending domain is added and verified under Workflows > Channels. Then offer the suggestions. Never show the ids; the user picks by name or number, and you pass that suggestion's id to workflows-data-suggestions-create. 'ai_not_approved' means the organization has not approved AI data processing; 'unavailable' means there is nothing to suggest right now.",
@@ -15703,8 +15701,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-data-suggestions"
+        }
     },
     "workflows-discard-draft": {
         "description": "Throw away a workflow's staged draft without touching the live config. Idempotent — discarding when nothing is staged is a no-op. Returns the workflow.",
@@ -16016,7 +16013,7 @@
         }
     },
     "workflows-setup-status": {
-        "description": "Which messaging setup steps the project has done: email channel, verified sending domain, opt-out categories, frequency cap, email template and first workflow. Call it first when a user asks to set up workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet. For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it is. Automations that only post to Slack or call webhooks need none of these steps. When data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.",
+        "description": "Which messaging setup steps the project has done: email channel, verified sending domain, opt-out categories, frequency cap, email template and first workflow. Call it first when a user asks to set up workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet. For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it is. Automations that only post to Slack or call webhooks need none of these steps. Offer workflows-data-suggestions-list once setup is done.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Check messaging setup",

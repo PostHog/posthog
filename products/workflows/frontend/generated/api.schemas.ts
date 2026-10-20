@@ -2588,8 +2588,6 @@ export interface WorkflowSetupStatusApi {
      * * `email-template` - Email template
      * * `first-workflow` - First workflow */
     next_open_step: SetupStepKeyEnumApi | null
-    /** Whether workflows-data-suggestions-list can suggest workflows from this project's events. */
-    data_suggestions_available: boolean
 }
 
 export type HogFlowTemplatesListParams = {
