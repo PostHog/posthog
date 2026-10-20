@@ -938,7 +938,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/today/pulse_pins/': async ({ request }) => {
                     const body = (await request.json()) as { pins: { key: string; name: string }[] }
                     storyPins = body.pins
-                    storyComputingCalls = 2
+                    storyComputingCalls = 1
                     return [200, { pins: storyPins }]
                 },
             },
