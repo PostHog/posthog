@@ -12,6 +12,13 @@ pub struct WorkerAssigner {
     request_load: HashMap<WorkerId, usize>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkerInFlight {
+    pub worker: WorkerId,
+    pub requests: usize,
+    pub messages: usize,
+}
+
 impl WorkerAssigner {
     pub fn new(router: Router, max_requests_per_worker: usize) -> Result<Self, String> {
         if max_requests_per_worker == 0 {
@@ -27,6 +34,18 @@ impl WorkerAssigner {
 
     pub fn in_flight_messages(&self) -> usize {
         self.message_load.values().sum()
+    }
+
+    /// Every worker with a request in flight.
+    pub fn in_flight_per_worker(&self) -> Vec<WorkerInFlight> {
+        self.request_load
+            .iter()
+            .map(|(worker, requests)| WorkerInFlight {
+                worker: worker.clone(),
+                requests: *requests,
+                messages: self.message_load.get(worker).copied().unwrap_or(0),
+            })
+            .collect()
     }
 
     pub fn free_slots(&self, pool: &[WorkerId]) -> usize {

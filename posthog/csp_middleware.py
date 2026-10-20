@@ -4,6 +4,7 @@ The policy lives apart from the other middleware so that team-security owns the 
 `.github/CODEOWNERS` and reviews every change to it.
 """
 
+import re
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
@@ -63,8 +64,9 @@ def object_storage_upload_source() -> str:
 # prefix match would also hand the app document this policy and stop it from starting.
 REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
 
-# The app policy names only PostHog origins in `frame-ancestors`. Enforcing it on these paths stops
-# every embedded dashboard, shared link and survey from rendering on a customer's site.
+# The app policy names only PostHog origins in `frame-ancestors`. Enforcing that directive on these
+# paths stops every embedded dashboard, shared link and survey from rendering on a customer's site,
+# so these documents get the app policy without it.
 #
 # The list follows `posthog/urls.py`. The Contour ingress keeps a similar list in
 # `charts/argocd/contour-ingress/values/values.{dev,prod-us,prod-eu}.yaml`, which omits
@@ -83,6 +85,28 @@ def is_embeddable_document(path: str) -> bool:
     return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
 
 
+# The embeddable documents that only report the app policy, on every install.
+#
+# The pattern matches the routes in `posthog/urls.py` exactly. The path picks the policy for a whole
+# document, and the app can navigate inside it, so an unrouted subpath gets the enforced policy.
+#
+# The image exporter in `products/exports/backend/tasks/image_exporter.py` loads the bare `/exporter`
+# render document in a headless browser. A replay export can evaluate a string as script in an
+# about:blank frame of that render, and the frame inherits this policy, which has no 'unsafe-eval'.
+# An enforced policy would refuse that `eval`, and the effect on the exported image is unknown, so
+# the document stays report-only until the caller of that `eval` is traced. `/exporter/<token>`
+# serves the shared page, so it enforces like `/shared/`.
+#
+# The hosted survey view sets its own policy, so the app policy reaches `/external_surveys/` only on
+# a response that the view did not build. No report shows how such a response behaves under an
+# enforced policy.
+REPORT_ONLY_ROUTES = re.compile(r"/exporter|/external_surveys/[^/]+/?")
+
+
+def is_report_only_document(path: str) -> bool:
+    return REPORT_ONLY_ROUTES.fullmatch(path) is not None
+
+
 def app_frame_ancestor_sources() -> list[str]:
     """The origins that may frame the app, as `frame-ancestors` sources.
 
@@ -97,7 +121,7 @@ def app_frame_ancestor_sources() -> list[str]:
 
 
 def app_csp_header_name(path: str) -> str:
-    if is_embeddable_document(path):
+    if is_report_only_document(path):
         return "Content-Security-Policy-Report-Only"
     if is_hobby():
         # A self-hosted install reports its violations nowhere, and its asset hosts can differ from
@@ -110,10 +134,11 @@ _WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com
 # The wildcard app policy and the admin policy report as v=2, through the default endpoint above. Reports
 # tagged v=3 came from a report-only shadow of the narrowed policy, so reusing 3 would mix the two in one query.
 NARROWED_APP_POLICY_REPORT_VERSION = "4"
-# Reports tagged v=5 come from a report-only policy that holds only img-src, without `https:`.
-IMG_SRC_SHADOW_REPORT_VERSION = "5"
-# Reports tagged v=6 come from a report-only policy that holds only style-src and font-src, with named PostHog hosts.
-STYLE_FONT_SHADOW_REPORT_VERSION = "6"
+# Reports tagged v=7 come from a report-only policy that holds only img-src, without `https:` and with named
+# PostHog hosts. Reports tagged v=5 came from one that kept `https://*.posthog.com`, so reusing 5 would mix the two.
+# Reports tagged v=6 came from a report-only policy for style-src and font-src, so a new policy must take another
+# version.
+IMG_SRC_SHADOW_REPORT_VERSION = "7"
 
 
 def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]) -> list[str]:
@@ -134,27 +159,25 @@ def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]
     return narrowed
 
 
+def app_bundle_origin() -> str:
+    js_url = urlsplit(settings.JS_URL)
+    return f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
+
+
 def img_src_shadow_policy(csp_parts: list[str]) -> list[str]:
-    """The app policy's img-src without its `https:` scheme source, to send as a report-only policy of its own.
+    """The app policy's img-src without its `https:` scheme source and with `https://*.posthog.com` swapped for
+    named PostHog hosts, to send as a report-only policy of its own.
 
-    `https:` admits an image from any host, so the named hosts beside it never decide a load. Without
-    it, each image from an unnamed host reports, which lists the hosts to name, and the images users
-    supply, before `https:` can go. The policy names no other directive, so it restricts nothing else.
-    """
-    return [" ".join(s for s in part.split() if s != "https:") for part in csp_parts if part.split()[0] == "img-src"]
-
-
-def style_font_shadow_policy(csp_parts: list[str], sources: list[str]) -> list[str]:
-    """The app policy's style-src and font-src with the PostHog wildcards swapped for `sources`, to send as a
-    report-only policy of its own.
-
-    Local runs and E2E keep the wildcards, so production is the first place a named list applies. Enforced,
-    a host the list misses leaves the page without its styles or fonts and shows the user no error. Reported,
-    the same miss arrives as a report while the page still loads. The policy names no other directive, so it
+    `https:` admits an image from any host, and the wildcard admits one from any PostHog host, so the named hosts
+    beside them never decide a load. Without them, each image from an unnamed host reports, which lists the hosts
+    to name, and the images users supply, before either source can go. The policy names no other directive, so it
     restricts nothing else.
     """
-    narrowed = narrowed_app_policy(csp_parts, {"style-src": sources, "font-src": sources})
-    return [part for part in narrowed if part.split()[0] in ("style-src", "font-src")]
+    # The app's own images load from its bundle. posthog-js can load the toolbar on an app page, and the toolbar's
+    # files sit under /static/ on the posthog-js host.
+    named_hosts = [source for source in (app_bundle_origin(), f"{POSTHOG_JS_CLOUD_HOST}/static/") if source]
+    named = narrowed_app_policy(csp_parts, {"img-src": named_hosts})
+    return [" ".join(s for s in part.split() if s != "https:") for part in named if part.split()[0] == "img-src"]
 
 
 class CSPMiddleware:
@@ -274,8 +297,7 @@ class CSPMiddleware:
             # cited in a task's Artifacts tab. It stays out of app_frame_ancestor_sources(), because
             # the canvas sandbox document on the user-content origin shares that list.
             frame_ancestors = f"frame-ancestors 'self' {' '.join(app_frame_ancestor_sources())}"
-            js_url = urlsplit(settings.JS_URL)
-            bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
+            bundle_origin = app_bundle_origin()
             if settings.DEBUG or settings.TEST:
                 # A devbox serves Vite from its Coder host, not localhost, so JS_URL names it.
                 resource_url = " ".join(dict.fromkeys(filter(None, ["http://localhost:8234", bundle_origin])))
@@ -356,8 +378,8 @@ class CSPMiddleware:
                 #
                 # The named origins below are the set we actually load images from, and `https:`
                 # makes them redundant. They stay so that removing `https:` is a one-line change
-                # rather than an archaeology exercise. On cloud, the v=5 report-only policy below
-                # reports each image that only `https:` admits.
+                # rather than an archaeology exercise. On cloud, the v=7 report-only policy below
+                # reports each image that only `https:` or the PostHog wildcard admits.
                 #
                 # Do not promote this to an enforced header as-is. An open `img-src` is an
                 # exfiltration channel: an attacker who injects markup but cannot run script still
@@ -385,9 +407,10 @@ class CSPMiddleware:
             ]
             if is_embeddable_document(request.path):
                 # Customers frame these documents on their own sites, and no list of ancestors can
-                # name every such site. In a report-only policy the directive only sends a report for
-                # each embed. Chrome cuts the document URL of that report to the origin, so it looks
-                # the same as a report from an app page that the browser blocks in a frame.
+                # name every such site. In an enforced policy the directive stops the document from
+                # rendering in the customer's page. In a report-only policy it only sends a report
+                # for each embed. Chrome cuts the document URL of that report to the origin, so it
+                # looks the same as a report from an app page that the browser blocks in a frame.
                 csp_parts.remove(frame_ancestors)
 
             # The hosts and the config token below belong to PostHog Cloud, so self-hosted installs, E2E
@@ -428,18 +451,18 @@ class CSPMiddleware:
                             # A task run's live stream, when the server hands out the region's agent-proxy.
                             *agent_proxy,
                         ],
+                        # The app's stylesheets and fonts load from its bundle. posthog-js can load the toolbar on
+                        # an app page, and the toolbar loads its stylesheet and fonts from beside its script under
+                        # /static/. font-src already names both regions' bundle hosts, and it takes the bundle
+                        # here too so that fonts follow JS_URL as scripts and stylesheets do.
+                        #
+                        # Production is the first place these two lists apply. A host they miss leaves the page
+                        # without its styles or fonts and shows the user no error.
+                        "style-src": [*bundle, f"{POSTHOG_JS_CLOUD_HOST}/static/"],
+                        "font-src": [*bundle, f"{POSTHOG_JS_CLOUD_HOST}/static/"],
                     },
                 )
-                shadows = {
-                    IMG_SRC_SHADOW_REPORT_VERSION: img_src_shadow_policy(csp_parts),
-                    # The app's stylesheets and fonts load from its bundle. posthog-js can load the toolbar on
-                    # an app page, and the toolbar loads its stylesheet and fonts from beside its script under
-                    # /static/. font-src already names both regions' bundle hosts, and it takes the bundle
-                    # here too so that fonts follow JS_URL as scripts and stylesheets do.
-                    STYLE_FONT_SHADOW_REPORT_VERSION: style_font_shadow_policy(
-                        csp_parts, [*bundle, f"{POSTHOG_JS_CLOUD_HOST}/static/"]
-                    ),
-                }
+                shadows = {IMG_SRC_SHADOW_REPORT_VERSION: img_src_shadow_policy(csp_parts)}
 
             user = getattr(request, "user", None)
             distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None

@@ -2841,10 +2841,13 @@ def test_verify_property_removal_counts_person_properties_on_flag_evaluations(
     cluster.any_host(_truncate_flag_evaluations).result()
 
 
-def _flag_evaluation_rows(team_id: int, client: Client) -> list[tuple[str, dict, dict | None, str, str, str, str, int]]:
+def _flag_evaluation_rows(
+    team_id: int, client: Client
+) -> list[tuple[str, dict, dict | None, str, str, str, str, int, dict[str, str], dict[str, str]]]:
     rows = client.execute(
         "SELECT toString(uuid), properties, person_properties, toString(person_created_at), person_mode, flag_key, "
-        "session_id, toUnixTimestamp(_timestamp) FROM flag_evaluations WHERE team_id = %(team_id)s AND _row_exists = 1",
+        "session_id, toUnixTimestamp(_timestamp), properties_group_custom, person_properties_map_custom "
+        "FROM flag_evaluations WHERE team_id = %(team_id)s AND _row_exists = 1",
         {"team_id": team_id},
     )
     return sorted(
@@ -2866,6 +2869,7 @@ _STORED_PERSON = {"email": "a@example.com", "plan": "pro"}
         pytest.param(["$session_id"], [], _STORED_PERSON, id="typed_column"),
         pytest.param(["$feature_flag"], [], _STORED_PERSON, id="sort_key_column"),
         pytest.param(["$session_id"], ["email"], _STORED_PERSON, id="with_person_properties"),
+        pytest.param(["keep"], [], _STORED_PERSON, id="custom_property"),
         # An insert that sets person_properties to '' stores '', and the event-property half still
         # selects the row, so the copy must leave the empty value alone.
         pytest.param(["$session_id"], ["email"], None, id="empty_person_properties"),
@@ -2927,6 +2931,8 @@ def test_full_job_property_removal_rewrites_flag_evaluations(
             cleaned.get("$feature_flag", ""),
             cleaned.get("$session_id", ""),
             int(marker.timestamp()) + 1,
+            {key: value for key, value in cleaned.items() if not key.startswith("$")},
+            cleaned_person or {},
         )
         for uuid in uuids
     ]

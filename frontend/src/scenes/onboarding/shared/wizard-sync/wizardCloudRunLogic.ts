@@ -11,12 +11,11 @@ import { IntegrationType, OnboardingStepKey } from '~/types'
 
 import type { ProductKey } from '../../../../queries/schema/schema-general'
 import type { SDK } from '../../../../types'
-// Deliberate shared → legacy imports: onboardingLogic is the onboarding state machine both variants
-// run on (step key for the GitHub-connect return URL), and sdksLogic carries the user's manual SDK
-// pick (the cloud wizard's skill hint). Both no-op gracefully in flows that don't set them.
-import { onboardingLogic } from '../../legacy/onboardingLogic'
-import { sdksLogic } from '../../legacy/sdks/sdksLogic'
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
+// onboardingLogic gives the step key for the GitHub-connect return URL, and sdksLogic carries the
+// user's manual SDK pick (the cloud wizard's skill hint). Both no-op gracefully outside onboarding.
+import { onboardingLogic } from '../../onboardingLogic'
+import { sdksLogic } from '../../sdks/sdksLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 
 export type CloudRunStatus =

@@ -152,10 +152,6 @@ class TestJiraSourceResponse:
         assert result.response.partition_keys is None
         assert result.response.partition_mode is None
 
-    def test_unknown_endpoint_raises(self) -> None:
-        result = _driver().run("nope", [])
-        assert isinstance(result.raised, KeyError)
-
 
 class TestValidateCredentials:
     def test_rejects_invalid_subdomain_without_request(self) -> None:

@@ -197,6 +197,7 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # by default); only an explicit False disables it, leaving reports to still generate and notify
     # while the team reviews and opens PRs manually.
     autostart_enabled = models.BooleanField(null=True, blank=True)
+    onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
@@ -324,6 +325,9 @@ class SignalReport(UUIDModel):
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    triggering_signal_id = models.UUIDField(null=True, blank=True)
+    pending_triggering_signal_id = models.UUIDField(null=True, blank=True)
+    researching_signal_count = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
     # System billing exemption: non-null means this report's implementation PRs must never be
     # charged (PostHog-system origins, e.g. health-check scout findings). Prospective-only —
@@ -1264,6 +1268,9 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
     merged_at = models.DateTimeField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
+    participant_ids = ArrayField(models.PositiveBigIntegerField(), null=True, blank=True)
+    participant_logins = ArrayField(models.CharField(max_length=255), null=True, blank=True)
+    participants_synced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1271,6 +1278,7 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "repository", "number"], name="signals_pr_identity_unique"),
         ]
+        indexes = [models.Index(fields=["team", "merged_at"], name="signals_pr_team_merged_idx")]
 
 
 class SignalEmissionRecord(UUIDModel):
@@ -2578,6 +2586,14 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         TRUSTED = "trusted", "Trusted domains only"
         FULL = "full", "Full"
 
+    class PrecheckOutcome(models.TextChoices):
+        """The outcome of one scheduled pre-check (`scout_harness/precheck.py`)."""
+
+        RUN = "run", "Run"
+        SKIP = "skip", "Skip"
+        # The query failed, so the scout ran as if it had no pre-check.
+        ERROR = "error", "Error"
+
     # The `status` side of the `enabled` dual-write: a scout in one of these statuses is
     # scheduled by the coordinator. `pending_pause` still runs; the warning is not a pause.
     RUNNABLE_STATUSES = (Status.ACTIVE, Status.PENDING_PAUSE)
@@ -2847,6 +2863,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     precheck_query = models.TextField(null=True, blank=True)
     # Turns off both `precheck_query` and the skill default, so every due tick runs the scout.
     precheck_disabled = models.BooleanField(default=False, db_default=False)
+    # The latest scheduled pre-check, written by `evaluate_scout_precheck`. A skip creates no run
+    # row, so these fields are the only stored trace that a gated scout still checks its surface.
+    last_precheck_at = models.DateTimeField(null=True, blank=True)
+    last_precheck_outcome = models.CharField(max_length=16, choices=PrecheckOutcome.choices, null=True, blank=True)
+    last_precheck_row_count = models.IntegerField(null=True, blank=True)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
@@ -3192,6 +3213,7 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
+    total_spend = models.DecimalField(max_digits=20, decimal_places=4, null=True, blank=True)
     # Keep private trial documents separate from metadata inspected by ordinary scout history queries.
     trial_state = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -3373,6 +3395,10 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
                 name="signal_scratchpad_key_like_idx",
                 opclasses=["int4_ops", "varchar_pattern_ops"],
             ),
+            # Back the `text` search. On UPPER(...) because icontains compiles to
+            # UPPER(col::text) LIKE UPPER(pattern) on Postgres.
+            GinIndex(OpClass(Upper("content"), name="gin_trgm_ops"), name="signal_scratchpad_content_trgm"),
+            GinIndex(OpClass(Upper("key"), name="gin_trgm_ops"), name="signal_scratchpad_key_trgm"),
         ]
 
 
@@ -3492,9 +3518,8 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
 class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
     """Deterministic snapshot of "what's true about this project" — agent orientation surface.
 
-    One row per (team, computed_at). Time-series so Phase 7 can diff a new profile against
-    the previous row to populate `payload.deltas`. v1 (Phase 4a) writes inventory only;
-    Phase 7 layers on deltas, activity_notes, and an LLM narrative section.
+    One row per (team, computed_at). The payload holds the inventory layer only. The last
+    few rows per team are kept for debugging.
 
     Profile is the *deterministic ground truth* about a project (computed from authoritative
     tables). Distinct from `SignalScratchpad`, which is the *agent's inferred learnings* (possibly
@@ -3511,16 +3536,14 @@ class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
         related_name="signal_project_profiles",
     )
     computed_at = models.DateTimeField(auto_now_add=True)
-    # Soft TTL — `get_project_profile` treats rows past expiry as cache misses and recomputes.
-    # Aligned to the coordinator tick (`PROFILE_TTL`) so an active team's agent runs see
-    # ground-truth that's at most one tick stale. Callers that know the underlying data
+    # Soft TTL (`PROFILE_TTL`) — `get_project_profile` treats rows past expiry as cache misses
+    # and recomputes for the scout. Read-only callers still get an expired row, marked stale. Callers that know the underlying data
     # just changed can punch through the cache via `get_project_profile(force_refresh=True)`.
     expires_at = models.DateTimeField()
     # Bumps when the inventory schema changes meaningfully so `get_project_profile` can
     # invalidate stale rows without a manual backfill.
     source_version = models.CharField(max_length=40)
-    # Structured payload: `{inventory: {...}}` in v1; `deltas`, `activity_notes`, `narrative`
-    # slots reserved for Phase 7. Stored as jsonb because the payload is written by one
+    # Structured payload: `{inventory: {...}}`. Stored as jsonb because the payload is written by one
     # builder, read whole, and never field-queried — relational columns would buy no query
     # benefit and a migration per section as coverage grows. Not schemaless, though:
     # `build_inventory` returns a validated `Inventory` model (see
@@ -3665,3 +3688,35 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
         verbose_name = "Signal scout background band"
         verbose_name_plural = "Signal scout background bands"
         default_manager_name = "all_teams"
+
+
+class SignalSpend(TeamScopedRootMixin, UUIDModel):
+    """One absolute cost observation per gateway request or task run."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    signal_id = models.UUIDField(null=True, blank=True)
+    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True)
+    task_id = models.UUIDField(null=True, blank=True, db_index=True)
+    source_id = models.CharField(max_length=255)
+    stage = models.CharField(max_length=100, default="unknown")
+    accounting_failed = models.BooleanField(default=False)
+    is_task = models.BooleanField(default=False)
+    token_cost_microusd = models.BigIntegerField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "source_id", "is_task"], name="signals_spend_source_unique"),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(signal_id__isnull=False, scout_run__isnull=True)
+                    | models.Q(signal_id__isnull=True, scout_run__isnull=False)
+                ),
+                name="signals_spend_one_owner",
+            ),
+            models.CheckConstraint(condition=models.Q(token_cost_microusd__gte=0), name="signals_spend_nonnegative"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+        ]

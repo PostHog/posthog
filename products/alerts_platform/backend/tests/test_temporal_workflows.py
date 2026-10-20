@@ -369,6 +369,47 @@ async def test_delivery_waits_out_a_held_thread_and_fails_when_it_never_frees(
     assert attempts[-1] - attempts[0] >= PENDING_CLAIM_TTL
 
 
+@pytest.mark.asyncio
+async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
+    environment: WorkflowEnvironment,
+) -> None:
+    sent_parts: list[int] = []
+
+    @activity.defn(name="alerts_platform_deliver_preview_activity")
+    async def deliver(request: AlertDeliveryRequest) -> None:
+        sent_parts.append(request.part)
+        if request.part == 0:
+            raise ApplicationError("channel refused", non_retryable=True)
+
+    async with Worker(
+        environment.client,
+        task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+        workflows=DELIVERY_WORKFLOWS,
+        activities=[deliver],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await environment.client.start_workflow(
+            "alerts-platform-deliver-preview",
+            AlertDeliveryRequest(
+                source=SourceKind.LOGS,
+                team_id=1,
+                configuration_id="cfg-1",
+                evaluation_key="eval-1",
+                destination_alert_id="legacy-1",
+                event_ids_by_kind={},
+                parts=3,
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+            execution_timeout=DELIVERY_EXECUTION_TIMEOUT * 3,
+        )
+        with pytest.raises(WorkflowFailureError) as failure:
+            await handle.result()
+
+    assert isinstance(failure.value.cause, ActivityError)
+    assert sent_parts == [0, 1, 2]
+
+
 @pytest.mark.parametrize("timeout_type", [TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE])
 async def test_probe_timeout_still_starts_independent_delivery(
     environment: WorkflowEnvironment,

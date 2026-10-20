@@ -30,10 +30,6 @@ class TestAviationstackSource:
         assert access_key_field.secret is True
         assert access_key_field.required is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = AviationstackSource().get_schemas(_make_config(), team_id=1, names=["airlines", "airports"])
-        assert {schema.name for schema in schemas} == {"airlines", "airports"}
-
     @parameterized.expand(
         [
             ("valid", 200, {"data": []}, True, None),

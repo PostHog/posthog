@@ -310,6 +310,146 @@ class TestCoverageReportEndpoints:
         assert result.urls == list(pages)
 
 
+class TestParentFanOut:
+    @parameterized.expand(
+        [
+            (
+                # The flag name is a path segment, so it is percent-encoded.
+                "flag_coverage_trend",
+                f"{_BASE}/repos/r1/flags?page_size=500",
+                [{"flag_name": "unit/py", "coverage": 90.0}],
+                f"{_BASE}/repos/r1/flags/unit%2Fpy/coverage?page_size=500&interval=1d",
+                _page([{"timestamp": "2026-07-06T00:00:00Z", "min": 90.0, "max": 91.0, "avg": 90.5}]),
+                [
+                    {
+                        "timestamp": "2026-07-06T00:00:00Z",
+                        "min": 90.0,
+                        "max": 91.0,
+                        "avg": 90.5,
+                        "flag_name": "unit/py",
+                        "repo": "r1",
+                    }
+                ],
+            ),
+            (
+                "pull_impacted_files",
+                f"{_BASE}/repos/r1/pulls?page_size=500",
+                [{"pullid": 7, "updatestamp": "2026-07-06T00:00:00Z"}],
+                f"{_BASE}/repos/r1/compare/impacted_files?pullid=7",
+                {
+                    "base_commit": "aaa",
+                    "head_commit": "bbb",
+                    "state": "processed",
+                    "totals": {"base": {}, "head": {}},
+                    "commit_uploads": [{"commitid": "bbb"}],
+                    "diff": {"git_commits": []},
+                    "untracked": [],
+                    "files": [{"file_name": "app.py", "change_coverage": 5.0}],
+                },
+                [
+                    {
+                        "file_name": "app.py",
+                        "change_coverage": 5.0,
+                        "base_commit": "aaa",
+                        "head_commit": "bbb",
+                        "state": "processed",
+                        "repo": "r1",
+                        "pullid": 7,
+                        "pull_updatestamp": "2026-07-06T00:00:00Z",
+                    }
+                ],
+            ),
+            (
+                # Codecov is still computing the comparison, so there are no file rows yet.
+                "pull_impacted_files_pending",
+                f"{_BASE}/repos/r1/pulls?page_size=500",
+                [{"pullid": 7, "updatestamp": "2026-07-06T00:00:00Z"}],
+                f"{_BASE}/repos/r1/compare/impacted_files?pullid=7",
+                {"base_commit": "aaa", "head_commit": "bbb", "state": "pending", "files": []},
+                [],
+            ),
+            (
+                "pull_component_comparisons",
+                f"{_BASE}/repos/r1/pulls?page_size=500",
+                [{"pullid": 7, "updatestamp": None}],
+                f"{_BASE}/repos/r1/compare/components?pullid=7",
+                [{"component_id": "api", "name": "api", "diff_totals": {"coverage": 80.0}}],
+                [
+                    {
+                        "component_id": "api",
+                        "name": "api",
+                        "diff_totals": {"coverage": 80.0},
+                        "repo": "r1",
+                        "pullid": 7,
+                        "pull_updatestamp": None,
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_child_rows_carry_parent_columns(
+        self,
+        name: str,
+        parent_url: str,
+        parents: list[dict],
+        child_url: str,
+        child_response: Any,
+        expected_rows: list[dict],
+    ) -> None:
+        schema_name = name.removesuffix("_pending")
+        pages = {_ACTIVE_REPOS_URL: _page([{"name": "r1"}]), parent_url: _page(parents), child_url: child_response}
+        result = _run(schema_name, pages)
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.urls == list(pages)
+
+    def test_walks_parent_pages_and_skips_children_that_404(self) -> None:
+        commits_page_2 = f"{_BASE}/repos/r1/commits?page=2&page_size=500"
+        pages = {
+            _ACTIVE_REPOS_URL: _page([{"name": "r1"}, {"name": "r2"}]),
+            f"{_BASE}/repos/r1/commits?page_size=500": _page(
+                [{"commitid": "c1", "timestamp": "2026-07-09T00:00:00Z"}], next_url=commits_page_2
+            ),
+            # A commit without uploads (or deleted since the listing) is skipped, not fatal.
+            f"{_BASE}/repos/r1/commits/c1/uploads?page_size=500": ScriptedResponse(status=404),
+            commits_page_2: _page([{"commitid": "c2", "timestamp": "2026-07-08T00:00:00Z"}]),
+            f"{_BASE}/repos/r1/commits/c2/uploads?page_size=500": _page(
+                [{"created_at": "2026-07-08T00:01:00Z", "storage_path": "v4/raw/c2/u1.txt", "state": "processed"}]
+            ),
+            # A repo whose commit list 404s (deleted since enumeration) is skipped too.
+            f"{_BASE}/repos/r2/commits?page_size=500": ScriptedResponse(status=404),
+        }
+        result = _run("commit_uploads", pages)
+
+        assert result.raised is None
+        assert [(r["repo"], r["commitid"], r["commit_timestamp"], r["storage_path"]) for r in result.rows] == [
+            ("r1", "c2", "2026-07-08T00:00:00Z", "v4/raw/c2/u1.txt")
+        ]
+        assert result.urls == list(pages)
+        # The cursor moves to the next parent page, then to the next repo, once every child row
+        # before it has been yielded.
+        assert result.saved_states == [
+            CodecovResumeConfig(next_url=commits_page_2, repo="r1"),
+            CodecovResumeConfig(next_url=None, repo="r2"),
+        ]
+
+    def test_resumes_from_saved_parent_page(self) -> None:
+        resume_url = f"{_BASE}/repos/r2/flags?page=2&page_size=500"
+        pages = {
+            _ACTIVE_REPOS_URL: _page([{"name": "r1"}, {"name": "r2"}]),
+            resume_url: _page([{"flag_name": "e2e"}]),
+            f"{_BASE}/repos/r2/flags/e2e/coverage?page_size=500&interval=1d": _page(
+                [{"timestamp": "2026-07-06T00:00:00Z", "min": 1.0, "max": 1.0, "avg": 1.0}]
+            ),
+        }
+        result = _run("flag_coverage_trend", pages, resume_state=CodecovResumeConfig(next_url=resume_url, repo="r2"))
+
+        assert result.raised is None
+        assert [(r["repo"], r["flag_name"]) for r in result.rows] == [("r2", "e2e")]
+        assert result.urls == list(pages)
+
+
 class TestIncrementalSync:
     _WATERMARK = datetime(2026, 7, 5, tzinfo=UTC)
 
@@ -383,6 +523,63 @@ class TestIncrementalSync:
         assert [r["repo"] for r in result.rows] == ["r1"]
         assert result.urls == list(pages)
         assert result.requests[-1].param("start_date") == "2026-07-05"
+
+    @parameterized.expand(
+        [
+            (
+                # The pulls list filters on `updatestamp` server-side.
+                "pull_flag_comparisons",
+                {
+                    f"{_BASE}/repos/r1/pulls?page_size=500&start_date=2026-07-05": _page(
+                        [{"pullid": 7, "updatestamp": "2026-07-06T00:00:00Z"}]
+                    ),
+                    f"{_BASE}/repos/r1/compare/flags?pullid=7": [{"name": "unit", "diff_totals": None}],
+                },
+            ),
+            (
+                # Each flag's coverage series takes the same `start_date` as coverage_trend.
+                "flag_coverage_trend",
+                {
+                    f"{_BASE}/repos/r1/flags?page_size=500": _page([{"flag_name": "unit"}]),
+                    f"{_BASE}/repos/r1/flags/unit/coverage?page_size=500&interval=1d&start_date=2026-07-05": _page(
+                        [{"timestamp": "2026-07-06T00:00:00Z", "min": 1.0, "max": 1.0, "avg": 1.0}]
+                    ),
+                },
+            ),
+            (
+                # Uploads have no filter, so paging the newest-first commits stops at the
+                # watermark; page 2 is never requested.
+                "commit_uploads",
+                {
+                    f"{_BASE}/repos/r1/commits?page_size=500": _page(
+                        [
+                            {"commitid": "new", "timestamp": "2026-07-09T00:00:00Z"},
+                            {"commitid": "old", "timestamp": "2026-07-01T00:00:00Z"},
+                        ],
+                        next_url=f"{_BASE}/repos/r1/commits?page=2&page_size=500",
+                    ),
+                    f"{_BASE}/repos/r1/commits/new/uploads?page_size=500": _page(
+                        [{"created_at": "2026-07-09T00:01:00Z", "storage_path": "a"}]
+                    ),
+                    f"{_BASE}/repos/r1/commits/old/uploads?page_size=500": _page(
+                        [{"created_at": "2026-07-01T00:01:00Z", "storage_path": "b"}]
+                    ),
+                },
+            ),
+        ]
+    )
+    def test_parent_fan_out_incremental_request_shaping(self, schema_name: str, endpoint_pages: dict[str, Any]) -> None:
+        pages = {_ACTIVE_REPOS_URL: _page([{"name": "r1"}]), **endpoint_pages}
+        result = _run(
+            schema_name,
+            pages,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=self._WATERMARK,
+        )
+
+        assert result.raised is None
+        assert result.rows
+        assert result.urls == list(pages)
 
 
 class TestValidateCredentials:

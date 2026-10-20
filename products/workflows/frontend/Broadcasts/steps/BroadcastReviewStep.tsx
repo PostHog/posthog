@@ -5,11 +5,14 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { MissingRecipientEmailBanner } from '../../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
+import { RealtimeCohortCalculatingBanner } from '../../Workflows/hogflows/steps/components/RealtimeCohortCalculatingBanner'
+import { isRealtimeCohortCalculating } from '../../Workflows/hogflows/steps/realtimeCohortStatus'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
@@ -78,6 +81,7 @@ export function BroadcastReviewStep(): JSX.Element {
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
     const { props } = useMountedLogic(broadcastWizardLogic)
+    const { openInWorkflowEditor } = useActions(broadcastWizardLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const { integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -108,7 +112,7 @@ export function BroadcastReviewStep(): JSX.Element {
                 <ReviewRow label="Recipients" step="recipients">
                     {blastRadiusLoading ? (
                         <Spinner />
-                    ) : blastRadius ? (
+                    ) : isRealtimeCohortCalculating(blastRadius?.realtime_cohort) ? null : blastRadius ? (
                         <span>
                             Approximately {humanFriendlyNumber(blastRadius.affected)} of{' '}
                             {humanFriendlyNumber(blastRadius.total)} people
@@ -116,6 +120,7 @@ export function BroadcastReviewStep(): JSX.Element {
                     ) : (
                         <span className="text-warning">Couldn't estimate the audience size</span>
                     )}
+                    <RealtimeCohortCalculatingBanner status={blastRadius?.realtime_cohort} />
                     {audienceProperties.length > 0 ? (
                         <div className="flex flex-col gap-2">
                             {nonCohortAudience.length > 0 ? (
@@ -168,6 +173,14 @@ export function BroadcastReviewStep(): JSX.Element {
                         {rateLimitedSendDuration ? `, so about ${rateLimitedSendDuration} to reach everyone` : ''}
                     </ReviewRow>
                 )}
+            </div>
+
+            <div className="text-xs text-secondary">
+                Need delays, follow-up emails or branches?{' '}
+                <Link onClick={openInWorkflowEditor} data-attr="broadcast-review-open-in-workflow-editor">
+                    Continue in the workflow editor
+                </Link>
+                .
             </div>
 
             {reviewOnlyErrors.length > 0 && (

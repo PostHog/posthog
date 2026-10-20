@@ -7,6 +7,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase
@@ -30,6 +31,8 @@ from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.tag import Tag
+from posthog.models.tagged_item import TaggedItem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -68,6 +71,26 @@ class TestFileSystemAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["count"], 0)
         self.assertEqual(response_data["results"], [])
+
+    def test_list_includes_tags_only_on_request(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Revenue")
+        insight = Insight.objects.create(team=self.team, short_id="tagged", name="Signups")
+        for tag_name, obj in (("finance", dashboard), ("weekly", dashboard), ("growth", insight)):
+            tag, _ = Tag.objects.get_or_create(name=tag_name, team=self.team)
+            TaggedItem.objects.create(
+                tag=tag, team=self.team, content_type=ContentType.objects.get_for_model(type(obj)), object_id=obj.id
+            )
+
+        plain = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"depth": "3"}).json()["results"]
+        self.assertNotIn("tags", next(item["meta"] for item in plain if item["type"] == "dashboard"))
+
+        tagged = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"depth": "3", "include_tags": "true"})
+        self.assertEqual(tagged.status_code, 200, tagged.content)
+        by_ref = {
+            (item["type"].split("/")[0], item["ref"]): item["meta"].get("tags") for item in tagged.json()["results"]
+        }
+        self.assertEqual(by_ref[("dashboard", str(dashboard.id))], ["finance", "weekly"])
+        self.assertEqual(by_ref[("insight", "tagged")], ["growth"])
 
     @parameterized.expand([(False,), (True,)])
     def test_list_content_types_without_object_contents(self, include_content_type: bool) -> None:
@@ -336,17 +359,23 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual([listed["results"], searched["results"], counted["count"]], [[], [], 0])
         self.assertEqual(retrieved.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_recents_skip_views_of_retired_types(self) -> None:
+    @parameterized.expand([("retired_type",), ("scene",), ("deleted_object",)])
+    def test_recents_skip_views_without_an_entry(self, unlisted_view: str) -> None:
         _folder, retired = self._create_retired_row_in_folder()
         dashboard = Dashboard.objects.create(team=self.team, name="Viewed earlier", created_by=self.user)
         entry = FileSystem.objects.create(
             team=self.team, path="Viewed earlier", type="dashboard", ref=str(dashboard.id), created_by=self.user
         )
+        view_type, view_ref = {
+            "retired_type": ("link", retired.ref),
+            "scene": ("scene", "ProjectHomepage"),
+            "deleted_object": ("dashboard", "999999"),
+        }[unlisted_view]
         base = f"/api/projects/{self.team.id}/file_system"
         self.client.post(
             f"{base}/log_view/", {"type": "dashboard", "ref": entry.ref, "viewed_at": "2026-09-01T00:00:00Z"}
         )
-        self.client.post(f"{base}/log_view/", {"type": "link", "ref": retired.ref, "viewed_at": "2026-09-02T00:00:00Z"})
+        self.client.post(f"{base}/log_view/", {"type": view_type, "ref": view_ref, "viewed_at": "2026-09-02T00:00:00Z"})
 
         recents = self.client.get(f"{base}/?order_by=-last_viewed_at&limit=1").json()
 

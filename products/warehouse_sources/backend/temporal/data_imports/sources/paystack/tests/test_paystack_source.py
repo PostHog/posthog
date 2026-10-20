@@ -13,11 +13,6 @@ class TestPaystackSource:
         self.team_id = 123
         self.config = PaystackSourceConfig(secret_api_key="sk_test_x")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Transactions"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "Transactions"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

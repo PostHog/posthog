@@ -176,7 +176,10 @@ def build_payload(
     if window_services is not None:
         payload["Filter"] = {"Dimensions": {"Key": "SERVICE", "Values": window_services}}
     if endpoint_config.metrics:
-        payload["Metrics"] = list(endpoint_config.metrics)
+        metrics = endpoint_config.metrics
+        if endpoint_config.unit_metric_services and slice_key not in endpoint_config.unit_metric_services:
+            metrics = tuple(metric for metric in metrics if metric != "Unit")
+        payload["Metrics"] = list(metrics)
     if endpoint_config.group_by:
         payload["GroupBy"] = [{"Type": "DIMENSION", "Key": key} for key in endpoint_config.group_by]
     if page_token and endpoint_config.page_token_key:

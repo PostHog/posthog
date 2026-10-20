@@ -21,7 +21,7 @@ import {
     ERROR_TRACKING_TRIGGERS,
 } from './alertWizardConfig'
 
-const HOG_FUNCTION_FILTER_LIST = ERROR_TRACKING_SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateId).filter(
+const HOG_FUNCTION_FILTER_LIST = ERROR_TRACKING_SUB_TEMPLATE_IDS.map((id) => getFiltersFromSubTemplateId(id)).filter(
     (f) => !!f
 ) as CyclotronJobFiltersType[]
 
@@ -68,7 +68,9 @@ function ErrorTrackingAlertingInner(): JSX.Element {
             <HogFunctionTemplateList
                 type="destination"
                 subTemplateIds={subTemplateIds}
-                getConfigurationOverrides={(id) => (id ? { filters: getFiltersFromSubTemplateId(id) } : undefined)}
+                getConfigurationOverrides={(id, subTemplate) =>
+                    id ? { filters: getFiltersFromSubTemplateId(id, subTemplate) } : undefined
+                }
                 extraControls={
                     <LemonButton
                         type="secondary"

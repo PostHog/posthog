@@ -40,16 +40,41 @@ class TestNavigationTimeline:
 
     @parameterized.expand(
         [
-            ("entry count", [_change(i, f"https://ex.com/page-{i}") for i in range(60)], 50, 10),
-            ("total URL characters", [_change(i, f"https://ex.com/{'p' * 180}{i:03d}") for i in range(40)], 25, 15),
+            ("entry count", [_change(i, f"https://ex.com/page-{i}") for i in range(120)], 100, 20),
+            ("total URL characters", [_change(i, f"https://ex.com/{'p' * 180}{i:03d}") for i in range(80)], 50, 30),
+            (
+                "a short URL after one that overflows",
+                [_change(i, f"https://ex.com/{'p' * 180}{i:03d}") for i in range(51)]
+                + [_change(51 + i, f"https://ex.com/s-{i}") for i in range(10)],
+                55,
+                6,
+            ),
         ]
     )
-    def test_budget_keeps_the_head_and_counts_the_rest(
+    def test_budget_counts_what_it_drops(
         self, _name: str, changes: list[NavigationChange], kept: int, dropped: int
     ) -> None:
         entries, dropped_count = navigation_timeline(changes)
 
         assert (len(entries), dropped_count) == (kept, dropped)
+
+    def test_budget_drops_the_shortest_visits_and_keeps_late_long_ones_and_tab_openings(self) -> None:
+        bounces = [_change(i, f"https://ex.com/bounce-{i}") for i in range(110)]
+        handoff = [_change(110, "https://pay.ex.com/checkout", 2)]
+        long_visits = [_change(111 + 30 * i, f"https://ex.com/long-{i}") for i in range(5)]
+
+        entries, dropped = navigation_timeline(bounces + handoff + long_visits)
+
+        assert dropped == 16
+        assert [e.vid_t for e in entries] == sorted(e.vid_t for e in entries)
+        assert [(e.url, e.vid_t, e.end_t) for e in entries[-6:]] == [
+            ("https://pay.ex.com/checkout", 110, 110),
+            ("https://ex.com/long-0", 111, 140),
+            ("https://ex.com/long-1", 141, 170),
+            ("https://ex.com/long-2", 171, 200),
+            ("https://ex.com/long-3", 201, 230),
+            ("https://ex.com/long-4", 231, None),
+        ]
 
     def test_each_visit_ends_where_the_next_change_shows_including_ones_the_timeline_drops(self) -> None:
         changes = [
@@ -69,11 +94,6 @@ class TestNavigationTimeline:
             ("c", 40, 40),
             ("d", 41, None),
         ]
-
-    def test_the_last_kept_visit_ends_at_the_first_change_the_budget_drops(self) -> None:
-        entries, dropped = navigation_timeline([_change(i, f"https://ex.com/page-{i}") for i in range(60)])
-
-        assert (entries[-1].vid_t, entries[-1].end_t, dropped) == (49, 49, 10)
 
     def test_truncates_a_long_url_without_merging_pages_that_share_the_prefix(self) -> None:
         prefix = "https://ex.com/" + "a" * 400

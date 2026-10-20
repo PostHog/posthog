@@ -4,6 +4,7 @@ import type { CaptureOptions } from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 
 import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { InboxSummaryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
@@ -33,6 +34,8 @@ export const INBOX_EVENTS = {
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
+    VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
+    VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -46,6 +49,8 @@ export const INBOX_EVENTS = {
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
+    // Cloud-only for now: the desktop inbox has no model sorts.
+    RANKING_DETAILS_VIEWED: 'Inbox ranking details viewed',
     SETTINGS_CHANGED: 'Inbox settings changed',
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_DISABLED: 'Signal source disabled',
@@ -61,6 +66,10 @@ export const INBOX_EVENTS = {
     SCOUT_CONFIG_CHANGED: 'Scout config changed',
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
+    // The per-scout tool picker. Cloud-only for now, like the suggestions strip below.
+    SCOUT_TOOLS_PICKER_OPENED: 'Scout tools picker opened',
+    SCOUT_TOOLS_SAVED: 'Scout tools saved',
+    SCOUT_TOOLS_SAVE_FAILED: 'Scout tools save failed',
     // The pre-computed "Suggested for this project" strip. Cloud-only for now — desktop has no
     // suggestions surface — so these carry `inbox_client: 'cloud'` on every row.
     SCOUT_SUGGESTIONS_SHOWN: 'Scout suggestions shown',
@@ -75,6 +84,14 @@ export const INBOX_EVENTS = {
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
+
+export function captureInboxValueSummary(action: 'viewed' | 'dismissed', summary: InboxSummaryApi): void {
+    captureInboxEvent(action === 'viewed' ? INBOX_EVENTS.VALUE_SUMMARY_VIEWED : INBOX_EVENTS.VALUE_SUMMARY_DISMISSED, {
+        merged_pr_count: summary.merged_pr_count,
+        people_count: summary.people_count,
+        participation_complete: summary.participation_complete,
+    })
+}
 
 /**
  * Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row.
@@ -201,10 +218,10 @@ export function discussQuestionProperties(params: {
 export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limited'
 
 /**
- * Panels that replace the report list and so never fire `Inbox viewed`. `config` is the Settings
- * tab; the value predates the rename and stays so the panel breakdown reads continuously.
+ * `config` is the Settings tab; the value predates the rename and stays so the panel breakdown
+ * reads continuously. The onboarding panel can appear alongside the report list.
  */
-export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
+export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
@@ -556,6 +573,21 @@ export function captureInboxReportScrolled(params: {
     })
 }
 
+/** The hover card on a report's model score opened, under one of the model sorts. */
+export function captureInboxRankingDetailsViewed(params: {
+    report: SignalReport
+    head: string
+    state: 'scored' | 'stale' | 'unscored'
+    strength: string | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.RANKING_DETAILS_VIEWED, {
+        ...baseReportProperties(params.report),
+        ranking_head: params.head,
+        ranking_state: params.state,
+        ranking_strength: params.strength,
+    })
+}
+
 export function captureInboxReportAction(params: {
     /** Omitted for bulk actions, which act on a selection rather than a single report. */
     report?: SignalReport | null
@@ -741,12 +773,14 @@ export function captureSignalSourceConnected(params: {
     sourceType: string
     isFirstConnection: boolean
     viaSetupWizard: boolean
+    setupMode?: 'guided' | 'quick'
 }): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_CONNECTED, {
         source_product: params.sourceProduct,
         source_type: params.sourceType,
         is_first_connection: params.isFirstConnection,
         via_setup_wizard: params.viaSetupWizard,
+        ...(params.setupMode ? { setup_mode: params.setupMode } : {}),
     })
 }
 
@@ -1041,6 +1075,38 @@ export function captureScoutConfigChanged(params: {
     })
 }
 
+/** The tool picker opened. `has_tool_list` says whether the scout already had a list. */
+export function captureScoutToolsPickerOpened(params: {
+    skillName: string
+    surface: ScoutSurface
+    hasToolList: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_TOOLS_PICKER_OPENED, {
+        skill_name: params.skillName,
+        surface: params.surface,
+        has_tool_list: params.hasToolList,
+    })
+}
+
+/**
+ * A tool selection save ended. The event carries counts, not tool names. `tool_count` is null for a
+ * preset, which the API expands, and for a return to all tools.
+ */
+export function captureScoutToolsSaveResult(params: {
+    skillName: string
+    allTools: boolean
+    toolPreset: string | null
+    toolCount: number | null
+    success: boolean
+}): void {
+    captureInboxEvent(params.success ? INBOX_EVENTS.SCOUT_TOOLS_SAVED : INBOX_EVENTS.SCOUT_TOOLS_SAVE_FAILED, {
+        skill_name: params.skillName,
+        all_tools: params.allTools,
+        tool_preset: params.toolPreset,
+        tool_count: params.toolCount,
+    })
+}
+
 /** Any non-config interaction on the scout surfaces — expanding a run, copying a link, opening a skill. */
 export function captureScoutAction(params: {
     actionType: ScoutActionType
@@ -1147,7 +1213,7 @@ export function captureScoutCreatePathSwitched(params: {
 }
 
 /** Where a suggestion card was rendered: the strip above the roster, or the empty state's body. */
-export type ScoutSuggestionSurface = 'strip' | 'empty_state'
+export type ScoutSuggestionSurface = 'strip' | 'empty_state' | 'onboarding'
 
 /** Which offer a suggestion card makes. Mirrors the API's `kind`. */
 export type ScoutSuggestionKind = 'canonical' | 'custom'
@@ -1168,7 +1234,7 @@ export type ScoutSuggestionCreatedVia = 'api' | 'chat'
 export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed' | 'resumed'
 
 /** What put the scan on screen. Without it, a client resuming a paid scan reads as a refused duplicate. */
-export type ScoutSuggestionsRefreshSource = 'strip' | 'reload'
+export type ScoutSuggestionsRefreshSource = 'strip' | 'reload' | 'onboarding'
 
 /**
  * The suggestion batch as it was first rendered this visit. Without it a batch nobody acts on is

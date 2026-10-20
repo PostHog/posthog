@@ -52,6 +52,7 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { UNVERIFIED_SENDER_MESSAGE } from '../Channels/emailSendingMessages'
 import {
     AiEmailDraftResult,
     DRAFT_SOURCE_PARAM,
@@ -78,9 +79,20 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
+import {
+    REALTIME_COHORT_STATUS_POLL_MS,
+    isRealtimeCohortUnresolved,
+    keepOnlyRealtimeCohort,
+} from '../Workflows/hogflows/steps/realtimeCohortStatus'
 import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
-import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from './audience/audienceList'
+import {
+    type AudienceCohortLaunchError,
+    audienceCohortIds,
+    audienceCohortLaunchError,
+    blockingCohortLaunchErrors,
+    toAudienceCohort,
+} from './audience/audienceList'
 import {
     AUDIENCE_PREFILL_PARAM,
     type BroadcastPrefill,
@@ -88,7 +100,12 @@ import {
     parseBroadcastAudiencePrefill,
     SOURCE_PREFILL_PARAM,
 } from './broadcastAudiencePrefill'
-import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
+import {
+    confirmArchiveBroadcast,
+    confirmDeleteBroadcast,
+    confirmOpenInWorkflowEditor,
+    restoreBroadcast,
+} from './broadcastLifecycle'
 import {
     BroadcastStatus,
     StoppableBroadcast,
@@ -246,7 +263,7 @@ export interface broadcastWizardLogicValues {
     aiEmailDraftApplied: boolean
     aiEmailDraftLoading: boolean
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
-    audienceCohortLaunchErrors: string[]
+    audienceCohortLaunchErrors: AudienceCohortLaunchError[]
     audienceProperties: AnyPropertyFilter[]
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
@@ -448,6 +465,12 @@ export interface broadcastWizardLogicActions {
     nextStep: () => {
         value: true
     }
+    openInWorkflowEditor: () => {
+        value: true
+    }
+    openInWorkflowEditorConfirmed: () => {
+        value: true
+    }
     prefillFromLink: (prefill: BroadcastPrefill) => {
         prefill: BroadcastPrefill
     }
@@ -475,8 +498,8 @@ export interface broadcastWizardLogicActions {
     sendToEveryoneAfterRejectedLink: () => {
         value: true
     }
-    setAudienceCohortLaunchErrors: (errors: string[]) => {
-        errors: string[]
+    setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => {
+        errors: AudienceCohortLaunchError[]
     }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
@@ -597,7 +620,8 @@ export interface broadcastWizardLogicMeta {
             integrationsLoading: boolean,
             linkAudienceRejected: boolean,
             audienceProperties: AnyPropertyFilter[],
-            audienceCohortLaunchErrors: string[]
+            audienceCohortLaunchErrors: AudienceCohortLaunchError[],
+            blastRadius: BlastRadiusApi | null
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -658,7 +682,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         prefillFromLink: (prefill: BroadcastPrefill) => ({ prefill }),
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
-        setAudienceCohortLaunchErrors: (errors: string[]) => ({ errors }),
+        setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => ({ errors }),
         rejectLinkAudience: true,
         sendToEveryoneAfterRejectedLink: true,
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
@@ -698,6 +722,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         moveToDraftFinished: true,
         duplicateBroadcast: true,
         archiveBroadcast: true,
+        openInWorkflowEditor: true,
+        openInWorkflowEditorConfirmed: true,
         restoreBroadcast: true,
         deleteBroadcast: true,
         duplicateBroadcastFinished: true,
@@ -786,6 +812,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     })),
 
     reducers(({ props }) => ({
+        blastRadius: {
+            // A stale result would keep a realtime cohort's restrictions on an audience that no longer has one.
+            loadBlastRadiusFailure: () => null,
+        },
         broadcast: {
             saveBroadcastFinished: (state: HogFlowApi | null, { broadcast }: { broadcast: HogFlowApi | null }) =>
                 broadcast ?? state,
@@ -852,7 +882,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             },
         ],
         audienceCohortLaunchErrors: [
-            [] as string[],
+            [] as AudienceCohortLaunchError[],
             {
                 setAudienceCohortLaunchErrors: (_, { errors }) => errors,
             },
@@ -1002,6 +1032,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             false,
             {
                 continueStep: () => true,
+                openInWorkflowEditorConfirmed: () => true,
                 saveBroadcastFinished: () => false,
             },
         ],
@@ -1181,6 +1212,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.linkAudienceRejected,
                 s.audienceProperties,
                 s.audienceCohortLaunchErrors,
+                s.blastRadius,
             ],
             (
                 goalEnabled: boolean,
@@ -1193,7 +1225,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 integrationsLoading: boolean,
                 linkAudienceRejected: boolean,
                 audienceProperties: AnyPropertyFilter[],
-                audienceCohortLaunchErrors: string[]
+                audienceCohortLaunchErrors: AudienceCohortLaunchError[],
+                blastRadius: BlastRadiusApi | null
             ): Record<BroadcastWizardStep, string[]> => {
                 const errors: Record<BroadcastWizardStep, string[]> = {
                     recipients: [],
@@ -1245,7 +1278,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     errors.review.push(senderError)
                 }
                 // Only launch waits for a list to match. Editing the other steps can go on meanwhile.
-                errors.review.push(...audienceCohortLaunchErrors)
+                errors.review.push(
+                    ...blockingCohortLaunchErrors(audienceCohortLaunchErrors, blastRadius?.realtime_cohort?.id)
+                )
 
                 return errors
             },
@@ -1326,6 +1361,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     }),
 
     listeners(({ actions, values, props, cache }) => ({
+        loadBlastRadiusSuccess: ({ blastRadius }) => {
+            // A realtime cohort has to be the only condition, so picking one replaces the others.
+            const mixed = blastRadius?.realtime_cohort_with_other_conditions
+            const onlyCohort = mixed ? keepOnlyRealtimeCohort(values.audienceProperties, mixed.id) : null
+            if (onlyCohort) {
+                actions.setAudienceProperties(onlyCohort)
+            }
+        },
         applyDefaultSender: () => {
             // Only fills an empty sender on a broadcast that is still being written. It is not an
             // edit, so it does not autosave; the next save or launch carries it.
@@ -1511,6 +1554,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // wizard from the saved copy, so an unsaved email edit moves it only once its autosave lands.
             if (
                 props.id === 'new' &&
+                !cache.handedOffToWorkflowEditor &&
                 !cache.emailEditPending &&
                 values.broadcastId &&
                 values.broadcast?.status === 'draft'
@@ -1548,8 +1592,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             await breakpoint(1000)
-            if (!values.broadcastId || !values.currentProjectId || values.broadcast?.status !== 'draft') {
-                // Launch saves this edit instead.
+            if (
+                cache.handedOffToWorkflowEditor ||
+                !values.broadcastId ||
+                !values.currentProjectId ||
+                values.broadcast?.status !== 'draft'
+            ) {
+                // Launch, or the save before the workflow editor opens, saves this edit instead.
                 clearPending()
                 return
             }
@@ -1754,8 +1803,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             const cohortErrors = await loadAudienceCohortLaunchErrors(projectId, values.audienceProperties)
             breakpoint()
             actions.setAudienceCohortLaunchErrors(cohortErrors)
-            if (cohortErrors.length > 0) {
-                lemonToast.error(cohortErrors[0])
+            const blockingErrors = blockingCohortLaunchErrors(cohortErrors, values.blastRadius?.realtime_cohort?.id)
+            if (blockingErrors.length > 0) {
+                lemonToast.error(blockingErrors[0])
                 actions.launchBroadcastFinished()
                 return
             }
@@ -1831,26 +1881,18 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
                     }
                     activated = await activate()
-                    await hogFlowsBatchJobsCreate(projectId, broadcastId, {
+                    const batchJob = await hogFlowsBatchJobsCreate(projectId, broadcastId, {
                         hog_flow: broadcastId,
                         variables: {},
                         confirm_token: blastRadius.confirm_token,
                     } as any)
-                    lemonToast.success('Broadcast is sending')
+                    lemonToast.success(
+                        batchJob.status === 'waiting'
+                            ? 'Broadcast will send once its cohort finishes calculating'
+                            : 'Broadcast is sending'
+                    )
                 } else {
-                    const schedule: Partial<HogFlowScheduleApi> = {
-                        rrule:
-                            values.scheduleMode === 'recurring' && values.recurringRepeating
-                                ? stateToRRule(values.scheduleState, values.recurringStartsAt)
-                                : ONE_TIME_RRULE,
-                        starts_at: (values.scheduleMode === 'recurring' ? values.recurringStartsAt : values.sendAt)!,
-                        timezone: values.effectiveTimezone,
-                        // The wizard has no variables step, so keep any overrides the old schedule carried.
-                        ...(values.broadcast?.schedules?.[0]?.variables
-                            ? { variables: values.broadcast.schedules[0].variables }
-                            : {}),
-                    }
-                    await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
+                    await hogFlowsSchedulesCreate(projectId, broadcastId, wizardSchedule(values) as any)
                     for (const id of oldScheduleIds) {
                         await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
                     }
@@ -1961,6 +2003,66 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             actions.moveToDraftFinished()
         },
+        openInWorkflowEditor: () => {
+            confirmOpenInWorkflowEditor(actions.openInWorkflowEditorConfirmed)
+        },
+        openInWorkflowEditorConfirmed: async (_, breakpoint) => {
+            if ((!values.broadcastId && props.id !== 'new') || !values.currentProjectId) {
+                actions.saveBroadcastFinished(null)
+                return
+            }
+            // The editor loads the saved workflow, so the latest edits must land first, as on Continue.
+            cache.autosaveConflict = false
+            const saves = getSaveQueue(cache, values)
+            await saves.whenIdle()
+            breakpoint()
+            if (cache.autosaveConflict) {
+                actions.saveBroadcastFinished(null)
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            let broadcastId = values.broadcastId
+            try {
+                // The email stays editable while the save runs, so save again until a save carries the latest edit.
+                let savedEditGeneration: number | undefined
+                do {
+                    const saved = await saves.run(() => {
+                        savedEditGeneration = cache.emailEditGeneration
+                        // The stepper can reach Review before any Continue created the draft.
+                        return broadcastId
+                            ? saveWithoutClobbering(projectId, broadcastId, values)
+                            : createDraft(projectId, values)
+                    })
+                    if (!broadcastId && values.entrySource) {
+                        saveEntrySource(saved.id, values.entrySource)
+                    }
+                    broadcastId = saved.id
+                    actions.draftAutosaved(saved)
+                } while (cache.emailEditGeneration !== savedEditGeneration)
+                cache.emailEditPending = false
+                await saveDraftSchedule(projectId, broadcastId, values)
+                actions.saveBroadcastFinished(values.broadcast)
+            } catch (error: any) {
+                actions.saveBroadcastFinished(null)
+                if (error instanceof EditedElsewhereError) {
+                    actions.applyExternalEdit(error.latest, values.broadcast)
+                    lemonToast.info(
+                        'This broadcast changed while you were editing it. Review the latest version first.'
+                    )
+                    return
+                }
+                lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
+                return
+            }
+            // An autosave still waiting would save again and move the page back to the broadcast.
+            cache.handedOffToWorkflowEditor = true
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('broadcast opened in workflow editor', {
+                broadcast_id: broadcastId,
+                step: values.currentStep,
+            })
+            router.actions.push(urls.workflow(broadcastId, 'workflow'))
+        },
         archiveBroadcast: () => {
             if (values.currentProjectId && values.broadcast) {
                 confirmArchiveBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
@@ -2036,6 +2138,30 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
         },
+        loadBlastRadiusSuccess: async ({ blastRadius }, breakpoint) => {
+            // The send button reads the realtime cohort's status from the audience size, and the cohort can
+            // finish or recover while the page stays open. Only the size is refreshed, not the recipient check.
+            if (!values.currentProjectId || !isRealtimeCohortUnresolved(blastRadius?.realtime_cohort)) {
+                return
+            }
+            for (;;) {
+                await breakpoint(REALTIME_COHORT_STATUS_POLL_MS)
+                let refreshed: BlastRadiusApi | null = null
+                try {
+                    refreshed = await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
+                        filters: { properties: values.audienceProperties },
+                        dedupe_key: 'email',
+                    })
+                } catch {
+                    // A failed check tries again on the next interval.
+                }
+                breakpoint()
+                if (refreshed) {
+                    actions.loadBlastRadiusSuccess(refreshed)
+                    return
+                }
+            }
+        },
         setEmail: () => {
             if (
                 values.currentStep === 'review' &&
@@ -2103,6 +2229,47 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     }),
 ])
 
+function wizardSchedule(values: broadcastWizardLogicType['values']): Partial<HogFlowScheduleApi> {
+    return {
+        rrule:
+            values.scheduleMode === 'recurring' && values.recurringRepeating
+                ? stateToRRule(values.scheduleState, values.recurringStartsAt)
+                : ONE_TIME_RRULE,
+        starts_at: (values.scheduleMode === 'recurring' ? values.recurringStartsAt : values.sendAt)!,
+        timezone: values.effectiveTimezone,
+        // The wizard has no variables step, so keep any overrides the old schedule carried.
+        ...(values.broadcast?.schedules?.[0]?.variables ? { variables: values.broadcast.schedules[0].variables } : {}),
+    }
+}
+
+/** Stores the timing picked in the wizard on the draft, so the workflow editor opens with it. The scheduler skips drafts. */
+async function saveDraftSchedule(
+    projectId: string,
+    broadcastId: string,
+    values: broadcastWizardLogicType['values']
+): Promise<void> {
+    if (values.stepValidationErrors.schedule.length > 0) {
+        return
+    }
+    const existing = values.broadcast?.schedules ?? []
+    const wanted = values.scheduleMode === 'now' ? null : wizardSchedule(values)
+    const unchanged = wanted
+        ? existing.length === 1 &&
+          existing[0].rrule === wanted.rrule &&
+          dayjs(existing[0].starts_at).isSame(dayjs(wanted.starts_at)) &&
+          existing[0].timezone === wanted.timezone
+        : existing.length === 0
+    if (unchanged) {
+        return
+    }
+    if (wanted) {
+        await hogFlowsSchedulesCreate(projectId, broadcastId, wanted as any)
+    }
+    for (const schedule of existing) {
+        await hogFlowsSchedulesDestroy(projectId, broadcastId, schedule.id)
+    }
+}
+
 async function createDraft(projectId: string, values: broadcastWizardLogicType['values']): Promise<HogFlowApi> {
     const created = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
     // pinned: analytics event name
@@ -2113,15 +2280,15 @@ async function createDraft(projectId: string, values: broadcastWizardLogicType['
 async function loadAudienceCohortLaunchErrors(
     projectId: string,
     audienceProperties: AnyPropertyFilter[]
-): Promise<string[]> {
+): Promise<AudienceCohortLaunchError[]> {
     const ids = audienceCohortIds(audienceProperties)
     const results = await Promise.allSettled(ids.map((id) => cohortsRetrieve(projectId, id)))
     // A cohort that fails to load doesn't block launch, so a lookup error can't stop every send.
-    return results.flatMap((result, index) =>
-        result.status === 'fulfilled'
-            ? (audienceCohortLaunchError(toAudienceCohort(ids[index], result.value)) ?? [])
-            : []
-    )
+    return results.flatMap((result, index) => {
+        const message =
+            result.status === 'fulfilled' ? audienceCohortLaunchError(toAudienceCohort(ids[index], result.value)) : null
+        return message ? [{ cohortId: ids[index], message }] : []
+    })
 }
 
 function captureLaunchFailed(
@@ -2211,7 +2378,7 @@ export function getSenderLaunchError(
             integrations.find((integration) => integration.kind === 'email' && integration.id === id)?.config
                 ?.verified === true
     )
-    return allVerified ? null : "Verify the sender's domain before sending"
+    return allVerified ? null : UNVERIFIED_SENDER_MESSAGE
 }
 
 export function getSenderIds(from: BroadcastEmailValue['from'] | undefined): number[] {
@@ -2243,9 +2410,10 @@ export function buildBroadcastPayload(values: {
     broadcast?: HogFlowApi | null
 }): Record<string, any> {
     const existing = values.broadcast
-    if (existing && existing.origin_product !== 'broadcasts') {
-        // A workflow shaped like a broadcast keeps its own steps: its ids, names and any setting the
-        // wizard does not manage survive, and origin_product stays as it was created.
+    if (existing) {
+        // A saved broadcast keeps its own steps: its ids, names and any setting the wizard does not manage
+        // survive, such as step conditions or a test-account exclusion on a workflow moved to broadcasts.
+        // origin_product and the exit condition stay as they were.
         return {
             name: values.name,
             conversion: values.goalEnabled ? values.conversion : null,

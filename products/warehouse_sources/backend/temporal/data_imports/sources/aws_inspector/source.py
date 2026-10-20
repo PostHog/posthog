@@ -126,10 +126,17 @@ class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorR
             name=ExternalDataSourceType.AWSINSPECTOR,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Inspector",
-            caption="""Sync Amazon Inspector findings and scan coverage into the PostHog Data warehouse.
+            caption="""Sync Amazon Inspector findings, scan coverage, and CIS scans into the PostHog Data warehouse.
 
 Enable Amazon Inspector in the region you select. Grant these IAM permissions for the tables you select:
-`inspector2:ListFindings`, `inspector2:ListCoverage`, and `inspector2:ListCoverageStatistics`.
+
+- `findings`: `inspector2:ListFindings`
+- `coverage`: `inspector2:ListCoverage`
+- `coverage_statistics`: `inspector2:ListCoverageStatistics`
+- `members`: `inspector2:ListMembers` (delegated administrator account only)
+- `cis_scans`: `inspector2:ListCisScans`
+- `cis_scan_result_details`: `inspector2:ListCisScans`, `inspector2:ListCisScanResultsAggregatedByTargetResource`, and `inspector2:GetCisScanResultDetails`
+- `clusters_for_image`: `inspector2:ListCoverage` and `inspector2:GetClustersForImage`
 
 Enter your access key ID and secret access key. Add a session token if you use temporary credentials.
 This source reads one AWS region.""",

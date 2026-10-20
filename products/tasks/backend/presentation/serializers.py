@@ -3166,6 +3166,16 @@ class TaskRepositoriesResponseSerializer(serializers.Serializer):
     )
 
 
+class TaskSourcesResponseSerializer(serializers.Serializer):
+    sources = serializers.ListField(
+        child=serializers.ChoiceField(choices=tasks_facade.TaskListSource.choices),
+        help_text=(
+            "Distinct sources of the requester's own non-archived tasks, sorted, in the words of the task "
+            "list `sources` filter. Each value filters the task list back to at least one task."
+        ),
+    )
+
+
 class TaskArtifactSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable artifact id used to filter task comments.")
     type = serializers.CharField(help_text="Artifact type: artifact or canvas.")
@@ -5006,7 +5016,7 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Temporal workflow id of the Slack mention that dispatched this run "
-            "(`posthog-code-mention-<workspace>:<event_id_or_channel:ts>`). Null for runs "
+            "(`slack-app-mention-processing-<workspace>:<event_id_or_channel:ts>`). Null for runs "
             "created before this field was persisted."
         ),
     )

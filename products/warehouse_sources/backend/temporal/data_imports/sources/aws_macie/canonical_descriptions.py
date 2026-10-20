@@ -65,4 +65,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "The UTC time when the account status or settings last changed.",
         },
     },
+    "resource_profiles": {
+        "description": "Sensitivity profiles that automated sensitive data discovery keeps for each S3 bucket.",
+        "docs_url": "https://docs.aws.amazon.com/macie/latest/APIReference/resource-profiles.html",
+        "columns": {
+            "bucket_arn": "The Amazon Resource Name of the bucket.",
+            "region": "The AWS region selected for this sync.",
+            "profile_updated_at": "The UTC time when Macie last updated the bucket profile.",
+            "sensitivity_score": "The current sensitivity score for the bucket, from -1 to 100.",
+            "sensitivity_score_overridden": "Whether a user manually set the sensitivity score.",
+            "statistics": "Counts of classified, sensitive, and skipped objects, bytes classified, and detections.",
+        },
+    },
+    "resource_profile_detections": {
+        "description": "Types and amounts of sensitive data that automated discovery found in each S3 bucket.",
+        "docs_url": "https://docs.aws.amazon.com/macie/latest/APIReference/resource-profiles-detections.html",
+        "columns": {
+            "bucket_arn": "The Amazon Resource Name of the bucket.",
+            "region": "The AWS region selected for this sync.",
+            "id": "The managed or custom data identifier that detected the data.",
+            "arn": "The Amazon Resource Name of the custom data identifier, for custom identifiers.",
+            "name": "The name of the data identifier.",
+            "type": "The identifier type: MANAGED or CUSTOM.",
+            "count": "The total number of occurrences of the sensitive data.",
+            "suppressed": "Whether the detection is excluded from the bucket sensitivity score.",
+        },
+    },
+    "resource_profile_artifacts": {
+        "description": "S3 objects that automated discovery selected for analysis in each bucket.",
+        "docs_url": "https://docs.aws.amazon.com/macie/latest/APIReference/resource-profiles-artifacts.html",
+        "columns": {
+            "bucket_arn": "The Amazon Resource Name of the bucket.",
+            "region": "The AWS region selected for this sync.",
+            "arn": "The Amazon Resource Name of the S3 object.",
+            "classification_result_status": "The analysis result: COMPLETE, PARTIAL, or SKIPPED.",
+            "sensitive": "Whether Macie found sensitive data in the object.",
+        },
+    },
+    "usage_statistics": {
+        "description": "Macie usage, quotas, and estimated costs for each account.",
+        "docs_url": "https://docs.aws.amazon.com/macie/latest/APIReference/usage-statistics.html",
+        "columns": {
+            "account_id": "The AWS account the usage applies to.",
+            "region": "The AWS region selected for this sync.",
+            "time_range": "The period the usage covers.",
+            "usage": "Estimated cost, currency, quota, and usage type for each Macie feature.",
+            "free_trial_start_date": "The UTC date when the Macie free trial started for the account.",
+            "automated_discovery_free_trial_start_date": "The UTC date when the automated discovery free trial started.",
+        },
+    },
 }

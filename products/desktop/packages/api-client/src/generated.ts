@@ -51,6 +51,7 @@ export namespace Schemas {
         | "in"
         | "not_in"
         | "is_cleaned_path_exact"
+        | "is_cleaned_path_not_exact"
         | "flag_evaluates_to"
         | "semver_eq"
         | "semver_neq"
@@ -224,6 +225,7 @@ export namespace Schemas {
         sessionIdPushdown: boolean | null;
         sessionPropertyPreAggregation: boolean | null;
         sessionTableVersion: SessionTableVersion | null;
+        sessionTimestampBufferMinutes: number | null;
         sessionsV2JoinMode: SessionsV2JoinMode | null;
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
@@ -2218,6 +2220,7 @@ export namespace Schemas {
     export type ResultCustomizationByValue = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
+        customColor: string | null;
         hidden: boolean | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
@@ -4351,6 +4354,7 @@ export namespace Schemas {
     };
     export type HogQLQueryResponse = {
         clickhouse?: (string | null) | undefined;
+        column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         explain?: (Array<string> | null) | undefined;
@@ -4517,7 +4521,6 @@ export namespace Schemas {
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
      * * `use_posthog_ai` - use_posthog_ai
-     * * `use_posthog_code` - use_posthog_code
      * * `use_posthog_mcp` - use_posthog_mcp
      * * `use_posthog_in_slack` - use_posthog_in_slack
      */
@@ -4585,7 +4588,6 @@ export namespace Schemas {
         | "create_early_access_feature"
         | "update_feature_stage"
         | "use_posthog_ai"
-        | "use_posthog_code"
         | "use_posthog_mcp"
         | "use_posthog_in_slack";
     export type BIAggregation =
@@ -4711,6 +4713,15 @@ export namespace Schemas {
     export type BIQueryLimit = 100 | 1000 | 10000 | 50000;
     export type MemberAliase = { aliases: Array<Alias>; field: BIField };
     export type MissingDates = "gap" | "zero";
+    export type ReferenceLines = "pane" | "worksheet";
+    export type BIPaneSettings = {
+        /**
+         * Ordered dimension IDs used to split returned groups into separate charts.
+         */
+        fields: Array<string>;
+        independentAxes?: (boolean | null) | undefined;
+        referenceLines?: (ReferenceLines | null) | undefined;
+    };
     export type Operator2 =
         | "equals"
         | "not_equals"
@@ -4784,6 +4795,7 @@ export namespace Schemas {
         tableCalculation?: (BITableCalculation | null) | undefined;
     };
     export type BIConfig = {
+        catalogMetric?: (string | null) | undefined;
         chartType: ChartDisplayType;
         colorBy?: (string | null) | undefined;
         columns: Array<BIField>;
@@ -4798,6 +4810,8 @@ export namespace Schemas {
         localFields?: (Array<BIField> | null) | undefined;
         memberAliases?: (Array<MemberAliase> | null) | undefined;
         missingDates?: (MissingDates | null) | undefined;
+        panes?: (BIPaneSettings | null) | undefined;
+        querySnapshot?: (HogQLQuery | null) | undefined;
         resultFilterGroup?: (BIConditionGroup | null) | undefined;
         resultFilters?: (Array<BIResultFilter> | null) | undefined;
         rowFilterGroup?: (BIConditionGroup | null) | undefined;
@@ -4867,6 +4881,7 @@ export namespace Schemas {
         xScale: XScale | null;
         xStartAtZero: boolean | null;
     }>;
+    export type ValueLabelPosition = "end" | "center";
     export type Settings = Partial<{
         display: ChartSettingsDisplay | null;
         formatting: ChartSettingsFormatting | null;
@@ -4876,6 +4891,7 @@ export namespace Schemas {
         settings?: (Settings | null) | undefined;
     };
     export type ChartSettings = Partial<{
+        barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;
         goalLines: Array<GoalLine> | null;
@@ -4898,8 +4914,14 @@ export namespace Schemas {
         showXAxisTicks: boolean | null;
         showYAxisBorder: boolean | null;
         stackBars100: boolean | null;
+        valueLabelBackground: boolean | null;
+        valueLabelFontSize: number | null;
+        valueLabelPosition: ValueLabelPosition | null;
+        valueLabelRotation: number | null;
         xAxis: ChartAxis | null;
+        xAxisDateFormat: string | null;
         xAxisLabel: string | null;
+        xAxisTickRotation: number | null;
         yAxis: Array<ChartAxis> | null;
         yAxisAtZero: boolean | null;
     }>;
@@ -6213,16 +6235,6 @@ export namespace Schemas {
         | "duplicate"
         | "unlisted";
     /**
-     * * `21` - Everyone in the project can edit
-     * * `37` - Only those invited to this dashboard can edit
-     */
-    export type RestrictionLevelEnum = 21 | 37;
-    /**
-     * * `21` - Can view dashboard
-     * * `37` - Can edit dashboard
-     */
-    export type PrivilegeLevelEnum = 21 | 37;
-    /**
      * * `tight` - tight
      * * `condensed` - condensed
      * * `standard` - standard
@@ -6300,16 +6312,9 @@ export namespace Schemas {
          */
         tags?: Array<unknown> | undefined;
         /**
-         * Serializer mixin that handles tags for objects.
-         */
-        restriction_level?: RestrictionLevelEnum | undefined;
-        effective_restriction_level: RestrictionLevelEnum & unknown;
-        effective_privilege_level: PrivilegeLevelEnum & unknown;
-        /**
          * The effective access level the user has for this object
          */
         user_access_level: string | null;
-        access_control_version: string;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -6363,6 +6368,33 @@ export namespace Schemas {
         scope?: (MetricsAttributeScope | null) | undefined;
         value: string;
     };
+    export type MetricsDashboardVariableSelection = {
+        all?: (boolean | null) | undefined;
+        /**
+         * The selected values. Empty when `all` is true: All stands for every option of the variable.
+         */
+        values: Array<string>;
+    };
+    export type MetricsDashboardVariableSource =
+        | "custom"
+        | "promql"
+        | "sql"
+        | "textbox";
+    export type MetricsDashboardVariable = {
+        allValue?: (string | null) | undefined;
+        current?: (MetricsDashboardVariableSelection | null) | undefined;
+        customValues?: (Array<string> | null) | undefined;
+        includeAll?: (boolean | null) | undefined;
+        label?: (string | null) | undefined;
+        multi?: (boolean | null) | undefined;
+        /**
+         * Letters, digits and underscores. Tiles refer to it as `$name`.
+         */
+        name: string;
+        query?: (string | null) | undefined;
+        regex?: (string | null) | undefined;
+        source: MetricsDashboardVariableSource;
+    };
     export type DashboardFilter = Partial<{
         breakdown_filter: BreakdownFilter | null;
         compareFilter: CompareFilter | null;
@@ -6372,6 +6404,7 @@ export namespace Schemas {
         filterTestAccounts: boolean | null;
         interval: IntervalType | null;
         metricFilters: Array<MetricsQueryFilter> | null;
+        metricVariables: Array<MetricsDashboardVariable> | null;
         properties: Array<
             | EventPropertyFilter
             | PersonPropertyFilter
@@ -6513,6 +6546,13 @@ export namespace Schemas {
         eventName: string | null;
         properties: Array<ActivityEventsPropertyFilter> | null;
     }>;
+    export type ErrorTrackingOrderBy =
+        | "last_seen"
+        | "first_seen"
+        | "occurrences"
+        | "users"
+        | "sessions"
+        | "severity";
     export type WidgetAssigneeFilter = {
         id: string | number;
         type: "user" | "role";
@@ -6522,12 +6562,7 @@ export namespace Schemas {
         filterTestAccounts: boolean | null;
         widgetFilters: Record<string, WidgetFilterEntry> | null;
         limit: number;
-        orderBy:
-            | "last_seen"
-            | "first_seen"
-            | "occurrences"
-            | "users"
-            | "sessions";
+        orderBy: ErrorTrackingOrderBy;
         orderDirection: "ASC" | "DESC";
         status:
             | "archived"
@@ -6628,115 +6663,6 @@ export namespace Schemas {
         dashboard_id: number;
         deleted?: (boolean | null) | undefined;
     };
-    /**
-     * Serializer mixin that handles tags for objects.
-     */
-    export type DashboardWriteOpenApi = {
-        id: number;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        name?: (string | null) | undefined;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        description?: string | undefined;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        pinned?: boolean | undefined;
-        created_at: string;
-        created_by: UserBasic & unknown;
-        last_accessed_at: string | null;
-        last_viewed_at: string | null;
-        /**
-         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
-         */
-        folder: string | null;
-        /**
-         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
-         */
-        file_system_id: string | null;
-        /**
-         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
-         */
-        file_system_path: string | null;
-        is_shared: boolean;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        deleted?: boolean | undefined;
-        creation_mode: DashboardCreationModeEnum & unknown;
-        filters: Record<string, unknown>;
-        variables: Record<string, unknown> | null;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        breakdown_colors?: (Array<BreakdownColorConfig> | null) | undefined;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        data_color_theme_id?: (number | null) | undefined;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        tags?: Array<unknown> | undefined;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        restriction_level?: number | undefined;
-        effective_restriction_level: RestrictionLevelEnum & unknown;
-        effective_privilege_level: PrivilegeLevelEnum & unknown;
-        /**
-         * The effective access level the user has for this object
-         */
-        user_access_level: string | null;
-        access_control_version: string;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        last_refresh?: (string | null) | undefined;
-        persisted_filters: Record<string, unknown> | null;
-        persisted_variables: Record<string, unknown> | null;
-        team_id: number;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        quick_filter_ids?: (Array<string> | null) | undefined;
-        /**
-         * Dashboard display settings.
-         */
-        customization: DashboardCustomization & unknown;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        grid_spacing?: (TileSpacingEnum & unknown) | undefined;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        group_titles?: (Record<string, string> | null) | undefined;
-        tiles: Array<Record<string, unknown>> | null;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        use_template?: string | undefined;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        use_dashboard?: (number | null) | undefined;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        delete_insights?: boolean | undefined;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        _create_in_folder?: string | undefined;
-    };
     export type DataTableNodeViewPropsContextType =
         | "event_definition"
         | "team_columns";
@@ -6833,6 +6759,7 @@ export namespace Schemas {
     };
     export type Response3 = {
         clickhouse?: (string | null) | undefined;
+        column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         explain?: (Array<string> | null) | undefined;
@@ -7333,33 +7260,6 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response16 = {
-        credible_intervals: Record<string, Array<number>>;
-        expected_loss: number;
-        funnels_query?: (FunnelsQuery | null) | undefined;
-        insight: Array<Array<Record<string, unknown>>>;
-        kind?: string | undefined;
-        probability: Record<string, number>;
-        significance_code: ExperimentSignificanceCode;
-        significant: boolean;
-        stats_version?: (number | null) | undefined;
-        variants: Array<ExperimentVariantFunnelsBaseStats>;
-        warnings?: (Array<DataWarehouseSyncWarning> | null) | undefined;
-    };
-    export type Response17 = {
-        count_query?: (TrendsQuery | null) | undefined;
-        credible_intervals: Record<string, Array<number>>;
-        exposure_query?: (TrendsQuery | null) | undefined;
-        insight: Array<Record<string, unknown>>;
-        kind?: string | undefined;
-        p_value: number;
-        probability: Record<string, number>;
-        significance_code: ExperimentSignificanceCode;
-        significant: boolean;
-        stats_version?: (number | null) | undefined;
-        variants: Array<ExperimentVariantTrendsBaseStats>;
-        warnings?: (Array<DataWarehouseSyncWarning> | null) | undefined;
-    };
     export type LLMSentimentMessage = {
         label: string;
         score: number;
@@ -7408,7 +7308,7 @@ export namespace Schemas {
         traceName?: (string | null) | undefined;
         webSearchCost?: (number | null) | undefined;
     };
-    export type Response18 = {
+    export type Response16 = {
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7432,7 +7332,7 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response20 = {
+    export type Response18 = {
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7457,7 +7357,7 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response21 = {
+    export type Response19 = {
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7487,7 +7387,7 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response22 = {
+    export type Response20 = {
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -8460,13 +8360,6 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
-    export type ErrorTrackingOrderBy =
-        | "last_seen"
-        | "first_seen"
-        | "occurrences"
-        | "users"
-        | "sessions"
-        | "severity";
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
@@ -8579,58 +8472,6 @@ export namespace Schemas {
             | (ErrorTrackingIssueCorrelationQueryResponse | null)
             | undefined;
         tags?: (QueryLogTags | null) | undefined;
-        version?: (number | null) | undefined;
-    };
-    export type ExperimentFunnelsQueryResponse = {
-        credible_intervals: Record<string, Array<number>>;
-        expected_loss: number;
-        funnels_query?: (FunnelsQuery | null) | undefined;
-        insight: Array<Array<Record<string, unknown>>>;
-        kind?: string | undefined;
-        probability: Record<string, number>;
-        significance_code: ExperimentSignificanceCode;
-        significant: boolean;
-        stats_version?: (number | null) | undefined;
-        variants: Array<ExperimentVariantFunnelsBaseStats>;
-        warnings?: (Array<DataWarehouseSyncWarning> | null) | undefined;
-    };
-    export type ExperimentFunnelsQuery = {
-        experiment_id?: (number | null) | undefined;
-        fingerprint?: (string | null) | undefined;
-        funnels_query: FunnelsQuery;
-        kind?: string | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        name?: (string | null) | undefined;
-        response?: (ExperimentFunnelsQueryResponse | null) | undefined;
-        tags?: (QueryLogTags | null) | undefined;
-        uuid?: (string | null) | undefined;
-        version?: (number | null) | undefined;
-    };
-    export type ExperimentTrendsQueryResponse = {
-        count_query?: (TrendsQuery | null) | undefined;
-        credible_intervals: Record<string, Array<number>>;
-        exposure_query?: (TrendsQuery | null) | undefined;
-        insight: Array<Record<string, unknown>>;
-        kind?: string | undefined;
-        p_value: number;
-        probability: Record<string, number>;
-        significance_code: ExperimentSignificanceCode;
-        significant: boolean;
-        stats_version?: (number | null) | undefined;
-        variants: Array<ExperimentVariantTrendsBaseStats>;
-        warnings?: (Array<DataWarehouseSyncWarning> | null) | undefined;
-    };
-    export type ExperimentTrendsQuery = {
-        count_query: TrendsQuery;
-        experiment_id?: (number | null) | undefined;
-        exposure_query?: (TrendsQuery | null) | undefined;
-        fingerprint?: (string | null) | undefined;
-        kind?: string | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        name?: (string | null) | undefined;
-        response?: (ExperimentTrendsQueryResponse | null) | undefined;
-        tags?: (QueryLogTags | null) | undefined;
-        uuid?: (string | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type TracesQueryResponse = {
@@ -8889,11 +8730,9 @@ export namespace Schemas {
                   | Response14
                   | Response15
                   | Response16
-                  | Response17
                   | Response18
+                  | Response19
                   | Response20
-                  | Response21
-                  | Response22
                   | null
               )
             | undefined;
@@ -8945,8 +8784,6 @@ export namespace Schemas {
             | MarketingAnalyticsAggregatedQuery
             | ErrorTrackingQuery
             | ErrorTrackingIssueCorrelationQuery
-            | ExperimentFunnelsQuery
-            | ExperimentTrendsQuery
             | TracesQuery
             | TraceQuery
             | SessionQuery
@@ -9195,7 +9032,6 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `system_one` - System One
      * * `openai_compatible` - OpenAI-compatible
      */
@@ -9208,7 +9044,6 @@ export namespace Schemas {
         | "azure_openai"
         | "together_ai"
         | "minimax"
-        | "zeabur"
         | "system_one"
         | "openai_compatible";
     /**
@@ -9985,11 +9820,15 @@ export namespace Schemas {
      * * `flag_live_after_end` - Flag Live After End
      * * `flag_live_before_launch` - Flag Live Before Launch
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9997,11 +9836,15 @@ export namespace Schemas {
         | "flag_live_after_end"
         | "flag_live_before_launch"
         | "bias_risk_multiple_excluded"
+        | "multiple_variants_share"
         | "no_metric"
         | "srm"
         | "zero_exposures"
         | "forced_variant_release_condition"
-        | "flag_variants_mismatch";
+        | "flag_variants_mismatch"
+        | "split_changed_mid_run"
+        | "bucketing_changed_mid_run"
+        | "release_conditions_changed_mid_run";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10013,6 +9856,7 @@ export namespace Schemas {
         | "info";
     /**
      * * `open_feature_flag` - Open Feature Flag
+     * * `open_feature_flag_history` - Open Feature Flag History
      * * `adjust_distribution` - Adjust Distribution
      * * `use_first_seen_variant` - Use First Seen Variant
      * * `add_primary_metric` - Add Primary Metric
@@ -10022,6 +9866,7 @@ export namespace Schemas {
      */
     export type ExperimentHealthFindingActionKindEnum =
         | "open_feature_flag"
+        | "open_feature_flag_history"
         | "adjust_distribution"
         | "use_first_seen_variant"
         | "add_primary_metric"
@@ -10037,11 +9882,15 @@ export namespace Schemas {
          * * `flag_live_after_end` - Flag Live After End
          * * `flag_live_before_launch` - Flag Live Before Launch
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
+         * * `split_changed_mid_run` - Split Changed Mid Run
+         * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+         * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10067,7 +9916,7 @@ export namespace Schemas {
         /**
          * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
          */
-        evidence: Record<string, string | number | null>;
+        evidence: Record<string, string | number | boolean | null>;
         /**
          * The actions that fix the problem, in order of preference, for example 'open_feature_flag' or 'add_primary_metric'.
          */
@@ -10416,7 +10265,8 @@ export namespace Schemas {
     export type ExperimentExposureHealthFindingCode =
         | "zero_exposures"
         | "srm"
-        | "bias_risk_multiple_excluded";
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
@@ -11001,6 +10851,7 @@ export namespace Schemas {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -11038,6 +10889,7 @@ export namespace Schemas {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -11047,6 +10899,7 @@ export namespace Schemas {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -11091,6 +10944,7 @@ export namespace Schemas {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -11160,6 +11014,8 @@ export namespace Schemas {
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -11686,6 +11542,7 @@ export namespace Schemas {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -11916,6 +11773,7 @@ export namespace Schemas {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -12066,6 +11924,7 @@ export namespace Schemas {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -12285,6 +12144,7 @@ export namespace Schemas {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -12345,6 +12205,15 @@ export namespace Schemas {
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
      * * `Northbeam` - Northbeam
+     * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12385,6 +12254,7 @@ export namespace Schemas {
         | "Attio"
         | "SnapchatAds"
         | "Linear"
+        | "LiteLLM"
         | "Intercom"
         | "Amplitude"
         | "Mixpanel"
@@ -12422,6 +12292,7 @@ export namespace Schemas {
         | "Square"
         | "Zoom"
         | "Trello"
+        | "TrafficStars"
         | "Monday"
         | "ClickUp"
         | "Confluence"
@@ -12431,6 +12302,7 @@ export namespace Schemas {
         | "Gong"
         | "Calendly"
         | "Typeform"
+        | "UnityAds"
         | "Iterable"
         | "ZohoCRM"
         | "Close"
@@ -12475,6 +12347,7 @@ export namespace Schemas {
         | "Plaid"
         | "SurveyMonkey"
         | "Eventbrite"
+        | "Everflow"
         | "RingCentral"
         | "Twilio"
         | "Freshsales"
@@ -12544,6 +12417,8 @@ export namespace Schemas {
         | "CosmosDB"
         | "PlanetScaleMySQL"
         | "PlanetScalePostgres"
+        | "Plane"
+        | "Scarf"
         | "SapHana"
         | "Rippling"
         | "HiBob"
@@ -13070,6 +12945,7 @@ export namespace Schemas {
         | "LambdaLabs"
         | "LangSmith"
         | "Linode"
+        | "Listmonk"
         | "LlamaCloud"
         | "Mem0"
         | "Metriport"
@@ -13300,6 +13176,7 @@ export namespace Schemas {
         | "BlackboardLearn"
         | "Bling"
         | "Bloomerang"
+        | "Blueshift"
         | "Bluesky"
         | "BolRetailer"
         | "Boulevard"
@@ -13450,6 +13327,7 @@ export namespace Schemas {
         | "LoopReturns"
         | "Mastodon"
         | "Meetup"
+        | "Megaphone"
         | "Memberful"
         | "MercadoPago"
         | "Meteostat"
@@ -13669,6 +13547,7 @@ export namespace Schemas {
         | "SimonData"
         | "CommissionJunction"
         | "Liveblocks"
+        | "Livestorm"
         | "NationBuilder"
         | "Tana"
         | "Zenchef"
@@ -13728,7 +13607,16 @@ export namespace Schemas {
         | "RainforestPay"
         | "Wise"
         | "LaravelCloud"
-        | "Northbeam";
+        | "Northbeam"
+        | "NaverAds"
+        | "ChannelIO"
+        | "Airship"
+        | "Creem"
+        | "Leantime"
+        | "Testomatio"
+        | "GoogleAdMob"
+        | "Klar"
+        | "ConectoCRM";
     /**
      * * `web` - web
      * * `api` - api
@@ -13777,6 +13665,7 @@ export namespace Schemas {
          * * `Attio` - Attio
          * * `SnapchatAds` - SnapchatAds
          * * `Linear` - Linear
+         * * `LiteLLM` - LiteLLM
          * * `Intercom` - Intercom
          * * `Amplitude` - Amplitude
          * * `Mixpanel` - Mixpanel
@@ -13814,6 +13703,7 @@ export namespace Schemas {
          * * `Square` - Square
          * * `Zoom` - Zoom
          * * `Trello` - Trello
+         * * `TrafficStars` - TrafficStars
          * * `Monday` - Monday
          * * `ClickUp` - ClickUp
          * * `Confluence` - Confluence
@@ -13823,6 +13713,7 @@ export namespace Schemas {
          * * `Gong` - Gong
          * * `Calendly` - Calendly
          * * `Typeform` - Typeform
+         * * `UnityAds` - UnityAds
          * * `Iterable` - Iterable
          * * `ZohoCRM` - ZohoCRM
          * * `Close` - Close
@@ -13867,6 +13758,7 @@ export namespace Schemas {
          * * `Plaid` - Plaid
          * * `SurveyMonkey` - SurveyMonkey
          * * `Eventbrite` - Eventbrite
+         * * `Everflow` - Everflow
          * * `RingCentral` - RingCentral
          * * `Twilio` - Twilio
          * * `Freshsales` - Freshsales
@@ -13936,6 +13828,8 @@ export namespace Schemas {
          * * `CosmosDB` - CosmosDB
          * * `PlanetScaleMySQL` - PlanetScaleMySQL
          * * `PlanetScalePostgres` - PlanetScalePostgres
+         * * `Plane` - Plane
+         * * `Scarf` - Scarf
          * * `SapHana` - SapHana
          * * `Rippling` - Rippling
          * * `HiBob` - HiBob
@@ -14462,6 +14356,7 @@ export namespace Schemas {
          * * `LambdaLabs` - LambdaLabs
          * * `LangSmith` - LangSmith
          * * `Linode` - Linode
+         * * `Listmonk` - Listmonk
          * * `LlamaCloud` - LlamaCloud
          * * `Mem0` - Mem0
          * * `Metriport` - Metriport
@@ -14692,6 +14587,7 @@ export namespace Schemas {
          * * `BlackboardLearn` - BlackboardLearn
          * * `Bling` - Bling
          * * `Bloomerang` - Bloomerang
+         * * `Blueshift` - Blueshift
          * * `Bluesky` - Bluesky
          * * `BolRetailer` - BolRetailer
          * * `Boulevard` - Boulevard
@@ -14842,6 +14738,7 @@ export namespace Schemas {
          * * `LoopReturns` - LoopReturns
          * * `Mastodon` - Mastodon
          * * `Meetup` - Meetup
+         * * `Megaphone` - Megaphone
          * * `Memberful` - Memberful
          * * `MercadoPago` - MercadoPago
          * * `Meteostat` - Meteostat
@@ -15061,6 +14958,7 @@ export namespace Schemas {
          * * `SimonData` - SimonData
          * * `CommissionJunction` - CommissionJunction
          * * `Liveblocks` - Liveblocks
+         * * `Livestorm` - Livestorm
          * * `NationBuilder` - NationBuilder
          * * `Tana` - Tana
          * * `Zenchef` - Zenchef
@@ -15121,6 +15019,15 @@ export namespace Schemas {
          * * `Wise` - Wise
          * * `LaravelCloud` - LaravelCloud
          * * `Northbeam` - Northbeam
+         * * `NaverAds` - NaverAds
+         * * `ChannelIO` - ChannelIO
+         * * `Airship` - Airship
+         * * `Creem` - Creem
+         * * `Leantime` - Leantime
+         * * `Testomatio` - Testomatio
+         * * `GoogleAdMob` - GoogleAdMob
+         * * `Klar` - Klar
+         * * `ConectoCRM` - ConectoCRM
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15468,8 +15375,12 @@ export namespace Schemas {
     /**
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails
      */
-    export type HogFlowOriginProductEnum = "loops" | "broadcasts";
+    export type HogFlowOriginProductEnum =
+        | "loops"
+        | "broadcasts"
+        | "transactional_emails";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -15892,6 +15803,7 @@ export namespace Schemas {
          *
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
+         * * `transactional_emails` - Transactional emails
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -16175,8 +16087,6 @@ export namespace Schemas {
         last_modified_at: string;
         last_modified_by: UserBasic & unknown;
         is_sample: boolean;
-        effective_restriction_level: RestrictionLevelEnum & unknown;
-        effective_privilege_level: PrivilegeLevelEnum & unknown;
         /**
          * The effective access level the user has for this object
          */
@@ -19393,8 +19303,6 @@ export namespace Schemas {
         last_modified_at: string;
         last_modified_by: UserBasic & unknown;
         is_sample: boolean;
-        effective_restriction_level: RestrictionLevelEnum & unknown;
-        effective_privilege_level: PrivilegeLevelEnum & unknown;
         user_access_level: string | null;
         timezone: string | null;
         is_cached: boolean;
@@ -19427,7 +19335,6 @@ export namespace Schemas {
         breakdown_colors: Array<BreakdownColorConfig> | null;
         data_color_theme_id: number | null;
         tags: Array<string>;
-        restriction_level: number;
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
@@ -19976,6 +19883,8 @@ export namespace Schemas {
         email_tracking_consent_mode: EmailTrackingConsentModeEnum;
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
+        replay_vision_scan_rate_limit_per_day: number | null;
+        replay_vision_scan_team_rate_limit_per_day: number | null;
         default_email_integration_id: number | null;
         marketing_frequency_cap_max_messages: number | null;
         marketing_frequency_cap_window_days: number | null;
@@ -19999,6 +19908,13 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         name?: string | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        logo_media_id?: (string | null) | undefined;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
@@ -21909,7 +21825,7 @@ export namespace Endpoints {
             }>;
             path: { id: number; project_id: string };
 
-            body: Schemas.DashboardWriteOpenApi;
+            body: Schemas.Dashboard;
         };
         responses: { 200: Schemas.Dashboard };
     };
@@ -22368,7 +22284,7 @@ export namespace Endpoints {
                 limit: number;
                 offset: number;
                 optimization_enabled: boolean;
-                origin_product: "broadcasts" | "loops";
+                origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
                 status: "active" | "archived" | "draft";
                 trigger: string;

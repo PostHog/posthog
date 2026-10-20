@@ -16,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_f
     CONTENT_TYPE,
     ENDPOINTS,
     ERROR_MESSAGES,
+    MACHINE_CHILD_ENDPOINTS,
+    MAP_RUN_ENDPOINTS,
     PAGE_SIZE,
+    PROBE_PARENT_LIMIT,
     TARGET_PREFIXES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -47,6 +50,15 @@ class AwsStepFunctionsResumeConfig:
     execution_arns: list[str] = field(default_factory=list)
     executions_done: bool = False
     history_token: str | None = None
+    child_token: str | None = None
+    children_done: bool = False
+    alias_arns: list[str] = field(default_factory=list)
+    map_run_token: str | None = None
+    map_run_arns: list[str] = field(default_factory=list)
+    map_runs_done: bool = False
+    map_run_execution_token: str | None = None
+    activity_token: str | None = None
+    activities_done: bool = False
 
 
 class AwsStepFunctionsClient:
@@ -133,13 +145,22 @@ class AwsStepFunctionsClient:
             payload["nextToken"] = token
         return self.request(ENDPOINTS[endpoint].operation, payload)
 
+    def describe(self, operation: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        # A resource listed earlier in the walk can be deleted before its describe call.
+        try:
+            return self.request(operation, payload)
+        except AwsStepFunctionsError as error:
+            if error.code == "ResourceNotFound":
+                return None
+            raise
+
     def close(self) -> None:
         self.session.close()
 
 
 def normalize_row(item: dict[str, Any]) -> dict[str, Any]:
     row = {re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key).lower(): value for key, value in item.items()}
-    for key in ("creation_date", "start_date", "stop_date", "redrive_date", "timestamp"):
+    for key in ("creation_date", "update_date", "start_date", "stop_date", "redrive_date", "timestamp"):
         value = row.get(key)
         if isinstance(value, int | float) and not isinstance(value, bool):
             row[key] = datetime.fromtimestamp(value, tz=UTC)
@@ -155,7 +176,13 @@ def get_rows(
     state = state or AwsStepFunctionsResumeConfig()
     while True:
         rows: list[dict[str, Any]] = []
-        if not state.machine_arns:
+        if endpoint == "activities":
+            if state.activities_done:
+                break
+            page = client.page("activities", state.activity_token)
+            rows = [normalize_row(item) for item in page["activities"]]
+            state = replace(state, activity_token=page.get("nextToken"), activities_done=not page.get("nextToken"))
+        elif not state.machine_arns:
             if state.machines_done:
                 break
             page = client.page("state_machines", state.machine_token)
@@ -164,8 +191,56 @@ def get_rows(
             if endpoint == "state_machines":
                 rows = [normalize_row(item) for item in machines]
             else:
+                # Versions and aliases exist for Express machines too; only Standard executions can be listed.
                 state = replace(
-                    state, machine_arns=[item["stateMachineArn"] for item in machines if item["type"] == "STANDARD"]
+                    state,
+                    machine_arns=[
+                        item["stateMachineArn"]
+                        for item in machines
+                        if endpoint in MACHINE_CHILD_ENDPOINTS or item["type"] == "STANDARD"
+                    ],
+                )
+        elif endpoint in MACHINE_CHILD_ENDPOINTS:
+            machine_arn = state.machine_arns[0]
+            if state.alias_arns:
+                alias = client.describe("DescribeStateMachineAlias", {"stateMachineAliasArn": state.alias_arns[0]})
+                rows = [normalize_row({**alias, "stateMachineArn": machine_arn})] if alias else []
+                state = replace(state, alias_arns=state.alias_arns[1:])
+            elif state.children_done:
+                state = replace(state, machine_arns=state.machine_arns[1:], child_token=None, children_done=False)
+            else:
+                page = client.page(endpoint, state.child_token, stateMachineArn=machine_arn)
+                items = page[ENDPOINTS[endpoint].result_key]
+                state = replace(state, child_token=page.get("nextToken"), children_done=not page.get("nextToken"))
+                if endpoint == "state_machine_versions":
+                    rows = [normalize_row({**item, "stateMachineArn": machine_arn}) for item in items]
+                else:
+                    state = replace(state, alias_arns=[item["stateMachineAliasArn"] for item in items])
+        elif state.execution_arns and endpoint in MAP_RUN_ENDPOINTS:
+            if state.map_run_arns:
+                map_run_arn = state.map_run_arns[0]
+                if endpoint == "map_runs":
+                    map_run = client.describe("DescribeMapRun", {"mapRunArn": map_run_arn})
+                    rows = [normalize_row({**map_run, "stateMachineArn": state.machine_arns[0]})] if map_run else []
+                    state = replace(state, map_run_arns=state.map_run_arns[1:])
+                else:
+                    page = client.page("map_run_executions", state.map_run_execution_token, mapRunArn=map_run_arn)
+                    rows = [normalize_row({**item, "mapRunArn": map_run_arn}) for item in page["executions"]]
+                    token = page.get("nextToken")
+                    state = replace(
+                        state,
+                        map_run_execution_token=token,
+                        map_run_arns=state.map_run_arns if token else state.map_run_arns[1:],
+                    )
+            elif state.map_runs_done:
+                state = replace(state, execution_arns=state.execution_arns[1:], map_run_token=None, map_runs_done=False)
+            else:
+                page = client.page("map_runs", state.map_run_token, executionArn=state.execution_arns[0])
+                state = replace(
+                    state,
+                    map_run_token=page.get("nextToken"),
+                    map_runs_done=not page.get("nextToken"),
+                    map_run_arns=[item["mapRunArn"] for item in page["mapRuns"]],
                 )
         elif state.execution_arns:
             execution_arn = state.execution_arns[0]
@@ -226,12 +301,48 @@ def aws_step_functions_source(
     )
 
 
+def probe_machine_children(client: AwsStepFunctionsClient, schema_name: str, machine_arn: str) -> bool:
+    page = client.request(ENDPOINTS[schema_name].operation, {"stateMachineArn": machine_arn, "maxResults": 1})
+    if schema_name == "state_machine_versions":
+        return True
+    if not page["stateMachineAliases"]:
+        return False
+    client.describe(
+        "DescribeStateMachineAlias", {"stateMachineAliasArn": page["stateMachineAliases"][0]["stateMachineAliasArn"]}
+    )
+    return True
+
+
+def probe_map_runs(client: AwsStepFunctionsClient, schema_name: str, execution_arn: str) -> bool:
+    page = client.request("ListMapRuns", {"executionArn": execution_arn, "maxResults": 1})
+    if not page["mapRuns"]:
+        return False
+    map_run_arn = page["mapRuns"][0]["mapRunArn"]
+    if schema_name == "map_runs":
+        client.describe("DescribeMapRun", {"mapRunArn": map_run_arn})
+    else:
+        client.request("ListExecutions", {"mapRunArn": map_run_arn, "maxResults": 1})
+    return True
+
+
 def probe(client: AwsStepFunctionsClient, schema_name: str | None) -> None:
+    if schema_name == "activities":
+        client.request("ListActivities", {"maxResults": 1})
+        return
     page = client.request("ListStateMachines", {"maxResults": 1})
     if schema_name is None or schema_name == "state_machines":
         return
+    parents_checked = 0
     while True:
         for machine in page["stateMachines"]:
+            if schema_name in MACHINE_CHILD_ENDPOINTS:
+                parents_checked += 1
+                if (
+                    probe_machine_children(client, schema_name, machine["stateMachineArn"])
+                    or parents_checked >= PROBE_PARENT_LIMIT
+                ):
+                    return
+                continue
             if machine["type"] != "STANDARD":
                 continue
             executions = client.request(
@@ -241,16 +352,22 @@ def probe(client: AwsStepFunctionsClient, schema_name: str | None) -> None:
                 return
             while True:
                 if executions["executions"]:
-                    client.request(
-                        "GetExecutionHistory",
-                        {
-                            "executionArn": executions["executions"][0]["executionArn"],
-                            "maxResults": 1,
-                            "includeExecutionData": False,
-                            "reverseOrder": False,
-                        },
-                    )
-                    return
+                    execution_arn = executions["executions"][0]["executionArn"]
+                    if schema_name in MAP_RUN_ENDPOINTS:
+                        parents_checked += 1
+                        if probe_map_runs(client, schema_name, execution_arn) or parents_checked >= PROBE_PARENT_LIMIT:
+                            return
+                    else:
+                        client.request(
+                            "GetExecutionHistory",
+                            {
+                                "executionArn": execution_arn,
+                                "maxResults": 1,
+                                "includeExecutionData": False,
+                                "reverseOrder": False,
+                            },
+                        )
+                        return
                 if not executions.get("nextToken"):
                     break
                 executions = client.request(

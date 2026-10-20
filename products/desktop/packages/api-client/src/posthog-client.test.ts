@@ -718,6 +718,34 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  it.each([
+    {
+      sources: ["posthog_desktop", "slack"],
+      sent: ["posthog_desktop", "slack"],
+    },
+    { sources: [], sent: [] },
+  ])("sends task list sources $sources as $sent", async ({ sources, sent }) => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ results: [], count: 0 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await client.getTasksPage({ sources });
+
+    const url = fetch.mock.calls[0][0] as URL;
+    expect(url.pathname).toBe("/api/projects/42/tasks/");
+    expect(url.searchParams.getAll("sources")).toEqual(sent);
+  });
+
   it("fetches later task pages before reporting complete results", async () => {
     const client = new PostHogAPIClient(
       "https://app.posthog.test",

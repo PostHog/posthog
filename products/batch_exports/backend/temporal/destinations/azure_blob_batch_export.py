@@ -22,7 +22,8 @@ from products.batch_exports.backend.service import (
     AzureBlobBatchExportInputs,
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
+    BatchExportModelInput,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -142,20 +143,21 @@ class AzureBlobConsumer(Consumer):
         prefix: str,
         data_interval_start: str | None,
         data_interval_end: str,
-        batch_export_model: BatchExportModel | None,
+        batch_export_model: BatchExportModelInput | None,
         file_format: str,
         compression: str | None = None,
         max_file_size_mb: int | None = None,
         max_concurrency: int = 5,
         legacy_parquet_extension: bool = True,
     ):
-        super().__init__(model=batch_export_model.name if batch_export_model else "events")
+        model = migrate_batch_export_model(batch_export_model)
+        super().__init__(model=model.name)
 
         self.container_client = container_client
         self.prefix = prefix
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
-        self.batch_export_model = batch_export_model
+        self.batch_export_model = model
         self.file_format = file_format
         self.compression = compression
         self.max_file_size_mb = max_file_size_mb
