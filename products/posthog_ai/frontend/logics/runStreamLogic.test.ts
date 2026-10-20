@@ -6622,7 +6622,7 @@ describe('runStreamLogic', () => {
                 await flushPromises()
 
                 expect(logic.values.pendingPermissionRequest?.requestId).toEqual(actionable ? 'req-1' : undefined)
-                expect(captureSpy).not.toHaveBeenCalledWith('permission_requested', expect.anything())
+                expect(captureSpy).not.toHaveBeenCalled()
                 logic.actions.respondToPermission({ requestId: 'req-1', optionId: 'allow_once' })
                 await flushPromises()
                 expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(actionable ? 1 : 0)
@@ -6713,7 +6713,7 @@ describe('runStreamLogic', () => {
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
-            expect(logsSpy).toHaveBeenCalledTimes(1)
+            expect(logsSpy).not.toHaveBeenCalled()
             if (historyFirst) {
                 resolveLogs(history)
             } else {
@@ -6732,7 +6732,6 @@ describe('runStreamLogic', () => {
                 expect(options.startLatest).toBe(false)
             }
             expect(MockStream.connections).toHaveLength(1)
-            expect(logsSpy).toHaveBeenCalledTimes(1)
             expect(
                 logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
             ).toEqual(['Checking the layout.'])

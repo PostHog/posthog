@@ -11394,16 +11394,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         with (
             self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
-            patch(
-                "products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True
-            ) as feature_enabled,
+            patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True),
         ):
             response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
-        proxy_flag_calls = [c for c in feature_enabled.call_args_list if c.args[0] == "tasks-stream-via-proxy"]
-        self.assertEqual([c.kwargs["only_evaluate_locally"] for c in proxy_flag_calls], [True])
 
     @parameterized.expand(
         [

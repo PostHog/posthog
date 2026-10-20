@@ -5518,7 +5518,7 @@ def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, fo
                 distinct_id=distinct_id,
                 groups={"organization": str(organization_id)},
                 group_properties={"organization": {"id": str(organization_id)}},
-                only_evaluate_locally=True,
+                only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
         )

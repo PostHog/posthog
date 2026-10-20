@@ -160,7 +160,6 @@ function TaskRunChatContent({
             runId={logicProps.runId}
             streamKey={logicProps.streamKey}
             interaction="live"
-            retainAfterUnmount
         >
             <RunEscapeBoundary
                 scope={escapeScope}
