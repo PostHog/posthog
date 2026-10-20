@@ -53,7 +53,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     set_logger_provider(logger_provider)
 
                                     exporter = OTLPLogExporter(
-                                        endpoint="<ph_client_api_host>/otlp/v1/logs",
+                                        endpoint="<ph_client_api_host>/i/v1/logs",
                                         headers={"Authorization": "Bearer <ph_project_token>"},
                                     )
                                     logger_provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
