@@ -303,7 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map(|address| format!("http://{address}"))
             }),
             LeaderBackendConfig {
-                changelog,
+                changelog: changelog.clone(),
                 timeout: config.backend_timeout(),
                 num_channels: config.leader_channels,
                 http2_windows: config.backend_http2_windows(),
@@ -311,6 +311,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
                 config.stash_max_bytes_per_partition,
+                changelog.clone(),
             ),
         ));
 
