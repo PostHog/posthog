@@ -62,7 +62,7 @@ from posthog.models.person.bulk_delete import (
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.divergence.repairs import is_retryable, repair_distinct_id
+from posthog.models.person.divergence.repairs import is_person_busy, is_retryable, repair_distinct_id
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
@@ -1755,6 +1755,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={
             202: OpenApiResponse(description="The fix was applied, or nothing needed fixing."),
             409: OpenApiResponse(description="The person is being updated by another operation. Try again shortly."),
+            503: OpenApiResponse(description="Person data is temporarily unavailable. Try again shortly."),
         },
     )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
@@ -1768,13 +1769,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
             )
         except Exception as error:
-            # A merge or delete of the person holds it for a moment; the request rolled back and can be sent again.
-            if not is_retryable(error):
-                raise
-            return response.Response(
-                {"detail": "This person is being updated right now. Try again in a few seconds."},
-                status=409,
-            )
+            if is_person_busy(error):
+                return response.Response(
+                    {"detail": "This person is being updated right now. Try again in a few seconds."},
+                    status=409,
+                )
+            if is_retryable(error):
+                return response.Response(
+                    {"detail": "Person data is temporarily unavailable. Try again in a minute."},
+                    status=503,
+                )
+            raise
         if summary is not None:
             logger.info(
                 "person_reset_distinct_id",
