@@ -68,7 +68,7 @@ export interface TodayReports {
 }
 
 export interface TodayMoreReports {
-    shownReportIds: string[]
+    exclude: string[]
     results: SignalReport[]
     count: number
     hasMore: boolean
@@ -434,20 +434,20 @@ export const todayLogic = kea<todayLogicType>([
                     if (values.currentProjectId === null) {
                         return null
                     }
-                    const shownReportIds = values.shownReportIds
+                    const exclude = values.shownReportIds
                     const loaded = values.loadedMoreReports
                     const response = await signalsReportsList(String(values.currentProjectId), {
                         ...TODAY_REPORT_LIST_PARAMS,
                         limit: MORE_REPORTS_PAGE_SIZE,
-                        offset: shownReportIds.length + loaded.length,
+                        offset: loaded.length,
+                        exclude: exclude.length > 0 ? exclude : undefined,
                     })
                     const results = [...loaded, ...(response.results as unknown as SignalReport[])]
-                    const count = Math.max(response.count - shownReportIds.length, 0)
                     return {
-                        shownReportIds,
+                        exclude,
                         results,
-                        count,
-                        hasMore: response.results.length === MORE_REPORTS_PAGE_SIZE && results.length < count,
+                        count: response.count,
+                        hasMore: response.results.length === MORE_REPORTS_PAGE_SIZE && results.length < response.count,
                     }
                 },
             },
@@ -534,9 +534,7 @@ export const todayLogic = kea<todayLogicType>([
                 shownReportIds: string[],
                 useSampleData: boolean
             ): TodayMoreReports | null =>
-                moreReports && !useSampleData && objectsEqual(moreReports.shownReportIds, shownReportIds)
-                    ? moreReports
-                    : null,
+                moreReports && !useSampleData && objectsEqual(moreReports.exclude, shownReportIds) ? moreReports : null,
         ],
         loadedMoreReports: [
             (s) => [s.currentMoreReports],
