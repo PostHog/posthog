@@ -316,13 +316,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             "iam.serviceAccounts.getAccessToken' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
             "iam.serviceAccounts.getAccessToken\\' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
             BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX: None,
-            # Raised as a `Forbidden` (403) from every BigQuery REST/gRPC call once a VPC Service
-            # Controls perimeter in the customer's Google Cloud organization blocks the request, e.g.
-            # "VPC Service Controls: Request is prohibited by organization's policy.
-            # vpcServiceControlsUniqueIdentifier: ...". This is an org-level network policy the
-            # customer's Google Cloud admin controls — no IAM role grant can fix it, and the same
-            # perimeter blocks every retry identically. Matched on the stable "VPC Service Controls"
-            # wording rather than the volatile unique identifier.
+            # Matched on the stable wording, not the volatile vpcServiceControlsUniqueIdentifier.
             "VPC Service Controls": BIGQUERY_VPC_SERVICE_CONTROLS_ERROR,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /

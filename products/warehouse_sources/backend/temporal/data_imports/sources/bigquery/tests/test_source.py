@@ -711,8 +711,6 @@ def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
     ],
 )
 def test_non_retryable_errors_match_vpc_service_controls_denial(observed_error):
-    """A customer's VPC Service Controls perimeter blocking the request is an org-level network
-    policy decision, not something a retry or a different IAM role can get past."""
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     matching = [key for key in non_retryable_errors if key in observed_error]
     assert matching, "VPC Service Controls denial should be recognised as non-retryable"
