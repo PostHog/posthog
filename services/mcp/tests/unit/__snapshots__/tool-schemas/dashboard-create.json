@@ -93,6 +93,24 @@
             "enum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "type": "string"
         },
+        "group_titles": {
+            "anyOf": [
+                {
+                    "additionalProperties": {
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence."
+        },
         "groups": {
             "anyOf": [
                 {

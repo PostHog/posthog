@@ -27,6 +27,10 @@ GROUPS_HELP_TEXT = (
     "still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove "
     "all group settings."
 )
+GROUP_TITLES_HELP_TEXT = (
+    "Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. "
+    "Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence."
+)
 GROUP_KEY_HELP_TEXT = (
     "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. "
     "Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its "
@@ -451,6 +455,12 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     replaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.
     """
 
+    group_titles = serializers.DictField(
+        child=serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH),
+        required=False,
+        allow_null=True,
+        help_text=GROUP_TITLES_HELP_TEXT,
+    )
     name = serializers.CharField(max_length=400, required=False, allow_null=True)
     description = serializers.CharField(required=False, allow_blank=True)
     pinned = serializers.BooleanField(required=False)

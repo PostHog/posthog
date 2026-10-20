@@ -6285,6 +6285,7 @@ export namespace Schemas {
         rail: DashboardTileGroupRailEnum | NullEnum;
     }>;
     export type DashboardCustomization = Partial<{
+        group_titles: Record<string, string>;
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
         groups: Record<string, DashboardTileGroup>;
@@ -6380,6 +6381,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         groups?: (Record<string, DashboardTileGroup> | null) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_titles?: (Record<string, string> | null) | undefined;
         tiles: Array<Record<string, unknown>> | null;
         /**
          * Serializer mixin that handles tags for objects.
@@ -6792,6 +6797,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         groups?: (Record<string, DashboardTileGroup> | null) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_titles?: (Record<string, string> | null) | undefined;
         tiles: Array<Record<string, unknown>> | null;
         /**
          * Serializer mixin that handles tags for objects.
@@ -19466,6 +19475,7 @@ export namespace Schemas {
      * replaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.
      */
     export type PatchedPatchedDashboardOpenApi = Partial<{
+        group_titles: Record<string, string> | null;
         name: string | null;
         description: string;
         pinned: boolean;

@@ -1,6 +1,7 @@
 import json
 import datetime
 from collections.abc import Callable
+from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -795,6 +796,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             updated["customization"],
             {
                 "tile_spacing": "relaxed",
+                "group_titles": {"plans": "Pricing plans"},
                 "groups": {
                     "plans": {"title": "Pricing plans", "collapsed": True, "tint": False, "rail": "purple"},
                     "regions": {"collapsed": False, "tint": True, "rail": None},
@@ -805,6 +807,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"groups": {"plans": {"title": "Plans"}}})
         plans_only = {
             "tile_spacing": "relaxed",
+            "group_titles": {"plans": "Plans"},
             "groups": {"plans": {"title": "Plans", "collapsed": False, "tint": True, "rail": None}},
         }
         self.assertEqual(updated["customization"], plans_only)
@@ -814,6 +817,88 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"groups": None})
         self.assertEqual(updated["customization"], {"tile_spacing": "relaxed"})
+
+    @parameterized.expand(
+        [
+            ("replace", {" plans ": "New plans", "new": "New group"}, {"plans": "New plans", "new": "New group"}),
+            ("empty", {}, {}),
+            ("null", None, {}),
+        ]
+    )
+    def test_legacy_group_titles_preserve_group_settings(
+        self, _name: str, titles: dict[str, str] | None, expected_titles: dict[str, str]
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        settings = {"collapsed": True, "tint": False, "rail": "purple"}
+        Dashboard.objects.filter(id=dashboard_id).update(
+            customization={
+                "tile_spacing": "relaxed",
+                "group_titles": {"legacy": "Legacy title"},
+                "groups": {"plans": {"title": "Plans", **settings}, "regions": {"title": "Regions", **settings}},
+            }
+        )
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"group_titles": titles})
+
+        expected_groups = {key: dict(settings) for key in ("plans", "regions")}
+        for key, title in expected_titles.items():
+            expected_groups.setdefault(key, {"collapsed": False, "tint": True, "rail": None})["title"] = title
+        self.assertEqual(updated["customization"].get("group_titles", {}), expected_titles)
+        self.assertEqual(updated["customization"]["groups"], expected_groups)
+        self.assertEqual(
+            Dashboard.objects.get(id=dashboard_id).customization, {"tile_spacing": "relaxed", "groups": expected_groups}
+        )
+
+    @parameterized.expand(
+        [
+            ("create", False, {"group_titles": {"plans": "Plans"}}, {"plans": "Plans"}),
+            ("both", False, {"group_titles": {"old": "Old"}, "groups": {"new": {"title": "New"}}}, {"new": "New"}),
+            ("both_clear", True, {"group_titles": {"old": "Old"}, "groups": {}}, {}),
+        ]
+    )
+    def test_legacy_group_titles_writes(
+        self, _name: str, update: bool, data: dict[str, Any], expected_titles: dict[str, str]
+    ) -> None:
+        if update:
+            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+            _, response = self.dashboard_api.update_dashboard(dashboard_id, data)
+        else:
+            dashboard_id, response = self.dashboard_api.create_dashboard({"name": "dashboard", **data})
+        if expected_titles:
+            self.assertEqual(response["customization"]["group_titles"], expected_titles)
+        else:
+            self.assertNotIn("group_titles", response["customization"])
+        self.assertNotIn("group_titles", Dashboard.objects.get(id=dashboard_id).customization)
+
+    @parameterized.expand(
+        [
+            ("discard_default_settings", 100, False, 1),
+            ("preserve_settings_at_limit", 99, True, 100),
+            ("reject_above_limit", 100, True, None),
+        ]
+    )
+    def test_legacy_group_titles_respect_group_limit(
+        self, _name: str, count: int, collapsed: bool, expected_count: int | None
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        customization = {
+            "groups": {
+                str(index): {"title": "Old title", "collapsed": collapsed, "tint": True, "rail": None}
+                for index in range(count)
+            }
+        }
+        Dashboard.objects.filter(id=dashboard_id).update(customization=customization)
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"group_titles": {"new": "New title"}},
+            expected_status=status.HTTP_400_BAD_REQUEST if expected_count is None else status.HTTP_200_OK,
+        )
+        if expected_count is None:
+            self.assertEqual(response["attr"], "group_titles")
+            self.assertEqual(Dashboard.objects.get(id=dashboard_id).customization, customization)
+        else:
+            self.assertEqual(len(response["customization"]["groups"]), expected_count)
+            self.assertEqual(response["customization"]["group_titles"], {"new": "New title"})
 
     def test_writing_groups_replaces_group_titles_saved_earlier(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -838,7 +923,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
         stripped = {"plans": {"title": "Pricing plans", "collapsed": False, "tint": True, "rail": None}}
-        self.assertEqual(updated["customization"], {"groups": stripped})
+        self.assertEqual(updated["customization"], {"groups": stripped, "group_titles": {"plans": "Pricing plans"}})
         self.assertEqual(dashboard["tiles"][0]["group_key"], "plans")
         self.assertEqual(dashboard["customization"]["groups"], stripped)
 

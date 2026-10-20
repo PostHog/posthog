@@ -27926,6 +27926,12 @@ export namespace Schemas {
      */
     export type DashboardGroups = {[key: string]: DashboardTileGroup} | null;
 
+    /**
+     * Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.
+     * @nullable
+     */
+    export type DashboardGroupTitles = {[key: string]: string} | null;
+
     export type DashboardTilesItem = { [key: string]: unknown };
 
     /**
@@ -27977,11 +27983,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.
+     */
+    export type DashboardCustomizationGroupTitles = {[key: string]: string};
+
+    /**
      * Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings.
      */
     export type DashboardCustomizationGroups = {[key: string]: DashboardTileGroup};
 
     export interface DashboardCustomization {
+      /** Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence. */
+      group_titles?: DashboardCustomizationGroupTitles;
       /** Named tile density preset.
        *
        * * `tight` - tight
@@ -28096,6 +28109,11 @@ export namespace Schemas {
          * @nullable
          */
       groups?: DashboardGroups;
+      /**
+         * Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.
+         * @nullable
+         */
+      group_titles?: DashboardGroupTitles;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -28675,6 +28693,12 @@ export namespace Schemas {
      */
     export type DashboardWriteOpenApiGroups = {[key: string]: DashboardTileGroup} | null;
 
+    /**
+     * Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.
+     * @nullable
+     */
+    export type DashboardWriteOpenApiGroupTitles = {[key: string]: string} | null;
+
     export type DashboardWriteOpenApiTilesItem = { [key: string]: unknown };
 
     /**
@@ -28774,6 +28798,11 @@ export namespace Schemas {
          * @nullable
          */
       groups?: DashboardWriteOpenApiGroups;
+      /**
+         * Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.
+         * @nullable
+         */
+      group_titles?: DashboardWriteOpenApiGroupTitles;
       /** @nullable */
       readonly tiles: readonly DashboardWriteOpenApiTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -84597,6 +84626,12 @@ export namespace Schemas {
     }
 
     /**
+     * Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.
+     * @nullable
+     */
+    export type PatchedPatchedDashboardOpenApiGroupTitles = {[key: string]: string} | null;
+
+    /**
      * Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings.
      * @nullable
      */
@@ -84609,6 +84644,11 @@ export namespace Schemas {
      * replaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.
      */
     export interface PatchedPatchedDashboardOpenApi {
+      /**
+         * Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.
+         * @nullable
+         */
+      group_titles?: PatchedPatchedDashboardOpenApiGroupTitles;
       /**
          * @maxLength 400
          * @nullable
