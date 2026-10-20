@@ -4,7 +4,6 @@ The parse fails closed: a missing, malformed or unreadable payload turns the tic
 field falls back to its default, and no default is unbounded.
 """
 
-import datetime
 from typing import Any
 
 import structlog
@@ -35,10 +34,6 @@ class ActivitySummaryConfig:
     min_update_interval_hours: float = MIN_UPDATE_INTERVAL.total_seconds() / 3600
     emit_embeddings: bool = True
     capture_events: bool = True
-
-    @property
-    def min_update_interval(self) -> datetime.timedelta:
-        return datetime.timedelta(hours=self.min_update_interval_hours)
 
 
 DISABLED = ActivitySummaryConfig()
