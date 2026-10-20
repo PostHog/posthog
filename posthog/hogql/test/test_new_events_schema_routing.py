@@ -8,7 +8,10 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    ActorsQuery,
     EventsNode,
+    FunnelsActorsQuery,
+    FunnelsQuery,
     GroupsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -16,6 +19,8 @@ from posthog.schema import (
     PersonsOnEventsMode,
     QueryStatus,
     SessionTableVersion,
+    StickinessActorsQuery,
+    StickinessQuery,
     TrendsQuery,
 )
 
@@ -28,7 +33,7 @@ from posthog.api.services.query import NATIVE_EVENTS_CLUSTER_USER_FLAG, native_e
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
 from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 
@@ -482,3 +487,24 @@ class TestNewEventsClusterPilot(APIBaseTest):
         if native:
             self.assertIn("events_json", execute.call_args.args[0])
             self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
+
+    @parameterized.expand(
+        [
+            (
+                FunnelsActorsQuery(
+                    source=FunnelsQuery(series=[EventsNode(event="a"), EventsNode(event="b")]), funnelStep=1
+                ),
+            ),
+            (StickinessActorsQuery(source=StickinessQuery(series=[EventsNode(event="a")]), day=1),),
+        ]
+    )
+    def test_specialized_actor_sources_execute_on_the_native_cluster(
+        self, actors: FunnelsActorsQuery | StickinessActorsQuery
+    ) -> None:
+        native = HogQLQueryModifiers(useNewEventsSchema=True, useNewEventsCluster=True)
+        source = actors.source.model_copy(update={"modifiers": native})
+        query = ActorsQuery(source=actors.model_copy(update={"source": source}))
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
+            get_query_runner(query, self.team).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+        self.assertIn("events_json", execute.call_args.args[0])
+        self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)

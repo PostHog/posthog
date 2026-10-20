@@ -90,6 +90,24 @@ def test_connection_pool_creation_with_team_id(settings):
     assert team_pool.connection_args["host"] == "clicky"
 
 
+def test_native_events_pool_is_retired_when_the_host_changes(settings):
+    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native-a.example.com"
+
+    old_pool = get_pool(Workload.NEW_EVENTS_CLUSTER)
+    assert get_pool(Workload.NEW_EVENTS_CLUSTER) is old_pool
+    in_flight = old_pool.pull()
+
+    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native-b.example.com"
+    new_pool = get_pool(Workload.NEW_EVENTS_CLUSTER)
+
+    assert new_pool is not old_pool
+    assert new_pool.connection_args["host"] == "native-b.example.com"
+    assert get_pool(Workload.NEW_EVENTS_CLUSTER) is new_pool
+    assert old_pool._pool == []
+    old_pool.push(in_flight)
+    assert old_pool._pool == [] and old_pool._used == {}
+
+
 def test_native_events_pool_is_separate_from_legacy_pool(settings, monkeypatch):
     from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
     from posthog.models.event.new_events_schema import new_events_cluster_host_scope
@@ -272,7 +290,7 @@ def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeyp
 
     token.write_text("tok-1")  # rotate the projected token in place
     assert get_pool(workload) is pool
-    assert make_ch_pool.cache_info().currsize == 1
+    assert make_ch_pool.cache_info().currsize + len(connection._native_events_pools) == 1
 
 
 @pytest.mark.parametrize("workload", [Workload.ONLINE, Workload.NEW_EVENTS_CLUSTER])
@@ -349,6 +367,7 @@ def test_refreshing_pool_stamps_current_credential(tmp_path):
 @pytest.fixture(autouse=True)
 def reset_state(settings, monkeypatch):
     make_ch_pool.cache_clear()
+    monkeypatch.setattr(connection, "_native_events_pools", {})
     monkeypatch.setattr(
         "posthog.models.event.new_events_schema.get_instance_setting",
         lambda key: settings.CLICKHOUSE_NATIVE_EVENTS_HOST,

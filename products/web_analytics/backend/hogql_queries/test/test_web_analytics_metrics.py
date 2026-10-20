@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import WebAnalyticsPreComputeStrategy, WebStatsBreakdown
+from posthog.schema import HogQLQueryModifiers, WebAnalyticsPreComputeStrategy, WebStatsBreakdown
 
 from posthog.clickhouse.query_tagging import (
     Feature,
@@ -361,7 +361,7 @@ class TestWebAnalyticsMetrics(TestCase):
         ]
     )
     def test_lazy_precompute_gate_rejection_increments_counter(self, _name, family):
-        runner = MagicMock()
+        runner = MagicMock(modifiers=HogQLQueryModifiers())
         runner.team = MagicMock(pk=42, uuid="00000000-0000-0000-0000-000000000000", organization_id=7, id=42)
         runner.query = MagicMock(useWebAnalyticsPrecompute=True)
 
@@ -386,7 +386,7 @@ class TestWebAnalyticsMetrics(TestCase):
         ]
     )
     def test_lazy_precompute_per_query_opt_out_rejection(self, _name, family):
-        runner = MagicMock()
+        runner = MagicMock(modifiers=HogQLQueryModifiers())
         runner.team = MagicMock(pk=42, uuid="00000000-0000-0000-0000-000000000000", organization_id=7, id=42)
         runner.query = MagicMock(useWebAnalyticsPrecompute=False)
 
