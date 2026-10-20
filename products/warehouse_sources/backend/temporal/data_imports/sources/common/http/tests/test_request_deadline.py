@@ -91,12 +91,12 @@ class _Run:
     error: BaseException | None
 
 
-def _run(send: Send, script: Sequence[Answer]) -> _Run:
+def _run(send: Send, script: Sequence[Answer], budget: float = BUDGET) -> _Run:
     vendor = _StallingVendor(script)
     error: BaseException | None = None
     with (
         override_settings(
-            DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS=BUDGET,
+            DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS=budget,
             DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS=READ_TIMEOUT,
         ),
         fake_environment(vendor) as network,
@@ -161,6 +161,14 @@ class TestRequestDeadline:
         run = _run(two_requests, [STALL, STALL, OK, STALL])
 
         assert run.vendor.tries[3].read_timeout == pytest.approx(READ_TIMEOUT, abs=SLACK)
+
+    def test_a_retry_after_past_the_deadline_gets_no_capped_wait(self) -> None:
+        # The budget leaves room for the 120 s cap on a wait, but not for the day that the server asks for.
+        run = _run(_through_tracked_session, [_status(429, 86400)] * 3, budget=300)
+
+        assert isinstance(run.error, requests.HTTPError)
+        assert len(run.vendor.tries) == 1
+        assert run.elapsed == pytest.approx(0, abs=SLACK)
 
     def test_a_caller_deadline_bounds_the_adapter_retries(self) -> None:
         def send() -> None:
