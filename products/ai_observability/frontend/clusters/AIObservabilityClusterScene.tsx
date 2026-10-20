@@ -3,12 +3,15 @@ import { useState } from 'react'
 
 import { IconChevronDown, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -58,6 +61,7 @@ export function AIObservabilityClusterScene(): JSX.Element {
     } = useValues(clusterDetailLogic)
     const { setPage, setPropertyFilters, setShouldFilterTestAccounts } = useActions(clusterDetailLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (clusterDataLoading) {
         return (
@@ -93,11 +97,21 @@ export function AIObservabilityClusterScene(): JSX.Element {
                 name={cluster.title}
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
-                    <Link to={urls.aiObservabilityClusters()}>
-                        <LemonButton type="secondary" size="small" data-attr="clusters-back-button">
+                    todayRailNav ? (
+                        <Button
+                            variant="outline"
+                            render={<LinkPrimitive to={urls.aiObservabilityClusters()} />}
+                            data-attr="clusters-back-button"
+                        >
                             Back to clusters
-                        </LemonButton>
-                    </Link>
+                        </Button>
+                    ) : (
+                        <Link to={urls.aiObservabilityClusters()}>
+                            <LemonButton type="secondary" size="small" data-attr="clusters-back-button">
+                                Back to clusters
+                            </LemonButton>
+                        </Link>
+                    )
                 }
             />
 

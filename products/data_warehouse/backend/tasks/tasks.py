@@ -265,17 +265,12 @@ def sync_team_earliest_event_date(team_id: int) -> None:
     and dropped — the full-backfill sensor resolves and persists the date lazily on a
     later tick regardless.
 
-    A team with no events yet is left unresolved (nothing stored), NOT cached as the
-    no-history sentinel: this task runs seconds after provision/onboard, when a brand-new
-    project plausibly hasn't ingested its first events. A cached date is final (nothing
-    re-resolves a non-NULL value), so persisting the sentinel here would permanently
-    exclude the team from historical backfill. The full-backfill sensor resolves it
-    later, when "no events" is a meaningful answer.
+    A team with no events yet stores today's date, so its backfill history starts on the
+    day it is provisioned (see resolve_team_earliest_event_date).
     """
     # Deferred: ducklake pulls duckdb in via common, and posthog.models must not load
     # while Celery imports task modules — keep both off this module's import path.
     from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415
-        NO_HISTORY_SENTINEL,
         get_org_id_for_team,
         resolve_team_earliest_event_date,
         update_team_earliest_event_date,
@@ -289,9 +284,6 @@ def sync_team_earliest_event_date(team_id: int) -> None:
     if row.earliest_event_date is not None:
         return
     resolved = resolve_team_earliest_event_date(team_id)
-    if resolved is None or resolved == NO_HISTORY_SENTINEL:
-        logger.info("No events for team yet; leaving earliest event date unresolved", team_id=team_id)
-        return
     update_team_earliest_event_date(organization_id, team_id, resolved)
 
 
