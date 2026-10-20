@@ -81,6 +81,8 @@ The shared token cache holds credential and entity metadata. Its `orgId` and `pr
 
 Session defaults are saved once with `SET NX` and kept separate from explicit selections. Lazy organization and project resolution updates only the request snapshot, so a delayed read cannot replace a newer switch in the same session.
 
+An org-only default does not freeze a failed project lookup. Project discovery retries within the saved organization and records the first successful result separately with `SET NX`. Organization-scoped discovery establishes project ownership without a second global metadata lookup. Organization switches can retain a selected project using the destination organization's team list when project metadata is unavailable.
+
 ## SQL-first data retrieval
 
 The MCP server instructs the agent to read data through a unified HogQL interface

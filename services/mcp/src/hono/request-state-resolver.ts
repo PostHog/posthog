@@ -388,6 +388,7 @@ export class RequestStateResolver {
             'activeOrgId',
             'activeProjectId',
             'defaultContext',
+            'defaultProjectId',
         ])
 
         // An omitted pin is not a changed pin: keep the session's saved context.

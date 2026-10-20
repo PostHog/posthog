@@ -779,6 +779,7 @@ describe('RequestStateResolver MCP client contexts', () => {
                     'activeOrgId',
                     'activeProjectId',
                     'defaultContext',
+                    'defaultProjectId',
                 ])
             )
         })

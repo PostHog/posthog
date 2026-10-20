@@ -389,6 +389,30 @@ describe('pinned project with switch-project (Hono)', () => {
         expect(await targets(session)).toEqual({ project: OTHER_PROJECT, org: OTHER_ORG })
     })
 
+    it.each([
+        ['same organization', PINNED_ORG, PINNED_PROJECT],
+        ['different organization', OTHER_ORG, null],
+    ])('keeps project ownership consistent for a %s switch without project:read', async (label, orgId, project) => {
+        const token = `phx_no_project_read_${label.replaceAll(' ', '_')}`
+        mswServer.use(
+            http.get('*/api/projects/:projectId/', () =>
+                HttpResponse.json({ detail: 'Missing project:read' }, { status: 403 })
+            ),
+            http.get('*/api/organizations/:orgId/', ({ params }) =>
+                HttpResponse.json({
+                    id: params.orgId,
+                    name: 'Organization',
+                    teams: [{ id: params.orgId === PINNED_ORG ? Number(PINNED_PROJECT) : Number(OTHER_PROJECT) }],
+                })
+            )
+        )
+        const query = `?project_id=${PINNED_PROJECT}`
+        const session = { token, sessionId: await initialize({ token, query }), query }
+        expect((await callTool('switch-organization', { orgId }, session)).isError).toBeFalsy()
+
+        expect(await targets(session)).toEqual({ project, org: orgId })
+    })
+
     it('preserves the session selection when the destination organization is inaccessible', async () => {
         const token = 'phx_inaccessible_organization'
         const session = { token, sessionId: await initialize({ token, query: '' }), query: '' }

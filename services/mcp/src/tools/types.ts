@@ -19,6 +19,7 @@ export type SessionState = {
 export type SessionScopedState = {
     // Defaults are separate from explicit switches so delayed initialization cannot undo a switch.
     defaultContext: { organizationId?: string; projectId?: number } | undefined
+    defaultProjectId: number | undefined
     activeProjectId: string | null | undefined
     activeOrgId: string | null | undefined
     appliedPinProjectId: string | undefined
@@ -40,7 +41,7 @@ export type PinnedActiveContext = {
 }
 
 export type CachedUser = ApiUser
-export type CachedOrg = Schemas.OrganizationBasic
+export type CachedOrg = Schemas.Organization
 export type CachedProject = Schemas.ProjectBackwardCompat
 
 export type State = {

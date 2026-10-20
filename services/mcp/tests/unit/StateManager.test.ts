@@ -64,7 +64,10 @@ describe('StateManager', () => {
         async ({ lookup, context, resolve, expected }) => {
             const sessionCache = new MemoryCache<SessionScopedState>(`stale-${lookup}`)
             await sessionCache.clear()
-            await cache.setMany({ apiKey: mockApiKey, apiKeyFetchedAt: Date.now() })
+            await cache.setMany({
+                apiKey: lookup === 'project' ? { ...mockApiKey, scoped_teams: [456] } : mockApiKey,
+                apiKeyFetchedAt: Date.now(),
+            })
             let finishLookup!: () => void
             let lookupRequested!: () => void
             const requested = new Promise<void>((resolve) => {
@@ -602,6 +605,95 @@ describe('StateManager', () => {
             expect(result.projectId).toBeUndefined()
             // Unexpected failures still reach error tracking.
             expect(reportSpy).toHaveBeenCalledOnce()
+        })
+
+        it.each(['503', 'timeout', 'empty'])('recovers a session default after a project-list %s', async (failure) => {
+            const sessionCache = new MemoryCache<SessionScopedState>(`default-recovery-${failure}`)
+            await sessionCache.clear()
+            await cache.setMany({
+                apiKey: { ...mockApiKey, scoped_organizations: ['org-3', 'org-2'] },
+                apiKeyFetchedAt: Date.now(),
+            })
+            const list = vi.fn()
+            if (failure === 'timeout') {
+                list.mockRejectedValueOnce(new Error('Synthetic project-list timeout'))
+            } else {
+                list.mockResolvedValueOnce(
+                    failure === 'empty'
+                        ? { success: true, data: [] }
+                        : { success: false, error: new Error('Synthetic project-list 503') }
+                )
+            }
+            list.mockResolvedValue({ success: true, data: [{ id: 789 }] })
+            let currentUser = mockUser
+            const api = {
+                config: { apiToken: 'phx_test' },
+                users: () => ({ me: async () => ({ success: true, data: currentUser }) }),
+                organizations: () => ({ projects: () => ({ list }) }),
+                projects: () => ({
+                    get: async () => ({
+                        success: false,
+                        error: new Error('Project metadata is outside the active org scope'),
+                    }),
+                }),
+            } as unknown as ApiClient
+            const first = new StateManager(cache, api, { pin: {}, sessionScoped: true }, sessionCache)
+            await first.setDefaultOrganizationAndProject()
+            currentUser = {
+                ...mockUser,
+                organization: { id: 'org-2', name: 'Org 2' },
+                team: { id: 999, name: 'Other project', organization: 'org-2', timezone: 'UTC' },
+            }
+            const next = new StateManager(cache, api, { pin: {}, sessionScoped: true, orgId: 'org-3' }, sessionCache)
+
+            expect(await next.getProjectId()).toBe('789')
+        })
+
+        it('keeps the first recovered default and a newer switch when a delayed recovery finishes', async () => {
+            const sessionCache = new MemoryCache<SessionScopedState>('default-recovery-race')
+            await sessionCache.clear()
+            await sessionCache.set('defaultContext', { organizationId: 'org-3' })
+            let requested!: () => void
+            let finish!: () => void
+            const started = new Promise<void>((resolve) => {
+                requested = resolve
+            })
+            const gate = new Promise<void>((resolve) => {
+                finish = resolve
+            })
+            const list = vi
+                .fn()
+                .mockImplementationOnce(async () => {
+                    requested()
+                    await gate
+                    return { success: true, data: [{ id: 789 }] }
+                })
+                .mockResolvedValue({ success: true, data: [{ id: 999 }] })
+            const api = {
+                config: { apiToken: 'phx_test' },
+                organizations: () => ({ projects: () => ({ list }) }),
+            } as unknown as ApiClient
+            const snapshot = (): PinnedActiveContext => ({ pin: {}, sessionScoped: true, orgId: 'org-3' })
+            const older = new StateManager(cache, api, snapshot(), sessionCache)
+            const newer = new StateManager(cache, api, snapshot(), sessionCache)
+            const pending = older.setDefaultOrganizationAndProject()
+            await started
+            try {
+                await newer.setDefaultOrganizationAndProject()
+                await newer.setActiveContext({ orgId: 'org-2', projectId: '222' })
+            } finally {
+                finish()
+            }
+
+            expect({
+                resolved: await pending,
+                orgId: await sessionCache.get('activeOrgId'),
+                projectId: await sessionCache.get('activeProjectId'),
+            }).toEqual({
+                resolved: { organizationId: 'org-3', projectId: 999 },
+                orgId: 'org-2',
+                projectId: '222',
+            })
         })
 
         it('does not capture a 404 from the scoped-org projects lookup', async () => {

@@ -1,9 +1,10 @@
 import type { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import { PinnedContextSwitchError, wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { OrganizationSetActiveSchema } from '@/schema/tool-inputs'
-import type { CachedOrg, CachedProject, Context, ToolBase } from '@/tools/types'
+import type { CachedProject, Context, ToolBase } from '@/tools/types'
 
 const schema = OrganizationSetActiveSchema
 
@@ -34,8 +35,13 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
         )
     }
 
-    const org: CachedOrg = orgResult.data
-    await context.stateManager.setActiveContext({ orgId })
+    const org: Schemas.Organization = orgResult.data
+    const selectedProjectId = pinned?.projectId
+    const keepProject = org.id === orgId && org.teams?.some((team) => String(team.id) === selectedProjectId)
+    await context.stateManager.setActiveContext({
+        orgId,
+        ...(keepProject ? { projectId: selectedProjectId } : {}),
+    })
     await context.cache.set(`cachedOrg:${orgId}` as const, org)
     await context.cache.set(`cachedOrgFetchedAt:${orgId}` as const, Date.now())
 

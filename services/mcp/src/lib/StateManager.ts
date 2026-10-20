@@ -226,7 +226,18 @@ export class StateManager {
         }
         const saved = await sessionCache.get('defaultContext')
         if (saved) {
-            return saved
+            if (saved.projectId !== undefined || !saved.organizationId) {
+                return saved
+            }
+            const cachedProjectId = await sessionCache.get('defaultProjectId')
+            if (cachedProjectId !== undefined) {
+                return { ...saved, projectId: cachedProjectId }
+            }
+            const projectId = await this._fetchDefaultProjectInOrganization(saved.organizationId)
+            if (projectId !== undefined) {
+                await sessionCache.setIfAbsent('defaultProjectId', projectId)
+            }
+            return { ...saved, projectId: await sessionCache.get('defaultProjectId') }
         }
         const defaults = await this._fetchDefaultOrganizationAndProject()
         if (!defaults.organizationId && defaults.projectId === undefined) {
@@ -276,10 +287,14 @@ export class StateManager {
         if (!organizationId) {
             return {}
         }
+        return { organizationId, projectId: await this._fetchDefaultProjectInOrganization(organizationId) }
+    }
+
+    private async _fetchDefaultProjectInOrganization(organizationId: string): Promise<number | undefined> {
         try {
             const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
             if (projectsResult.success && projectsResult.data.length > 0) {
-                return { organizationId, projectId: Number(projectsResult.data[0]!.id) }
+                return Number(projectsResult.data[0]!.id)
             }
             if (!projectsResult.success) {
                 // A 404 here means the API key/OAuth token points at an org the
@@ -306,7 +321,7 @@ export class StateManager {
             })
         }
 
-        return { organizationId }
+        return undefined
     }
 
     /**
@@ -450,13 +465,20 @@ export class StateManager {
         if (await belongsToOrg(cachedCandidate)) {
             return cachedCandidate!
         }
-        const { projectId } = await this._getDefaultOrganizationAndProject().catch(() => ({ projectId: undefined }))
+        const { organizationId, projectId } = await this._getDefaultOrganizationAndProject().catch(() => ({
+            organizationId: undefined,
+            projectId: undefined,
+        }))
         const defaultCandidate = projectId?.toString()
-        if (defaultCandidate !== cachedCandidate && (await belongsToOrg(defaultCandidate))) {
+        if (
+            defaultCandidate &&
+            defaultCandidate !== cachedCandidate &&
+            ((organizationId !== undefined && organizationId === orgId) || (await belongsToOrg(defaultCandidate)))
+        ) {
             if (pinned.sessionScoped) {
                 pinned.projectId = defaultCandidate
             }
-            return defaultCandidate!
+            return defaultCandidate
         }
         throw new MissingProjectContextError({ organizationId: orgId })
     }
