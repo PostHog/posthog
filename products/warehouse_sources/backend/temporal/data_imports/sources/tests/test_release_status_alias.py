@@ -2,7 +2,8 @@ from products.warehouse_sources.backend.facade.source_config import ReleaseStatu
 
 
 def test_alpha_is_an_alias_of_beta():
-    assert ReleaseStatus.ALPHA is ReleaseStatus.BETA
+    # Lookup by name, so mypy does not treat the two members as distinct literals.
+    assert ReleaseStatus["ALPHA"] is ReleaseStatus.BETA
     assert [status.value for status in ReleaseStatus] == ["beta", "ga"]
 
 
