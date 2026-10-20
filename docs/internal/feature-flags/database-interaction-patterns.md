@@ -87,7 +87,13 @@ A request that starts evaluation before that instant has the full reserve to fin
 A request that waited past that instant has less than the reserve left, so the request timeout can still return a 503.
 Its persons DB calls fail without taking a connection.
 Those flags report `timeout:persons_db_deadline` even when the persons DB is healthy.
-The canonical log line shows the wait in `concurrency_limit_wait_ms`.
+`persons_db_deadline_bound` on the canonical log line says which limit set the deadline: `request_timeout` for the cap, `budget` otherwise.
+`request_timeout` means time spent before evaluation shortened the deadline.
+It does not show that the persons DB was healthy, because a stall lengthens permit waits and makes the cap set the deadline more often.
+When the cap sets the deadline, raising `PERSONS_DB_DEADLINE_MS` has no effect.
+Setting it to `0` removes the cap, and it also removes the bound on a stalled persons DB.
+The realtime cohort lookup runs after the persons DB calls, and only `REALTIME_COHORT_LOOKUP_TIMEOUT_MS` (default 1000ms) bounds it.
+The default lookup timeout exceeds the default reserve, so a request near the cap that evaluates realtime cohorts can still reach the request timeout.
 Startup clamps the reserve to between 100ms and 2000ms.
 Startup logs a warning when `REQUEST_TIMEOUT_MS` is not more than the reserve, because every `/flags` persons DB call then fails.
 It also logs a warning when `PERSONS_DB_DEADLINE_MS` plus the reserve is at least `REQUEST_TIMEOUT_MS`, because the budget then has no effect on `/flags`.

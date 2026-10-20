@@ -450,7 +450,10 @@ pub struct Config {
     // The rest of a /flags request has at least this long to finish after the persons DB
     // deadline. `Config::persons_db_deadline` never sets the deadline later than this long before
     // REQUEST_TIMEOUT_MS ends. Startup clamps it between `Config::MIN_PERSONS_DB_DEADLINE_RESERVE_MS`
-    // and `Config::MAX_PERSONS_DB_DEADLINE_RESERVE_MS`.
+    // and `Config::MAX_PERSONS_DB_DEADLINE_RESERVE_MS`. The realtime cohort lookup runs after the
+    // persons DB calls, and only REALTIME_COHORT_LOOKUP_TIMEOUT_MS bounds it. The default lookup
+    // timeout exceeds the default reserve, so a request near the cap can still reach the request
+    // timeout.
     #[envconfig(from = "PERSONS_DB_DEADLINE_RESERVE_MS", default = "500")]
     pub persons_db_deadline_reserve_ms: u64,
 
@@ -1090,6 +1093,32 @@ impl ThreadCounts {
     }
 }
 
+/// The instant after which persons DB calls in one evaluation fail, and the limit that set it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PersonsDbDeadline {
+    pub at: tokio::time::Instant,
+    pub bound: PersonsDbDeadlineBound,
+}
+
+/// `RequestTimeout` means the time before evaluation shortened the deadline. Persons DB calls can
+/// then fail on a healthy persons DB, so the canonical log line records the bound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PersonsDbDeadlineBound {
+    /// `PERSONS_DB_DEADLINE_MS` after evaluation starts.
+    Budget,
+    /// `PERSONS_DB_DEADLINE_RESERVE_MS` before `REQUEST_TIMEOUT_MS` ends.
+    RequestTimeout,
+}
+
+impl PersonsDbDeadlineBound {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Budget => "budget",
+            Self::RequestTimeout => "request_timeout",
+        }
+    }
+}
+
 impl Config {
     const MAX_RESPONSE_TIMEOUT_MS: u64 = 30_000; // 30 seconds
     const MAX_CONNECTION_TIMEOUT_MS: u64 = 60_000; // 60 seconds
@@ -1411,8 +1440,9 @@ impl Config {
         }
     }
 
-    /// The instant when all persons DB work in one flag evaluation stops, or `None` when disabled.
-    /// The `persons_db_deadline_ms` budget counts from this call. The request timeout counts from
+    /// The instant when all persons DB work in one flag evaluation stops and the limit that set it,
+    /// or `None` when disabled.
+    /// The `persons_db_deadline_ms` budget counts from `now`. The request timeout counts from
     /// `request_entered_at`, before the wait for a concurrency permit. The deadline is never later
     /// than `persons_db_deadline_reserve_ms` before the request timeout ends, so the rest of the
     /// request has that long to finish. When `request_timeout_ms` is not more than the reserve,
@@ -1421,20 +1451,27 @@ impl Config {
     /// The deadline is then the budget's end.
     pub fn persons_db_deadline(
         &self,
+        now: tokio::time::Instant,
         request_entered_at: Option<tokio::time::Instant>,
-    ) -> Option<tokio::time::Instant> {
-        (self.persons_db_deadline_ms > 0).then(|| {
-            let budget_end = tokio::time::Instant::now()
-                + std::time::Duration::from_millis(self.persons_db_deadline_ms);
-            let Some(request_entered_at) = request_entered_at else {
-                return budget_end;
-            };
-            let request_cap = request_entered_at
+    ) -> Option<PersonsDbDeadline> {
+        if self.persons_db_deadline_ms == 0 {
+            return None;
+        }
+        let budget_end = PersonsDbDeadline {
+            at: now + std::time::Duration::from_millis(self.persons_db_deadline_ms),
+            bound: PersonsDbDeadlineBound::Budget,
+        };
+        let request_cap = request_entered_at.map(|entered| PersonsDbDeadline {
+            at: entered
                 + std::time::Duration::from_millis(
                     self.request_timeout_ms
                         .saturating_sub(self.persons_db_deadline_reserve_ms),
-                );
-            budget_end.min(request_cap)
+                ),
+            bound: PersonsDbDeadlineBound::RequestTimeout,
+        });
+        Some(match request_cap {
+            Some(cap) if cap.at < budget_end.at => cap,
+            _ => budget_end,
         })
     }
 
@@ -1837,21 +1874,20 @@ mod tests {
 
     // The cap is the request timeout minus the reserve, counted from arrival.
     #[rstest::rstest]
-    #[case::short_permit_wait(2500, 500, 4500, true, 1000, Some(3500))]
-    #[case::long_permit_wait(2500, 500, 4500, true, 3000, Some(4000))]
-    #[case::larger_reserve(2500, 1000, 4500, true, 3000, Some(3500))]
-    #[case::waited_past_the_cap(2500, 500, 4500, true, 4200, Some(4000))]
-    #[case::request_timeout_within_the_reserve(2500, 500, 400, true, 0, Some(0))]
-    #[case::no_request_timeout(2500, 500, 400, false, 0, Some(2500))]
+    #[case::short_permit_wait(2500, 500, 4500, true, 1000, Some((3500, PersonsDbDeadlineBound::Budget)))]
+    #[case::long_permit_wait(2500, 500, 4500, true, 3000, Some((4000, PersonsDbDeadlineBound::RequestTimeout)))]
+    #[case::larger_reserve(2500, 1000, 4500, true, 3000, Some((3500, PersonsDbDeadlineBound::RequestTimeout)))]
+    #[case::waited_past_the_cap(2500, 500, 4500, true, 4200, Some((4000, PersonsDbDeadlineBound::RequestTimeout)))]
+    #[case::request_timeout_within_the_reserve(2500, 500, 400, true, 0, Some((0, PersonsDbDeadlineBound::RequestTimeout)))]
+    #[case::no_request_timeout(2500, 500, 400, false, 0, Some((2500, PersonsDbDeadlineBound::Budget)))]
     #[case::disabled(0, 500, 4500, true, 0, None)]
-    #[tokio::test(start_paused = true)]
-    async fn test_persons_db_deadline_is_capped_by_the_request_timeout(
+    fn test_persons_db_deadline_is_capped_by_the_request_timeout(
         #[case] persons_db_deadline_ms: u64,
         #[case] reserve_ms: u64,
         #[case] request_timeout_ms: u64,
         #[case] request_timeout_applies: bool,
         #[case] permit_wait_ms: u64,
-        #[case] expected_ms_after_arrival: Option<u64>,
+        #[case] expected: Option<(u64, PersonsDbDeadlineBound)>,
     ) {
         use std::time::Duration;
 
@@ -1860,11 +1896,14 @@ mod tests {
         config.persons_db_deadline_reserve_ms = reserve_ms;
         config.request_timeout_ms = request_timeout_ms;
         let arrival = tokio::time::Instant::now();
-        tokio::time::advance(Duration::from_millis(permit_wait_ms)).await;
+        let now = arrival + Duration::from_millis(permit_wait_ms);
 
         assert_eq!(
-            config.persons_db_deadline(request_timeout_applies.then_some(arrival)),
-            expected_ms_after_arrival.map(|ms| arrival + Duration::from_millis(ms))
+            config.persons_db_deadline(now, request_timeout_applies.then_some(arrival)),
+            expected.map(|(ms, bound)| PersonsDbDeadline {
+                at: arrival + Duration::from_millis(ms),
+                bound,
+            })
         );
     }
 
