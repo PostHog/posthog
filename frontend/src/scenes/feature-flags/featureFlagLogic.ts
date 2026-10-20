@@ -90,7 +90,7 @@ import {
 } from '~/types'
 
 import { cohortsList, cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
-import { getCohortsActivityRetrieveUrl } from 'products/cohorts/frontend/generated/api'
+import { cohortsActivityRetrieve } from 'products/cohorts/frontend/generated/api'
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import {
@@ -216,9 +216,7 @@ async function flagCohortWasEdited(projectId: string, cohortId: number): Promise
     // Creating and filling the snapshot logs no activity, so any entry means someone edited its people by hand.
     // When the history can't be read, a fresh snapshot is the safe choice.
     try {
-        const { results } = await api.get<{ results: unknown[] }>(
-            `${getCohortsActivityRetrieveUrl(projectId, cohortId)}?limit=1`
-        )
+        const { results } = await cohortsActivityRetrieve(projectId, cohortId, { limit: 1 })
         return results.length > 0
     } catch {
         return true
