@@ -4252,15 +4252,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
                 const draftSm = previousTile?.layouts?.sm
                 const originalSm = originalLayouts?.[tile.id]?.sm
-                if (
+                const draftMoved =
                     draftSm &&
                     originalSm &&
                     (draftSm.x !== originalSm.x ||
                         draftSm.y !== originalSm.y ||
                         draftSm.w !== originalSm.w ||
                         draftSm.h !== originalSm.h)
-                ) {
+                if (previousTile && draftMoved) {
                     return { ...tile, layouts: previousTile.layouts, group_key: previousTile.group_key }
+                }
+                if (previousTile && tileGroupKeyChanged(previousTile, values.dashboardGroupKeys)) {
+                    return { ...tile, group_key: previousTile.group_key }
                 }
                 return tile
             })

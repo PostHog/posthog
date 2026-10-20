@@ -2536,26 +2536,35 @@ describe('dashboardLogic', () => {
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
 
-            it('keeps a tile in its unsaved group when another update echoes while editing', async () => {
-                await expectLogic(logic).toFinishAllListeners()
-                moveFirstTile()
-                const draftTile = logic.values.dashboard!.tiles[0]
-                logic.actions.setTileProperty(draftTile.id, { group_key: 'plans' })
-                const addedTile = { ...WIDGET_TILE, id: 999 }
-                const updatedDashboard = {
-                    ...logic.values.dashboard!,
-                    tiles: [
-                        ...logic.values.dashboard!.tiles.map((tile) =>
-                            tile.id === draftTile.id ? { ...tile, group_key: null } : tile
-                        ),
-                        addedTile,
-                    ],
+            it.each([
+                { change: 'a move', moveLayout: true, layoutsPersisted: false },
+                { change: 'a move', moveLayout: true, layoutsPersisted: true },
+                { change: 'a group change alone', moveLayout: false, layoutsPersisted: true },
+            ])(
+                'keeps $change in an unsaved group when an update echoes (layouts persisted: $layoutsPersisted)',
+                async ({ moveLayout, layoutsPersisted }) => {
+                    await expectLogic(logic).toFinishAllListeners()
+                    if (moveLayout) {
+                        moveFirstTile()
+                    }
+                    const draftTile = logic.values.dashboard!.tiles[0]
+                    logic.actions.setTileProperty(draftTile.id, { group_key: 'plans' })
+                    const addedTile = { ...WIDGET_TILE, id: 999 }
+                    const updatedDashboard = {
+                        ...logic.values.dashboard!,
+                        tiles: [
+                            ...logic.values.dashboard!.tiles.map((tile) =>
+                                tile.id === draftTile.id ? { ...tile, group_key: null } : tile
+                            ),
+                            addedTile,
+                        ],
+                    }
+
+                    dashboardsModel.actions.updateDashboardSuccess(updatedDashboard, { layoutsPersisted })
+
+                    expect(logic.values.dashboard!.tiles[0].group_key).toBe('plans')
                 }
-
-                dashboardsModel.actions.updateDashboardSuccess(updatedDashboard)
-
-                expect(logic.values.dashboard!.tiles[0].group_key).toBe('plans')
-            })
+            )
 
             it('uses the server layout for tiles without draft changes', async () => {
                 await expectLogic(logic).toFinishAllListeners()
