@@ -202,7 +202,7 @@ SHOPIFY_CREDENTIALS_CHECK_ERROR = (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ShopifyResumeConfig:
     phase: str
     cursor: str
