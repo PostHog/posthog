@@ -94,6 +94,7 @@ def record_check(
     previous_state: str,
     state: str,
     error_message: str | None = None,
+    value: float | None = None,
 ) -> None:
     """Write one ungrouped check to the platform's ClickHouse history, as a check that ran at `at`."""
     insert_events(
@@ -111,7 +112,7 @@ def record_check(
                 previous_state=previous_state,
                 state=state,
                 episode_started_at=None,
-                value=None,
+                value=value,
                 labels={},
                 condition_snapshot={},
                 source_config_snapshot={},

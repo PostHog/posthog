@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertOutcome,
     PlatformAlertRuntime,
     PlatformAlertUpsert,
+    PlatformCheckPage,
     PlatformHandback,
     PlatformOwnershipHandover,
     SourceKind,
@@ -118,6 +119,23 @@ def runtime_by_legacy_id(
 ) -> dict[UUID, PlatformAlertRuntime]:
     """The runtime state of each named alert the platform owns, keyed by the source's id."""
     return platform_reads.runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
+
+
+def check_page_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, since: datetime, until: datetime, limit: int, offset: int
+) -> PlatformCheckPage | None:
+    """A page of one owned alert's checks in a window, newest first, or None when the platform does not own it.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.check_page_by_legacy_id(
+        team_id=team_id,
+        legacy_configuration_id=legacy_configuration_id,
+        since=since,
+        until=until,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def history_by_legacy_id(

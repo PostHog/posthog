@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime, timedelta
 from functools import partial
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
@@ -117,6 +118,7 @@ from products.alerts.backend.models.alert import (
     Threshold,
 )
 from products.alerts.backend.platform_alert_backfill import follow_insight_alert
+from products.alerts.backend.platform_alert_reads import platform_checks, with_platform_runtime
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -1598,14 +1600,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         checks_qs = instance.alertcheck_set.select_related("investigation_notebook").order_by("-created_at")
 
         checks_date_from = request.query_params.get("checks_date_from")
-        if checks_date_from:
-            parsed_date = relative_date_parse(checks_date_from, ZoneInfo("UTC"))
-            checks_qs = checks_qs.filter(created_at__gte=parsed_date)
+        checks_since = relative_date_parse(checks_date_from, ZoneInfo("UTC")) if checks_date_from else None
+        if checks_since is not None:
+            checks_qs = checks_qs.filter(created_at__gte=checks_since)
 
         checks_date_to = request.query_params.get("checks_date_to")
-        if checks_date_to:
-            parsed_date = relative_date_parse(checks_date_to, ZoneInfo("UTC"))
-            checks_qs = checks_qs.filter(created_at__lte=parsed_date)
+        checks_until = relative_date_parse(checks_date_to, ZoneInfo("UTC")) if checks_date_to else None
+        if checks_until is not None:
+            checks_qs = checks_qs.filter(created_at__lte=checks_until)
 
         has_date_filter = checks_date_from or checks_date_to
         raw_limit = request.query_params.get("checks_limit")
@@ -1626,12 +1628,32 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             offset = 0
 
-        checks_total = checks_qs.count()
-        instance.checks_total = checks_total
-        offset = min(offset, checks_total)
-        instance.checks = checks_qs[offset : offset + limit]
+        with_platform_runtime([instance], now=timezone.now())
+        platform_page = self._platform_checks(instance, checks_since, checks_until, limit=limit, offset=offset)
+        if platform_page is not None:
+            instance.checks_total, instance.checks = platform_page
+        else:
+            checks_total = checks_qs.count()
+            instance.checks_total = checks_total
+            offset = min(offset, checks_total)
+            instance.checks = checks_qs[offset : offset + limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    @staticmethod
+    def _platform_checks(
+        instance: AlertConfiguration, since: datetime | None, until: datetime | None, *, limit: int, offset: int
+    ) -> tuple[int, list[AlertCheck]] | None:
+        """A moved alert's checks from the platform, or None to show the alert's own checks."""
+        if not instance.platform_owned:
+            return None
+        # The platform's window leaves out its end, and this filter keeps a check made at that moment.
+        until = until + timedelta(microseconds=1) if until is not None else None
+        try:
+            return platform_checks(instance, since=since, until=until, limit=limit, offset=offset)
+        except Exception as error:
+            capture_exception(error, additional_properties={"alert_configuration_id": str(instance.id)})
+            return None
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -1639,6 +1661,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Paginate first, then prefetch checks only for the page
         page = self.paginate_queryset(queryset)
         alerts = list(page) if page is not None else list(queryset)
+        with_platform_runtime(alerts, now=timezone.now())
 
         # Prefetch firing checks for anomaly point display on chart.
         if alerts:

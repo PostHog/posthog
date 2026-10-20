@@ -31,6 +31,8 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     EvaluationAnnouncement,
     PlatformAlertHistory,
+    PlatformCheckEntry,
+    PlatformCheckPage,
     PlatformStateChange,
     SourceKind,
 )
@@ -350,3 +352,59 @@ def history(
         )
         for configuration_id, (last_checked_at, error_message) in latest.items()
     }
+
+
+_CHECKS_SQL = f"""
+SELECT occurred_at, evaluation_key, state, value, error_message, count() OVER () AS total
+FROM (
+    SELECT alert_id, evaluation_key, occurred_at, state, value, error_message
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND grouping_key = ''
+      AND occurred_at >= %(since)s
+      AND occurred_at < %(until)s
+    ORDER BY alert_id, occurred_at, evaluation_key
+    LIMIT 1 BY alert_id, evaluation_key
+)
+ORDER BY occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s OFFSET %(offset)s
+"""
+
+
+def check_page(
+    team_id: int, configuration_id: UUID, *, since: datetime, until: datetime, limit: int, offset: int
+) -> PlatformCheckPage:
+    """One configuration's checks in `[since, until)`, newest first, with how many the window holds.
+
+    Only the ungrouped instance is read, for the same reason as `history`. Raises on a ClickHouse
+    failure, because only the caller knows what it can show instead.
+    """
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    rows = sync_execute(
+        _CHECKS_SQL,
+        {
+            "team_id": team_id,
+            "configuration_id": configuration_id,
+            "since": since,
+            "until": until,
+            "limit": limit,
+            "offset": offset,
+        },
+        team_id=team_id,
+    )
+    return PlatformCheckPage(
+        # A page past the end has no rows to carry the window count, and it holds no checks either way.
+        total=rows[0][5] if rows else 0,
+        checks=tuple(
+            PlatformCheckEntry(
+                occurred_at=occurred_at,
+                evaluation_key=evaluation_key,
+                state=PlatformAlertState(state),
+                value=value,
+                error_message=error_message or None,
+            )
+            for occurred_at, evaluation_key, state, value, error_message, _ in rows
+        ),
+    )
