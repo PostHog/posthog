@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
+    DateRange,
     HogQLFilters,
     HogQLPropertyFilter,
     HogQLQuery,
@@ -180,6 +181,25 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(clear_locations(query), expected)
         response = runner.calculate()
+        self.assertEqual(response.results[0][0], 1)
+
+    @parameterized.expand([("values",), ("variables",)])
+    def test_filters_placeholder_with_values_or_variables(self, source: str) -> None:
+        if source == "values":
+            query = HogQLQuery(
+                query="select count(event) from events where event = {e} and {filters}",
+                values={"e": "clicky-3"},
+                filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+            )
+        else:
+            variable = InsightVariable.objects.create(team=self.team, name="E", code_name="e", type="String")
+            query = HogQLQuery(
+                query="select count(event) from events where event = {variables.e} and {filters}",
+                variables={
+                    str(variable.id): HogQLVariable(code_name="e", variableId=str(variable.id), value="clicky-3")
+                },
+            )
+        response = self._create_runner(query).calculate()
         self.assertEqual(response.results[0][0], 1)
 
     def test_cache_target_age_is_two_hours_in_future_after_run(self):
