@@ -473,18 +473,26 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert create.status_code == 201, create.json()
         assert create.json()["trigger"]["filters"]["events"][0]["id"] == "trial_started"
 
-    @parameterized.expand([("approved", True, 200), ("not_approved", False, 403)])
+    @parameterized.expand(
+        [
+            ("approved", True, True, 200),
+            ("not_approved", False, True, 403),
+            ("flag_off", True, False, 403),
+        ]
+    )
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_build_for_events_saves_one_draft_per_picked_event(
         self,
         _name: str,
         approved: bool,
+        flag_enabled: bool,
         status: int,
         suggest_ideas: MagicMock,
         plan_steps: MagicMock,
-        _flag,
+        flag: MagicMock,
     ) -> None:
+        flag.return_value = flag_enabled
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
         suggest_ideas.return_value = [
@@ -506,12 +514,14 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         responses = [self.client.post(url, {"events": ["signed_up", "trial_started"]}, format="json") for _ in range(2)]
 
         assert [response.status_code for response in responses] == [status, status]
-        if not approved:
+        if status == 403:
             assert plan_steps.call_count == 0
             assert not HogFlow.objects.filter(team_id=self.team.id).exists()
             return
         assert responses[0].json() == responses[1].json()
         assert plan_steps.call_count == 2
+        assert suggest_ideas.call_args.kwargs["context"].picked_events
+        assert all(call.kwargs["context"].picked_events for call in plan_steps.call_args_list)
         workflow_ids = responses[0].json()["workflow_ids"]
         assert responses[0].json()["status"] == "ready"
         drafts = HogFlow.objects.filter(team_id=self.team.id, id__in=workflow_ids)

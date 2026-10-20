@@ -17,6 +17,7 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.workflows.backend.facade.contracts import DataSuggestionNotFound, DataSuggestionsResult
 from products.workflows.backend.facade.data_suggestions import (
+    DESTINATION_SUGGESTION_FLAG_KEY,
     FEATURE_FLAG_KEY,
     MAX_PICKED_EVENTS,
     build_caller,
@@ -300,10 +301,8 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"])
     def build_for_events(self, request: Request, **kwargs: Any) -> Response:
         """Build and save draft email workflows for events the team picked, such as the events it was about to send
-        to an email tool. Free for the customer, and open to every project that approved AI data processing."""
-        user = request.user
-        if not isinstance(user, User):
-            raise PermissionDenied("This feature is not available.")
+        to an email tool. Free for the customer. Needs the feature flag and AI data processing approved for the organization."""
+        user = self._user_with_feature(request, DESTINATION_SUGGESTION_FLAG_KEY)
         if not event_workflows_available(team=self.team):
             raise PermissionDenied("Building workflows needs AI data processing to be approved for the organization.")
         payload = EventWorkflowsBuildRequestSerializer(data=request.data)
@@ -316,13 +315,13 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         return Response(EventWorkflowsBuildResponseSerializer(built).data)
 
-    def _user_with_feature(self, request: Request) -> User:
+    def _user_with_feature(self, request: Request, flag_key: str = FEATURE_FLAG_KEY) -> User:
         user = request.user
         if (
             not isinstance(user, User)
             or not user.distinct_id
             or not posthoganalytics.feature_enabled(
-                FEATURE_FLAG_KEY,
+                flag_key,
                 user.distinct_id,
                 groups={"organization": str(self.organization.id)},
                 group_properties={"organization": {"id": str(self.organization.id)}},

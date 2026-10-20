@@ -93,6 +93,8 @@ _EVENTS_BUILDING = EventWorkflowsBuild(status="building")
 _EVENTS_FAILED = EventWorkflowsBuild(status="failed")
 # pinned: feature flag key - the frontend gates the same surfaces on it
 FEATURE_FLAG_KEY = "workflows-data-suggestions"
+# pinned: feature flag key - the destination modal, the build_for_events endpoint and the MCP tool all read it
+DESTINATION_SUGGESTION_FLAG_KEY = "workflows-destination-suggestion"
 _ONCE_PER_PERSON_STAGES = frozenset({"signup", "onboarding"})
 # A project without a verified sender cannot pick one yet, so the field says what to do first.
 NO_SENDER_FIELD = "Email sender (no verified sender yet: add a sending domain under Workflows > Channels)"
@@ -405,7 +407,12 @@ def _build_event_workflows(
         )
         try:
             _, validated = _plan_and_build(
-                team=team, user=user, suggestion=suggestion, events=planning_events, validate_draft=validate_draft
+                team=team,
+                user=user,
+                suggestion=suggestion,
+                events=planning_events,
+                validate_draft=validate_draft,
+                picked_events=True,
             )
             # A task that outlived its lock would save drafts next to the newer run's drafts.
             if validated is None or not still_owns_lock():
@@ -425,6 +432,7 @@ def _plan_and_build(
     suggestion: DataSuggestion,
     events: tuple[str, ...],
     validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+    picked_events: bool = False,
 ) -> tuple[BuiltSuggestion, dict[str, Any] | None]:
     idea = WorkflowIdea(
         name=suggestion.name,
@@ -448,6 +456,7 @@ def _plan_and_build(
                 events=events,
                 channels=channels,
                 has_slack=slack_integration_id is not None,
+                picked_events=picked_events,
             ),
             analytics_client=analytics_client,
         )

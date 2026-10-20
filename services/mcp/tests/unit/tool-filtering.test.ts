@@ -1083,7 +1083,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
-            'workflows-email-drafts-mcp',
+            'workflows-destination-suggestion',
             'insight-data-checks',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))

@@ -2,6 +2,8 @@ import { MakeLogicType, actions, connect, isBreakpoint, kea, listeners, path, re
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -43,6 +45,7 @@ function templateProperties(template: HogFunctionTemplateType | null): Record<st
 export interface destinationWorkflowSuggestionLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     currentProjectId: number | null // projectLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     user: UserType | null // userLogic
     answered: boolean
     buildState: WorkflowBuildState
@@ -106,7 +109,10 @@ export interface destinationWorkflowSuggestionLogicActions {
 export interface destinationWorkflowSuggestionLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dismissed: (user: UserType | null, answered: boolean) => boolean
-        shouldSuggestWorkflow: (dismissed: boolean) => (template: HogFunctionTemplateType) => boolean
+        shouldSuggestWorkflow: (
+            dismissed: boolean,
+            featureFlags: FeatureFlagsSet
+        ) => (template: HogFunctionTemplateType) => boolean
         canBuildWorkflows: (
             events: string[],
             currentOrganization: OrganizationType | null,
@@ -125,7 +131,16 @@ export type destinationWorkflowSuggestionLogicType = MakeLogicType<
 export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggestionLogicType>([
     path(['products', 'workflows', 'frontend', 'DestinationWorkflowSuggestion', 'destinationWorkflowSuggestionLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], organizationLogic, ['currentOrganization'], projectLogic, ['currentProjectId']],
+        values: [
+            userLogic,
+            ['user'],
+            organizationLogic,
+            ['currentOrganization'],
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [userLogic, ['updateHasSeenProductIntroFor']],
     })),
     actions({
@@ -198,9 +213,10 @@ export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggest
                 answered || !!user?.has_seen_product_intro_for?.[DESTINATION_WORKFLOW_SUGGESTION_SEEN_KEY],
         ],
         shouldSuggestWorkflow: [
-            (s) => [s.dismissed],
-            (dismissed: boolean) =>
+            (s) => [s.dismissed, s.featureFlags],
+            (dismissed: boolean, featureFlags: FeatureFlagsSet) =>
                 (template: HogFunctionTemplateType): boolean =>
+                    !!featureFlags[FEATURE_FLAGS.WORKFLOWS_DESTINATION_SUGGESTION] &&
                     !dismissed &&
                     template.type === 'destination' &&
                     isMessagingDestinationTemplate(template.id) &&

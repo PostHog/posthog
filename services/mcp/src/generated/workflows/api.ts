@@ -1324,7 +1324,7 @@ export const WorkflowDataSuggestionsBuildBody = () => zod.object({
 
 /**
  * Build and save draft email workflows for events the team picked, such as the events it was about to send
- * to an email tool. Free for the customer, and open to every project that approved AI data processing.
+ * to an email tool. Free for the customer. Needs the feature flag and AI data processing approved for the organization.
  */
 export const WorkflowDataSuggestionsBuildForEventsParams = () => zod.object({
     project_id: zod

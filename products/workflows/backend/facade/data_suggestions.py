@@ -6,6 +6,7 @@ from posthog.models import Team, User
 from products.workflows.backend.facade.contracts import BuiltSuggestion, DataSuggestionsResult, EventWorkflowsBuild
 from products.workflows.backend.services.data_suggestions import service
 from products.workflows.backend.services.data_suggestions.service import (
+    DESTINATION_SUGGESTION_FLAG_KEY,
     FEATURE_FLAG_KEY,
     MAX_PICKED_EVENTS,
     build_caller,
@@ -24,6 +25,7 @@ from products.workflows.backend.tasks.data_suggestions import (
 )
 
 __all__ = [
+    "DESTINATION_SUGGESTION_FLAG_KEY",
     "FEATURE_FLAG_KEY",
     "MAX_PICKED_EVENTS",
     "build_caller",

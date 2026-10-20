@@ -3,6 +3,8 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -36,10 +38,12 @@ describe('destinationWorkflowSuggestionLogic', () => {
         seen = {},
         workflowAccess = AccessControlLevel.Editor,
         aiApproved = true,
+        flagEnabled = true,
     }: {
         seen?: Record<string, boolean>
         workflowAccess?: AccessControlLevel
         aiApproved?: boolean
+        flagEnabled?: boolean
     } = {}): void => {
         initKeaTests()
         sessionStorage.clear()
@@ -49,6 +53,10 @@ describe('destinationWorkflowSuggestionLogic', () => {
         } as unknown as AppContext
         userLogic.mount()
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, has_seen_product_intro_for: seen } as UserType)
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_DESTINATION_SUGGESTION]: flagEnabled,
+        })
         organizationLogic.mount()
         organizationLogic.actions.loadCurrentOrganizationSuccess({
             ...MOCK_DEFAULT_ORGANIZATION,
@@ -62,6 +70,7 @@ describe('destinationWorkflowSuggestionLogic', () => {
         ['asks for an email tool', 'template-customerio', {}, true],
         ['skips a destination that is not an email tool', 'template-webhook', {}, false],
         ['skips team chat, which Workflows does not replace', 'template-slack', {}, false],
+        ['skips a user without the feature flag', 'template-customerio', { flagEnabled: false }, false],
         [
             'skips a user who answered before',
             'template-customerio',

@@ -121,6 +121,7 @@ class StepsContext:
     events: tuple[str, ...]
     channels: frozenset[Channel]
     has_slack: bool
+    picked_events: bool = False
 
 
 _SIMPLE_RULE = (
@@ -199,7 +200,8 @@ def suggest_ideas(*, team: Team, user: User, context: IdeaContext, analytics_cli
         user=user,
         model=IDEAS_MODEL,
         effort="low",
-        feature="data_suggestion_ideas",
+        # A separate feature name keeps the destination build's model spend apart from the cards' in LLM analytics.
+        feature="destination_workflow_ideas" if context.picked_events else "data_suggestion_ideas",
         schema=WorkflowIdeas,
         system=_IDEAS_PROMPT.format(
             task=_PICKED_EVENTS_TASK if context.picked_events else _SUGGEST_TASK,
@@ -277,7 +279,7 @@ def plan_steps(
         user=user,
         model=PLANNER_MODEL,
         effort="medium",
-        feature="data_suggestion_steps",
+        feature="destination_workflow_steps" if context.picked_events else "data_suggestion_steps",
         schema=PlannedWorkflow,
         system=_STEPS_PROMPT.format(
             email_rule=email_rule,
