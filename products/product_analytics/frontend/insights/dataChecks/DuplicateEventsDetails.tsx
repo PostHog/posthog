@@ -47,6 +47,7 @@ export function DuplicateEventsDetails({
                     <Button
                         variant="outline"
                         size="sm"
+                        className="no-underline"
                         render={<LinkPrimitive to={repeatedEventsUrl} target="_blank" />}
                         data-attr="insight-data-check-see-repeated-events"
                     >

@@ -48,6 +48,7 @@ export function ExcludeFromFilterButton({
             <Button
                 variant="outline"
                 size="sm"
+                className="no-underline"
                 render={
                     <LinkPrimitive
                         to={urls.settings('environment-customization', 'internal-user-filtering')}
