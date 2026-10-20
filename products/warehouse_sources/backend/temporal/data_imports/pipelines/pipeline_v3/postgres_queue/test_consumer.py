@@ -4155,8 +4155,16 @@ _CONSUMER_MODULE = (
 )
 
 
-def _reconnect_counts() -> tuple[float, float]:
-    return HEARTBEAT_RECONNECTS_TOTAL._value.get(), HEARTBEAT_RECONNECT_FAILURES_TOTAL._value.get()
+class _ReconnectCounts(NamedTuple):
+    reconnects: float
+    failures: float
+
+
+def _reconnect_counts() -> _ReconnectCounts:
+    return _ReconnectCounts(
+        reconnects=HEARTBEAT_RECONNECTS_TOTAL._value.get(),
+        failures=HEARTBEAT_RECONNECT_FAILURES_TOTAL._value.get(),
+    )
 
 
 def _bounded_sleep(limit: int = 10) -> Any:
@@ -4237,14 +4245,14 @@ class TestBatchHeartbeat:
         if expect_reconnect:
             # The failed tick renews once on the new connection, and every later tick stays on it.
             assert renew_conns == [old_conn, new_conn, new_conn]
-            assert refresh.await_args.args[0] is new_conn
+            assert refresh.await_args_list[-1].args[0] is new_conn
             mock_connect.assert_awaited_once()
             old_conn.close.assert_awaited_once()
             assert consumer._group_conns[(1, "schema-1")] is new_conn
-            assert after == (before[0] + 1, before[1])
+            assert after == _ReconnectCounts(before.reconnects + 1, before.failures)
         else:
             assert renew_conns == [old_conn, old_conn, old_conn]
-            assert refresh.await_args.args[0] is old_conn
+            assert refresh.await_args_list[-1].args[0] is old_conn
             mock_connect.assert_not_awaited()
             old_conn.close.assert_not_awaited()
             assert consumer._group_conns == {}
@@ -4293,8 +4301,8 @@ class TestBatchHeartbeat:
 
         assert [call.args[0] for call in renew.await_args_list] == [conns[name] for name in expected_renew_conns]
         refresh.assert_awaited_once()
-        assert refresh.await_args.args[0] is conns["new"]
-        assert _reconnect_counts() == (before[0] + 1, before[1] + 1)
+        assert refresh.await_args_list[-1].args[0] is conns["new"]
+        assert _reconnect_counts() == _ReconnectCounts(before.reconnects + 1, before.failures + 1)
 
 
 class TestHeartbeatReconnectInGroup:
@@ -4362,12 +4370,12 @@ class TestHeartbeatReconnectInGroup:
         if lease_kept:
             assert sink_writes == [_make_batch().id]
             assert written_states == [(new_conn, SourceBatchStatus.State.SUCCEEDED.value)]
-            assert mock_verify.await_args.args[0] is new_conn
+            assert mock_verify.await_args_list[-1].args[0] is new_conn
         else:
             # The pre-commit check fences the write, so only the worker that reclaimed the batch writes it.
             assert sink_writes == []
             assert written_states == []
-        assert mock_unlock.await_args.args[0] is new_conn
+        assert mock_unlock.await_args_list[-1].args[0] is new_conn
         new_conn.close.assert_awaited()
         assert consumer._group_conns == {}
 
