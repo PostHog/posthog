@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { getProjectIdentifierInPath } from 'lib/utils/kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -47,9 +46,7 @@ export function CodeChannelLink({ channelId, taskId }: CodeChannelLinkProps): JS
     const webSpacesEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const { location } = useValues(router)
     const webUrl =
-        webSpacesEnabled && channelId && !taskId
-            ? webPath(getProjectIdentifierInPath(location.pathname), urls.taskSpace(channelId))
-            : null
+        webSpacesEnabled && channelId && !taskId ? webPath(location.pathname, urls.taskSpace(channelId)) : null
 
     useEffect(() => {
         if (deepLink) {

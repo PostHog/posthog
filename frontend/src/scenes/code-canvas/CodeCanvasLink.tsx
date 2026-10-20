@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { getProjectIdentifierInPath } from 'lib/utils/kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -44,10 +43,7 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
     // The web canvas scene shows "Not found" without this flag, so only offer it to visitors who have it.
     const webCanvasEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const { location } = useValues(router)
-    const webUrl =
-        webCanvasEnabled && dashboardId
-            ? webPath(getProjectIdentifierInPath(location.pathname), urls.canvasDetail(dashboardId))
-            : null
+    const webUrl = webCanvasEnabled && dashboardId ? webPath(location.pathname, urls.canvasDetail(dashboardId)) : null
 
     useEffect(() => {
         if (deepLink) {
