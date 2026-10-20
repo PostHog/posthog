@@ -2,11 +2,11 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from functools import cache, cached_property
+from functools import cache, cached_property, wraps
 from time import perf_counter
 from types import UnionType
 from typing import (
@@ -192,7 +192,12 @@ from posthog.hogql_queries.validation.validation import (
     run_validation_rules,
 )
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import get_new_events_cluster_host, new_events_cluster_host_scope
+from posthog.models.event.new_events_schema import (
+    events_route_scope,
+    get_new_events_cluster_host,
+    new_events_cluster_host_scope,
+    use_new_events_schema,
+)
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -1877,6 +1882,18 @@ def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
     }
 
 
+_RunMethod = TypeVar("_RunMethod", bound=Callable[..., Any])
+
+
+def _pin_events_route(run: _RunMethod) -> _RunMethod:
+    @wraps(run)
+    def pinned(self: "QueryRunner", *args: Any, **kwargs: Any) -> Any:
+        with events_route_scope(self.modifiers):
+            return run(self, *args, **kwargs)
+
+    return cast(_RunMethod, pinned)
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -1938,6 +1955,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
+        if self.modifiers.useNewEventsSchema is None:
+            self.modifiers.useNewEventsSchema = use_new_events_schema(team.pk, self.modifiers)
         self.query = query
         self.modifiers.webAnalyticsFirstPageviewFilters = resolve_first_pageview_filters_modifier(
             query, team, self.modifiers.webAnalyticsFirstPageviewFilters
@@ -2371,6 +2390,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return query_result, query_duration_ms
 
     @new_events_cluster_host_scope()
+    @_pin_events_route
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -3111,11 +3131,28 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
+        # The resolved modifiers below key the events table and cluster choice. Drop the requested values from the
+        # query, so an explicit false and an unset value that resolve the same way share one cache entry.
+        modifier_source: dict[str, Any] | None = query
+        while isinstance(modifier_source, dict):
+            if isinstance(modifier_source.get("modifiers"), dict):
+                modifier_source["modifiers"].pop("useNewEventsSchema", None)
+                modifier_source["modifiers"].pop("useNewEventsCluster", None)
+                if not modifier_source["modifiers"]:
+                    modifier_source.pop("modifiers")
+            modifier_source = modifier_source.get("source")
+
+        cache_modifiers = to_dict(self.modifiers)
+        # A legacy-table query omits these default values, so its cache key does not depend on them.
+        if cache_modifiers.get("useNewEventsSchema") is False:
+            cache_modifiers.pop("useNewEventsSchema")
+        if not cache_modifiers.get("useNewEventsCluster"):
+            cache_modifiers.pop("useNewEventsCluster", None)
         payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
             "team_id": self.team.pk,
-            "hogql_modifiers": to_dict(self.modifiers),
+            "hogql_modifiers": cache_modifiers,
             "products_modifiers": self._products_modifiers_for_cache(),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
