@@ -575,11 +575,13 @@ class TestDeliveryPath(APIBaseTest):
         assert (outcome.emitted_transitions, outcome.emitted_events) == (emitted, emitted)
 
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
-        self._run(
+        fired = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),
             self._chooses(DeliveryPath.HOG_FUNCTION),
             incident_actions={"": IncidentAction.TRIGGER},
         )
+        # One transition, emitted as its message event and its incident event.
+        assert (fired.emitted_transitions, fired.emitted_events) == (1, 2)
         # Every destination became stock mid-firing. The resolve still closes what the HogFunction opened.
         self._run(
             _announcement(_transition(AlertEventKind.RESOLVED)),
