@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "contract": {
     "name": "feature_flag_rules_v2",
-    "version": "2.0.0",
+    "version": "2.3.1",
     "config_version": 2
   },
   "corpus": {
@@ -136,6 +136,17 @@
         "keyword": "required",
         "instance_path": "/rules/0",
         "message_contains": "on_rollout_miss"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/missing_rollout_seed.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.missing_rollout_seed",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "required",
+        "instance_path": "/rules/0",
+        "message_contains": "seed"
       }
     },
     {
@@ -303,6 +314,115 @@
       "expected": "valid"
     },
     {
+      "path": "fixtures/config/valid/boolean_targeted_and_percentage_rollout.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.boolean_targeted_and_percentage_rollout",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/invalid/targeted_release_with_rollout_fields.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.targeted_release_with_rollout_fields",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "/rules/0",
+        "message_contains": "rollout_percentage"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/rollout_percentage_below_minimum.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.rollout_percentage_below_minimum",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minimum",
+        "instance_path": "/rules/0/rollout_percentage"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_rollout_miss_policy.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_rollout_miss_policy",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "enum",
+        "instance_path": "/rules/0/on_rollout_miss"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_assignment_algorithm.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_assignment_algorithm",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/rules/0/assignment_algorithm"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/assign_by_not_person.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.assign_by_not_person",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/rules/0/assign_by"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/null_rule_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.null_rule_value",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/value",
+        "message_contains": "boolean"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/default_value_type_mismatch.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.default_value_type_mismatch",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/default_value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_property_field.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_property_field",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "/rules/0/targeting/properties/0",
+        "message_contains": "implicit_default"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_property_operator.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_property_operator",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "enum",
+        "instance_path": "/rules/0/targeting/properties/0/operator"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_property_type.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_property_type",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "enum",
+        "instance_path": "/rules/0/targeting/properties/0/type"
+      }
+    },
+    {
       "path": "schemas/hash_sha1_60_v1.schema.json",
       "kind": "schema",
       "version": "1.1.0"
@@ -428,7 +548,7 @@
     {
       "path": "schemas/flags_response_v3.schema.json",
       "kind": "schema",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "path": "schemas/flags_response_v3_presence.schema.json",
@@ -448,12 +568,12 @@
     {
       "path": "schemas/feature_flag_called_context.schema.json",
       "kind": "schema",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "path": "schemas/experiment_exposure_properties.schema.json",
       "kind": "schema",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "path": "rules/response_presence.json",
@@ -908,14 +1028,236 @@
         "call_transport.prefixed_seed",
         "call_transport.person_property_named_seed"
       ]
+    },
+    {
+      "path": "schemas/v2_boolean_evaluation.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "corpus/v2_boolean_evaluation.json",
+      "kind": "boolean_evaluation_corpus",
+      "version": "1.0.0",
+      "schema": "schemas/v2_boolean_evaluation.schema.json",
+      "component": "v2_boolean_evaluation",
+      "case_ids": [
+        "v2_boolean.empty.null",
+        "v2_boolean.empty.false",
+        "v2_boolean.empty.true",
+        "v2_boolean.target.false",
+        "v2_boolean.target.true",
+        "v2_boolean.order.false_claims",
+        "v2_boolean.order.reversed",
+        "v2_boolean.order.original_index",
+        "v2_boolean.miss.continue",
+        "v2_boolean.miss.continue_false_default",
+        "v2_boolean.miss.return_default",
+        "v2_boolean.miss.return_default_false_default",
+        "v2_boolean.miss.consecutive",
+        "v2_boolean.miss.exhausted",
+        "v2_boolean.order.percentage_false",
+        "v2_boolean.order.targeting_miss",
+        "v2_boolean.miss.targeting_miss_continues",
+        "v2_boolean.property.exact_case",
+        "v2_boolean.property.exact_scalar",
+        "v2_boolean.property.exact_false",
+        "v2_boolean.property.is_not",
+        "v2_boolean.property.contains",
+        "v2_boolean.property.not_contains",
+        "v2_boolean.property.starts",
+        "v2_boolean.property.not_starts",
+        "v2_boolean.property.ends",
+        "v2_boolean.property.not_ends",
+        "v2_boolean.property.contains_multi",
+        "v2_boolean.property.not_contains_multi",
+        "v2_boolean.property.greater",
+        "v2_boolean.property.greater_equal",
+        "v2_boolean.property.less",
+        "v2_boolean.property.less_equal",
+        "v2_boolean.property.regex",
+        "v2_boolean.property.not_regex",
+        "v2_boolean.property.not_regex_negated",
+        "v2_boolean.property.regex_search",
+        "v2_boolean.property.semver_eq",
+        "v2_boolean.property.semver_neq",
+        "v2_boolean.property.semver_gt",
+        "v2_boolean.property.semver_gte",
+        "v2_boolean.property.semver_lt",
+        "v2_boolean.property.semver_lte",
+        "v2_boolean.property.semver_tilde",
+        "v2_boolean.property.semver_caret",
+        "v2_boolean.property.semver_wildcard",
+        "v2_boolean.property.semver_bad_subject",
+        "v2_boolean.property.date_exact",
+        "v2_boolean.property.date_after",
+        "v2_boolean.property.date_before",
+        "v2_boolean.property.date_before_negated",
+        "v2_boolean.property.date_relative",
+        "v2_boolean.property.relative_unsigned",
+        "v2_boolean.property.relative_hours",
+        "v2_boolean.property.relative_weeks",
+        "v2_boolean.property.relative_year_leap_clamp",
+        "v2_boolean.property.relative_month_clamp",
+        "v2_boolean.property.date_epoch",
+        "v2_boolean.property.date_epoch_string",
+        "v2_boolean.property.date_bad_subject",
+        "v2_boolean.property.legacy_exact_setting",
+        "v2_boolean.property.timezone",
+        "v2_boolean.property.wall_clock_no_offset",
+        "v2_boolean.property.relative_dst",
+        "v2_boolean.property.date_exact_same_day_miss",
+        "v2_boolean.property.date_before_equal",
+        "v2_boolean.property.date_after_equal",
+        "v2_boolean.property.relative_dst_elapsed_miss",
+        "v2_boolean.property.relative_dst_fall",
+        "v2_boolean.property.relative_dst_overlap_earliest",
+        "v2_boolean.property.relative_dst_overlap_later_miss",
+        "v2_boolean.property.relative_dst_gap",
+        "v2_boolean.property.null_is_set",
+        "v2_boolean.property.missing_is_not_set",
+        "v2_boolean.property.null_is_not_set",
+        "v2_boolean.property.missing_exact",
+        "v2_boolean.property.missing_is_not",
+        "v2_boolean.property.negated_missing",
+        "v2_boolean.property.negation",
+        "v2_boolean.property.double_negative",
+        "v2_boolean.property.negated_match",
+        "v2_boolean.property.and",
+        "v2_boolean.property.and_miss",
+        "v2_boolean.context.partial_is_not",
+        "v2_boolean.context.partial_is_not_set",
+        "v2_boolean.context.partial_exact",
+        "v2_boolean.context.unavailable",
+        "v2_boolean.context.unneeded",
+        "v2_boolean.context.partial_present",
+        "v2_boolean.context.false_before_missing",
+        "v2_boolean.context.missing_before_false",
+        "v2_boolean.error.invalid_regex_false",
+        "v2_boolean.error.invalid_regex_true",
+        "v2_boolean.error.numeric",
+        "v2_boolean.error.false_short_circuits",
+        "v2_boolean.error.terminal_short_circuits",
+        "v2_boolean.hash.ascii",
+        "v2_boolean.hash.seed_parity",
+        "v2_boolean.hash.empty",
+        "v2_boolean.hash.empty_return_default",
+        "v2_boolean.hash.ascii_200",
+        "v2_boolean.hash.ascii_201",
+        "v2_boolean.hash.multibyte_200",
+        "v2_boolean.hash.multibyte_201",
+        "v2_boolean.hash.supplementary_200",
+        "v2_boolean.hash.supplementary_201",
+        "v2_boolean.hash.composed",
+        "v2_boolean.hash.decomposed",
+        "v2_boolean.hash.zero",
+        "v2_boolean.hash.full",
+        "v2_boolean.hash.empty_full",
+        "v2_boolean.hash.partial",
+        "v2_boolean.hash.fraction",
+        "v2_boolean.hash.seed_changed",
+        "v2_boolean.hash.subject_changed",
+        "v2_boolean.hash.renamed",
+        "v2_boolean.hash.moved",
+        "v2_boolean.property.long_value",
+        "v2_boolean.threshold.p0_equal",
+        "v2_boolean.threshold.p0_above",
+        "v2_boolean.threshold.p33_33_equal",
+        "v2_boolean.threshold.p33_33_below",
+        "v2_boolean.threshold.p33_33_above",
+        "v2_boolean.threshold.p50_equal",
+        "v2_boolean.threshold.p50_below",
+        "v2_boolean.threshold.p50_above",
+        "v2_boolean.threshold.p100_equal",
+        "v2_boolean.threshold.p100_below",
+        "v2_boolean.eligibility.inactive",
+        "v2_boolean.eligibility.deleted",
+        "v2_boolean.eligibility.request_filtered",
+        "v2_boolean.parser.malformed",
+        "v2_boolean.parser.unsupported",
+        "v2_boolean.error.invalid_not_regex_negated",
+        "v2_boolean.target.empty_identifier"
+      ]
+    },
+    {
+      "path": "schemas/v2_value_evaluation.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "corpus/v2_value_evaluation.json",
+      "kind": "value_evaluation_corpus",
+      "version": "1.0.0",
+      "schema": "schemas/v2_value_evaluation.schema.json",
+      "component": "v2_value_evaluation",
+      "case_ids": [
+        "v2_value.string.target",
+        "v2_value.string.rollout_hit",
+        "v2_value.string.miss_return_default",
+        "v2_value.string.miss_return_default_null",
+        "v2_value.string.miss_continue",
+        "v2_value.string.no_match_default",
+        "v2_value.string.no_match_null",
+        "v2_value.string.order_first_match",
+        "v2_value.string.order_targeting_miss",
+        "v2_value.number.target",
+        "v2_value.number.rollout_hit",
+        "v2_value.number.miss_return_default",
+        "v2_value.number.miss_return_default_null",
+        "v2_value.number.miss_continue",
+        "v2_value.number.no_match_default",
+        "v2_value.number.no_match_null",
+        "v2_value.number.order_first_match",
+        "v2_value.number.order_targeting_miss",
+        "v2_value.object.target",
+        "v2_value.object.rollout_hit",
+        "v2_value.object.miss_return_default",
+        "v2_value.object.miss_return_default_null",
+        "v2_value.object.miss_continue",
+        "v2_value.object.no_match_default",
+        "v2_value.object.no_match_null",
+        "v2_value.object.order_first_match",
+        "v2_value.object.order_targeting_miss",
+        "v2_value.string.unicode",
+        "v2_value.string.looks_boolean",
+        "v2_value.number.zero",
+        "v2_value.number.negative_decimal",
+        "v2_value.number.short_decimal",
+        "v2_value.number.exponent",
+        "v2_value.number.max_safe_integer",
+        "v2_value.number.min_safe_integer",
+        "v2_value.object.empty",
+        "v2_value.object.nested",
+        "v2_value.object.max_depth",
+        "v2_value.parser.string_empty_value",
+        "v2_value.parser.string_empty_default",
+        "v2_value.parser.string_value_mismatch",
+        "v2_value.parser.number_value_mismatch",
+        "v2_value.parser.number_default_mismatch",
+        "v2_value.parser.number_above_safe_integer",
+        "v2_value.parser.number_below_safe_integer",
+        "v2_value.parser.object_array_value",
+        "v2_value.parser.object_default_mismatch",
+        "v2_value.parser.object_too_deep",
+        "v2_value.parser.object_nested_number_above_safe_integer"
+      ]
     }
   ],
   "wire_contract": {
-    "version": "1.0.0",
+    "version": "1.0.1",
     "fixture_version": "1.0.0",
     "published_versions_are_immutable": true,
-    "producer_schema_sha256": "1dd97730c746bc4534c4f47eebd82dac0cc67ceb1e4c53e7540960e7f74b00d9",
+    "producer_schema_sha256": "98c1397bb7b5a1ceb3f317b34c6c57cff0ab30e94bf5945ee7b56f293536b70f",
     "fixture_encoding": "Each case deep-copies its named template, removes the listed existing JSON Pointer members, then sets members by JSON Pointer. Set requires an existing parent. Templates and expectations are JSON, not executable SDK suites.",
     "compatibility": "New artifacts are additive to contract 1.2.0. Published schema bytes and fixture expectations are immutable. Accepted/rejected wire-contract changes require a new major wire component version; additive cases require a new minor fixture version. Reader expectations never relax producer validation."
+  },
+  "v2_boolean_evaluation": {
+    "version": "1.0.0",
+    "config_version_locked": 2,
+    "published_versions_are_immutable": true
+  },
+  "v2_value_evaluation": {
+    "version": "1.0.0",
+    "config_version_locked": 2,
+    "published_versions_are_immutable": true
   }
 }
