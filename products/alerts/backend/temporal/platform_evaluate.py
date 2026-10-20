@@ -158,10 +158,21 @@ def plan_platform_insight_checks_activity(inputs: InsightBatchPlanInputs) -> lis
 @close_db_connections
 def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
     """Sync, so the thread this blocks is a slot Temporal is accounting for."""
-    from products.alerts.backend.platform_source_cycle import evaluate_insight_check  # noqa: PLC0415
+    from products.alerts.backend.platform_source_cycle import (  # noqa: PLC0415
+        evaluate_insight_check,
+        readmit_retried_check,
+    )
 
     info = activity.info()
     key = inputs.evaluation.batch_key
+    if info.attempt > 1 and not readmit_retried_check(
+        key.team_id,
+        inputs.configuration_id,
+        previous_query_id=f"{info.workflow_run_id}:{info.activity_id}:{info.attempt - 1}",
+        held_until=inputs.held_until,
+    ):
+        # No outcome keeps the check due, so a later tick evaluates it once the pool has room.
+        return None
     return evaluate_insight_check(
         key.team_id,
         key.slot,

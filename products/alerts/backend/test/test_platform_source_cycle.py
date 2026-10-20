@@ -27,6 +27,7 @@ from products.alerts.backend.platform_source_cycle import (
     INFLIGHT_KEY,
     evaluate_insight_check,
     plan_insight_batch,
+    readmit_retried_check,
 )
 from products.alerts.backend.temporal.platform_evaluate import (
     AdmittedInsightCheck,
@@ -273,6 +274,25 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "errored",
             True,
         )
+
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
+    def test_a_retry_stops_the_timed_out_query_and_runs_only_inside_the_pool(self) -> None:
+        held = self._copy(self._alert(), id=UUID(int=1))
+        waiting = self._copy(self._alert(), id=UUID(int=2))
+        slot = slot_of(held.next_check_at, CUTOFF)
+        expires_at = time.time() + 3600
+        assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(held.id),)
+
+        with patch(f"{_MODULE}.cancel_query_on_cluster") as cancel:
+            retried = readmit_retried_check(
+                self.team.id, str(held.id), previous_query_id="run:1:1", held_until=expires_at
+            )
+            over_the_limit = readmit_retried_check(
+                self.team.id, str(waiting.id), previous_query_id="run:2:1", held_until=expires_at
+            )
+
+        assert (retried, over_the_limit) == (True, False)
+        cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1")
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_the_pool_defers_what_it_cannot_hold_until_a_check_frees_its_slot(self) -> None:
