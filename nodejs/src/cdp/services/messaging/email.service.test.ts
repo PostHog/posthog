@@ -21,7 +21,13 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
-import { EmailService, parseAddressList, sanitizeEmailSubject, teamEmailCapBuckets } from './email.service'
+import {
+    EmailService,
+    formatMailbox,
+    parseAddressList,
+    sanitizeEmailSubject,
+    teamEmailCapBuckets,
+} from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
@@ -54,6 +60,24 @@ describe('sanitizeEmailSubject', () => {
         ['preserves email-typical special chars', 'Re: Your order #1234 — 50% off!', 'Re: Your order #1234 — 50% off!'],
     ])('%s', (_name, input, expected) => {
         expect(sanitizeEmailSubject(input)).toEqual(expected)
+    })
+})
+
+describe('formatMailbox', () => {
+    it.each([
+        ['no name', undefined, 'a@example.com'],
+        ['an empty name', '  ', 'a@example.com'],
+        ['a plain name', 'Dry Run', '"Dry Run" <a@example.com>'],
+        ['an apostrophe and ampersand', "O'Brien & Co", `"O'Brien & Co" <a@example.com>`],
+        ['a double quote', 'The "Real" Dry', '"The \\"Real\\" Dry" <a@example.com>'],
+        ['a backslash', 'Dry\\Run', '"Dry\\\\Run" <a@example.com>'],
+        [
+            'a line break that would start a header',
+            'Dry\r\nBcc: x@example.com',
+            '"DryBcc: x@example.com" <a@example.com>',
+        ],
+    ])('formats %s', (_name, name, expected) => {
+        expect(formatMailbox(name, 'a@example.com')).toEqual(expected)
     })
 })
 
@@ -1432,21 +1456,27 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
             const htmlData = sentCommand.input.Content.Simple.Body.Html.Data
-            expect(htmlData).not.toContain('<tbody><span')
+            expect(htmlData).not.toContain('mso-hide:all')
         })
 
-        it('should include preheader at top of HTML if in params', async () => {
+        it.each([
+            [
+                'a document',
+                '<html><body class="email"><table><tbody><tr><td>Hi</td></tr></tbody></table></body></html>',
+                /^<html><body class="email"><span style=".*">This is a preview text<\/span><table>/,
+            ],
+            ['a fragment without tbody', '<p>Hi</p>', /^<span style=".*">This is a preview text<\/span><p>Hi<\/p>$/],
+        ])('should include preheader at the start of the body of %s', async (_name, html, expected) => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
-                html: '<tbody>Test email content</tbody>',
+                html,
                 preheader: 'This is a preview text',
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            const htmlData = sentCommand.input.Content.Simple.Body.Html.Data
-            expect(htmlData).toMatch(/<tbody><span style=".*">This is a preview text<\/span>/)
+            expect(sentCommand.input.Content.Simple.Body.Html.Data).toMatch(expected)
         })
 
         it('should include unsubscribe headers for non-transactional emails', async () => {

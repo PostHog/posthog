@@ -134,6 +134,7 @@ The overall topology (Temporal producer activity, two tables, a fleet of consume
 The consumer engine emits nine `warehouse_pg_consumer_*` metrics (`metrics.py`): `batches_processed_total`, `batch_processing_duration_seconds`, `batch_retry_total`, `runs_failed_total`, `poll_duration_seconds`, `poll_batches_fetched`, `poll_failures_total`, `active_groups`, `recovery_sweeps_total`.
 Other sinks get that nine-metric engine set under their own `{prefix}_pg_consumer_*` names via `make_consumer_metrics`, so dashboards and KEDA queries never conflate two consumers' series.
 Further counters exist only under the `warehouse_pg_consumer_*` prefix, incremented by the Delta consumer's reconcile sweep (`consumer.py`) rather than by the shared engine: `runs_reconciled_total`, `runs_terminalized_stale_total` and `runs_failed_aged_out_total`.
+`recovery_sweeps_total` has three outcomes. `clean` means the sweep found no orphaned batch. `orphans_found_after_shutdown` means every orphan carried the shutdown marker of a graceful stop, such as a deploy. `orphans_found` means at least one orphan had no marker, so a consumer died without notice (an OOM kill or a crash) or lost its lease. Alerts read `orphans_found`.
 
 The headline health signal is `warehouse_pg_queue_oldest_unclaimed_batch_seconds`: the age of the oldest batch no consumer has picked up yet.
 It is the loader's data-freshness signal and rises whenever loading stalls, regardless of cause, so its alert fires even when every other signal looks green.
@@ -206,6 +207,10 @@ The `run_warehouse_scheduler` command runs the tick loop.
 Each scheduled kind declares its queue lane and its overlap policy; `sync.extract` uses `SKIP` on lane `extract`.
 The scheduler decides overlap from the live jobs in `queuejob`, never from `ExternalDataJob` rows.
 The scheduler uses sentinel rows in `queuejoblease` (lane `scheduler`) to select one leader across the fleet.
+The tick leader drains due schedules.
+The fleet-wide refresh runs in a separate loop with its own sentinel row, so a slow refresh does not delay the drain.
+Each drain batch locks the tick sentinel row with `JobsTable.lock_live_lease` and stops when the row is no longer this pod's.
+A new leader waits for that lock, so two pods never drain at the same time.
 It starts no syncs.
 The `report_warehouse_scheduler_shadow` command compares decisions with the `ExternalDataJob` rows that Temporal schedules created.
 It counts an unmatched decision as `temporal_overlap_skip`, not `shadow_only`, when a job for that schema was in progress at the due time and was created at most 7 days before it.

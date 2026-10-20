@@ -49,6 +49,7 @@ SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_PROJECT_PICKER_FLAG = "slack-app-project-picker"
 SLACK_APP_REPLY_SUGGESTIONS_FLAG = "slack-app-reply-suggestions"
+SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -143,6 +144,19 @@ def is_slack_app_reply_suggestions_enabled(integration: Integration) -> bool:
         SLACK_APP_REPLY_SUGGESTIONS_FLAG,
         integration,
         failure_log_key="slack_app_reply_suggestions_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
+    """Gate for answering top-level channel messages nobody tagged the app in.
+
+    Keyed on the workspace, not the author, because the webhook checks it before it resolves
+    who wrote the message. Roll it out with an organization condition.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
+        integration,
+        failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
     )
 
 
