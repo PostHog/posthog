@@ -18,6 +18,7 @@ import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
 import { FilterItem, FilterPopover } from './filterControls'
+import { InboxTagFilter } from './InboxTagFilter'
 
 /**
  * Collapsible per-scout sub-filter nested under the "Scout" source row. Collapsed by default
@@ -178,6 +179,8 @@ export function InboxSearchFilterBar({
                         </div>
                     ))}
                 </FilterPopover>
+
+                <InboxTagFilter />
 
                 <FilterPopover
                     label="Priority"

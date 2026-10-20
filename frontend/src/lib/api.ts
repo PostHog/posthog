@@ -4929,6 +4929,8 @@ const api = {
             scout?: string
             /** Scout skill_name prefix — matches every scout in the family. */
             scout_prefix?: string
+            /** Comma-separated report tag slugs. Keeps reports with at least one of them. */
+            tags?: string
             /** true returns only the filtered total: `results` is empty and no rows are serialized. */
             count_only?: 'true' | 'false'
             /** false skips the ClickHouse lookup for `source_products` and `scout_name`, which then come back empty. */

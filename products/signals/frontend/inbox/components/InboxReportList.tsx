@@ -22,6 +22,8 @@ export interface InboxReportCardProps {
     onRestore?: () => void
     /** Rendered as an attached row inside a shared bordered container (vs. a freestanding card). */
     attached?: boolean
+    /** Filter the inbox by a tag the row shows. */
+    onTagClick?: (tag: string) => void
 }
 
 interface InboxReportListProps {
@@ -43,12 +45,14 @@ const LegacyReportRow = memo(function LegacyReportRow({
     Card,
     dismissReport,
     restoreReport,
+    toggleTag,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     Card: ComponentType<InboxReportCardProps>
     dismissReport: (reportId: string, dismissal: DismissalFeedback) => void
     restoreReport: (reportId: string, surface: 'list_row') => void
+    toggleTag: (tag: string) => void
 }): JSX.Element {
     return (
         <Card
@@ -56,6 +60,7 @@ const LegacyReportRow = memo(function LegacyReportRow({
             sectionKey={sectionKey}
             onDismiss={(dismissal) => dismissReport(report.id, dismissal)}
             onRestore={() => restoreReport(report.id, 'list_row')}
+            onTagClick={toggleTag}
         />
     )
 })
@@ -91,6 +96,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     } = useValues(reportListLogic)
     const { ensureLoaded, loadMore, dismissReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
+    const { toggleTag } = useActions(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
@@ -277,6 +283,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                                 Card={Card}
                                 dismissReport={dismissReport}
                                 restoreReport={restoreReport}
+                                toggleTag={toggleTag}
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}

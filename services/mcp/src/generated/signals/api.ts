@@ -275,6 +275,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.'
         ),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated list of report tags (lowercase kebab-case slugs, e.g. billing,cost-spike). Reports are kept if they carry at least one of these tags. Each value is normalized to a slug first. Combines with the other filters as an AND.'
+        ),
     task_id: zod
         .string()
         .optional()

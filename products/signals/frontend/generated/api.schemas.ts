@@ -8228,6 +8228,10 @@ export type SignalsReportsListParams = {
      */
     suggested_reviewers?: string
     /**
+     * Comma-separated list of report tags (lowercase kebab-case slugs, e.g. billing,cost-spike). Reports are kept if they carry at least one of these tags. Each value is normalized to a slug first. Combines with the other filters as an AND.
+     */
+    tags?: string
+    /**
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string

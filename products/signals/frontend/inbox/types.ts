@@ -106,6 +106,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     metrics?: ReportMetricApi[]
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
+    /** Lowercase kebab-case slug tags for grouping and filtering reports. */
+    tags?: string[]
     /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */
     source_suggestion?: ReportSourceSuggestionApi | null
     /** Count of signals at the time the latest research run kicked off. */

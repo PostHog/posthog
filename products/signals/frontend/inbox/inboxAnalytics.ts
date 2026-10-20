@@ -232,6 +232,7 @@ export type InboxQueryChange =
     | 'sort'
     | 'source_product'
     | 'scout'
+    | 'tag'
     | 'priority'
     | 'state'
     | 'search'
@@ -930,6 +931,7 @@ export function captureInboxQueryChanged(params: {
     sortDirection: string
     sourceProductFilter: string[]
     scoutFilter: string[]
+    tagFilter: string[]
     priorityFilter: string[]
     stateFilter: string[]
     searchQuery: string
@@ -945,6 +947,7 @@ export function captureInboxQueryChanged(params: {
         sort_direction: params.sortDirection,
         source_product_filter: params.sourceProductFilter,
         scout_filter: params.scoutFilter,
+        tag_filter: params.tagFilter,
         priority_filter: params.priorityFilter,
         state_filter: params.stateFilter,
         has_search: search.length > 0,
