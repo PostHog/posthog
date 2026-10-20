@@ -70,7 +70,7 @@ import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
 import { SenderDomainNotice, senderDomainNotice } from './senderDomainNotice'
 import { unverifiedSenderDomains } from './unverifiedSenderDomains'
-import { syncWaitingStatusCheck } from './waitingStatusCheck'
+import { checkWaitingStatusWhileVisible } from './waitingStatusCheck'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { prefilledEmailContent, prefilledWorkflow, withEmailSender, withPrefilledEmail } from './workflowEmailPrefill'
 import { workflowSceneLogic } from './workflowSceneLogic'
@@ -4442,7 +4442,6 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
-            syncWaitingStatusCheck(cache.disposables, values.isWaitingForDomain, actions.checkWaitingStatus)
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
@@ -4486,7 +4485,7 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         checkWaitingStatus: async () => {
             const latest = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
-            if (!props.id || !latest || values.workflowLoading) {
+            if (!props.id || !latest || !values.isWaitingForDomain || values.workflowLoading) {
                 return
             }
             let fresh: HogFlow
@@ -4508,9 +4507,6 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setWorkflowLifecycle(lifecycle)
         },
-        setWorkflowLifecycle: () => {
-            syncWaitingStatusCheck(cache.disposables, values.isWaitingForDomain, actions.checkWaitingStatus)
-        },
         dismissStartedSendingNotice: () => {
             if (values.startedSendingNoticeKey) {
                 actions.setStartedSendingNoticeDismissed(values.startedSendingNoticeKey)
@@ -4531,7 +4527,6 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
-            syncWaitingStatusCheck(cache.disposables, values.isWaitingForDomain, actions.checkWaitingStatus)
             // What this save was dispatched with. A manual save queued behind an auto-save used to
             // relabel the auto-save here, so the auto-save also ran the manual-only work below: a
             // second toast, and a second schedule write that can leave a duplicate schedule.
@@ -4847,9 +4842,10 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()
+        checkWaitingStatusWhileVisible(cache.disposables, actions.checkWaitingStatus)
     }),
     beforeUnload((logic) => ({
         enabled: (newLocation) => {
