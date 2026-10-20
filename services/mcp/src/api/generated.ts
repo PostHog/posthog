@@ -64140,6 +64140,36 @@ export namespace Schemas {
       project_name: string;
     }
 
+    /**
+     * Prefilled `query` object for that tool. Pass it as is or adjust it.
+     */
+    export type LogsAgentNextCallQuery = { [key: string]: unknown };
+
+    export interface LogsAgentNextCall {
+      /** MCP tool to call next, e.g. query-logs or logs-context. */
+      tool: string;
+      /** One line on what the follow-up call answers. */
+      why: string;
+      /** Prefilled `query` object for that tool. Pass it as is or adjust it. */
+      query: LogsAgentNextCallQuery;
+    }
+
+    export interface LogsAgentWindowBounds {
+      /** Window start, ISO 8601 UTC with a Z suffix (inclusive). */
+      from: string;
+      /** Window end, ISO 8601 UTC with a Z suffix (exclusive). */
+      to: string;
+    }
+
+    export interface LogsAgentWindow {
+      /** Absolute bounds the server used for the current window. */
+      current: LogsAgentWindowBounds;
+      /** Absolute bounds the server used for the baseline window, when there is one. */
+      baseline?: LogsAgentWindowBounds;
+      /** Always "UTC". */
+      timezone: string;
+    }
+
     export interface LogsAlertFilters {
       filterGroup?: PropertyGroupFilter | null;
       serviceNames?: string[] | null;
@@ -117295,6 +117325,15 @@ export namespace Schemas {
     } as const;
 
     export interface _LogPatternDiffEntry {
+      /** The template with variable parts masked. Safe to quote in reports. */
+      masked_example: string;
+      /** Up to 4 services with this pattern. */
+      services: string[];
+      /**
+         * Earliest 5-minute bucket (UTC) with this pattern, up to 14 days back. Null on body mining.
+         * @nullable
+         */
+      first_seen_ever: string | null;
       /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
        *
        * * `new` - new
@@ -117584,9 +117623,33 @@ export namespace Schemas {
       sessionId?: string;
     }
 
+    export interface _LogsPatternsDiffBody {
+      /** Date range to mine patterns from. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels before mining. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Restrict mining to these service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies before mining. */
+      searchTerm?: string;
+      /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
+      /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+      sessionId?: string;
+      /**
+         * Return at most this many entries, most interesting first. Omit for all. Sets `truncated`.
+         * @minimum 1
+         * @maximum 500
+         * @nullable
+         */
+      limit?: number | null;
+    }
+
     export interface _LogsPatternsDiffRequest {
       /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
-      query: _LogsPatternsBody;
+      query: _LogsPatternsDiffBody;
       /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
       baselineDateRange?: _DateRange;
     }
@@ -117639,6 +117702,26 @@ export namespace Schemas {
     }
 
     export interface _LogsPatternsDiffResponse {
+      /** Absolute UTC bounds of the current and baseline windows. */
+      window: LogsAgentWindow;
+      /** stored_patterns when both windows have ≥99% of rows on the same stored version, else body_mining.
+       *
+       * * `stored_patterns` - stored_patterns
+       * * `body_mining` - body_mining */
+      source: LogsPatternsSourceEnum;
+      /**
+         * Stored pattern version, null for mining.
+         * @nullable
+         */
+      pattern_version: number | null;
+      /** True on the body-mining fallback: counts are sample estimates. */
+      sampled: boolean;
+      /** True when `limit` cut the entry list. */
+      truncated: boolean;
+      /** Caveats that limit what the diff shows. */
+      notes: string[];
+      /** Prefilled query-logs calls for the top new or shifted patterns. */
+      next: LogsAgentNextCall[];
       /** Classified diff entries, most interesting first: "new" (by estimated count), then "rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the baseline is matched to the current window by literal-content fingerprint, so a placeholder widening between runs does not read as one pattern vanishing and another appearing. */
       entries: _LogPatternDiffEntry[];
       /** Mining metadata for the current window. */

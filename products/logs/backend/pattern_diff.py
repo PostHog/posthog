@@ -1,17 +1,27 @@
 import datetime as dt
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from posthog.schema import DateRange, LogsQuery
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import ExecutionMode
 
+from products.logs.backend.agent_window import utc_iso, window_echo
 from products.logs.backend.log_patterns import ERROR_SEVERITIES, _env, pattern_fingerprint
+from products.logs.backend.logs_query_runner import fail_fast_aggregate_settings
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 
 if TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 _BASELINE_OFFSET = dt.timedelta(days=7)
+FIRST_SEEN_LOOKBACK = dt.timedelta(days=14)
+_FIRST_SEEN_MAX_MEMBERS = 5000
 
 
 def _rate(estimated_count: float, window: tuple[dt.datetime, dt.datetime]) -> float:
@@ -23,11 +33,30 @@ def _has_error_severity(pattern: dict) -> bool:
     return any(severity in ERROR_SEVERITIES for severity in pattern.get("severity_counts", {}))
 
 
-def _group_by_fingerprint(patterns: list[dict]) -> dict[str, list[dict]]:
+def _fingerprint_key(pattern: dict) -> str:
+    return pattern_fingerprint(pattern["pattern"])
+
+
+def _group_by_key(patterns: list[dict], key: Callable[[dict], str]) -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = {}
     for pattern in patterns:
-        grouped.setdefault(pattern_fingerprint(pattern["pattern"]), []).append(pattern)
+        grouped.setdefault(key(pattern), []).append(pattern)
     return grouped
+
+
+def stored_pattern_keys(current: list[dict], baseline: list[dict]) -> Callable[[dict], str]:
+    """Identity for stored-pattern groups: a baseline group matches the current group it shares a member with.
+
+    Each window groups its stored patterns with its own Drain pass, so the group template can differ
+    between windows ("Retry <*> timed out" vs "Retry <N> timed out") while the members stay exact.
+    """
+    owner = {member: min(group["match_patterns"]) for group in current for member in group["match_patterns"]}
+
+    def key(pattern: dict) -> str:
+        members = pattern["match_patterns"]
+        return next((owner[member] for member in members if member in owner), min(members))
+
+    return key
 
 
 def _representative(group: list[dict]) -> dict:
@@ -50,6 +79,7 @@ def diff_patterns(
     *,
     current_window: tuple[dt.datetime, dt.datetime],
     baseline_window: tuple[dt.datetime, dt.datetime],
+    key: Callable[[dict], str] = _fingerprint_key,
 ) -> list[dict]:
     """Classify serialized mined patterns from a current window against a baseline window.
 
@@ -71,8 +101,8 @@ def diff_patterns(
         # divide by zero below — treat a misconfigured env var as the default.
         shift_ratio = 2.0
 
-    current_groups = _group_by_fingerprint(current)
-    baseline_groups = _group_by_fingerprint(baseline)
+    current_groups = _group_by_key(current, key)
+    baseline_groups = _group_by_key(baseline, key)
 
     def above_floor(share: float, group: list[dict]) -> bool:
         # Error severity is checked across every template in the group, not just the
@@ -147,15 +177,26 @@ def _entry(
     }
 
 
-def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateRange | None) -> dict:
-    """Mine the query's window and a baseline window, and return classified diff entries.
+def run_patterns_diff(
+    team: "Team",
+    query: LogsQuery,
+    baseline_date_range: DateRange | None,
+    *,
+    user: "User | None" = None,
+    limit: int | None = None,
+) -> dict:
+    """Pattern both windows, and return classified diff entries.
 
     The baseline defaults to the same window shifted back one week — log streams have strong
     daily/weekly cycles, so last week's identical window is a fairer expectation than the
     preceding hour. The current window is resolved once and the baseline derived from the
     resolved bounds, so a relative ``date_from`` (e.g. ``-1h``) can't drift between the two runs.
+
+    Both windows use stored patterns when each qualifies by the PatternsQueryRunner rule (flag on,
+    ≥99% of rows on one version) and they share the version. Otherwise both use body mining: the two
+    paths name placeholders differently, so a mixed pair would read every message as new + gone.
     """
-    current_runner = PatternsQueryRunner(team=team, query=query)
+    current_runner = PatternsQueryRunner(team=team, query=query, user=user)
     current_from = current_runner.query_date_range.date_from()
     current_to = current_runner.query_date_range.date_to()
 
@@ -165,25 +206,129 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
             date_to=(current_to - _BASELINE_OFFSET).isoformat(),
         )
     baseline_query = query.model_copy(update={"dateRange": baseline_date_range})
-    baseline_runner = PatternsQueryRunner(team=team, query=baseline_query)
-    current_runner.use_stored_patterns = False
-    baseline_runner.use_stored_patterns = False
+    baseline_runner = PatternsQueryRunner(team=team, query=baseline_query, user=user)
     baseline_from = baseline_runner.query_date_range.date_from()
     baseline_to = baseline_runner.query_date_range.date_to()
 
-    current_results = current_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
-    baseline_results = baseline_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
+    results = [
+        runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results for runner in (current_runner, baseline_runner)
+    ]
+    versions = {
+        result.get("pattern_version") if result.get("source") == "stored_patterns" else None for result in results
+    }
+    version = versions.pop() if len(versions) == 1 else None
+    if version is None:
+        for index, window_query in enumerate((query, baseline_query)):
+            if results[index].get("source") == "stored_patterns":
+                runner = PatternsQueryRunner(team=team, query=window_query, user=user)
+                runner.use_stored_patterns = False
+                results[index] = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
+    current_results, baseline_results = results
 
     entries = diff_patterns(
         current_results["patterns"],
         baseline_results["patterns"],
         current_window=(current_from, current_to),
         baseline_window=(baseline_from, baseline_to),
+        key=stored_pattern_keys(current_results["patterns"], baseline_results["patterns"])
+        if version
+        else _fingerprint_key,
     )
+    truncated = limit is not None and len(entries) > limit
+    entries = entries[:limit]
+    first_seen = _first_seen_ever(team, query, entries, version, current_to) if version else {}
+    for entry in entries:
+        pattern = entry["pattern"]
+        seen = [first_seen[member] for member in pattern.get("match_patterns") or [] if member in first_seen]
+        entry.update(
+            masked_example=pattern["pattern"],
+            services=pattern.get("services") or [],
+            first_seen_ever=utc_iso(min(seen)) if seen else None,
+        )
+
+    notes = [
+        "first_seen_ever reads the pattern rollup up to 14 days back, filtered by serviceNames and severityLevels only."
+        if version
+        else "Body mining fallback: counts are sample estimates and first_seen_ever is null."
+    ]
+    if baseline_results["total_count"] == 0:
+        notes.append("The baseline window has no matching logs, so every pattern reads as new.")
+
     return {
+        "window": window_echo((current_from, current_to), (baseline_from, baseline_to)),
+        "source": "stored_patterns" if version else "body_mining",
+        "pattern_version": version,
+        "sampled": not version,
+        "truncated": truncated,
         "entries": entries,
         "current": _window_meta(current_results, current_from, current_to),
         "baseline": _window_meta(baseline_results, baseline_from, baseline_to),
+        "notes": notes,
+        "next": [
+            _raw_lines_call(entry, query, current_from, current_to)
+            for entry in entries
+            if entry["classification"] in ("new", "rate_shift")
+        ][:3],
+    }
+
+
+def _first_seen_ever(
+    team: "Team", query: LogsQuery, entries: list[dict], version: int, current_to: dt.datetime
+) -> dict[str, dt.datetime]:
+    members = list(dict.fromkeys(member for entry in entries for member in entry["pattern"]["match_patterns"]))
+    where = "pattern_version = {version} AND pattern IN {members} AND time_bucket >= {date_from} AND time_bucket < {date_to}"
+    if query.serviceNames:
+        where += " AND service_name IN {services}"
+    if query.severityLevels:
+        where += " AND severity_text IN {severities}"
+    placeholders: dict[str, ast.Expr] = {
+        "version": ast.Constant(value=version),
+        "members": ast.Constant(value=members[:_FIRST_SEEN_MAX_MEMBERS] or [""]),
+        "date_from": ast.Constant(value=current_to - FIRST_SEEN_LOOKBACK),
+        "date_to": ast.Constant(value=current_to),
+        "services": ast.Constant(value=list(query.serviceNames or [])),
+        "severities": ast.Constant(value=[str(level) for level in query.severityLevels or []]),
+    }
+    response = execute_hogql_query(
+        query_type="LogsPatternsFirstSeen",
+        query=parse_select(
+            f"SELECT pattern, min(time_bucket) FROM posthog.logs_pattern_buckets WHERE {where} GROUP BY pattern",
+            placeholders=placeholders,
+        ),
+        team=team,
+        workload=Workload.LOGS,
+        settings=fail_fast_aggregate_settings(),
+    )
+    return {row[0]: row[1] for row in response.results}
+
+
+def _raw_lines_call(entry: dict, query: LogsQuery, date_from: dt.datetime, date_to: dt.datetime) -> dict:
+    pattern = entry["pattern"]
+    regex = pattern.get("match_regex")
+    pivot = (
+        [
+            {"key": "pattern", "value": pattern["match_patterns"], "operator": "exact", "type": "log"},
+            {"key": "pattern_version", "value": pattern["pattern_version"], "operator": "exact", "type": "log"},
+        ]
+        if pattern.get("pattern_version")
+        else [
+            {
+                "key": "message",
+                "value": regex or pattern.get("match_literal") or "",
+                "operator": "regex" if regex else "icontains",
+                "type": "log",
+            }
+        ]
+    )
+    return {
+        "tool": "query-logs",
+        "why": f"raw lines for {entry['classification']} pattern {entry['masked_example'][:60]}",
+        "query": {
+            "dateRange": {"date_from": utc_iso(date_from), "date_to": utc_iso(date_to)},
+            "serviceNames": entry["services"] or list(query.serviceNames or []),
+            "filterGroup": pivot,
+            "limit": 20,
+        },
     }
 
 

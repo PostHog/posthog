@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { castObjectToJsonString } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -91,7 +92,11 @@ const apmAttributesList = (): ToolBase<
 
 const ApmServicesListSchema = () => {
     const TracingSpansServiceNamesRetrieveQueryParams = orvalSchemas.TracingSpansServiceNamesRetrieveQueryParams()
-    return TracingSpansServiceNamesRetrieveQueryParams
+    return TracingSpansServiceNamesRetrieveQueryParams.extend({
+        dateRange: z
+            .preprocess(castObjectToJsonString, TracingSpansServiceNamesRetrieveQueryParams.shape['dateRange'])
+            .optional(),
+    })
 }
 
 const apmServicesList = (): ToolBase<

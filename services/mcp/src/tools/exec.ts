@@ -2104,7 +2104,7 @@ export function createExecTool(
                     }
                     const durationMs = Date.now() - startedAt
                     // The text path below builds no payload, so emptiness is reported from here.
-                    const resultShape = isEmptyToolResult(result) ? { result_empty: true } : {}
+                    const resultShape = isEmptyToolResult(result, tool.name) ? { result_empty: true } : {}
                     const formattedOverride =
                         result !== null && typeof result === 'object'
                             ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]

@@ -1481,6 +1481,8 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
         .describe('The patterns query to execute.'),
 })
 
+export const logsPatternsDiffCreateBodyQueryOneLimitMax = 500
+
 export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -1575,6 +1577,12 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
                 ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsPatternsDiffCreateBodyQueryOneLimitMax)
+                .nullish()
+                .describe('Return at most this many entries, most interesting first. Omit for all. Sets `truncated`.'),
         })
         .describe(
             'The patterns query for the current (foreground) window: date range plus any severity\/service\/search\/property filters. The same filters are applied to the baseline window.'

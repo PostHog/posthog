@@ -74,6 +74,11 @@ from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
+from products.logs.backend.presentation.views.patterns_diff_fields import (
+    PatternDiffEntryFields,
+    PatternsDiffBodyFields,
+    PatternsDiffResponseFields,
+)
 from products.logs.backend.presentation.views.retention_api import LogsRetentionRuleViewSet
 from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
 from products.logs.backend.presentation.views.views_api import LogsViewViewSet
@@ -1102,8 +1107,12 @@ class _LogsPatternsResponseSerializer(_LogsPatternsSourceSerializer):
     )
 
 
+class _LogsPatternsDiffBodySerializer(_LogsPatternsBodySerializer, PatternsDiffBodyFields):
+    pass
+
+
 class _LogsPatternsDiffRequestSerializer(serializers.Serializer):
-    query = _LogsPatternsBodySerializer(
+    query = _LogsPatternsDiffBodySerializer(
         help_text=(
             "The patterns query for the current (foreground) window: date range plus any "
             "severity/service/search/property filters. The same filters are applied to the baseline window."
@@ -1119,7 +1128,7 @@ class _LogsPatternsDiffRequestSerializer(serializers.Serializer):
     )
 
 
-class _LogPatternDiffEntrySerializer(serializers.Serializer):
+class _LogPatternDiffEntrySerializer(PatternDiffEntryFields):
     classification = serializers.ChoiceField(
         choices=["new", "rate_shift", "gone", "unchanged"],
         help_text=(
@@ -1173,7 +1182,7 @@ class _LogsPatternsDiffWindowSerializer(_LogsPatternsSourceSerializer):
     date_to = serializers.CharField(help_text="Resolved window end (ISO 8601, exclusive).")
 
 
-class _LogsPatternsDiffResponseSerializer(serializers.Serializer):
+class _LogsPatternsDiffResponseSerializer(PatternsDiffResponseFields):
     entries = _LogPatternDiffEntrySerializer(
         many=True,
         help_text=(
@@ -1867,7 +1876,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             else None
         )
 
-        results = run_patterns_diff(self.team, query, baseline_date_range)
+        # Only `limit` is validated here, so the loosely parsed filter fields keep their behavior.
+        options = PatternsDiffBodyFields(data={"limit": query_data["limit"]} if "limit" in query_data else {})
+        options.is_valid(raise_exception=True)
+        results = run_patterns_diff(
+            self.team,
+            query,
+            baseline_date_range,
+            user=request.user if isinstance(request.user, User) else None,
+            limit=options.validated_data.get("limit"),
+        )
 
         report_user_action(
             request.user,

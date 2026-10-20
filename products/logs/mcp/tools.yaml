@@ -438,6 +438,8 @@ tools:
         description_file: ./prompts/logs-patterns-diff.md
         response:
             exclude:
+                - entries.*.pattern.pattern
+                - entries.*.pattern.services
                 - entries.*.pattern.examples
                 - entries.*.pattern.sparkline
                 - entries.*.pattern.count

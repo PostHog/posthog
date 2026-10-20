@@ -105,11 +105,14 @@ export const ToolConfigSchema = z
                          *   unchanged so zod still rejects with its honest error.
                          * - `'boolean-string'` — casts a boolean to `"true"` / `"false"` for a
                          *   string param that reads as a boolean to an agent (e.g. `enabled`).
+                         * - `'object-json-string'` — JSON-encodes a plain object for a string
+                         *   param that carries JSON (e.g. a GET `dateRange`), so the object form
+                         *   agents send on the sibling POST tools is accepted too.
                          *
                          * Mutually exclusive with `input_schema` and `schema_ref` (those
                          * fully replace the schema; cast composes with the existing one).
                          */
-                        cast: z.enum(['string-int', 'boolean-string']).optional(),
+                        cast: z.enum(['string-int', 'boolean-string', 'object-json-string']).optional(),
                         /**
                          * Alternate key names accepted for this param and normalized to it
                          * before validation — for identifier params agents guess different
