@@ -520,6 +520,7 @@ export function WorkflowsTable(): JSX.Element {
                             defaultLabel="Any tags"
                             value={filters.tags}
                             onChange={(tags) => setTagsFilter(tags, 'filter')}
+                            listDataAttr="workflows-tags-filter-list"
                         />
                     </div>
                 </div>
