@@ -306,6 +306,15 @@ class InvalidStatusTransition(Exception):
         super().__init__(f"Cannot transition from {from_status} to {to_status}")
 
 
+def scout_lists_reports_in_inbox(output_destinations: object) -> bool:
+    """Whether a scout with these output destinations lists its reports in the shared inbox.
+
+    Only an explicit `inbox: false` opts out, so configs written before the key existed keep
+    listing their reports.
+    """
+    return not (isinstance(output_destinations, dict) and output_destinations.get("inbox") is False)
+
+
 class SignalReport(UUIDModel):
     class Status(models.TextChoices):
         POTENTIAL = "potential"
