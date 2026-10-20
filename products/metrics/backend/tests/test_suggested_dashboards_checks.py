@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from clickhouse_driver.errors import NetworkError
 
+from posthog.clickhouse.query_tagging import get_query_tag_value, tags_context
+
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.suggested_dashboards.checks import (
     ProjectChecks,
@@ -85,3 +87,17 @@ class TestSuggestedDashboardChecks(ClickhouseTestMixin, APIBaseTest):
         ):
             checks.run_errors({"a": query}, [])
         assert _run(self.team, {"kind": "MetricsQuery", "clauses": []}, [], timeout=30, start_by=0) is None
+
+    def test_each_run_keeps_the_query_tags_of_the_caller(self) -> None:
+        query = {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "avg"}]}
+        seen: list[object] = []
+
+        with (
+            tags_context(team_id=4242),
+            patch.object(
+                MetricsQueryRunner, "calculate", side_effect=lambda: seen.append(get_query_tag_value("team_id"))
+            ),
+        ):
+            ProjectChecks(self.team, METRICS, None, deadline=30).run_errors({"a": query, "b": query}, [])
+
+        assert seen == [4242, 4242]

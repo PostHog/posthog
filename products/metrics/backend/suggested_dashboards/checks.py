@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 import datetime as dt
+import contextvars
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, wait
 from typing import Any
@@ -256,7 +257,16 @@ class ProjectChecks:
         errors: dict[str, str] = {}
         with ThreadPoolExecutor(max_workers=RUN_WORKERS, thread_name_prefix="metrics-suggested-check") as executor:
             futures = {
-                key: executor.submit(_run, self._team, query, definitions, timeout=self._deadline, start_by=start_by)
+                # Each run keeps the query tags of the activity, in its own copy of the context.
+                key: executor.submit(
+                    contextvars.copy_context().run,
+                    _run,
+                    self._team,
+                    query,
+                    definitions,
+                    timeout=self._deadline,
+                    start_by=start_by,
+                )
                 for key, query in queries.items()
             }
             wait(futures.values())

@@ -362,21 +362,29 @@ class TestSuggestedDashboards(SimpleTestCase):
                 self._draft(
                     "queue", "queue_depth", 4, filters=[BuilderFilter(key="host", op="regex", value="${host:regex}")]
                 ),
+                self._draft(
+                    "cache", "orders_total", 8, filters=[BuilderFilter(key="service.name", op="eq", value="$service")]
+                ),
             ],
             Team(id=1),
             CATALOG,
             variables=[
                 DraftVariable(name="instance", label="Instance", attribute="instance"),
                 DraftVariable(name="host", label="Host", attribute="host"),
+                DraftVariable(name="service", label="Service", attribute="service_name"),
             ],
             attributes={"orders_total": ["instance", "host"]},
-            checks=_Checks({"instance": 3, "host": 3}, frozenset({frozenset({"instance", "host"})})),
+            checks=_Checks(
+                {"instance": 3, "host": 3, "service_name": 3},
+                frozenset({frozenset({"instance", "host"}), frozenset({"instance", "service_name"})}),
+            ),
         )
 
         assert [variable["name"] for variable in converted.variables] == ["instance"]
-        queue = converted.panels[1].query
-        assert queue is not None
+        queue, cache = (panel.query for panel in converted.panels[1:])
+        assert queue is not None and cache is not None
         assert queue["clauses"][0]["filters"] == [{"key": "instance", "op": "regex", "value": "${instance:regex}"}]
+        assert cache["clauses"][0]["filters"] == [{"key": "instance", "op": "eq", "value": "$instance"}]
 
     def test_convert_drops_the_panels_whose_query_fails_to_run(self) -> None:
         converted = _convert(
