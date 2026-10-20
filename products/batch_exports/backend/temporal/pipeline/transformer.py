@@ -583,7 +583,7 @@ class ParquetStreamTransformer:
             return
 
         table = pa.Table.from_batches(self._pending_record_batches, schema=self.schema)
-        self._get_parquet_writer().write_table(table, row_group_size=table.num_rows)
+        self._get_parquet_writer().write_table(table, row_group_size=max(table.num_rows, 1))
 
         self._pending_record_batches = []
         self._pending_record_batches_bytes = 0
