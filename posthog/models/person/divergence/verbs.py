@@ -5,6 +5,8 @@ version or acts on the exact state it read, so a rerun repeats nothing."""
 from __future__ import annotations
 
 import json
+import signal
+import threading
 import dataclasses
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
@@ -166,12 +168,23 @@ def run_verb(
             deliveries=repairs._Deliveries(),
         )
         log(f"{verb}: {len(rows)} rows, {'APPLY' if apply else 'DRY RUN'}")
+        terminated = False
+
+        def on_sigterm(_signum: int, _frame: Any) -> None:
+            nonlocal terminated
+            terminated = True
+            raise SystemExit(128 + signal.SIGTERM)
+
+        restore_sigterm = _handle_sigterm(on_sigterm)
         try:
             if rows:
                 VERBS[verb](rows, context)
         finally:
+            restore_sigterm()
             if apply:
-                undelivered = context.deliveries.undelivered(repairs._FLUSH_TIMEOUT_SECONDS)
+                undelivered = context.deliveries.undelivered(
+                    _TERMINATION_FLUSH_SECONDS if terminated else repairs._FLUSH_TIMEOUT_SECONDS
+                )
                 if undelivered:
                     # A key whose publish did not land gets a last action that is not done, so resume retries it.
                     by_key = {RowKey(kind=r["kind"], key=r["key"]): r for r in rows}
@@ -185,6 +198,30 @@ def run_verb(
                     counts["undelivered"] += undelivered - len(context.deliveries.undelivered_keys())
                     log(f"{verb}: {undelivered} ClickHouse messages were not delivered; rerun with resume")
     return counts
+
+
+# Kubernetes sends SIGKILL a grace period after SIGTERM, so the final flush must finish well inside it.
+_TERMINATION_FLUSH_SECONDS = 20.0
+
+
+def _handle_sigterm(handler: Callable[[int, Any], None]) -> Callable[[], None]:
+    """Run `handler` on SIGTERM until the returned callable restores the previous handler.
+
+    A toolbox pod that is deleted or redeployed gets SIGTERM, which by default ends the process without running
+    `finally`, so its undelivered keys would be recorded as done. Signals only reach the main thread.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return lambda: None
+    previous = signal.signal(signal.SIGTERM, handler)
+
+    def restore() -> None:
+        signal.signal(signal.SIGTERM, previous)
+
+    return restore
+
+
+def _collect_outcome(sink: list[tuple[str, str]], person_uuid: str, outcome: str) -> None:
+    sink.append((person_uuid, outcome))
 
 
 def _asdict(action: VerbAction) -> dict[str, Any]:
@@ -301,20 +338,22 @@ def _bury_persons(rows: list[dict[str, Any]], context: VerbContext) -> None:
             return
     # The orphan repair reports an outcome before it publishes and raises when a publish fails, so outcomes are
     # recorded only once every publish landed; otherwise each key is recorded as undelivered for resume to retry.
-    outcomes: list[tuple[str, str]] = []
-    try:
-        tombstone_orphaned_ch_persons(
-            context.team_id,
-            orphans,
-            dry_run=False,
-            on_outcome=lambda person_uuid, outcome: outcomes.append((person_uuid, outcome)),
-        )
-    except Exception:
-        for person_uuid, _ in outcomes:
-            context.action(by_uuid[person_uuid], "undelivered")
-        raise
-    for person_uuid, outcome in outcomes:
-        context.action(by_uuid[person_uuid], outcome)
+    for chunk in lookups._chunks(orphans, repairs._WRITE_BATCH_SIZE):
+        outcomes: list[tuple[str, str]] = []
+        context.pacer.before_write()
+        try:
+            tombstone_orphaned_ch_persons(
+                context.team_id,
+                list(chunk),
+                dry_run=False,
+                on_outcome=partial(_collect_outcome, outcomes),
+            )
+        except Exception:
+            for person_uuid, _ in outcomes:
+                context.action(by_uuid[person_uuid], "undelivered")
+            raise
+        for person_uuid, outcome in outcomes:
+            context.action(by_uuid[person_uuid], outcome)
 
 
 def _strong_row(team_id: int, distinct_id: str) -> DistinctIdRow | None:
