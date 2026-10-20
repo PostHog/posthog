@@ -420,7 +420,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                     }}
                     defaultSorting={{ columnKey: 'estimated_count', order: -1 }}
                     emptyState={emptyState}
-                    rowKey="pattern"
+                    rowKey={(row) => row.match_patterns?.[0] ?? row.pattern}
                     size="small"
                 />
             )}

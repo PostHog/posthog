@@ -9,6 +9,7 @@ from typing import TypeVar
 from urllib.parse import quote
 
 from products.logs.backend.vendor.drain3 import Drain, LogMasker, MaskingInstruction
+from products.logs.backend.vendor.drain3.drain import LogCluster
 
 ERROR_SEVERITIES = {"error", "fatal"}
 STORED_PATTERN_GROUP_MAX_MEMBERS = 50
@@ -537,31 +538,37 @@ def group_stored_patterns(patterns: list[MinedPattern], *, total_count: int) -> 
         _env("LOGS_PATTERNS_DEPTH", 4, int),
         len(patterns),
     )
-    groups: dict[int, MinedPattern] = {}
-    group_bytes: dict[int, int] = {}
+    # A full group continues in an overflow group under the same template instead of dropping the
+    # member. Each window then keeps every member, so Compare, which sums groups by fingerprint,
+    # sees the same rows on both sides.
+    groups: dict[tuple[int, int], MinedPattern] = {}
+    group_bytes: dict[tuple[int, int], int] = {}
+    clusters: dict[int, LogCluster] = {}
+    open_chunks: dict[int, int] = {}
     max_services = _env("LOGS_PATTERNS_MAX_SERVICES", 4, int)
     for pattern in sorted(patterns, key=lambda pattern: (-pattern.count, pattern.pattern)):
         member_bytes = sum(encoded_pattern_member_size(member) for member in pattern.match_patterns)
         if member_bytes + 3 > STORED_PATTERN_GROUP_MAX_BYTES:
             continue
         cluster, _ = drain.add_log_message(pattern.pattern)
-        previous = groups.get(cluster.cluster_id)
-        if (len(previous.match_patterns) if previous else 0) + len(
-            pattern.match_patterns
-        ) > STORED_PATTERN_GROUP_MAX_MEMBERS or group_bytes.get(
-            cluster.cluster_id, 3
-        ) + member_bytes > STORED_PATTERN_GROUP_MAX_BYTES:
-            continue
-        group_bytes[cluster.cluster_id] = group_bytes.get(cluster.cluster_id, 3) + member_bytes
+        clusters[cluster.cluster_id] = cluster
+        key = (cluster.cluster_id, open_chunks.get(cluster.cluster_id, 0))
+        previous = groups.get(key)
+        if previous is not None and (
+            len(previous.match_patterns) + len(pattern.match_patterns) > STORED_PATTERN_GROUP_MAX_MEMBERS
+            or group_bytes[key] + member_bytes > STORED_PATTERN_GROUP_MAX_BYTES
+        ):
+            key, previous = (cluster.cluster_id, key[1] + 1), None
+            open_chunks[cluster.cluster_id] = key[1]
+        group_bytes[key] = group_bytes.get(key, 3) + member_bytes
         if previous is None:
-            groups[cluster.cluster_id] = replace(pattern, pattern=cluster.get_template())
+            groups[key] = pattern
             continue
         severities = previous.severity_counts.copy()
         for severity, count in pattern.severity_counts.items():
             severities[severity] = severities.get(severity, 0) + count
-        groups[cluster.cluster_id] = replace(
+        groups[key] = replace(
             previous,
-            pattern=cluster.get_template(),
             count=previous.count + pattern.count,
             error_count=previous.error_count + pattern.error_count,
             first_seen=min(previous.first_seen, pattern.first_seen),
@@ -571,7 +578,12 @@ def group_stored_patterns(patterns: list[MinedPattern], *, total_count: int) -> 
             severity_counts=severities,
             match_patterns=previous.match_patterns + pattern.match_patterns,
         )
-    ordered = sorted(groups.values(), key=lambda pattern: (-pattern.count, pattern.pattern))
+    # Later members can widen a cluster's template after its first group closes, so every group
+    # takes the final template to keep one fingerprint per cluster.
+    rendered = [
+        replace(group, pattern=clusters[cluster_id].get_template()) for (cluster_id, _), group in groups.items()
+    ]
+    ordered = sorted(rendered, key=lambda pattern: (-pattern.count, pattern.pattern))
     return [
         replace(pattern, volume_share_pct=round(pattern.count / total_count * 100, 2) if total_count else 0)
         for pattern in ordered[: _env("LOGS_PATTERNS_MAX_PATTERNS", 200, int)]
