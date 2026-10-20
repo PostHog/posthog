@@ -1,4 +1,7 @@
 .dashboard-items-wrapper {
+    // Sidebar geometry changes must not invalidate styles throughout the tile grid.
+    --scene-layout-rect-width: initial;
+
     width: 100%; // This provides the width for the dashboard items grid
     padding-top: 0.5rem;
 
@@ -74,6 +77,14 @@
 
     &.dashboard-layout-settling .react-grid-item:not(.react-draggable-dragging, .resizing) {
         transition: transform 180ms ease-out;
+    }
+}
+
+.dashboard-container-width-changing .react-grid-layout {
+    transition: none;
+
+    .react-grid-item {
+        transition: none;
     }
 }
 
