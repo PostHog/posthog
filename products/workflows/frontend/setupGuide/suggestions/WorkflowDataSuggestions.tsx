@@ -3,13 +3,13 @@ import { useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
+import { WorkflowDataSuggestionsSurface, workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 
 const LOADING_CARD_COUNT = 3
 
-export function WorkflowDataSuggestions(): JSX.Element | null {
-    const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface: 'empty_state' }))
+export function WorkflowDataSuggestions({ surface }: { surface: WorkflowDataSuggestionsSurface }): JSX.Element | null {
+    const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface }))
 
     // Suggestions are optional: a failed or empty run shows nothing, not even the divider.
     if (!generating && cards.length === 0) {
@@ -42,7 +42,7 @@ export function WorkflowDataSuggestions(): JSX.Element | null {
                 </>
             ) : (
                 cards.map((card, index) => (
-                    <WorkflowSuggestionCard key={card.key} card={card} surface="empty_state" primary={index === 0} />
+                    <WorkflowSuggestionCard key={card.key} card={card} surface={surface} primary={index === 0} />
                 ))
             )}
         </div>

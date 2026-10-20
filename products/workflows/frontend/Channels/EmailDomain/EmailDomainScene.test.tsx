@@ -12,10 +12,21 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { DataSuggestionApi } from '../../generated/api.schemas'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
 import { EmailDomainScene } from './EmailDomainScene'
 
 const DOMAIN = 'mail.acme.com'
+const SUGGESTED_WORKFLOW: DataSuggestionApi = {
+    id: 'suggestion-1',
+    name: 'Welcome new teammates',
+    description: 'Email a new teammate a getting started guide after they join a workspace.',
+    reason: 'teammate_joined fires every day.',
+    trigger_event: 'teammate_joined',
+    weekly_count: 120,
+    stage: 'onboarding',
+    step_outline: ['email', 'delay', 'email'],
+}
 const SENDER_ID = 42
 const POLL_MS = 10_000
 
@@ -67,6 +78,13 @@ describe('EmailDomainScene', () => {
             </Provider>
         )
         await flush()
+    }
+
+    const turnOnSuggestions = (on: boolean): void => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: true,
+            [FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS]: on,
+        })
     }
 
     const seedSender = (): void => {
@@ -194,6 +212,40 @@ describe('EmailDomainScene', () => {
         backend.verifyDomain(DOMAIN)
         await flush(POLL_MS)
         expectStep(/You can send from/)
+    })
+
+    it('offers workflows suggested from the data on the last step, loaded while DNS was checked', async () => {
+        turnOnSuggestions(true)
+        seedSender()
+        backend.publishRecords(DOMAIN)
+        backend.suggestWorkflows([SUGGESTED_WORKFLOW])
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep('Checking your settings…')
+        expect(screen.queryByText('Welcome new teammates')).not.toBeInTheDocument()
+
+        backend.verifyDomain(DOMAIN)
+        await flush(POLL_MS)
+        expectStep(/You can send from/)
+        expect(screen.getByText('Welcome new teammates')).toBeInTheDocument()
+        expect(element('workflows-data-suggestion-ai')).toHaveTextContent('Create workflow')
+        expect(element('email-domain-create-welcome-workflow')).toBeInTheDocument()
+        expect(backend.requestsTo('data_suggestions_generate')).toHaveLength(1)
+    })
+
+    it.each<[string, boolean, (backend: FakeEmailDomainBackend) => void]>([
+        ['suggestions are off', false, (fake) => fake.suggestWorkflows([SUGGESTED_WORKFLOW])],
+        ['no suggestion could be made', true, () => {}],
+        ['the suggestions fail to load', true, (fake) => fake.fail('data_suggestions_generate', { status: 500 })],
+    ])('keeps the welcome template on the last step when %s', async (_, suggestionsOn, prepare) => {
+        turnOnSuggestions(suggestionsOn)
+        seedSender()
+        backend.verifyDomain(DOMAIN)
+        prepare(backend)
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep(/You can send from/)
+        expect(document.querySelector('[data-attr="workflows-data-suggestions"]')).toBeNull()
+        click('email-domain-create-welcome-workflow')
+        expect(router.values.location.pathname).toContain(urls.workflowNew())
     })
 
     it('refuses a second submit while creating, shows the error, and lets the person try again', async () => {
