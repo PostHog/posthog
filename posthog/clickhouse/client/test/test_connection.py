@@ -16,6 +16,7 @@ from posthog.clickhouse.client.connection import (
     RefreshingChPool,
     Workload,
     default_client,
+    default_client_kwargs,
     get_clickhouse_creds,
     get_http_client,
     get_http_kwargs,
@@ -373,8 +374,9 @@ def test_get_client_from_pool_http_branch_sends_fresh_token(settings, monkeypatc
         pytest.param({"user": "other"}, "other", "pod-static", id="other-user-never-gets-the-pod-token"),
     ],
 )
+@pytest.mark.parametrize("build", ["client", "kwargs"])
 def test_default_client_sends_the_pod_token_only_without_explicit_credentials(
-    settings, tmp_path, kwargs, expected_user, expected_password
+    settings, tmp_path, kwargs, expected_user, expected_password, build
 ):
     token = tmp_path / "token"
     token.write_text("live-token")
@@ -382,9 +384,14 @@ def test_default_client_sends_the_pod_token_only_without_explicit_credentials(
     settings.CLICKHOUSE_PASSWORD = "pod-static"
     settings.CLICKHOUSE_PASSWORD_FILE = str(token)
 
-    client = default_client(**kwargs)
+    if build == "client":
+        client = default_client(**kwargs)
+        credentials = (client.connection.user, client.connection.password)
+    else:
+        built = default_client_kwargs(**kwargs)
+        credentials = (built["user"], built["password"])
 
-    assert (client.connection.user, client.connection.password) == (expected_user, expected_password)
+    assert credentials == (expected_user, expected_password)
 
 
 @pytest.mark.parametrize("failure", [None, "missing", "empty"])
