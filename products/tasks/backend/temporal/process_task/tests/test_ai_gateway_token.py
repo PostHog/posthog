@@ -542,7 +542,7 @@ class TestMintableGate:
         # Resolves to posthog_code, which is unrouted here.
         with (
             patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint,
-            pytest.raises(GatewayTokenUnavailableError),
+            pytest.raises(ProcessTaskFatalError, match="isn't configured"),
         ):
             ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=False)
         mint.assert_not_called()
@@ -1493,7 +1493,7 @@ def test_account_audit_cost_routing_requires_server_provenance(
             env = ai_gateway_env_vars(
                 team_id=123, origin_product=origin, internal=internal, model="claude-sonnet-5", runtime="acp"
             )
-        except GatewayTokenUnavailableError:
+        except ProcessTaskFatalError:
             refused, env = True, {}
     assert refused is resolves_to_posthog_code
     assert ("AI_GATEWAY_TOKEN" in env) is mints
