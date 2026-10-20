@@ -328,6 +328,9 @@ class TestAthenaLiteral:
             (True, "TRUE"),
             (42, "42"),
             (Decimal("12.50"), "12.50"),
+            # Athena takes no exponent in a numeric literal, and DECIMAL(38, 38) still fits.
+            (Decimal("1E+2"), "100"),
+            (Decimal("0." + "1" * 38), "0." + "1" * 38),
             (None, "NULL"),
         ],
     )
@@ -337,6 +340,13 @@ class TestAthenaLiteral:
     def test_an_unsupported_value_is_refused_rather_than_stringified(self) -> None:
         with pytest.raises(TypeError):
             athena_literal(["a"])
+
+    @pytest.mark.parametrize("text", ["1e1000000000", "1e-1000000000", "NaN", "Infinity"])
+    def test_a_decimal_with_no_athena_literal_is_refused_before_it_is_written_out(self, text: str) -> None:
+        # A row filter value arrives as text, so `1e1000000000` would otherwise render as a
+        # gigabyte-long parameter before the query request leaves the worker.
+        with pytest.raises(ValueError):
+            athena_literal(Decimal(text))
 
 
 class TestValueParser:

@@ -99,6 +99,8 @@ THROTTLING_ERROR_CODES = frozenset({"ThrottlingException", "TooManyRequestsExcep
 
 # Athena's `AthenaError.ErrorCategory`: 1 is a system error, 2 a user error, 3 anything else.
 ATHENA_USER_ERROR_CATEGORY = 2
+# The widest fixed-point numeric literal to render, which covers DECIMAL(38, 38) with room to spare.
+MAX_DECIMAL_LITERAL_DIGITS = 100
 
 
 class AwsAthenaError(Exception):
@@ -330,6 +332,25 @@ def get_glue_table(client: AthenaClient, database: str, table_name: str) -> Tabl
     return Table(name=table_name, parents=(database,), columns=columns)
 
 
+def _decimal_literal(value: Decimal) -> str:
+    """Render a Decimal in fixed point, after refusing one that has no Athena literal.
+
+    A row filter value arrives as text and becomes a Decimal, so `1e1000000000` and `NaN` both get
+    this far. Athena's widest exact numeric is DECIMAL(38, 38) and its literals carry no exponent,
+    so a value this wide matches no row; writing it out would allocate a character per exponent.
+    """
+    if not value.is_finite():
+        raise ValueError(f"Cannot pass {value} as an Athena query parameter")
+    _, digits, exponent = value.as_tuple()
+    width = len(digits) + abs(int(exponent))
+    if width > MAX_DECIMAL_LITERAL_DIGITS:
+        raise ValueError(
+            f"A numeric value of {width} digits is wider than the {MAX_DECIMAL_LITERAL_DIGITS} an "
+            "Athena numeric literal holds. Use a value Athena can compare against the column."
+        )
+    return format(value, "f")
+
+
 def athena_literal(value: Any) -> str:
     """Render one query parameter as the SQL literal Athena's `ExecutionParameters` expect.
 
@@ -342,8 +363,10 @@ def athena_literal(value: Any) -> str:
         return "TRUE" if value else "FALSE"
     if isinstance(value, int):
         return str(value)
-    if isinstance(value, float | Decimal):
-        return format(value, "f") if isinstance(value, Decimal) else repr(value)
+    if isinstance(value, Decimal):
+        return _decimal_literal(value)
+    if isinstance(value, float):
+        return repr(value)
     if isinstance(value, dt.datetime):
         if value.tzinfo is not None:
             return f"TIMESTAMP '{value.astimezone(dt.UTC):%Y-%m-%d %H:%M:%S.%f} UTC'"
