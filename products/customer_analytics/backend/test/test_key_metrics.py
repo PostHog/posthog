@@ -170,4 +170,8 @@ class TestKeyMetrics(ClickhouseTestMixin, BaseTest):
             ):
                 second = get_key_metrics(team=self.team, user=self.user)
 
-        self.assertEqual((first is not None, second == first), (True, reused))
+        assert first is not None
+        self.assertEqual(
+            (first[0].node["properties"][0]["value"], second == first),
+            ("2026-02-23 00:00:00", reused),
+        )

@@ -28,7 +28,11 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.cohort import ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY, CohortSerializer, get_active_flags_using_cohort
+from posthog.api.cohort import (
+    ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY,
+    CohortSerializer,
+    get_flags_blocking_cohort_deletion,
+)
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource, report_user_action
@@ -98,7 +102,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
+from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
     archive_flag,
@@ -110,6 +114,7 @@ from products.feature_flags.backend.facade.api import (
     update_flag,
     user_can_create_flags,
     user_can_edit_flag,
+    validate_flag_restorable,
 )
 from products.feature_flags.backend.facade.filters import (
     restrict_groups_to_cohort,
@@ -155,6 +160,14 @@ DEFAULT_ROLLOUT_PERCENTAGE = 100
 ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
 # The launch action is not the only way to launch. A create call or an update that sets the start date launches too.
 ExperimentLaunchPath = Literal["launch_endpoint", "create_request", "update_start_date"]
+
+# A create whose start_date is older than this is a backdated create (e.g. a move from another tool).
+BACKDATED_LAUNCH_THRESHOLD = timedelta(days=1)
+
+
+def _is_imported_concluded(experiment: Experiment) -> bool:
+    """An experiment created with an end_date that has passed was never launched in PostHog: it is an import."""
+    return experiment.end_date is not None and experiment.end_date <= timezone.now()
 
 
 def _parse_tag_names(value: Any) -> list[str]:
@@ -1174,7 +1187,7 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
-        enforce_warehouse_metric_access(
+        validate_warehouse_metrics(
             [
                 *(metrics or []),
                 *(metrics_secondary or []),
@@ -1326,7 +1339,7 @@ class ExperimentService:
                 creation_mode=creation_mode,
                 analytics_properties=analytics_properties,
             )
-            if experiment.start_date is not None:
+            if experiment.start_date is not None and not _is_imported_concluded(experiment):
                 self._report_experiment_launched(
                     experiment,
                     launch_path="create_request",
@@ -1380,6 +1393,11 @@ class ExperimentService:
 
         analytics_metadata = experiment.get_analytics_metadata()
         analytics_metadata["creation_mode"] = creation_mode
+        analytics_metadata["is_imported"] = _is_imported_concluded(experiment)
+        if experiment.start_date is not None:
+            analytics_metadata["start_date"] = experiment.start_date.isoformat()
+        if experiment.end_date is not None:
+            analytics_metadata["end_date"] = experiment.end_date.isoformat()
         if event_source is not None:
             analytics_metadata["source"] = event_source
         if allow_unknown_events:
@@ -1418,6 +1436,9 @@ class ExperimentService:
                 extra_metadata={
                     "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
                     "launch_path": launch_path,
+                    "is_backdated": launch_path == "create_request"
+                    and experiment.start_date is not None
+                    and timezone.now() - experiment.start_date > BACKDATED_LAUNCH_THRESHOLD,
                     "flag_age_seconds": int(flag_age.total_seconds()),
                     "health_finding_codes": [finding.code.value for finding in findings],
                     # pinned: `code:subcode`, as on `experiment viewed`. The code prefix keeps a subcode
@@ -1984,7 +2005,8 @@ class ExperimentService:
         manually stays archived. The flag stays disabled either way; re-enabling it is
         an explicit user decision. Un-archiving the flag is a feature_flag write, so it's
         skipped (leaving the flag archived and the bookkeeping intact, recoverable later)
-        when the caller lacks feature_flag:write scope or editor access to the flag.
+        when the caller lacks feature_flag:write scope or editor access to the flag. The flag
+        also stays archived when one of its release conditions targets a deleted cohort.
         """
         if not experiment.feature_flag_auto_archived:
             return
@@ -2001,6 +2023,18 @@ class ExperimentService:
             return
 
         if not can_write_feature_flag or not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
+            return
+
+        try:
+            validate_flag_restorable(feature_flag.id, team_id=feature_flag.team_id)
+        except ValidationError:
+            logger.warning(
+                "experiment_flag_unarchive_skipped",
+                experiment_id=experiment.pk,
+                flag_id=feature_flag.pk,
+                team_id=self.team.pk,
+                reason="flag_targets_missing_or_deleted_cohort",
+            )
             return
 
         # Gated write inside unarchive_experiment's transaction: safe because an
@@ -2450,8 +2484,8 @@ class ExperimentService:
         The ids come from the EXPOSURE_FROZEN_COHORT_KEY stamps in the flag's filters, which
         round-trip through the flag API and are therefore user-editable — treat them as claims,
         not facts. Only delete a cohort verifiable as an orphaned freeze snapshot: named like one,
-        and no longer referenced by any active flag (the same protection the cohort API enforces
-        on delete). Anything failing verification is skipped rather than fatal — a leftover
+        and no longer referenced by any flag that blocks its deletion through the cohort API.
+        Anything failing verification is skipped rather than fatal — a leftover
         cohort is cheaper than a blocked lifecycle action or a hijacked deletion.
         """
         for cohort in Cohort.objects.filter(team=self.team, pk__in=cohort_ids, is_static=True, deleted=False):
@@ -2463,12 +2497,12 @@ class ExperimentService:
                     reason="not_a_freeze_snapshot_name",
                 )
                 continue
-            if get_active_flags_using_cohort(cohort):
+            if get_flags_blocking_cohort_deletion(cohort):
                 logger.warning(
                     "experiment_freeze_snapshot_cleanup_skipped",
                     cohort_id=cohort.pk,
                     team_id=self.team.pk,
-                    reason="still_referenced_by_active_flags",
+                    reason="still_referenced_by_flags",
                 )
                 continue
             cohort.deleted = True
@@ -3445,7 +3479,7 @@ class ExperimentService:
                 require_existing=False,
             )
 
-        enforce_warehouse_metric_access(
+        validate_warehouse_metrics(
             [
                 *(update_data.get("metrics") or []),
                 *(update_data.get("metrics_secondary") or []),
@@ -4582,7 +4616,7 @@ class ExperimentService:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
         # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
-        enforce_warehouse_metric_access([metric], team=self.team, user=self.user)
+        validate_warehouse_metrics([metric], team=self.team, user=self.user)
 
         existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
             experiment=experiment,

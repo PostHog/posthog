@@ -39,4 +39,25 @@ describe('experimentScannerPickerLogic', () => {
 
         expect(logic.values.experimentOptions.map((experiment) => experiment.id)).toEqual([1])
     })
+
+    it('loads again on the next ensure after a failed load', async () => {
+        let calls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team/experiments/': () => {
+                    calls += 1
+                    return calls === 1 ? [500, {}] : [200, { results: [{ id: 1, name: 'Checkout redesign' }] }]
+                },
+            },
+        })
+        const logic = experimentScannerPickerLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.ensureOptionsLoaded()).toFinishAllListeners()
+        expect(logic.values.loadFailed).toBe(true)
+
+        await expectLogic(logic, () => logic.actions.ensureOptionsLoaded()).toFinishAllListeners()
+        expect(logic.values.loadFailed).toBe(false)
+        expect(logic.values.experimentOptions.map((experiment) => experiment.id)).toEqual([1])
+    })
 })

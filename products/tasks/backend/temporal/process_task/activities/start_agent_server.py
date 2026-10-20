@@ -184,13 +184,17 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
     """
     if not ctx.repositories:
         return
-    for repository in ctx.repositories:
+    for index, repository in enumerate(ctx.repositories):
         repo_path = sandbox_repo_path(repository)
-        result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
+        if index == 0:
+            probe = f"test -e {shlex.quote(f'{repo_path}/.git')}"
+        else:
+            probe = f"test -d {shlex.quote(repo_path)}"
+        result = sandbox.execute(probe, timeout_seconds=10)
         if result.exit_code != 0:
             raise SandboxMissingRepositoryError(
-                f"Repository {repository} is not present in the sandbox at {repo_path} — it was never "
-                "cloned (no snapshot restored and no usable GitHub credentials for this task)",
+                f"Repository {repository} has no checkout in the sandbox at {repo_path} (no snapshot "
+                "restored, no usable GitHub credentials, or the clone failed)",
                 {
                     "task_id": ctx.task_id,
                     "run_id": ctx.run_id,
@@ -499,7 +503,9 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     task_run_session_token: str | None = None
     if event_stream_ingest_enabled or task.runtime == Task.Runtime.PI:
         try:
-            run_token = create_sandbox_event_ingest_token(task_run, sandbox_id=sandbox_id)
+            run_token = create_sandbox_event_ingest_token(
+                task_run, sandbox_id=sandbox_id, stream_generation=ctx.stream_generation
+            )
         except Exception as e:
             raise SandboxExecutionError(
                 "Failed to create sandbox task run token",

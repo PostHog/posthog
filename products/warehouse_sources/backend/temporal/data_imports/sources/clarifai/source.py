@@ -124,8 +124,11 @@ class ClarifaiSource(ResumableSource[ClarifaiSourceConfig, ClarifaiResumeConfig]
             releaseStatus=ReleaseStatus.ALPHA,
             caption=(
                 "Create a personal access token in Clarifai under Settings > Secrets. "
-                "Grant read access for models, workflows, datasets, and concepts that you want to sync. "
-                "Allow their ListModels, ListWorkflows, ListDatasets, and ListConcepts endpoints. "
+                "Grant read access for the models, workflows, datasets, concepts, inputs, annotations, "
+                "evaluations, tasks, and collaborators that you want to sync. Allow the ListModels, "
+                "ListModelVersions, ListWorkflows, ListWorkflowVersions, ListDatasets, ListDatasetVersions, "
+                "ListDatasetInputs, ListConcepts, ListConceptRelations, ListInputs, ListAnnotations, "
+                "ListEvaluations, ListTasks, and ListCollaborators endpoints for those tables. "
                 "Enter the user ID and app ID of the app owner."
             ),
             fields=cast(

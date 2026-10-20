@@ -46,6 +46,7 @@ export function WatchFeedTab(): JSX.Element {
     const {
         feedItems,
         feedItemsLoading,
+        feedLoad,
         feedFailed,
         dateFrom,
         dateTo,
@@ -183,7 +184,11 @@ export function WatchFeedTab(): JSX.Element {
                     )}
                     {items.length > 0 ? (
                         items.map((item, index) => (
-                            <WatchFeedRow key={item.observation.id} item={item} position={index} />
+                            <WatchFeedRow
+                                key={`${feedLoad?.feedLoadId}-${item.observation.id}`}
+                                item={item}
+                                position={index}
+                            />
                         ))
                     ) : feedFailed ? null : emptyReason ? (
                         <WatchFeedEmptyState reason={emptyReason} />

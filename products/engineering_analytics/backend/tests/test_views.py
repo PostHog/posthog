@@ -294,6 +294,21 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     (907, "abc123", 101991, "success", 1),
                     (908, "abc123", 101991, "success", 2),
                 )
+            ]
+            # A merge-queue gate for PR 101991, tested through gate PR 101993, handed its commit to Depot.
+            + [
+                _run_row(
+                    909,
+                    "Backend CI",
+                    "gat123",
+                    "completed",
+                    "success",
+                    "2026-09-24 14:50:00",
+                    "2026-09-24 15:05:00",
+                    pr_number=101993,
+                    head_branch="trunk-merge/pr-101991/aaaa",
+                    actor="trunk-io[bot]",
+                )
             ],
         )
         jobs_table = self._create_table(
@@ -326,13 +341,20 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     completed="2026-09-01 14:02:00",
                 ),
                 _job_row(9083, 908, "Django Tests Pass", "success", head_sha="abc123", run_attempt=2),
+                _job_row(9091, 909, "Hand off backend tests to Depot CI", "success", head_sha="gat123"),
+                _job_row(9092, 909, "Django Tests Pass", "success", head_sha="gat123"),
             ],
         )
 
         prs_table = self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
-            [_pr_row(101991, "octocat", "open", 0, "2026-09-24T14:00:00Z", head_ref="feature/depot")],
+            [
+                _pr_row(101991, "octocat", "open", 0, "2026-09-24T14:00:00Z", head_ref="feature/depot"),
+                _pr_row(
+                    101993, "trunk-io[bot]", "open", 1, "2026-09-24T14:30:00Z", head_ref="trunk-merge/pr-101991/aaaa"
+                ),
+            ],
         )
 
         def attempt(
@@ -463,6 +485,25 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     workflow_status="failed",
                     job_key="ci-backend.yml:wait-for-handoff",
                 ),
+                *(
+                    attempt(
+                        attempt_id,
+                        1,
+                        "finished",
+                        "2026-09-24T14:52:00.000Z",
+                        "2026-09-24T14:53:00.000Z",
+                        job_id=job_id,
+                        run_id="7777777777",
+                        workflow_id="8888888888",
+                        ref="refs/pull/101993/merge",
+                        head_sha="gat123",
+                        job_key=job_key,
+                    )
+                    for attempt_id, job_id, job_key in (
+                        ("g7h8j9k0l1", "g1h2j3k4l5", "ci-backend.yml:wait-for-handoff"),
+                        ("g7h8j9k0l2", "g1h2j3k4l6", "ci-backend.yml:turbo-tests:matrix-38"),
+                    )
+                ),
                 # Synced before the source moved to another repository, so no read of this one keeps it.
                 attempt(
                     "k3w9v2rq8b",
@@ -494,6 +535,16 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (908, "Backend CI", "success", 101991, "main", 900, "PostHog", 2),
             (80213453736890, "Backend CI on Depot", "success", 101991, "feature/depot", 600, "PostHog", 2),
             (101808620689656, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 1),
+            (
+                142532068965517,
+                "Backend CI on Depot",
+                "success",
+                101991,
+                "trunk-merge/pr-101991/aaaa",
+                600,
+                "PostHog",
+                1,
+            ),
             (223978965517241, "Monitor", "success", 0, "master", 600, "PostHog", 1),
             (244340689655172, "Timing", "failure", 0, "master", 600, "PostHog", 1),
         ]
@@ -509,6 +560,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (908,),
             (80213453736890,),
             (101808620689656,),
+            (142532068965517,),
             (223978965517241,),
             (244340689655172,),
         ]

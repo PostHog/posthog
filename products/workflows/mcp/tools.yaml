@@ -12,6 +12,12 @@ ui_apps:
     workflow-list:
         type: list
         detail_tool: workflows-get
+    workflow-setup-status:
+        type: detail
+        view_prop: data
+        app_name: PostHog Messaging Setup
+        description: The messaging setup checklist, with a link to finish each open step.
+        link_prop: openLink
     workflow-data-suggestions:
         type: custom
         app_name: PostHog Workflow Suggestions
@@ -53,10 +59,11 @@ tools:
         enrich_url: '{id}/workflow'
         title: Create workflow
         description: >
-            Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run
-            first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real
-            people, and further content edits stage as a draft you must publish (workflows-publish) to take effect.
-            Provide an actions array with exactly one type='trigger' (config.type:
+            Create a workflow. Before a project's first email, SMS or push workflow, call workflows-setup-status when it
+            is available, so the user knows what blocks sending. It is created as a draft and does NOT run until
+            enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit
+            approval — from then on it runs on real people, and further content edits stage as a draft you must publish
+            (workflows-publish) to take effect. Provide an actions array with exactly one type='trigger' (config.type:
             event|webhook|manual|batch|schedule|tracking_pixel) plus action nodes
             (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...)
             connected by edges. A webhook or manual trigger also needs config.template_id set to the literal
@@ -443,6 +450,20 @@ tools:
             in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace
             it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their
             positions.
+    workflows-setup-status:
+        operation: workflow_setup_status
+        enabled: true
+        title: Check messaging setup
+        description: >
+            Which messaging setup steps the project has done: email channel, verified sending domain, opt-out
+            categories, frequency cap, email template and first workflow. Call it first when a user asks to set up
+            workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet.
+            For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen
+            in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it
+            is. Automations that only post to Slack or call webhooks need none of these steps. When
+            data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.
+        ui_app: workflow-setup-status
+        feature_flag: workflows-mcp-onboarding
     workflows-stats:
         operation: hog_flows_metrics_retrieve
         enabled: true

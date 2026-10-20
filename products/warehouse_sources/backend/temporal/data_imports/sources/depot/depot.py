@@ -17,8 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.settings import (
+    ARTIFACTS,
+    FAILURE_DIAGNOSES,
     JOB_ATTEMPTS,
-    PRIMARY_KEY,
+    JOB_METRICS,
+    PRIMARY_KEYS,
     RUN_CREATED_AT,
 )
 
@@ -35,6 +38,9 @@ TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
 # reconciliation of retained history outlasts the time a worker stays up between deploys. Stays
 # below the connection pool size of 10 that requests gives each host by default.
 RUN_FETCH_CONCURRENCY = 8
+# A finished run has no failed or cancelled job left to diagnose.
+DIAGNOSED_RUN_STATUSES = frozenset({"failed", "cancelled"})
+LIST_ARTIFACTS_PAGE_SIZE = 500
 # Connect sends every RPC as a POST. Every RPC this source calls is a read, so a retry is as safe as
 # a retried GET.
 _DEPOT_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
@@ -48,6 +54,7 @@ class DepotResumeState:
     # The oldest run that an earlier attempt of this sync handed to the pipeline.
     run_created_at: str
     run_id: str
+    scanned_through: str | None = None
 
 
 def _make_session(api_token: str) -> Session:
@@ -188,6 +195,136 @@ def _attempt_rows_in_run_order(
         pool.shutdown(wait=False, cancel_futures=True)
 
 
+def _int_or_none(value: int | str | None) -> int | None:
+    # Connect encodes int64 fields as JSON strings.
+    return int(value) if value is not None and value != "" else None
+
+
+def _run_job_metrics_batches(session: Session, run: JSONObject) -> Iterator[list[JSONObject]]:
+    # GetRunMetrics fails with ResourceExhausted for a run with many attempts, so metrics are read per job.
+    workflows = _call(session, "GetRunStatus", {"runId": run["runId"]}).get("workflows", [])
+    for workflow in workflows:
+        for job in workflow.get("jobs", []):
+            if not job.get("attempts"):
+                continue
+            metrics = _call(session, "GetJobMetrics", {"jobId": job["jobId"]})
+            workflow_context = metrics.get("workflow") or {}
+            job_context = metrics.get("job") or {}
+            shared_columns = {
+                "run_id": run["runId"],
+                "run_created_at": run["createdAt"],
+                "workflow_id": workflow["workflowId"],
+                "workflow_name": workflow_context.get("name"),
+                "workflow_path": workflow_context.get("workflowPath"),
+                "job_id": job["jobId"],
+                "job_key": job_context.get("jobKey"),
+                "job_status": job_context.get("status"),
+                "job_conclusion": job_context.get("conclusion"),
+                "snapshot_at": metrics.get("snapshotAt"),
+            }
+            rows: list[JSONObject] = []
+            for summary in metrics.get("attempts", []):
+                attempt = summary.get("attempt") or {}
+                availability = summary.get("availability") or {}
+                stats = summary.get("stats") or {}
+                rows.append(
+                    {
+                        **shared_columns,
+                        "attempt_id": attempt["attemptId"],
+                        "attempt": attempt.get("attempt"),
+                        "attempt_status": attempt.get("status"),
+                        "attempt_conclusion": attempt.get("conclusion"),
+                        "attempt_started_at": attempt.get("startedAt"),
+                        "attempt_finished_at": attempt.get("finishedAt"),
+                        "sandbox_id": attempt.get("sandboxId"),
+                        "availability": availability.get("reason"),
+                        "sample_count": stats.get("sampleCount"),
+                        "peak_cpu_utilization": stats.get("peakCpuUtilization"),
+                        "average_cpu_utilization": stats.get("averageCpuUtilization"),
+                        "peak_memory_utilization": stats.get("peakMemoryUtilization"),
+                        "average_memory_utilization": stats.get("averageMemoryUtilization"),
+                        "peak_memory_usage_bytes": _int_or_none(stats.get("peakMemoryUsageBytes")),
+                        "average_memory_usage_bytes": stats.get("averageMemoryUsageBytes"),
+                        "observed_started_at": stats.get("observedStartedAt"),
+                        "observed_finished_at": stats.get("observedFinishedAt"),
+                    }
+                )
+            if rows:
+                yield rows
+
+
+def _run_artifact_batches(session: Session, run: JSONObject) -> Iterator[list[JSONObject]]:
+    body: JSONObject = {"runId": run["runId"], "pageSize": LIST_ARTIFACTS_PAGE_SIZE}
+    while True:
+        page = _call(session, "ListArtifacts", body)
+        rows = [
+            {
+                "artifact_id": artifact["artifactId"],
+                "run_id": run["runId"],
+                "run_created_at": run["createdAt"],
+                "workflow_id": artifact.get("workflowId"),
+                "workflow_path": artifact.get("workflowPath"),
+                "job_id": artifact.get("jobId"),
+                "job_key": artifact.get("jobKey"),
+                "attempt_id": artifact.get("attemptId"),
+                "attempt": artifact.get("attempt"),
+                "name": artifact.get("name"),
+                "size_bytes": _int_or_none(artifact.get("sizeBytes")),
+                "created_at": artifact.get("createdAt"),
+            }
+            for artifact in page.get("artifacts", [])
+        ]
+        if rows:
+            yield rows
+        next_page_token = page.get("nextPageToken")
+        if not next_page_token:
+            return
+        body = {**body, "pageToken": next_page_token}
+
+
+def _run_failure_diagnosis_batches(session: Session, run: JSONObject) -> Iterator[list[JSONObject]]:
+    if run.get("status") not in DIAGNOSED_RUN_STATUSES:
+        return
+    diagnosis = _call(
+        session,
+        "GetFailureDiagnosis",
+        {"targetId": run["runId"], "targetType": "FAILURE_DIAGNOSIS_TARGET_TYPE_RUN"},
+    )
+    rows = [
+        {
+            "run_id": run["runId"],
+            "run_created_at": run["createdAt"],
+            "run_status": run.get("status"),
+            "fingerprint": group["fingerprint"],
+            "source": group.get("source"),
+            "count": group.get("count"),
+            "error_message": group.get("errorMessage"),
+            "error_message_truncated": group.get("errorMessageTruncated"),
+            "diagnosis": group.get("diagnosis"),
+            "possible_fix": group.get("possibleFix"),
+            "representatives": group.get("representatives", []),
+            "omitted_representative_count": group.get("omittedRepresentativeCount"),
+        }
+        for group in diagnosis.get("failureGroups", [])
+    ]
+    if rows:
+        yield rows
+
+
+def _run_job_attempt_batches(session: Session, run: JSONObject) -> Iterator[list[JSONObject]]:
+    rows = _run_attempt_rows(session, run)
+    if rows:
+        yield rows
+
+
+_RUN_BATCHES: dict[str, Callable[[Session, JSONObject], Iterator[list[JSONObject]]]] = {
+    JOB_ATTEMPTS: _run_job_attempt_batches,
+    JOB_METRICS: _run_job_metrics_batches,
+    ARTIFACTS: _run_artifact_batches,
+    FAILURE_DIAGNOSES: _run_failure_diagnosis_batches,
+}
+
+
 def depot_source(
     api_token: str,
     repository: str,
@@ -195,8 +332,11 @@ def depot_source(
     reconciled_at: str | None,
     resumable_source_manager: ResumableSourceManager[DepotResumeState],
     logger: FilteringBoundLogger,
-    stage_reconciliation: Callable[[str], None],
+    on_complete: Callable[[str | None, str | None], None],
+    endpoint: str = JOB_ATTEMPTS,
 ) -> SourceResponse:
+    run_batches = _RUN_BATCHES[endpoint]
+
     def items() -> Iterator[list[JSONObject]]:
         resume = resumable_source_manager.load_state()
         # A resumed attempt keeps the window of the first attempt, so a long reconciliation finishes across restarts.
@@ -206,6 +346,9 @@ def depot_source(
         window_start = lower_bound.isoformat() if lower_bound is not None else None
         session = _make_session(api_token)
         listed = _list_runs(session, repository, TERMINAL_STATUSES, lower_bound)
+        scanned_through = (
+            resume.scanned_through if resume is not None else (listed[-1][1]["createdAt"] if listed else None)
+        )
         if resume is not None:
             resume_key = (_parse_timestamp(resume.run_created_at), resume.run_id)
             listed = [entry for entry in listed if (entry[0], entry[1]["runId"]) < resume_key]
@@ -213,29 +356,41 @@ def depot_source(
         runs = [run for _, run in reversed(listed)]
         logger.info(
             "depot_ci.runs_to_sync",
+            endpoint=endpoint,
             run_count=len(runs),
             created_after=window_start,
             resumed=resume is not None,
         )
-        for run, rows in _attempt_rows_in_run_order(session, runs):
+        runs_and_batches = (
+            ((run, [rows]) for run, rows in _attempt_rows_in_run_order(session, runs))
+            if endpoint == JOB_ATTEMPTS
+            else ((run, run_batches(session, run)) for run in runs)
+        )
+        for run, batches in runs_and_batches:
+            # A run's checkpoint must not skip child pages that the pipeline has not received.
+            pending = None
+            for rows in batches:
+                if pending is not None:
+                    yield pending
+                pending = rows
             resumable_source_manager.save_state(
                 DepotResumeState(
                     created_after=window_start,
                     reconciled_at=window_reconciled_at,
                     run_created_at=run["createdAt"],
                     run_id=run["runId"],
+                    scanned_through=scanned_through,
                 )
             )
-            if rows:
-                yield rows
+            if pending is not None:
+                yield pending
             resumable_source_manager.safe_point()
-        if window_reconciled_at is not None:
-            stage_reconciliation(window_reconciled_at)
+        on_complete(window_reconciled_at, scanned_through)
 
     return SourceResponse(
-        name=JOB_ATTEMPTS,
+        name=endpoint,
         items=items,
-        primary_keys=[PRIMARY_KEY],
+        primary_keys=PRIMARY_KEYS[endpoint],
         partition_mode="datetime",
         partition_format="week",
         partition_keys=[RUN_CREATED_AT],

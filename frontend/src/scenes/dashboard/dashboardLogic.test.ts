@@ -1035,6 +1035,30 @@ describe('dashboardLogic', () => {
             }
         })
 
+        it('keeps metric variable definitions out of refresh analytics', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const refresh = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.setMetricVariables([
+                        { name: 'env', source: 'sql', query: 'SELECT private_value', current: { values: ['a'] } },
+                    ])
+                }).toFinishAllListeners()
+
+                const refreshes = capture.mock.calls.filter(([event]) =>
+                    ['dashboard refreshed', 'dashboard insight refreshed'].includes(event)
+                )
+                expect(refreshes.length).toBeGreaterThan(0)
+                expect(JSON.stringify(refreshes)).not.toContain('private_value')
+            } finally {
+                refresh.mockRestore()
+            }
+        })
+
         it('keeps combined auto-preview filters after a page reload, then clears and saves them', async () => {
             const sevenTileDashboard = {
                 ...dashboards[5],

@@ -70,7 +70,7 @@ class TestDepotSource:
         source = DepotSource()
         session = mock.MagicMock()
         session.post.return_value = _response(status, reason, body)
-        inputs = mock.MagicMock(should_use_incremental_field=False, history_start=None)
+        inputs = mock.MagicMock(should_use_incremental_field=False, history_start=None, schema_name="job_attempts")
         resume_manager = ResumableSourceManager(inputs, DepotResumeState)
 
         with scripted_network([]), mock.patch(f"{MODULE}.make_tracked_session", return_value=session):

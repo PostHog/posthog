@@ -47,7 +47,7 @@ A scanner can also carry its own optional `credit_limit` for the same period, so
 | Scouts       | `scouts`       | The scanner's signals scouts, including its daily digest.                                                                                                 |
 | Alerts       | `alerts`       | The scanner's alerts on the shared alerts platform.                                                                                                       |
 
-**Scanner editor** (`/replay-vision/<scanner-id>/<step>`) is a stepper rather than tabs: Template, Configure, Scan conditions (`triggers`), Self-driving.
+**Scanner editor** (`/replay-vision/<scanner-id>/<step>`) opens a new scanner on a goal step (`goal`), where the agent drafts the whole scanner from a goal and a monthly budget for review on `overview`. Building by hand, or editing a saved scanner, uses a stepper rather than tabs: Details, Configure, Recordings (`triggers`), Budget.
 Observations have their own scene under `/replay-vision/observations/…`.
 An observation link carries the player's `?t=<seconds>` param, so a shared observation opens with its recording expanded and playing from the shared moment.
 

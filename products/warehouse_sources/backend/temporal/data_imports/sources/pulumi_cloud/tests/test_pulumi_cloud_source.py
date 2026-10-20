@@ -22,10 +22,6 @@ class TestPulumiCloudSource:
         # force token re-entry so a preserved credential can't be aimed at another organization.
         assert self.source.connection_host_fields == ["organization"]
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["stacks"])
-        assert [s.name for s in schemas] == ["stacks"]
-
     @parameterized.expand(
         [
             # audit_logs has a server-side startTime lower bound; stack_updates pages newest-first

@@ -6,9 +6,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SceneExport } from 'scenes/sceneTypes'
-import { connectedAppsLogic } from 'scenes/settings/user/connectedAppsLogic'
-import { passkeySettingsLogic } from 'scenes/settings/user/passkeySettingsLogic'
-import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 
 import { credentialReviewLogic } from './credentialReviewLogic'
 import { CredentialsReviewList } from './CredentialsReviewList'
@@ -22,11 +19,7 @@ const HedgehogHeart = pngHoggie(heartPng)
 
 export function CredentialReview(): JSX.Element {
     const { markComplete } = useActions(credentialReviewLogic)
-    const { keysLoading } = useValues(personalAPIKeysLogic)
-    const { passkeysLoading } = useValues(passkeySettingsLogic)
-    const { connectedAppsLoading } = useValues(connectedAppsLogic)
-
-    const loading = keysLoading || passkeysLoading || connectedAppsLoading
+    const { continueDisabledReason, isCompleting } = useValues(credentialReviewLogic)
 
     return (
         <BridgePage view="credential-review" fixedWidth={false}>
@@ -47,7 +40,9 @@ export function CredentialReview(): JSX.Element {
                     type="primary"
                     size="large"
                     onClick={() => markComplete()}
-                    disabledReason={loading ? 'Loading your credentials…' : null}
+                    loading={isCompleting}
+                    disabledReason={continueDisabledReason}
+                    data-attr="credential-review-continue"
                 >
                     Continue to PostHog
                 </LemonButton>

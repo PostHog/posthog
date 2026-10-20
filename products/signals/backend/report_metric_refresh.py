@@ -29,6 +29,7 @@ import structlog
 
 from posthog.schema import ChartDisplayType
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -101,7 +102,12 @@ def _source_count(query: dict[str, Any]) -> int:
 
 
 def _run_metric_query(
-    query: dict[str, Any], team: Team, display: ChartDisplayType, *, deadline: float
+    query: dict[str, Any],
+    team: Team,
+    display: ChartDisplayType,
+    *,
+    deadline: float,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> tuple[dict, datetime | None]:
     """Run the stored query in one derived display shape and return its first series and response.
 
@@ -135,6 +141,7 @@ def _run_metric_query(
         team=team,
         max_execution_time_seconds=timeout,
         cache_age_seconds=int(REPORT_METRIC_SNAPSHOT_FRESH_FOR.total_seconds()),
+        ch_user=ch_user,
     )
     results = response.results
     if not isinstance(results, list) or not results or not isinstance(results[0], dict):
@@ -151,8 +158,16 @@ def _finite_number(raw: object, *, what: str) -> float:
     return value
 
 
-def whole_window_value(query: dict[str, Any], team: Team, *, deadline: float = math.inf) -> tuple[float, datetime]:
-    first_series, last_refresh = _run_metric_query(query, team, ChartDisplayType.BOLD_NUMBER, deadline=deadline)
+def whole_window_value(
+    query: dict[str, Any],
+    team: Team,
+    *,
+    deadline: float = math.inf,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> tuple[float, datetime]:
+    first_series, last_refresh = _run_metric_query(
+        query, team, ChartDisplayType.BOLD_NUMBER, deadline=deadline, ch_user=ch_user
+    )
     value = _finite_number(first_series.get("aggregated_value"), what="aggregate")
     measured_at = last_refresh if isinstance(last_refresh, datetime) else timezone.now()
     if measured_at.tzinfo is None or measured_at.utcoffset() is None:
@@ -160,23 +175,36 @@ def whole_window_value(query: dict[str, Any], team: Team, *, deadline: float = m
     return value, measured_at
 
 
-def longitudinal_values(query: dict[str, Any], team: Team, *, deadline: float = math.inf) -> list[float]:
+def longitudinal_values(
+    query: dict[str, Any],
+    team: Team,
+    *,
+    deadline: float = math.inf,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> list[float]:
     """The trailing per-bucket values, oldest first, for the row-sized trend strip."""
 
-    first_series, _ = _run_metric_query(query, team, ChartDisplayType.ACTIONS_BAR, deadline=deadline)
+    first_series, _ = _run_metric_query(query, team, ChartDisplayType.ACTIONS_BAR, deadline=deadline, ch_user=ch_user)
     raw_points = first_series.get("data")
     if not isinstance(raw_points, list):
         raise ValueError("metric query returned no buckets")
     return [_finite_number(point, what="bucket") for point in raw_points[-MAX_METRIC_SERIES_POINTS:]]
 
 
-def measure_metric(query: dict[str, Any], team: Team, *, deadline: float, include_series: bool) -> MetricMeasurement:
-    value, measured_at = whole_window_value(query, team, deadline=deadline)
+def measure_metric(
+    query: dict[str, Any],
+    team: Team,
+    *,
+    deadline: float,
+    include_series: bool,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> MetricMeasurement:
+    value, measured_at = whole_window_value(query, team, deadline=deadline, ch_user=ch_user)
     series: list[float] | None
     if not include_series or time.monotonic() >= deadline:
         return MetricMeasurement(value=value, measured_at=measured_at, series=None)
     try:
-        series = longitudinal_values(query, team, deadline=deadline)
+        series = longitudinal_values(query, team, deadline=deadline, ch_user=ch_user)
     except Exception:
         # The buckets only decorate the row, so losing them must not cost the headline value.
         logger.exception("signals.report_metric_refresh.series_query_failed", team_id=team.id)

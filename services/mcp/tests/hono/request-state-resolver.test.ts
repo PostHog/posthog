@@ -545,6 +545,9 @@ describe('RequestStateResolver MCP client contexts', () => {
             expect(result.oauthClientId).toBe(input.oauthClientId)
         }
         expect(result.interviewRecruitmentConfig).toBeUndefined()
+        expect(result.interviewRecruitmentUnavailableReason).toBe(
+            input.oauthClientId || input.mcpConsumer ? 'surface_excluded' : input.scopes ? 'internal_run' : 'task_bound'
+        )
     })
 
     it.each([
@@ -597,8 +600,12 @@ describe('RequestStateResolver MCP client contexts', () => {
             const state = await makeResolver().resolve(makeProps())
             if (expected) {
                 expect(state.interviewRecruitmentConfig).toMatchObject(expected)
+                expect(state.interviewRecruitmentUnavailableReason).toBeUndefined()
             } else {
                 expect(state.interviewRecruitmentConfig).toBeUndefined()
+                expect(state.interviewRecruitmentUnavailableReason).toBe(
+                    value === false ? 'flag_disabled' : 'invalid_configuration'
+                )
             }
         }
     )
@@ -805,6 +812,35 @@ describe('RequestStateResolver MCP client contexts', () => {
 
         expect(result.useSingleExec).toBe(true)
         expect(result.gatewayToolsEnabled).toBe(enabled)
+    })
+
+    it('keeps Store connections on individual tools without nested connectors', async () => {
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'mcp-gateway': true })
+        const props = parseRequestProperties(
+            new Request('https://example.com/mcp?mode=cli', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-posthog-mcp-store': 'true',
+                    'x-posthog-mcp-mode': 'cli',
+                },
+            }),
+            {}
+        )
+        const result = await makeResolver().resolve(props)
+        expect(result.useSingleExec).toBe(false)
+        expect(result.gatewayToolsEnabled).toBe(false)
+        expect(result.viaMcpStore).toBe(true)
+    })
+
+    it('carries connected-tool restrictions to execution', async () => {
+        const filters = {
+            tools: ['linear__create_issue'],
+            features: ['dashboards'],
+            excludeTools: ['linear__delete_issue'],
+        }
+        const result = await makeResolver().resolve(makeProps(filters))
+        expect(result.gatewayToolFilter).toMatchObject({ tools: filters.tools, features: filters.features })
+        expect(result.gatewayToolFilter?.excludeTools).toContain('linear__delete_issue')
     })
 
     it.each([

@@ -3,13 +3,17 @@ from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField
 
+FLUTTERWAVE_API_V3 = "v3"
+FLUTTERWAVE_API_V4 = "v4"
+
 # Flutterwave v3's only server-side timestamp filter is the `from`/`to` window over each record's
 # `created_at`, and the API exposes no `updated_at` cursor. Transactions, settlements, refunds,
 # transfers, chargebacks, and payment plans all keep mutating after they are created (statuses flip,
 # refunds and chargebacks resolve, plans get cancelled), so a `created_at` watermark would advance
 # past those rows and never reread the later lifecycle change, leaving the warehouse permanently
 # stale. Until Flutterwave exposes an update cursor, every endpoint here syncs as full refresh so the
-# merge always sees each record's current state.
+# merge always sees each record's current state. v4 keeps the same `created_at`-style window (now
+# `created_datetime`) and adds no update cursor, so the same holds there.
 
 
 @dataclass
@@ -51,6 +55,35 @@ FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
 
 ENDPOINTS = tuple(FLUTTERWAVE_ENDPOINTS.keys())
 
-# No endpoint syncs incrementally (see the module comment above), so the schema builder receives an
+
+@dataclass(frozen=True)
+class FlutterwaveV4EndpointConfig:
+    path: str
+    partition_key: Optional[str] = "created_datetime"
+    # v4 lists transfers and recipients behind a `next` cursor and nests the rows under this key of
+    # `data`; every other list is page-numbered with the rows directly in `data`.
+    cursor_data_key: Optional[str] = None
+    # Sent only where the reference allows it for both the `size` parameter and the response array.
+    page_size: Optional[int] = None
+
+
+# Table names stay identical to v3 so a table keeps its name across versions; only the vendor path
+# differs. v4 has no payment plan, subscription, or subaccount endpoints, so those tables exist only
+# on v3.
+FLUTTERWAVE_V4_ENDPOINTS: dict[str, FlutterwaveV4EndpointConfig] = {
+    "transactions": FlutterwaveV4EndpointConfig(path="/charges"),
+    "settlements": FlutterwaveV4EndpointConfig(path="/settlements"),
+    "refunds": FlutterwaveV4EndpointConfig(path="/refunds"),
+    "transfers": FlutterwaveV4EndpointConfig(path="/transfers", cursor_data_key="transfers", page_size=50),
+    "chargebacks": FlutterwaveV4EndpointConfig(path="/chargebacks"),
+    # A v4 recipient carries no creation timestamp, so the table is not partitioned.
+    "beneficiaries": FlutterwaveV4EndpointConfig(
+        path="/transfers/recipients", partition_key=None, cursor_data_key="recipients"
+    ),
+}
+
+V4_ENDPOINTS = tuple(FLUTTERWAVE_V4_ENDPOINTS.keys())
+
+# No endpoint syncs incrementally on either version (see the module comment above), so the schema builder receives an
 # empty map and advertises every table as full-refresh.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

@@ -175,6 +175,7 @@ export type IngestionConsumerConfig = {
     // The saga's per-source move guard in SYNC mode; an over-limit source
     // comes back skipped_move_limit for the merge-mode policy.
     PERSONHOG_SYNC_MERGE_MOVE_LIMIT: number
+    PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: boolean
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
     // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
     // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
@@ -368,6 +369,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
         PERSONHOG_SYNC_MERGE_MOVE_LIMIT: 10_000,
+        PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: false,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
