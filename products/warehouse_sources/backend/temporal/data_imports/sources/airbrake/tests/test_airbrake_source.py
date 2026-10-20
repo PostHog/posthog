@@ -28,10 +28,6 @@ class TestAirbrakeSource:
         assert api_key.secret is True
         assert api_key.required is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = AirbrakeSource().get_schemas(AirbrakeSourceConfig(api_key="user-key"), team_id=1, names=["groups"])
-        assert [s.name for s in schemas] == ["groups"]
-
     @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid Airbrake user API key"))])
     def test_validate_credentials(self, _name: str, transport_result: bool, expected: tuple[bool, str | None]) -> None:
         with scripted_network([ScriptedResponse(status=200 if transport_result else 401)]) as network:

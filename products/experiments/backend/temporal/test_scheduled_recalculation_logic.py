@@ -1,4 +1,5 @@
 import contextlib
+from collections.abc import Callable
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -14,6 +15,7 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
+from posthog.redis import get_client
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.models.experiment import (
@@ -27,15 +29,20 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     EXPERIMENT_RECALCULATION_MAX_AGE_DAYS,
+    EXPOSURE_BACKOFF_INTERVAL,
+    EXPOSURE_BACKOFF_KEY_PREFIX,
+    EXPOSURE_BACKOFF_MIN_CONSECUTIVE_CHECKS,
     MIN_EXPERIMENT_AGE,
     MIN_TIME_SINCE_LAST_RECALCULATION,
     SKIP_ACTIVE_RUN,
+    SKIP_EXPOSURE_BACKOFF,
     SKIP_NO_METRICS,
     SKIP_RECENT_RUN,
     SKIP_ZERO_ROLLOUT,
     count_total_exposures,
     find_scheduled_recalculation_candidates,
     recent_recalculation_skip,
+    record_exposure_check,
     team_has_scheduled_recalculation_enabled,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -46,7 +53,27 @@ def _metric() -> dict[str, Any]:
 
 
 FULL_ROLLOUT_FILTERS: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
-FLAG_PATH = "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false"
+LOGIC = "products.experiments.backend.temporal.scheduled_recalculation_logic"
+FLAG_PATH = f"{LOGIC}.feature_enabled_or_false"
+
+
+def _redis_down(key: str) -> contextlib.AbstractContextManager[object]:
+    return patch(f"{LOGIC}.get_client", side_effect=ConnectionError("redis down"))
+
+
+def _unreadable_value(key: str) -> contextlib.AbstractContextManager[object]:
+    get_client().set(key, "not json")
+    return contextlib.nullcontext()
+
+
+def _timestamp_out_of_range(key: str) -> contextlib.AbstractContextManager[object]:
+    get_client().set(key, '{"count": 3, "checked_at": 1e300}')
+    return contextlib.nullcontext()
+
+
+def _missing_key(key: str) -> contextlib.AbstractContextManager[object]:
+    get_client().delete(key)
+    return contextlib.nullcontext()
 
 
 # Pinned at the default recalculation hour: a team with no config falls to hour 2, so a
@@ -413,3 +440,46 @@ class TestScheduledRecalculationLogic(BaseTest):
         ) as runner_class:
             assert count_total_exposures(experiment) == 20
         assert runner_class.call_args.kwargs["query"].holdout.id == holdout.id
+
+    def _back_off(self, experiment: Experiment) -> None:
+        for _ in range(EXPOSURE_BACKOFF_MIN_CONSECUTIVE_CHECKS):
+            record_exposure_check(experiment.id, 0)
+
+    @parameterized.expand(
+        [
+            # Travel in whole days, so discovery still runs at the class hour.
+            ("inside_the_interval", EXPOSURE_BACKOFF_INTERVAL - timedelta(days=1), SKIP_EXPOSURE_BACKOFF),
+            ("after_the_interval", EXPOSURE_BACKOFF_INTERVAL, None),
+        ]
+    )
+    def test_exposure_backoff_holds_for_the_interval(self, _name: str, elapsed: timedelta, reason: str | None):
+        experiment = self._experiment()
+        self._back_off(experiment)
+        with time_machine.travel(timezone.now() + elapsed, tick=False):
+            assert self._discovery_skip_reason(experiment) == reason
+
+    @parameterized.expand(
+        [
+            ("redis_error", _redis_down),
+            ("unreadable_value", _unreadable_value),
+            ("timestamp_out_of_range", _timestamp_out_of_range),
+            ("missing_key", _missing_key),
+        ]
+    )
+    def test_exposure_backoff_fails_open(
+        self, _name: str, arrange: Callable[[str], contextlib.AbstractContextManager[object]]
+    ):
+        experiment = self._experiment()
+        self._back_off(experiment)
+        with arrange(f"{EXPOSURE_BACKOFF_KEY_PREFIX}:{experiment.id}"):
+            assert self._discovery_skip_reason(experiment) is None
+
+    def test_exposure_backoff_reads_every_candidate_in_one_round_trip(self):
+        experiments = [self._experiment() for _ in range(3)]
+        self._back_off(experiments[0])
+        client = get_client()
+        with patch.object(client, "mget", wraps=client.mget) as mget, patch.object(client, "get") as get:
+            assert self._discovery_skip_reason(experiments[0]) == SKIP_EXPOSURE_BACKOFF
+        mget.assert_called_once()
+        assert len(mget.call_args.args[0]) == len(experiments)
+        get.assert_not_called()

@@ -81,3 +81,12 @@ products/mcp_store/backend/catalog.py @PostHog/team-context-and-mcp
 # `hogli product:bootstrap` scaffolds a sealed product, so a new one should never need an
 # entry. Removals are the mechanical result of a product sealing and are a rubber stamp.
 products/isolation_baseline.txt @PostHog/team-devex
+
+# Agent instructions and the PR description format apply to every PR in the repo. They have
+# changed back and forth many times, and each change undid an earlier lesson that the author
+# could not see, so DevEx reviews them with that history in mind. Nested AGENTS.md files stay
+# with the teams that own their directories.
+/AGENTS.md @PostHog/team-devex
+/CLAUDE.md @PostHog/team-devex
+.github/pull_request_template.md @PostHog/team-devex
+.agents/skills/writing-pr-descriptions/ @PostHog/team-devex

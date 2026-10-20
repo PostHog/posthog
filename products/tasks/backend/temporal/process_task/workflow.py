@@ -159,6 +159,7 @@ DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation-on-completion"
 _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
+_PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE = "tasks-fail-run-on-primary-clone-failure"
 _PATCH_ID_ASYNC_AGENT_SHADOW_RESULT = "tasks-async-agent-shadow-result"
 _PATCH_ID_AGENT_BOOT_INTERACTION_TELEMETRY = "tasks-agent-boot-interaction-telemetry"
 _PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
@@ -201,6 +202,7 @@ class ResumedSandboxState:
     connect_token: Optional[str]
     ci_repetitions: int
     jwt_kid: Optional[str] = None
+    stream_generation: str | None = None
     pr_fingerprint: Optional[str]
     pr_progress_emitted: bool
     first_user_message_received: bool
@@ -262,7 +264,7 @@ class SandboxRotation:
     reason: str = "none"
 
 
-@dataclass
+@dataclass(frozen=False)
 class ProcessTaskInput:
     run_id: str
     create_pr: bool = True
@@ -272,6 +274,7 @@ class ProcessTaskInput:
     initial_message: Optional["PendingFollowup"] = None
     # Set only on a continue_as_new continuation, to skip provisioning and re-attach.
     resumed_sandbox: Optional[ResumedSandboxState] = None
+    stream_generation: str | None = None
 
 
 @dataclass
@@ -457,6 +460,8 @@ _PATCH_ID_PRESERVE_COMPLETION_DURING_DELIVERY = "tasks-preserve-completion-durin
 
 _PATCH_ID_ROTATION_ACTIVITY_GUARD = "tasks-rotation-activity-guard"
 
+_PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT = "tasks-rotation-activity-before-boot"
+
 
 def _turn_opens_on_dispatch() -> bool:
     if not workflow.in_workflow():
@@ -480,6 +485,12 @@ def _rotation_activity_guard() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_ROTATION_ACTIVITY_GUARD)
+
+
+def _check_rotation_activity_before_boot() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT)
 
 
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
@@ -544,6 +555,7 @@ def _progress_emit_nonblocking() -> bool:
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._context: Optional[TaskProcessingContext] = None
+        self._stream_generation: str | None = None
         self._slack_thread_context: Optional[dict[str, Any]] = None
         self._opening_person_message: Optional[str] = None
         self._posthog_mcp_scopes: PosthogMcpScopes = "read_only"
@@ -1319,6 +1331,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Handing the live sandbox to the next execution — the finally must not tear it down.
         continuing_as_new = False
         run_id = input.run_id
+        self._stream_generation = (
+            input.resumed_sandbox.stream_generation if input.resumed_sandbox else input.stream_generation
+        )
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
         # Taken off the context, so the mention rides in the first turn's relay only, not in every
@@ -1336,6 +1351,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         try:
             self._context = await self._get_task_processing_context(input)
+            if self._stream_generation is not None:
+                self._context.stream_generation = self._stream_generation
             if self._startup_worker_started_at is not None:
                 self._startup_context_loaded_at = workflow.now()
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -2070,6 +2087,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_url=self._sandbox_url or "",
                 connect_token=self._sandbox_connect_token,
                 jwt_kid=self._sandbox_jwt_kid,
+                stream_generation=self.context.stream_generation,
                 ci_repetitions=self._ci_repetitions,
                 ci_idle_skips=self._ci_idle_skips,
                 pr_fingerprint=self._pr_fingerprint,
@@ -2166,6 +2184,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 create_pr=input.create_pr,
                 resumed_sandbox_id=input.resumed_sandbox.sandbox_id if input.resumed_sandbox else None,
                 resumed_sandbox_backend=input.resumed_sandbox.sandbox_backend if input.resumed_sandbox else None,
+                stream_generation=self._stream_generation,
             ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -2318,6 +2337,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup", wait=False)
             continue_after_clone_failure = workflow.patched(_PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE)
+            fail_on_primary_clone_failure = workflow.patched(_PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE)
 
             async def clone_repository(
                 repository: str,
@@ -2337,6 +2357,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     )
                 except Exception as error:
                     if _is_dead_sandbox_failure(error) or not continue_after_clone_failure:
+                        raise
+                    if fail_on_primary_clone_failure and repository == repositories_to_clone[0]:
                         raise
                     workflow.logger.warning(
                         "repository_clone_failed_continuing_without_repository",
@@ -2509,6 +2531,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             sandbox_id=sandbox_id,
             run_id=context.run_id if context else None,
             complete_stream_on_cleanup=bool(context and complete_stream),
+            stream_generation=context.stream_generation if context else self._stream_generation,
         )
         try:
             await workflow.execute_activity(
@@ -2525,7 +2548,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _complete_run_stream(self, run_id: str) -> None:
         await workflow.execute_activity(
             complete_run_stream,
-            CompleteRunStreamInput(run_id=run_id),
+            CompleteRunStreamInput(
+                run_id=run_id,
+                stream_generation=self._context.stream_generation if self._context else self._stream_generation,
+            ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -3257,9 +3283,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._cancel_relay(credential_refresh_task)
             credential_refresh_task = None
 
+        check_activity_before_boot = _check_rotation_activity_before_boot()
         try:
             try:
                 sandbox_output = await self._get_sandbox_for_repository()
+                if check_activity_before_boot and guard_activity and self._sandbox_activity_count != activity_count:
+                    return await self._abandon_rotation(
+                        live_sandbox, reason="activity_during_handoff", snapshot_activity_count=activity_count
+                    )
                 await self._start_agent_server(sandbox_output)
             finally:
                 if relay_task is not None:
@@ -3301,7 +3332,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 snapshot_activity_count=activity_count if guard_activity else None,
             )
 
-        if guard_activity and self._sandbox_activity_count != activity_count:
+        if not check_activity_before_boot and guard_activity and self._sandbox_activity_count != activity_count:
             return await self._abandon_rotation(
                 live_sandbox, reason="activity_during_handoff", snapshot_activity_count=activity_count
             )
@@ -3423,6 +3454,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_id=sandbox_id,
                 slack_thread_context=self._slack_thread_context,
                 is_agent_design_enabled=self._is_agent_design_enabled,
+                stream_generation=self.context.stream_generation,
             )
             relay_activity = (
                 relay_sandbox_events_deferred_completion if _defer_run_stream_completion() else relay_sandbox_events

@@ -309,6 +309,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.startup_requested_at == (
             task_run.queued_at.isoformat() if resume else task_run.state["startup_requested_at"]
         )
+        assert result.stream_generation is not None
         assert result.team_id == test_task.team_id
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"

@@ -321,7 +321,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "partition_measurement": { "job_id": str, "phase": "pre_extraction" | "post_load", "budget": int, "healthy": bool }, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "partition_measurement": { "job_id": str, "phase": "pre_extraction" | "post_load", "budget": int, "split_budget": int, "healthy": bool }, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -920,7 +920,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         in one activity converges across attempts rather than giving up terminally. Cleared once temp
         is fully built (a swap is staged) or when the controller gives up. Shape:
         {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str,
-        "budget_exhausted": bool}.
+        "budget_exhausted": bool, "sliced": bool}.
         """
         if self.sync_type_config:
             marker = self.sync_type_config.get("repartition_rewrite", None)
@@ -1032,7 +1032,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         )
         return self.sync_type_config.get("repartition_claim") == claim
 
-    def abandon_repartition_if_claimed(self, claim_token: str) -> bool:
+    def abandon_repartition_if_claimed(self, claim_token: str, *, stamp_cooldown: bool = True) -> bool:
         from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
 
         def _write(config: dict[str, Any]) -> None:
@@ -1043,7 +1043,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 return
             for key in ("repartition_pending", "repartition_swap", "repartition_rewrite"):
                 config.pop(key, None)
-            config["last_repartition_at"] = timezone.now().isoformat()
+            if stamp_cooldown:
+                config["last_repartition_at"] = timezone.now().isoformat()
 
         self.sync_type_config = retry_on_db_connection_drop(
             lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
@@ -1057,6 +1058,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 for key in ("repartition_pending", "repartition_swap", "repartition_rewrite")
             )
         )
+
+    def disable_repartition_slicing(self) -> None:
+        def _write(config: dict[str, Any]) -> None:
+            pending = config.get("repartition_pending")
+            if isinstance(pending, dict):
+                pending["slice_disabled"] = True
+
+        self.sync_type_config = update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
@@ -1953,6 +1962,27 @@ def release_repartition_hold_if_claimed(schema: ExternalDataSchema, *, claim_tok
     schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
 
 
+def mark_repartition_dropping_if_claimed(schema: ExternalDataSchema, *, claim_token: str) -> int | None:
+    """Count one failed drop of the pending target while `claim_token` still owns the schema.
+
+    Returns the drop attempts so far, or None when a newer attempt owns the schema. A target marked
+    `dropping` is never promoted by a reset (see `pending_scheme_for_table_replacement`).
+    """
+    drop_attempts: int | None = None
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal drop_attempts
+        claim = config.get("repartition_claim")
+        pending = config.get("repartition_pending")
+        if not (claim and claim.get("token") == claim_token) or not isinstance(pending, dict):
+            return
+        drop_attempts = int(pending.get("drop_attempts", 0)) + 1
+        pending.update({"dropping": True, "drop_attempts": drop_attempts})
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return drop_attempts
+
+
 def clear_repartition_checkpoint_if_claimed(schema: ExternalDataSchema, *, claim_token: str, temp_uri: str) -> bool:
     """Remove the rewrite checkpoint for `temp_uri` while `claim_token` still owns the schema.
 
@@ -2119,10 +2149,11 @@ def pending_scheme_for_table_replacement(config: dict[str, Any]) -> dict[str, An
 
     None while a swap is staged, because the temp table can then be the only intact copy and the
     swap recovery owns the scheme. None when an operator pinned a scheme, because that pin is the
-    newer decision. A marker with no keys holds bookkeeping only and describes no scheme.
+    newer decision. A marker with no keys holds bookkeeping only and describes no scheme. A target that
+    the activity is dropping (`dropping`) describes no table either.
     """
     pending = config.get("repartition_pending")
-    if not isinstance(pending, dict) or not pending.get("partition_keys"):
+    if not isinstance(pending, dict) or not pending.get("partition_keys") or pending.get("dropping"):
         return None
     if config.get("repartition_swap") is not None:
         return None

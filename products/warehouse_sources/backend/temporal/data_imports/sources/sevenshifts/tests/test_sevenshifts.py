@@ -7,7 +7,6 @@ from requests import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -129,10 +128,3 @@ def test_unexpected_probe_error_propagates(config: SevenShiftsSourceConfig) -> N
     with scripted_network([response([], status=400)]):
         with pytest.raises(HTTPError):
             validate_credentials(config, "2026-01-01")
-
-
-def test_unknown_table(driver: SourceDriver) -> None:
-    result = driver.run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

@@ -65,6 +65,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
     DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
+    UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE,
     _classify_refresh_schemas_error,
     get_credential_account_field_names,
     get_declared_field_names,
@@ -512,13 +513,23 @@ class TestExternalDataSource(APIBaseTest):
         assert "at least one destination" in response.json()["detail"]
         assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
 
+    @parameterized.expand(
+        [
+            ("unexpected_error", AttributeError("boom"), INVALID_CREDENTIALS_FALLBACK_MESSAGE),
+            (
+                "non_latin1_header_value",
+                UnicodeEncodeError("latin-1", "sk_test\u2019", 7, 8, "ordinal not in range(256)"),
+                UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE,
+            ),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
-        side_effect=AttributeError("boom"),
     )
-    def test_create_surfaces_400_when_credential_probe_raises(self, _mock_validate):
+    def test_create_surfaces_400_when_credential_probe_raises(self, _name, error, expected_message, mock_validate):
         # A source whose validate_credentials raises (rather than returning (False, message)) must
         # not 500 the create request — the user gets an actionable message and no source is created.
+        mock_validate.side_effect = error
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -534,7 +545,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["message"], INVALID_CREDENTIALS_FALLBACK_MESSAGE)
+        self.assertEqual(response.json()["message"], expected_message)
         self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     def test_api_version_pin_is_read_only_via_api(self):

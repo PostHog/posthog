@@ -16,11 +16,12 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { freeCreditsCoverage } from '../../utils/quotaProjection'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
-import { DEFAULT_GOAL_BUDGET, replayScannerLogic } from '../replayScannerLogic'
+import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
 import {
     OBSERVATION_CREDITS_BY_MODEL,
@@ -267,6 +268,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         isScannerSubmitting,
         experimentContext,
     } = useValues(logic)
+    const { freeCreditsAllowance } = useValues(visionQuotaLogic)
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
     const { submitScanner, loadScannerEstimate } = useActions(logic)
@@ -303,7 +305,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     // The budget is credits, so compare the projected credit cost against the cap (which the draft
     // set to the stated budget). The rate cannot go below the minimum, so a budget under that floor
     // projects above it.
-    const budgetCredits = scanner.credit_limit ?? (scanner.free_only ? DEFAULT_GOAL_BUDGET : goalBudgetInput)
+    // A free-only draft is sized to the free credits the org can spend, which billing can set below the usual amount.
+    const budgetCredits = scanner.credit_limit ?? (scanner.free_only ? freeCreditsAllowance : goalBudgetInput)
     const overBudget = monthlyCredits != null && budgetCredits != null && monthlyCredits > budgetCredits
     // A free-only scanner without its own cap can never bill, so it gets a credit count and a note instead of a cost.
     const freeCreditsOnly = !!scanner.free_only && scanner.credit_limit == null
@@ -409,13 +412,14 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                             freeCreditsOnly ? (
                                 overBudget ? (
                                     <span>
-                                        uses all <span>{DEFAULT_GOAL_BUDGET.toLocaleString()}</span> of your free
-                                        credits a month
+                                        uses all <span>{budgetCredits.toLocaleString()}</span> of your free credits a
+                                        month
                                     </span>
                                 ) : (
                                     <span>
                                         uses about <span>{monthlyCredits.toLocaleString()}</span> of your{' '}
-                                        <span>{DEFAULT_GOAL_BUDGET.toLocaleString()}</span> free credits a month
+                                        {budgetCredits != null ? <span>{budgetCredits.toLocaleString()} </span> : null}
+                                        free credits a month
                                     </span>
                                 )
                             ) : (
@@ -442,9 +446,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 </div>
                 {overBudget && freeCreditsOnly ? (
                     <LemonBanner type="info">
-                        Your free credits cover about{' '}
-                        <span>{freeCreditsCoverage(DEFAULT_GOAL_BUDGET, monthlyCredits)}</span> of the month. After that
-                        it pauses until they reset.
+                        Your free credits cover about <span>{freeCreditsCoverage(budgetCredits, monthlyCredits)}</span>{' '}
+                        of the month. After that it pauses until they reset.
                     </LemonBanner>
                 ) : overBudget ? (
                     <LemonBanner type="warning">
@@ -457,7 +460,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             <div className="flex items-center justify-end gap-2">
                 <LemonButton
                     type="secondary"
-                    onClick={() => router.actions.push(urls.replayVisionScannerTemplate('new'))}
+                    onClick={() => router.actions.push(urls.replayVisionScannerGoal('new'))}
                     data-attr="vision-goal-overview-start-over"
                 >
                     Start over

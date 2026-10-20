@@ -126,7 +126,7 @@ describe('BI analysis queries', () => {
             expect(query).toContain('OVER (PARTITION BY bi_column_event')
             expect(query.match(/LIMIT/g)).toHaveLength(1)
             expect(query.indexOf('bi_filtered AS')).toBeGreaterThan(query.indexOf('bi_calculated AS'))
-            expect(query.endsWith('LIMIT 1000')).toBe(true)
+            expect(query.endsWith('LIMIT 50000')).toBe(true)
             if (compare) {
                 expect(query).toContain('FROM bi_previous')
                 expect(query).toContain('UNION ALL')

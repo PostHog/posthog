@@ -49,6 +49,8 @@ _APPEND_UNSUPPORTED = (
 class DepotReconciliationCursor:
     cursor_kind: ClassVar[str] = "depot_reconciliation"
     reconciled_at: str
+    # The newest run a completed sync scanned. It stands in for the watermark of a table whose runs yield no rows.
+    scanned_through: str | None = None
 
 
 @SourceRegistry.register
@@ -72,7 +74,7 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Depot",
             keywords=["depot.dev", "depot ci"],
-            caption="Sync Depot CI job attempts for one GitHub repository. Create an organization API token in your Depot organization settings, then enter the repository as `owner/name`.",
+            caption="Sync Depot CI job attempts, job metrics, artifacts, and failure diagnoses for one GitHub repository. Create an organization API token in your Depot organization settings, then enter the repository as `owner/name`.",
             releaseStatus=ReleaseStatus.ALPHA,
             docsUrl="https://posthog.com/docs/cdp/sources/depot",
             iconPath="/static/services/depot.png",
@@ -146,7 +148,9 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
         now = datetime.datetime.now(datetime.UTC)
         reconciled_at = parse_datetime_value(cursor.reconciled_at) if cursor is not None else None
         watermark = (
-            parse_datetime_value(inputs.db_incremental_field_last_value)
+            parse_datetime_value(
+                inputs.db_incremental_field_last_value or (cursor.scanned_through if cursor is not None else None)
+            )
             if inputs.should_use_incremental_field
             else None
         )
@@ -159,12 +163,21 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
             if inputs.history_start is not None:
                 lower_bound = max(lower_bound, inputs.history_start)
 
+        previous = cursor or DepotReconciliationCursor(reconciled_at=now.isoformat())
+
+        def on_complete(scanned_through: str | None) -> None:
+            manager.stage(
+                DepotReconciliationCursor(
+                    reconciled_at=now.isoformat() if reconcile else previous.reconciled_at,
+                    scanned_through=scanned_through or previous.scanned_through,
+                )
+            )
+
         return depot_source(
             api_token=config.api_token,
             repository=config.repository,
             created_after=lower_bound,
             logger=inputs.logger,
-            on_complete=(lambda: manager.stage(DepotReconciliationCursor(reconciled_at=now.isoformat())))
-            if reconcile
-            else None,
+            endpoint=inputs.schema_name,
+            on_complete=on_complete,
         )

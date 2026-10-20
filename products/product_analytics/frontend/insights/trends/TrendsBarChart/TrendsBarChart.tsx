@@ -129,9 +129,14 @@ export function TrendsBarChart({
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
+        [querySource]
+    )
+
     const seriesIdentification = useMemo(
-        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
-        [indexedResults]
+        () => getSeriesIdentification((indexedResults ?? []).map(buildMeta)),
+        [indexedResults, buildMeta]
     )
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
@@ -158,17 +163,19 @@ export function TrendsBarChart({
     const getAggregatedDisplayLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getAggregatedDisplayLabelFn(r, {
+                querySource,
                 stackBreakdowns,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
             }),
-        [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [querySource, stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
+                querySource,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -176,6 +183,7 @@ export function TrendsBarChart({
                 seriesIdentification,
             }),
         [
+            querySource,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -189,7 +197,7 @@ export function TrendsBarChart({
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
-                buildMeta: buildTrendsSeriesMeta,
+                buildMeta,
                 stackBreakdowns,
                 getDisplayLabel: getAggregatedDisplayLabel,
             })
@@ -200,7 +208,7 @@ export function TrendsBarChart({
             // instead of being dropped here, so the legend can restore them.
             getHidden: undefined,
             getLabel,
-            buildMeta: buildTrendsSeriesMeta,
+            buildMeta,
             showMultipleYAxes: applyMultipleYAxes,
         })
         // Bands are keyed by these strings, so they must be unique per point. Display labels
@@ -224,6 +232,7 @@ export function TrendsBarChart({
         stackBreakdowns,
         getAggregatedDisplayLabel,
         getLabel,
+        buildMeta,
         applyMultipleYAxes,
     ])
 

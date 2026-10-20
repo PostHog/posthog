@@ -1,11 +1,12 @@
 from dataclasses import field
-from typing import Optional
+from typing import Literal, Optional
 
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.types import IncrementalField
 
 # Page size for the deployments fan-out (`take` param). Coolify's other list endpoints take no
@@ -16,6 +17,16 @@ DEPLOYMENTS_PAGE_SIZE = 100
 # so a hostile or broken server could report an ever-growing `count` with non-empty pages forever;
 # this cap makes the walk self-terminate. Generous enough not to truncate a real deploy history.
 MAX_DEPLOYMENTS_OFFSET = 100_000
+
+# `/audit-events` pages with `page`/`per_page` (100 is the server maximum).
+AUDIT_EVENTS_PAGE_SIZE = 100
+
+# Same safety ceiling as MAX_DEPLOYMENTS_OFFSET, in pages of AUDIT_EVENTS_PAGE_SIZE rows.
+MAX_AUDIT_EVENTS_PAGES = 10_000
+
+# A parent row deleted between its listing and the child fetch answers 404; skip it instead of
+# failing the whole table.
+_IGNORE_404: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 
 @frozen
@@ -41,7 +52,12 @@ class CoolifyEndpointConfig:
     # False keeps the endpoint's raw response out of HTTP sample capture even when nothing is
     # stripped from storage, e.g. team member emails. Implied by `sensitive_fields`.
     captures_http_samples: bool = True
-    # Set on endpoints that are fetched once per row of a parent endpoint.
+    # "skip_take" pages with `skip`/`take` and a `count` total (deployments), "page" with
+    # `page`/`per_page` and a `last_page` total (audit events). Every other endpoint answers with
+    # the full collection in one response.
+    pagination: Literal["none", "skip_take", "page"] = "none"
+    # Set on endpoints that are fetched once per row of a parent endpoint. A parent that itself
+    # fans out makes a two-level chain.
     fanout: Optional[DependentEndpointConfig] = None
     # Read by the fan-out helper's `FanoutEndpointLike` protocol. No Coolify endpoint takes a
     # server-side time filter, so the incremental members stay empty for every endpoint.
@@ -127,20 +143,97 @@ COOLIFY_ENDPOINTS: dict[str, CoolifyEndpointConfig] = {
         primary_keys=["deployment_uuid"],
         partition_key="created_at",
         sensitive_fields=frozenset({"logs", "configuration_snapshot", "configuration_diff"}),
+        pagination="skip_take",
         fanout=DependentEndpointConfig(
             parent_name="applications",
             resolve_param="application_uuid",
             resolve_field="uuid",
             include_from_parent=["uuid"],
             parent_field_renames={"uuid": "application_uuid"},
-            # An application deleted between the parent listing and this fetch answers 404;
-            # treat it as an empty page rather than failing the whole table.
-            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
+    # Newest first by (created_at, id). Only team admins and owners can read the log, so a
+    # token created by any other member gets 403 on this endpoint alone.
+    "audit_events": CoolifyEndpointConfig(
+        name="audit_events",
+        path="/audit-events",
+        data_selector="data",
+        primary_keys=["id"],
+        partition_key="created_at",
+        # Only a `read:sensitive`/`root` token gets these. `metadata` and `changes` carry the
+        # before/after values of the edited resource, which can include its secrets.
+        sensitive_fields=frozenset(
+            {
+                "actor_email",
+                "actor_token_id",
+                "actor_token_name",
+                "metadata",
+                "changes",
+                "ip_address",
+                "user_agent",
+            }
+        ),
+        pagination="page",
+        page_size=AUDIT_EVENTS_PAGE_SIZE,
+    ),
+    # Every execution of every scheduled task on every application:
+    # applications -> scheduled tasks -> executions. `message` is the command output, which
+    # Coolify hides from tokens without `read:sensitive`.
+    "application_task_executions": CoolifyEndpointConfig(
+        name="application_task_executions",
+        path="/applications/{application_uuid}/scheduled-tasks/{task_uuid}/executions",
+        partition_key="created_at",
+        sensitive_fields=frozenset({"message"}),
+        fanout=DependentEndpointConfig(
+            parent_name="application_scheduled_tasks",
+            resolve_param="task_uuid",
+            resolve_field="uuid",
+            include_from_parent=["uuid", "name", "_applications_uuid"],
+            parent_field_renames={
+                "uuid": "task_uuid",
+                "name": "task_name",
+                "_applications_uuid": "application_uuid",
+            },
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
+    # Every run of every scheduled backup on every standalone database:
+    # databases -> backup configurations -> executions.
+    "backup_executions": CoolifyEndpointConfig(
+        name="backup_executions",
+        path="/databases/{database_uuid}/backups/{scheduled_backup_uuid}/executions",
+        data_selector="executions",
+        partition_key="created_at",
+        # The backup configuration listing this walks through is an undocumented raw model dump,
+        # so keep it out of HTTP samples.
+        captures_http_samples=False,
+        fanout=DependentEndpointConfig(
+            parent_name="database_backups",
+            resolve_param="scheduled_backup_uuid",
+            resolve_field="uuid",
+            include_from_parent=["uuid", "_databases_uuid"],
+            parent_field_renames={"uuid": "scheduled_backup_uuid", "_databases_uuid": "database_uuid"},
+            child_response_actions=_IGNORE_404,
         ),
     ),
     "projects": CoolifyEndpointConfig(
         name="projects",
         path="/projects",
+    ),
+    # Coolify selects only `id`, `name`, and `uuid` here. `id` is what `environment_id` on
+    # applications, databases, and services points at.
+    "project_environments": CoolifyEndpointConfig(
+        name="project_environments",
+        path="/projects/{project_uuid}/environments",
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project_uuid",
+            resolve_field="uuid",
+            include_from_parent=["uuid"],
+            parent_field_renames={"uuid": "project_uuid"},
+            child_response_actions=_IGNORE_404,
+        ),
     ),
     "servers": CoolifyEndpointConfig(
         name="servers",
@@ -165,6 +258,33 @@ COOLIFY_ENDPOINTS: dict[str, CoolifyEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(COOLIFY_ENDPOINTS.keys())
+
+# Middle hops of the two-level chains. They are walked to reach their executions but are not
+# tables of their own.
+COOLIFY_FANOUT_PARENTS: dict[str, CoolifyEndpointConfig] = {
+    "application_scheduled_tasks": CoolifyEndpointConfig(
+        name="application_scheduled_tasks",
+        path="/applications/{application_uuid}/scheduled-tasks",
+        fanout=DependentEndpointConfig(
+            parent_name="applications",
+            resolve_param="application_uuid",
+            resolve_field="uuid",
+            include_from_parent=["uuid"],
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
+    "database_backups": CoolifyEndpointConfig(
+        name="database_backups",
+        path="/databases/{database_uuid}/backups",
+        fanout=DependentEndpointConfig(
+            parent_name="databases",
+            resolve_param="database_uuid",
+            resolve_field="uuid",
+            include_from_parent=["uuid"],
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
+}
 
 # Coolify exposes no server-side timestamp filter on any list endpoint, so no endpoint supports
 # genuine incremental sync. Kept for parity with the schema-building convention.

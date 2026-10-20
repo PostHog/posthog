@@ -23,6 +23,7 @@ import {
     MAX_REQUEST_BYTES,
     MAX_EVENTS_PER_REQUEST,
     STREAM_COMPLETE_CONTROL_TYPE,
+    STREAM_INITIAL_GENERATION,
 } from '../lib/constants.js'
 import { validateSandboxEventIngestToken } from '../lib/jwt.js'
 import { logger } from '../lib/logging.js'
@@ -38,6 +39,7 @@ import {
     EventIngestPayloadTooLarge,
     TaskRunStreamSequenceGap,
     TaskRunStreamAlreadyCompleted,
+    TaskRunStreamGenerationMismatch,
     TaskRunStreamCompletionSequenceMismatch,
     type DisconnectClassification,
     type IngestEventLine,
@@ -112,6 +114,7 @@ export async function handleIngest(
     const redisStream = new TaskRunRedisStream(streamKey, redis, {
         presenceGated: claims.presenceGated,
         thinTail: claims.thinTail,
+        expectedGeneration: claims.streamGeneration ?? STREAM_INITIAL_GENERATION,
     })
 
     const bodyTiming: IngestBodyTiming = {
@@ -152,6 +155,9 @@ export async function handleIngest(
         }
         if (err instanceof EventIngestPayloadTooLarge) {
             return c.json({ error: err.message, last_accepted_seq: err.lastAcceptedSeq }, 413)
+        }
+        if (err instanceof TaskRunStreamGenerationMismatch) {
+            return c.json({ error: err.message, code: 'stream_generation_mismatch' }, 403)
         }
         if (err instanceof TaskRunStreamSequenceGap) {
             return c.json({ error: err.message, last_accepted_seq: err.lastAcceptedSeq }, 409)

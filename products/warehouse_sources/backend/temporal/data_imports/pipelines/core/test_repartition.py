@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
+    RepartitionSliceEndedError,
     RepartitionStoppedError,
     RepartitionSupersededError,
     RepartitionTarget,
@@ -1033,6 +1034,34 @@ class TestRewriteIntoTemp:
         assert rows_written == len(rows)
         final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
         assert sorted(cast(list[int], final.column("id").to_pylist())) == [row[0] for row in rows]
+
+    def test_a_slice_pause_finishes_the_open_source_file_however_long_it_takes(self, tmp_path):
+        rows = [(i, datetime.datetime(2024, 1, 1 + i)) for i in range(3)] + [(3, datetime.datetime(2024, 2, 1))]
+        live = _write_month_partitioned(str(tmp_path / "live"), rows)
+        save_checkpoint = AsyncMock()
+
+        with pytest.raises(RepartitionSliceEndedError) as stopped:
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=live,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="t",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    budget=_budget(),
+                    logger=logger,
+                    save_checkpoint=save_checkpoint,
+                    pause_at_file_end=lambda: True,
+                    stop_grace_seconds=0.0,
+                )
+            )
+
+        assert stopped.value.rows_written == 3
+        save_checkpoint.assert_awaited()
 
     def test_a_stop_request_on_the_last_source_file_lets_the_rewrite_finish(self, tmp_path):
         rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
@@ -2740,7 +2769,8 @@ class TestRewriteCheckpointResume:
 
         assert saved.call_args.kwargs["checkpoint"]["rows_written"] == 3
 
-    def test_discards_the_checkpoint_when_a_copied_file_is_no_longer_live(self, tmp_path):
+    @pytest.mark.parametrize("sliced", [False, True])
+    def test_discards_the_checkpoint_when_a_copied_file_is_no_longer_live(self, sliced, tmp_path):
         # A merge between attempts rewrote a file temp already copied, so temp holds stale rows. The
         # checkpoint must be discarded and a fresh rebuild started into our own claim-scoped temp,
         # never resumed — resuming would swap stale data over live.
@@ -2757,7 +2787,9 @@ class TestRewriteCheckpointResume:
                 "rows_written": 1,
                 "target": target.to_dict(),
                 "live_version": live.version() + 999,
+                "sliced": sliced,
             },
+            disable_repartition_slicing=Mock(),
         )
 
         with (
@@ -2773,7 +2805,12 @@ class TestRewriteCheckpointResume:
         ):
             asyncio.run(
                 repartition_table_in_place(
-                    table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                    table_ref=table_ref,
+                    schema=schema,
+                    target=target,
+                    logger=logger,
+                    claim_token="tok",
+                    rewrite_slice_seconds=0.0,
                 )
             )
 
@@ -2781,6 +2818,47 @@ class TestRewriteCheckpointResume:
         purge.assert_awaited_once()  # fresh rebuild sweeps orphans
         assert rewrite.await_args_list[0].kwargs["temp_uri"].endswith("__repartitioned_tok")
         assert rewrite.await_args_list[0].kwargs["copied_files"] == frozenset()
+        assert schema.disable_repartition_slicing.call_count == (1 if sliced else 0)
+        assert rewrite.await_args_list[0].kwargs["pause_at_file_end"]() is (not sliced)
+
+    def test_a_sync_slice_stops_the_rewrite_but_never_the_swap(self, tmp_path):
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema()
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=2)),
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(return_value=(2, target))) as rewrite,
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+        ):
+            asyncio.run(
+                repartition_table_in_place(
+                    table_ref=table_ref,
+                    schema=schema,
+                    target=target,
+                    logger=logger,
+                    claim_token="tok",
+                    should_stop=lambda: False,
+                    rewrite_slice_seconds=0.0,
+                )
+            )
+
+        assert rewrite.await_args is not None and swap.await_args is not None
+        assert rewrite.await_args.kwargs["pause_at_file_end"]() is True
+        assert rewrite.await_args.kwargs["should_stop"]() is False
+        assert swap.await_args.kwargs["should_stop"]() is False
+        with patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved:
+            asyncio.run(rewrite.await_args.kwargs["save_checkpoint"](1, target))
+        assert saved.call_args.kwargs["checkpoint"]["sliced"] is True
 
     @pytest.mark.parametrize(
         "version_offset,blocker,expected_restart",

@@ -44,11 +44,6 @@ class TestNorthpassLMSSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["courses"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "courses"
-
     @parameterized.expand(
         [
             ("valid", 200, True, None),

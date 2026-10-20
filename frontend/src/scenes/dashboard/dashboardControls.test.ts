@@ -18,11 +18,11 @@ describe('dashboardControls', () => {
     it.each([
         ['a trends insight', trendsTile, ['dateRange', 'interval', 'properties', 'breakdown', 'testAccounts']],
         ['a retention insight', retentionTile, ['dateRange', 'properties', 'breakdown', 'testAccounts']],
-        ['a metrics insight', metricsTile, ['dateRange', 'metricLabels']],
+        ['a metrics insight', metricsTile, ['dateRange', 'metricLabels', 'metricVariables']],
         [
             'a PromQL metrics insight',
             insightTile({ kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql: 'sum(x)' }),
-            ['dateRange'],
+            ['dateRange', 'metricVariables'],
         ],
         [
             'a SQL insight',

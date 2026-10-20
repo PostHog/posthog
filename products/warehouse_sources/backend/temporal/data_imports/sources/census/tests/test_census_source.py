@@ -22,10 +22,19 @@ class TestCensusSource:
         assert config.iconPath == "/static/services/census.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/census"
 
-    def test_get_schemas_all_full_refresh(self) -> None:
+    @pytest.mark.parametrize(
+        "api_version, expected_tables",
+        [
+            (None, {"syncs", "sync_runs", "sources", "destinations", "datasets"}),
+            ("v1", {"syncs", "sync_runs", "sources", "destinations", "datasets", "workspaces"}),
+            ("v2", {"syncs", "sync_runs", "sources", "destinations", "datasets"}),
+        ],
+    )
+    def test_get_schemas_all_full_refresh(self, api_version: str | None, expected_tables: set[str]) -> None:
         # Census has no server-side timestamp filter on any list endpoint, so nothing supports
-        # incremental sync.
-        schemas = self.source.get_schemas(self.config, self.team_id)
+        # incremental sync. Workspaces have no V2 equivalent.
+        schemas = self.source.get_schemas(self.config, self.team_id, api_version=api_version)
+        assert {schema.name for schema in schemas} == expected_tables
         for schema in schemas:
             assert schema.supports_incremental is False
             assert schema.incremental_fields == []
