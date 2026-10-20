@@ -1508,6 +1508,13 @@ class TestCountBatchesForRun:
             assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-missing") == 0
 
 
+class _SparedRun(NamedTuple):
+    loaded: str
+    executing: str
+    pending: str
+    retrying: str
+
+
 class _BatchState(NamedTuple):
     state: str
     attempt: int
@@ -1717,7 +1724,7 @@ class TestStateDualWrite:
         metadata = {RUN_START_CURSOR_KEY: old_cursor.to_payload()} if old_cursor else {}
         run_rows = {"sync_type": "incremental", "metadata": metadata, **row_overrides}
 
-        async def spared_run(team_id: int, job_id: str) -> tuple[str, str, str, str]:
+        async def spared_run(team_id: int, job_id: str) -> _SparedRun:
             loaded, executing, pending, retrying = [
                 await _insert_batch(
                     conn,
@@ -1733,7 +1740,7 @@ class TestStateDualWrite:
             await _write_backdated_status(conn, batch_id=loaded, job_state="succeeded", age_seconds=60)
             await _write_backdated_status(conn, batch_id=executing, job_state="executing", age_seconds=30)
             await _write_backdated_status(conn, batch_id=retrying, job_state="waiting_retry", age_seconds=20)
-            return loaded, executing, pending, retrying
+            return _SparedRun(loaded, executing, pending, retrying)
 
         loaded, executing, pending, retrying = await spared_run(team_id=1, job_id="job-dw")
         bystander = await spared_run(team_id=2, job_id="job-other")

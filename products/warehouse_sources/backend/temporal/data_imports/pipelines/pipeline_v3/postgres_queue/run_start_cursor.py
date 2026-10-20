@@ -68,7 +68,12 @@ class RunStartCursor:
         other = RunStartCursor.from_payload(payload)
         if other is None or other.field != self.field or other.kind != self.kind:
             return False
-        return self._sort_key() <= other._sort_key()
+        mine, theirs = self._sort_key(), other._sort_key()
+        if isinstance(mine, Decimal) and isinstance(theirs, Decimal):
+            return mine <= theirs
+        if isinstance(mine, date) and isinstance(theirs, date):
+            return mine <= theirs
+        return False
 
     def _sort_key(self) -> Decimal | datetime | date:
         if self.kind == "number":
