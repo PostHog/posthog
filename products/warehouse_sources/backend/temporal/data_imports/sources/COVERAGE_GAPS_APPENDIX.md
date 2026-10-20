@@ -4660,10 +4660,10 @@ Today (11): `accounts`, `charges`, `checkout_sessions`, `customers`, `invoices`,
 
 Diffed against: <https://docs.fintoc.com/_llms/v2026-02-01/en/api-reference.txt>
 
-- [ ] `Business accounts (GET /v2/accounts)` — resolve account IDs on transfers and analyze business account balances separately from linked open banking accounts (high)
-- [ ] `Payment methods (GET /v2/payment_methods)` — resolve payment_method IDs on subscriptions and compare recurring payment instruments and mandate status (high)
-- [ ] `Business account movements (GET /v2/accounts/{account_id}/movements)` — reconcile transfer activity and business account balances with the complete account ledger (high)
-- [ ] `Disputes (GET /v1/disputes)` — measure disputed payment amounts, outcomes, and revenue losses (high)
+- [x] `Business accounts (GET /v2/accounts)` — resolve account IDs on transfers and analyze business account balances separately from linked open banking accounts (high)
+- [x] `Payment methods (GET /v2/payment_methods)` — resolve payment_method IDs on subscriptions and compare recurring payment instruments and mandate status (high)
+- [x] `Business account movements (GET /v2/accounts/{account_id}/movements)` — reconcile transfer activity and business account balances with the complete account ledger (high)
+- [x] `Disputes (GET /v1/disputes)` — measure disputed payment amounts, outcomes, and revenue losses (high)
 - [ ] `Events (GET /v2/events)` — analyze payment, subscription, invoice, and transfer state changes over time (medium)
 - [ ] `Account numbers (GET /v2/account_numbers)` — analyze virtual collection accounts, including accounts without transfers and their recent activity (medium)
 - [ ] `Payout resources (GET /v1/payouts/{id}/resources)` — connect settlement payouts to the payments, charges, and refunds they include (medium)
@@ -4842,14 +4842,14 @@ Note: developers.flowlu.com is the API host, not docs (returns 404/api-key error
 
 ## Flutterwave — gaps
 
-Today (9): `beneficiaries`, `chargebacks`, `payment_plans`, `refunds`, `settlements`, `subaccounts`, `subscriptions`, `transactions`, `transfers`
+Today (12): `banks`, `beneficiaries`, `bill_payments`, `chargebacks`, `payment_plans`, `refunds`, `settlements`, `subaccounts`, `subscriptions`, `transactions`, `transfers`, `wallet_statement`
 
 Diffed against: <https://developer.flutterwave.com/v3.0.0/reference/get-all-transactions>
 
-- [ ] `Get all banks (GET /v3/banks/{country})` — resolve bank codes on transfers and beneficiaries into bank names (high)
-- [ ] `Query Wallet balance history (GET /v3/wallet/statement)` — reconcile wallet credits and debits with transfers and settlement activity (high)
-- [ ] `View transaction timeline (GET /v3/transactions/{id}/events)` — analyze payment processing steps and failures beyond the current transaction status (medium)
-- [ ] `Get bill payments history (GET /v3/bills/history)` — report bill payment volume, failures, reversals, and customer spending (medium)
+- [x] `Get all banks (GET /v3/banks/{country})` — resolve bank codes on transfers and beneficiaries into bank names (high). Added as `banks` (v3, one request per documented payout country: NG, GH, KE, UG, ZA, TZ).
+- [x] `Query Wallet balance history (GET /v3/wallet/statement)` — reconcile wallet credits and debits with transfers and settlement activity (high). Added as `wallet_statement` (v3, one walk per currency listed by `/balances`).
+- [ ] `View transaction timeline (GET /v3/transactions/{id}/events)` — analyze payment processing steps and failures beyond the current transaction status (medium); skipped: one request per transaction on every sync, because `transactions` has no update cursor and the timeline has no list or date filter, and the rows are checkout UI steps with IP addresses and actor emails
+- [x] `Get bill payments history (GET /v3/bills/history)` — report bill payment volume, failures, reversals, and customer spending (medium). Added as `bill_payments` (v3).
 - [ ] `Fetch All Subaccounts (GET /v3/payout-subaccounts)` — identify customer wallets and payout subaccounts, which differ from collection split-payment subaccounts (medium)
 - [ ] `Fetch Transactions (GET /v3/payout-subaccounts/{account_reference}/transactions)` — analyze credits and debits within each customer wallet (medium)
 - [ ] `Retrieve Wallet balances (GET /v3/balances)` — report available merchant funds across currencies (medium)
@@ -13303,6 +13303,14 @@ Diffed against: <https://developer.workiz.com/api.json>
 No gaps worth a table found.
 
 Note: Fetched the OpenAPI file referenced by the official documentation application and checked every GET operation. Jobs, Leads, Team, and TimeOff cover every documented read collection. Remaining GET operations retrieve individual records already represented by those collections. Excluded create and update operations; the specification lists no invoice, payment, or customer collection.
+
+## WorkOS — gaps
+
+Today (7): `connections`, `directories`, `directory_groups`, `directory_users`, `organizations`, `users`, `waitlist_entries`
+
+Diffed against: <https://workos.com/docs/reference/authkit/waitlist>
+
+- [x] `Waitlist entries (GET /user_management/waitlists/{id}/entries)` — AuthKit waitlist sign-ups with their pending, approved, or denied state (medium)
 
 ## World Bank Open Data — gaps
 
