@@ -1,11 +1,13 @@
 from celery import Task, shared_task
 
+from posthog.celery_queues import CeleryQueue
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.transactional_email import TransactionalEmailRetryableError, send_transactional_email
 
 
 @shared_task(
     bind=True,
+    queue=CeleryQueue.EMAIL.value,
     ignore_result=True,
     autoretry_for=(TransactionalEmailRetryableError,),
     retry_backoff=True,
