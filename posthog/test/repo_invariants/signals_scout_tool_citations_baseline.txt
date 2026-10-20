@@ -1,6 +1,7 @@
 agent-feedback
 alert-simulate
 apm-attribute-breakdown
+apm-service-health
 apm-spans-aggregate
 apm-spans-duration-histogram
 apm-spans-sparkline

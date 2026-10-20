@@ -8,7 +8,7 @@ from parameterized import parameterized
 VIEWS = "products.tracing.backend.presentation.views"
 
 # (url suffix, patched runner, extra query params, runner return value)
-ENDPOINTS = [
+ENDPOINTS: list[tuple[str, str, dict[str, str], object]] = [
     ("service-names", "run_service_names_query", {}, []),
     ("attributes", "run_attribute_names_query", {}, ([], 0)),
     ("values", "run_attribute_values_query", {"key": "http.method"}, []),

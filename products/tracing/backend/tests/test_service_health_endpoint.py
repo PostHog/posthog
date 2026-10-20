@@ -113,7 +113,7 @@ class TestServiceHealthResponse(_TraceSpansTestBase):
     def setUpTestData(cls):
         super().setUpTestData()
         cls._recreate_trace_spans_tables()
-        rows = []
+        rows: list[tuple] = []
         for i in range(120):
             for service, start, errors in (
                 ("worker", dt.datetime(2026, 6, 2, 7, 0), 0),

@@ -752,14 +752,15 @@ export interface _ServiceHealthDateRangeApi {
 }
 
 /**
- * * `none` - none
- * * `previous_period` - previous_period
- * * `previous_day` - previous_day
- * * `previous_week` - previous_week
+ * * `none` - None
+ * * `previous_period` - Previous Period
+ * * `previous_day` - Previous Day
+ * * `previous_week` - Previous Week
  */
-export type CompareEnumApi = (typeof CompareEnumApi)[keyof typeof CompareEnumApi]
+export type ServiceHealthBaselineEnumApi =
+    (typeof ServiceHealthBaselineEnumApi)[keyof typeof ServiceHealthBaselineEnumApi]
 
-export const CompareEnumApi = {
+export const ServiceHealthBaselineEnumApi = {
     None: 'none',
     PreviousPeriod: 'previous_period',
     PreviousDay: 'previous_day',
@@ -809,11 +810,11 @@ export interface _ServiceHealthQueryApi {
     dateRange?: _ServiceHealthDateRangeApi
     /** The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.
      *
-     * * `none` - none
-     * * `previous_period` - previous_period
-     * * `previous_day` - previous_day
-     * * `previous_week` - previous_week */
-    compare?: CompareEnumApi
+     * * `none` - None
+     * * `previous_period` - Previous Period
+     * * `previous_day` - Previous Day
+     * * `previous_week` - Previous Week */
+    compare?: ServiceHealthBaselineEnumApi
     /**
      * Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.
      * @nullable

@@ -852,11 +852,11 @@ export const TracingSpansServiceHealthCreateBody = () => zod.object({
             compare: zod
                 .enum(['none', 'previous_period', 'previous_day', 'previous_week'])
                 .describe(
-                    '\* `none` - none\n\* `previous_period` - previous_period\n\* `previous_day` - previous_day\n\* `previous_week` - previous_week'
+                    '\* `none` - None\n\* `previous_period` - Previous Period\n\* `previous_day` - Previous Day\n\* `previous_week` - Previous Week'
                 )
                 .default(tracingSpansServiceHealthCreateBodyQueryOneCompareDefault)
                 .describe(
-                    'The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.\n\n\* `none` - none\n\* `previous_period` - previous_period\n\* `previous_day` - previous_day\n\* `previous_week` - previous_week'
+                    'The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.\n\n\* `none` - None\n\* `previous_period` - Previous Period\n\* `previous_day` - Previous Day\n\* `previous_week` - Previous Week'
                 ),
             environment: zod
                 .string()

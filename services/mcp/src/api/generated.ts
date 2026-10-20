@@ -24629,22 +24629,6 @@ export namespace Schemas {
       has_voted: boolean;
     }
 
-    /**
-     * * `none` - none
-     * * `previous_period` - previous_period
-     * * `previous_day` - previous_day
-     * * `previous_week` - previous_week
-     */
-    export type CompareEnum = typeof CompareEnum[keyof typeof CompareEnum];
-
-
-    export const CompareEnum = {
-      None: 'none',
-      PreviousPeriod: 'previous_period',
-      PreviousDay: 'previous_day',
-      PreviousWeek: 'previous_week',
-    } as const;
-
     export interface CompareItem {
       label: string;
       value: string;
@@ -102686,6 +102670,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `none` - None
+     * * `previous_period` - Previous Period
+     * * `previous_day` - Previous Day
+     * * `previous_week` - Previous Week
+     */
+    export type ServiceHealthBaselineEnum = typeof ServiceHealthBaselineEnum[keyof typeof ServiceHealthBaselineEnum];
+
+
+    export const ServiceHealthBaselineEnum = {
+      None: 'none',
+      PreviousPeriod: 'previous_period',
+      PreviousDay: 'previous_day',
+      PreviousWeek: 'previous_week',
+    } as const;
+
+    /**
      * * `top_operations` - Top Operations
      */
     export type ServiceHealthIncludeEnum = typeof ServiceHealthIncludeEnum[keyof typeof ServiceHealthIncludeEnum];
@@ -102743,11 +102743,11 @@ export namespace Schemas {
       dateRange?: _ServiceHealthDateRange;
       /** The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.
        *
-       * * `none` - none
-       * * `previous_period` - previous_period
-       * * `previous_day` - previous_day
-       * * `previous_week` - previous_week */
-      compare?: CompareEnum;
+       * * `none` - None
+       * * `previous_period` - Previous Period
+       * * `previous_day` - Previous Day
+       * * `previous_week` - Previous Week */
+      compare?: ServiceHealthBaselineEnum;
       /**
          * Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.
          * @nullable

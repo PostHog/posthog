@@ -23,6 +23,13 @@ class ServiceHealthCompare(LabeledStrEnum):
     CUSTOM = "custom"
 
 
+class ServiceHealthBaseline(LabeledStrEnum):
+    NONE = "none"
+    PREVIOUS_PERIOD = "previous_period"
+    PREVIOUS_DAY = "previous_day"
+    PREVIOUS_WEEK = "previous_week"
+
+
 class ServiceHealthSpanScope(LabeledStrEnum):
     ENTRY = "entry"
     ALL = "all"

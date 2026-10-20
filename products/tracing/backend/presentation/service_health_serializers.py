@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from ..facade.contracts import ServiceHealthParams
 from ..facade.enums import (
+    ServiceHealthBaseline,
     ServiceHealthCompare,
     ServiceHealthInclude,
     ServiceHealthOrderBy,
@@ -10,8 +11,6 @@ from ..facade.enums import (
     ServiceHealthStatus,
 )
 from .date_window import normalize_tracing_window
-
-_NAMED_COMPARES = [value for value in ServiceHealthCompare.values if value != ServiceHealthCompare.CUSTOM]
 
 
 class _ServiceHealthDateRangeSerializer(serializers.Serializer):
@@ -26,8 +25,8 @@ class _ServiceHealthQuerySerializer(serializers.Serializer):
         required=False, help_text="The window to score. Defaults to the last hour."
     )
     compare = serializers.ChoiceField(
-        choices=_NAMED_COMPARES,
-        default=ServiceHealthCompare.PREVIOUS_PERIOD,
+        choices=ServiceHealthBaseline.choices,
+        default=ServiceHealthBaseline.PREVIOUS_PERIOD,
         help_text=(
             "The baseline. previous_period (default) is the same length just before the window. previous_day and "
             "previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it."
