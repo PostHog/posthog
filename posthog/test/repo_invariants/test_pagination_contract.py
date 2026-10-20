@@ -20,9 +20,7 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
     "products.cdp.backend.api.hog_function_template.PublicHogFunctionTemplateViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountViewSet",
-    "products.dashboards.backend.api.dashboard.LegacyInsightViewSet",
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
-    "products.product_analytics.backend.presentation.insight_ee.EnterpriseInsightsViewSet",
     "products.reminders.backend.api.reminder.ReminderViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
 }
@@ -204,7 +202,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.notebooks.backend.presentation.views.reusable_widget.ReusableWidgetViewSet",
     "products.notifications.backend.presentation.views.NotificationsViewSet",
     "products.product_analytics.backend.presentation.events_retention.EventsRetentionViewSet",
-    "products.product_analytics.backend.presentation.insight_ee.EnterpriseInsightsViewSet",
+    "products.product_analytics.backend.presentation.insight.InsightViewSet",
     "products.product_tours.backend.api.product_tour.ProductTourViewSet",
     "products.replay_vision.backend.api.observations.ReplayObservationViewSet",
     "products.replay_vision.backend.api.observations.SessionReplayObservationViewSet",

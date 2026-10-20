@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from pydantic import ValidationError
 
-from posthog.schema import MetricsHistogramQuery, MetricsOtelType, MetricsQuery
+from posthog.schema import (
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
+    MetricsDashboardVariableSource,
+    MetricsHistogramQuery,
+    MetricsOtelType,
+    MetricsQuery,
+    MetricsQueryFilter,
+)
 
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team, User
@@ -30,8 +39,13 @@ from products.metrics.backend.dashboard_import.spec import GRID_COLUMNS, GridLay
 from products.metrics.backend.models import MetricsDashboardTemplate
 from products.metrics.backend.suggested_dashboards.matching import query_metric_names
 from products.metrics.backend.suggested_dashboards.spec import TemplatePanel
+from products.metrics.backend.variables import filter_referenced_names, referenced_names, sql_referenced_names
 
 MAX_TEXT_LENGTH = 4000
+# The service is a column, not an attribute key. Metrics queries accept both names.
+SERVICE_ATTRIBUTES = frozenset({"service_name", "service.name"})
+# The name and attribute tables store hourly buckets, so the bucket that holds the start of the range counts too.
+OPTIONS_RANGE = "time_bucket >= toStartOfHour($__from) AND time_bucket < $__to"
 _OTEL_TYPES = frozenset(member.value for member in MetricsOtelType)
 
 
@@ -41,6 +55,8 @@ class BuiltTiles:
     # The titles of the panels that the team cannot fill, because it does not send their metrics.
     dropped: tuple[str, ...]
     dropped_keys: tuple[str, ...] = ()
+    # The names of the dashboard variables that the tiles refer to. `create_dashboard` fills them in.
+    variable_names: tuple[str, ...] = ()
 
 
 def _with_team_metric_types(query: dict[str, Any], catalog: MetricCatalog) -> dict[str, Any] | None:
@@ -130,6 +146,63 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog, *, refi
     )
 
 
+def attribute_variable(*, name: str, label: str, attribute: str, multi: bool = False) -> dict[str, Any]:
+    """A dashboard variable whose options are the values of one attribute in the team that opens the dashboard.
+
+    It selects All, so its filters match everything until the user picks a value.
+    """
+    if attribute in SERVICE_ATTRIBUTES:
+        # The name table has far fewer rows than the attribute table, and holds every service too.
+        query = f"SELECT DISTINCT service_name FROM posthog.metric_names WHERE {OPTIONS_RANGE}"
+    else:
+        key = attribute.replace("\\", "\\\\").replace("'", "\\'")
+        query = (
+            "SELECT DISTINCT attribute_value FROM posthog.metric_attributes "
+            f"WHERE attribute_key = '{key}' AND {OPTIONS_RANGE}"
+        )
+    return MetricsDashboardVariable(
+        name=name,
+        label=label or None,
+        source=MetricsDashboardVariableSource.SQL,
+        query=query,
+        multi=multi,
+        includeAll=True,
+        current=MetricsDashboardVariableSelection(values=[], all=True),
+    ).model_dump(mode="json", exclude_none=True)
+
+
+def _query_references(query: dict[str, Any]) -> list[str]:
+    filters = [*(query.get("filters") or []), *(query.get("metricFilters") or [])]
+    for clause in query.get("clauses") or []:
+        filters.extend(clause.get("filters") or [])
+    return [
+        *filter_referenced_names(MetricsQueryFilter.model_validate(item) for item in filters),
+        *referenced_names(query.get("promql")),
+        *sql_referenced_names(query.get("sql")),
+    ]
+
+
+def referenced_variables(
+    queries: Iterable[dict[str, Any]], variables: Sequence[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The variables that the queries refer to, and the variables that their options queries refer to, in order."""
+    by_name = {str(variable.get("name")): variable for variable in variables}
+    pending = [name for query in queries for name in _query_references(query)]
+    needed: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in needed or name not in by_name:
+            continue
+        needed.add(name)
+        definition = by_name[name]
+        options_query = definition.get("query")
+        if definition.get("source") == MetricsDashboardVariableSource.SQL:
+            pending.extend(sql_referenced_names(options_query))
+        else:
+            pending.extend(referenced_names(options_query))
+    return [variable for variable in variables if variable.get("name") in needed]
+
+
 def create_dashboard(
     *,
     team: Team,
@@ -141,11 +214,19 @@ def create_dashboard(
     idempotency_key: str,
     unlisted: bool = False,
     refill: bool = True,
+    variables: Sequence[dict[str, Any]] = (),
 ) -> tuple[CreatedDashboard | None, BuiltTiles]:
-    """Create the dashboard as the user. Returns no dashboard when no panel has data in this team."""
+    """Create the dashboard as the user. Returns no dashboard when no panel has data in this team.
+
+    The dashboard gets only the variables that its tiles refer to.
+    """
     built = build_tiles(panels, catalog, refill=refill)
     if not any(isinstance(tile, NewInsightTile) for tile in built.tiles):
         return None, built
+    kept_variables = referenced_variables(
+        (tile.query for tile in built.tiles if isinstance(tile, NewInsightTile)), variables
+    )
+    built = dataclasses.replace(built, variable_names=tuple(str(variable["name"]) for variable in kept_variables))
     created = create_dashboard_with_tiles(
         team_id=team.id,
         user_id=user.id,
@@ -155,6 +236,7 @@ def create_dashboard(
             tiles=built.tiles,
             idempotency_key=idempotency_key,
             unlisted=unlisted,
+            filters={"metricVariables": kept_variables} if kept_variables else None,
         ),
     )
     return created, built
