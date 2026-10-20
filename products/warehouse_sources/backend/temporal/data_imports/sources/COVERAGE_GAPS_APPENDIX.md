@@ -1737,8 +1737,8 @@ Diffed against: <https://bloomerang-api-documentation.s3.us-west-2.amazonaws.com
 - [x] `Addresses (GET /v2/addresses)` — resolve AddressIds beyond the primary address for geographic and household analysis (high)
 - [x] `Email addresses (GET /v2/emails)` — resolve EmailIds beyond the primary email for contact coverage and donor matching (high)
 - [x] `Phones (GET /v2/phones)` — resolve PhoneIds beyond the primary phone for contact coverage and outreach analysis (high)
-- [ ] `Relationships (GET /v2/constituent/{id}/relationships)` — analyze donor relationships, employers, and connections that affect fundraising (medium)
-- [ ] `Pledge payment failures (GET /v2/pledge/{id}/paymentFailures)` — measure failed pledge payments and identify donations at risk (medium)
+- [x] `Relationships (GET /v2/constituent/{id}/relationships)` — analyze donor relationships, employers, and connections that affect fundraising (medium)
+- [x] `Pledge payment failures (GET /v2/pledge/{id}/paymentFailures)` — measure failed pledge payments and identify donations at risk (medium)
 - [x] `Notes (GET /v2/notes)` — analyze donor notes alongside transactions and interactions (medium)
 - [x] `Tasks (GET /v2/tasks)` — measure fundraising follow-up activity, completion, and outstanding work (medium)
 
@@ -2139,7 +2139,7 @@ Note: developer.calendly.com is a Gatsby shell with no fetchable spec; the real 
 
 ## CallRail — gaps
 
-Today (11): `accounts`, `calls`, `companies`, `form_submissions`, `lead_timelines`, `leads`, `page_views`, `tags`, `text_messages`, `trackers`, `users`
+Today (16): `accounts`, `calls`, `calls_summary`, `calls_timeseries`, `companies`, `form_submissions`, `form_submissions_summary`, `lead_timelines`, `leads`, `outbound_caller_ids`, `page_views`, `sms_threads`, `tags`, `text_messages`, `trackers`, `users`
 
 Diffed against: <https://apidocs.callrail.com/>
 
@@ -2147,10 +2147,10 @@ Diffed against: <https://apidocs.callrail.com/>
 - [x] `accounts (/a.json)` — lookup resolving the account_id every other resource is scoped under; required for multi-account (agency) reporting (high)
 - [x] `page_views (/a/{account_id}/calls/{call_id}/page_views.json)` — per-call visitor page-view journey — the attribution path behind each tracked call (high)
 - [x] `lead_timelines (/a/{account_id}/leads/{id}/timeline.json)` — state/transition history for a lead across calls, texts, and forms (medium)
-- [ ] `sms_threads (/a/{account_id}/sms_threads.json)` — thread-level SMS conversations, the parent grain the text_messages table hangs off (medium)
-- [ ] `calls summary and timeseries (/a/{account_id}/calls/summary.json, /calls/timeseries.json)` — vendor-computed call volume breakdowns by source and period, matching what the CallRail UI reports (medium)
-- [ ] `form_submissions summary (/a/{account_id}/form_submissions/summary.json)` — vendor-computed form conversion aggregates aligned with the call summary (low)
-- [ ] `outbound_caller_ids (/a/{account_id}/caller_ids.json)` — lookup resolving the caller ID numbers appearing on outbound calls (low)
+- [x] `sms_threads (/a/{account_id}/sms_threads.json)` — thread-level SMS conversations, the parent grain the text_messages table hangs off (medium)
+- [x] `calls summary and timeseries (/a/{account_id}/calls/summary.json, /calls/timeseries.json)` — vendor-computed call volume breakdowns by source and period, matching what the CallRail UI reports (medium)
+- [x] `form_submissions summary (/a/{account_id}/form_submissions/summary.json)` — vendor-computed form conversion aggregates aligned with the call summary (low)
+- [x] `outbound_caller_ids (/a/{account_id}/caller_ids.json)` — lookup resolving the caller ID numbers appearing on outbound calls (low)
 
 Note: apidocs.callrail.com serves the entire v3 reference as one ~890 KB HTML page; I parsed its heading tree for the resource list rather than using the summarizer.
 
@@ -2975,7 +2975,7 @@ Note: The whole public REST API is four doc pages (applications, artifacts, buil
 
 ## Codescene — **thin**
 
-Today (7): `Analyses`, `AuthorStatistics`, `Components`, `Files`, `Issues`, `Projects`, `TechnicalDebt`
+Today (11): `Analyses`, `AuthorStatistics`, `BranchStatistics`, `CommitActivity`, `Commits`, `Components`, `DeltaAnalyses`, `Files`, `Issues`, `Projects`, `TechnicalDebt`
 
 Diffed against: <https://docs.enterprise.codescene.io/latest/integrations/rest-api.html>
 
@@ -2983,16 +2983,16 @@ Diffed against: <https://docs.enterprise.codescene.io/latest/integrations/rest-a
 - [x] `projects/{project-id}/analyses/latest/issues` — issues from the project management integration, with status, cycle time and the commits and files changed while each was open (high)
 - [x] `projects/{project-id}/analyses/latest/technical-debt` — technical debt and refactoring targets, CodeScene's headline metric (high)
 - [x] `projects/{project-id}/analyses/latest/author-statistics` — per-author contribution stats; the only way to join code health to people (high)
-- [ ] `projects/{project-id}/analyses/latest/commits` — commit-level rows underpinning every aggregate CodeScene reports (medium)
-- [ ] `projects/{project-id}/analyses/latest/commit-activity` — commit activity time series for delivery-rate dashboards (medium)
-- [ ] `projects/{project-id}/analyses/latest/branch-statistics` — per-branch stats for branching-strategy and lead-time analysis (medium)
-- [ ] `projects/{project-id}/delta-analyses` — per-PR delta analyses - the state/transition history of quality per change (medium)
+- [x] `projects/{project-id}/analyses/latest/commits` — commit-level rows underpinning every aggregate CodeScene reports (medium)
+- [x] `projects/{project-id}/analyses/latest/commit-activity` — commit activity time series for delivery-rate dashboards (medium)
+- [x] `projects/{project-id}/analyses/latest/branch-statistics` — per-branch stats for branching-strategy and lead-time analysis (medium)
+- [x] `projects/{project-id}/delta-analyses` — per-PR delta analyses - the state/transition history of quality per change (medium)
 - [ ] `code-coverage/projects/{project-id}/gate-results/outcomes` — coverage quality-gate pass/fail outcomes over a date range (medium)
 - [ ] `code-health/projects/{project-id}/safeguards/pr/outcomes` — PR safeguard outcomes, the enforcement signal teams report on (medium)
 - [ ] `active-authors` — authoritative author roster; a lookup table for the author ids appearing in analyses (medium)
 - [ ] `projects/{project-id}/analyses/latest/experience/languages` — author language experience, used for knowledge-risk and bus-factor reporting (low)
 
-Note: Static endpoint list; no dynamic table discovery in products/warehouse_sources/backend/temporal/data_imports/sources/codescene/settings.py (hardcoded CODESCENE_ENDPOINTS). The v2 API exposes ~100 paths; PostHog covers 7. The per-analysis tables still read the 'latest' analysis only, but `Analyses` now carries the run history so an analysis id can be pinned.
+Note: Static endpoint list; no dynamic table discovery in products/warehouse_sources/backend/temporal/data_imports/sources/codescene/settings.py (hardcoded CODESCENE_ENDPOINTS). The v2 API exposes ~100 paths; PostHog covers 11. The per-analysis tables still read the 'latest' analysis only, but `Analyses` now carries the run history so an analysis id can be pinned.
 
 ## Cody — adequate
 
@@ -3460,11 +3460,11 @@ Diffed against: <https://cursor.com/docs/account/teams/analytics-api.md>
 - [x] `GET /analytics/team/agent-edits` — agent edit volume - the primary productivity measure for agent usage (high)
 - [x] `GET /analytics/team/tabs` — tab-completion acceptance metrics, the other half of core usage (high)
 - [x] `GET /analytics/by-user/{agent-edits,tabs,models,top-file-extensions}` — per-user breakdowns joining directly to the members table we already sync (high)
-- [ ] `GET /teams/groups and /teams/groups/{id}/members` — billing-group lookup and membership resolving the group IDs on member and spend rows (medium)
+- [x] `GET /teams/groups and /teams/groups/{id}/members` — billing-group lookup and membership resolving the group IDs on member and spend rows (medium). Shipped as `billing_groups` and `billing_group_members`, both from `GET /teams/groups`, which returns each group's current and former members inline. `/teams/groups/{id}/members` has only POST and DELETE (full refresh)
 - [x] `GET /analytics/team/top-file-extensions` — language/file-type breakdown of AI usage (medium)
-- [ ] `GET /analytics/team/bugbot and /analytics/team/bugbot-reviews` — code-review volume and per-review analytics for the Bugbot product (medium)
-- [ ] `GET /analytics/team/conversation-insights` — aggregated conversation topics and outcomes (medium)
-- [ ] `GET /teams/audit-logs` — admin action history for access and compliance reporting (medium)
+- [x] `GET /analytics/team/bugbot and /analytics/team/bugbot-reviews` — code-review volume and per-review analytics for the Bugbot product (medium). Shipped as `bugbot_reviews` (incremental on `timestamp`). `/analytics/team/bugbot` was not added: its per-PR review and issue counts cover only the requested range, so a row changes with the sync window and cannot merge across windows
+- [x] `GET /analytics/team/conversation-insights` — aggregated conversation topics and outcomes (medium). Shipped as `conversation_insights`, one row per day per slice value from each slice's `timeSeries` (incremental on `date`). The range totals (`distribution`, `topValues`, `subcategories`) are left out because they change with the window
+- [x] `GET /teams/audit-logs` — admin action history for access and compliance reporting (medium). Shipped as `audit_logs` (incremental on `timestamp`, 30-day `startTime`/`endTime` windows)
 
 Note: PostHog covers the four Admin API data endpoints (members, daily-usage-data, spend, filtered-usage-events) plus the agent-edits, tabs, dau, models and top-file-extensions team metrics, their four by-user breakdowns, and both AI Code Tracking grains (commits and changes). The adoption metrics (bugbot, conversation insights, leaderboard, mcp, commands, plans, skills, ask-mode, client-versions), the team groups and audit-log endpoints, and the Cloud Agents API are still unmapped. Admin API endpoints verified at https://cursor.com/docs/account/teams/admin-api.md and AI code tracking at https://cursor.com/docs/account/teams/ai-code-tracking-api.md. Repo blocklists and spend-limit endpoints excluded as configuration. Correcting the original sweep: every Analytics API and AI Code Tracking endpoint is a plain GET with query params, not a POST with a body, and the Analytics API caps a range at 30 inclusive calendar days.
 
@@ -3895,12 +3895,12 @@ Diffed against: <https://raw.githubusercontent.com/docusign/OpenAPI-Specificatio
 
 - [x] `Envelope audit events (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/audit_events)` — reconstruct envelope activity and signing history beyond the latest status (high)
 - [x] `Envelope form data (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/form_data)` — analyze submitted contract fields and recipient responses across envelopes (high)
-- [ ] `Envelope custom fields (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/custom_fields)` — join envelopes to business records using sender-defined field values (medium)
+- [x] `Envelope custom fields (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/custom_fields)` — join envelopes to business records using sender-defined field values (medium)
 - [x] `Envelope templates (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/templates)` — associate imported envelopes with templates to compare completion rates and turnaround times (medium)
 - [x] `Bulk send batch summaries (GET /v2.1/accounts/{accountId}/bulk_send_batch)` — measure bulk signing campaign volume, delivery progress, and errors (medium)
-- [ ] `Bulk send batch envelopes (GET /v2.1/accounts/{accountId}/bulk_send_batch/{bulkSendBatchId}/envelopes)` — associate imported envelopes with bulk campaigns for campaign completion analysis (medium)
-- [ ] `PowerForms and form data (GET /v2.1/accounts/{accountId}/powerforms; GET /v2.1/accounts/{accountId}/powerforms/{powerFormId}/form_data)` — analyze self-service form submissions and their envelope outcomes (medium)
-- [ ] `Billing invoices (GET /v2.1/accounts/{accountId}/billing_invoices)` — compare account charges and invoice balances with envelope activity (medium)
+- [x] `Bulk send batch envelopes (GET /v2.1/accounts/{accountId}/bulk_send_batch/{bulkSendBatchId}/envelopes)` — associate imported envelopes with bulk campaigns for campaign completion analysis (medium)
+- [x] `PowerForms and form data (GET /v2.1/accounts/{accountId}/powerforms; GET /v2.1/accounts/{accountId}/powerforms/{powerFormId}/form_data)` — analyze self-service form submissions and their envelope outcomes (medium)
+- [x] `Billing invoices (GET /v2.1/accounts/{accountId}/billing_invoices)` — compare account charges and invoice balances with envelope activity (medium)
 
 Note: Parsed all GET operations in the official eSignature v2.1 Swagger specification, including nested envelope resources. Recipient and document tables already extract inline collections from envelope listings. Missing audit events, form data, and template associations need parent-ID fan-out; form downloads need an account setting, and billing needs administrator access. Settings, signature images, binary downloads, and webhooks were excluded.
 
@@ -5524,10 +5524,10 @@ Diffed against: <https://raw.githubusercontent.com/grafana/grafana/main/public/o
 - [x] `org/users (and orgs/{org_id}/users)` — org membership plus role, the other half of the identity model we already sync (high) — already synced as `users` (`/api/org/users`); `orgs/{org_id}/users` only repeats it per org for server admins
 - [x] `orgs` — lookup resolving the org_id carried on dashboards, users, teams and datasources (high)
 - [x] `dashboards/uid/{uid}/versions` — dashboard change history - who changed what and when, the main governance question (medium)
-- [ ] `library-elements` — reusable panels referenced by dashboards; needed to resolve panel definitions that are not inline (medium)
+- [x] `library-elements` — reusable panels referenced by dashboards; needed to resolve panel definitions that are not inline (medium)
 - [ ] `query-history` — records of explored queries, the usage-analytics table for Explore adoption (medium)
-- [ ] `access-control/roles and access-control/{resource}/{resourceID}` — RBAC role definitions and resource permissions, resolving who can see which dashboards/folders (medium)
-- [ ] `folders/{folder_uid}/permissions and dashboards/uid/{uid}/permissions` — per-object permission grants for access auditing (low)
+- [x] `access-control/roles and access-control/{resource}/{resourceID}` — RBAC role definitions and resource permissions, resolving who can see which dashboards/folders (medium) — synced as `roles`, plus `dashboard_permissions` and `folder_permissions` for the dashboards and folders resources
+- [x] `folders/{folder_uid}/permissions and dashboards/uid/{uid}/permissions` — per-object permission grants for access auditing (low) — both are deprecated; synced as `dashboard_permissions` and `folder_permissions` from their `access-control/{resource}/{resourceID}` replacement
 - [ ] `annotations/tags` — lookup of annotation tags for grouping the annotations we already sync (low)
 - [ ] `playlists and playlists/{uid}/items` — playlist definitions and the dashboards inside them (low)
 - [ ] `datasources/correlations` — correlation definitions linking datasources, useful for lineage (low)
@@ -8721,8 +8721,8 @@ Diffed against: <https://raw.githubusercontent.com/openai/openai-openapi/master/
 
 - [ ] `/models` — lookup resolving the model IDs that appear in every usage\_\* and costs row (high)
 - [ ] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high)
-- [ ] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
-- [ ] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
+- [x] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
+- [x] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
 - [ ] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium)
 - [ ] `/batches` — batch job records with request counts and completion status (medium)
 - [ ] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium)
@@ -11436,10 +11436,10 @@ Today (4): `assets`, `components`, `repositories`, `tasks`
 
 Diffed against: <https://help.sonatype.com/en/api-reference.html>
 
-- [ ] `security/users` — user inventory with source realm and assigned roles; the only way to attribute repository access (medium)
-- [ ] `security/roles` — lookup resolving the role IDs referenced by users (medium)
-- [ ] `security/privileges` — lookup resolving the privilege IDs referenced by roles (medium)
-- [ ] `blobstores (list + {name}/quota-status)` — storage footprint and quota headroom per blob store - the capacity metric behind component/asset growth (medium)
+- [x] `security/users` — user inventory with source realm and assigned roles; the only way to attribute repository access (medium)
+- [x] `security/roles` — lookup resolving the role IDs referenced by users (medium)
+- [x] `security/privileges` — lookup resolving the privilege IDs referenced by roles (medium)
+- [x] `blobstores (list + {name}/quota-status)` — storage footprint and quota headroom per blob store - the capacity metric behind component/asset growth (medium)
 
 Note: Source targets Nexus Repository Manager 3 only (/service/rest/v1), not IQ Server / Lifecycle. The Nexus Repository API surface is genuinely small and mostly configuration (capabilities, cleanup-policies, email, http-configuration, licensing, lifecycle, log-management, nodes, read-only, script, status, support) - components/assets/repositories/tasks already cover the bulk of queryable data, so coverage is close to proportionate.
 
@@ -12037,10 +12037,10 @@ Today (5): `course_enrollments`, `courses`, `pricing_plans`, `transactions`, `us
 
 Diffed against: <https://docs.teachable.com/reference/listcourses>
 
-- [ ] `courses/{course_id}/progress` — per-student completion percentage — the headline learning metric, and the only way to measure course engagement (high)
-- [ ] `courses/{course_id}/lectures/{lecture_id}` — lecture lookup table resolving the lecture IDs referenced by progress and quiz data (high)
-- [ ] `courses/{course_id}/lectures/{lecture_id}/quizzes/{quiz_id}/responses` — individual learner answers and scores — the assessment fact table (medium)
-- [ ] `courses/{course_id}/lectures/{lecture_id}/quizzes` — quiz lookup needed to interpret quiz responses (medium)
+- [x] `courses/{course_id}/progress` — per-student completion percentage — the headline learning metric, and the only way to measure course engagement (high)
+- [x] `courses/{course_id}/lectures/{lecture_id}` — lecture lookup table resolving the lecture IDs referenced by progress and quiz data (high)
+- [x] `courses/{course_id}/lectures/{lecture_id}/quizzes/{quiz_id}/responses` — individual learner answers and scores — the assessment fact table (medium)
+- [x] `courses/{course_id}/lectures/{lecture_id}/quizzes` — quiz lookup needed to interpret quiz responses (medium)
 
 Note: Full v1 path list read out of the embedded ReadMe OAS on the reference page: courses, enrollments, lectures, quizzes, quiz responses, progress, pricing_plans, transactions, users, webhooks. Lectures/quizzes/progress are per-course sub-resources that must be fanned out over the courses we already sync.
 
@@ -13250,9 +13250,9 @@ Today (5): `candidates`, `jobs`, `members`, `recruiters`, `stages`
 
 Diffed against: <https://workable.readme.io/reference/jobs>
 
-- [ ] `candidate activities (GET /candidates/{id}/activities)` — the stage-transition and action history behind every candidate; without it stages is a static snapshot (high)
-- [ ] `employees (GET /employees)` — the entire Workable HR side is absent, and it is what links hires back to headcount (high)
-- [ ] `departments (GET /departments)` — lookup resolving the department carried on jobs, requisitions and employees (high)
+- [x] `candidate activities (GET /candidates/{id}/activities)` — the stage-transition and action history behind every candidate; without it stages is a static snapshot (high)
+- [x] `employees (GET /employees)` — the entire Workable HR side is absent, and it is what links hires back to headcount (high)
+- [x] `departments (GET /departments)` — lookup resolving the department carried on jobs, requisitions and employees (high)
 - [ ] `locations (GET /accounts/{subdomain}/locations)` — lookup resolving the location id on jobs and candidates (high)
 - [ ] `time entries (GET /time-tracking/time-entries)` — time tracking fact table for employees (high)
 - [ ] `job activities (GET /jobs/{shortcode}/activities)` — per-job event stream for pipeline throughput analysis (medium)

@@ -2344,6 +2344,7 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
+        _observe_claimed_terminal(run, error_type=None)
     return True
 
 
@@ -2364,8 +2365,19 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_failed(error, error_type=error_type)
+        _observe_claimed_terminal(run, error_type=error_type)
         resume_workflow_step_for_run(run)
     return True
+
+
+def _observe_claimed_terminal(run: TaskRun, *, error_type: str | None) -> None:
+    # The conditional update already wrote the terminal status, so mark_* sees a terminal run and
+    # skips its own count. The claim winner counts the transition here instead.
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_task_run_terminal,
+    )
+
+    observe_task_run_terminal(run, error_type=error_type, termination_reason=None)
 
 
 def redispatch_task_run(run_id: str | UUID) -> str:
@@ -3467,6 +3479,7 @@ def update_task_run(
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
         observe_prewarmed_unused_if_never_activated,
+        observe_task_run_terminal,
         observe_wizard_run_unbound,
     )
 
@@ -3607,6 +3620,13 @@ def update_task_run(
         run.publish_stream_state_event()
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        # This PATCH performed the transition, so the status-update activity skips its count.
+        observe_task_run_terminal(
+            run,
+            error_type=validated_data.get("error_type")
+            or ("agent_reported" if new_status == TaskRun.Status.FAILED else None),
+            termination_reason=None,
+        )
         try:
             if run.environment == TaskRun.Environment.CLOUD:
                 refresh_task_run_cost(run_id=run.id, team_id=run.team_id)

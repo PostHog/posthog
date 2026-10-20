@@ -4,7 +4,9 @@ from datetime import timedelta
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 import posthoganalytics
 from parameterized import parameterized
@@ -342,6 +344,89 @@ class TestTaskRunMetrics(TestCase):
 
         assert _sample_value("posthog_tasks_prewarmed_unused_total", labels) == before + 1
 
+    @parameterized.expand(
+        [
+            ("mark_failed", "failed", "janitor_timeout"),
+            ("mark_completed", "completed", "unknown"),
+            ("dispatch_failure", "failed", "workflow_start_failed"),
+            ("claim_and_fail_stale_run", "failed", "sandbox_lost"),
+        ]
+    )
+    def test_writers_outside_the_status_activity_count_the_terminal_transition_once(
+        self, writer: str, status: str, error_type: str
+    ) -> None:
+        from products.tasks.backend.facade import api as facade
+        from products.tasks.backend.temporal import client
+
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        labels = {
+            "origin_product": "user_created",
+            "run_environment": "cloud",
+            "status": status,
+            "error_type": error_type,
+            "termination_reason": "unknown",
+        }
+        before = _sample_value("posthog_tasks_task_run_terminal_total", labels)
+
+        with (
+            patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"),
+            patch.object(client, "resume_workflow_step_for_run"),
+            patch.object(facade, "resume_workflow_step_for_run"),
+        ):
+            for _ in range(2):  # a repeat write on a terminal run must not count again
+                run.refresh_from_db()
+                if writer == "mark_failed":
+                    run.mark_failed("stuck", error_type="janitor_timeout")
+                elif writer == "mark_completed":
+                    run.mark_completed(notify=False)
+                elif writer == "claim_and_fail_stale_run":
+                    facade.claim_and_fail_stale_run(run.id, "worker lost", error_type="sandbox_lost")
+                else:
+                    client._terminalize_unstarted_task_run(str(run.id), "start failed")
+
+        assert _sample_value("posthog_tasks_task_run_terminal_total", labels) == before + 1
+
+    def test_terminal_save_locks_task_before_run(self) -> None:
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        run.status = TaskRun.Status.COMPLETED
+
+        with CaptureQueriesContext(connection) as queries:
+            assert run._save_terminal_status(["status"])
+
+        locks = [query["sql"] for query in queries if "FOR UPDATE" in query["sql"]]
+        assert len(locks) == 2
+        assert f'FROM "{Task._meta.db_table}"' in locks[0]
+        assert f'FROM "{TaskRun._meta.db_table}"' in locks[1]
+
+    @parameterized.expand([("mark_failed",), ("mark_completed",)])
+    def test_finalizer_on_a_stale_instance_does_not_count_a_run_another_writer_ended(self, writer: str) -> None:
+        def terminal_total() -> float:
+            return sum(
+                _sample_value(
+                    "posthog_tasks_task_run_terminal_total",
+                    {
+                        "origin_product": "user_created",
+                        "run_environment": "cloud",
+                        "status": status,
+                        "error_type": error_type,
+                        "termination_reason": "unknown",
+                    },
+                )
+                for status, error_type in (("failed", "janitor_timeout"), ("completed", "unknown"))
+            )
+
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        TaskRun.objects.filter(pk=run.pk).update(status=TaskRun.Status.CANCELLED)
+        before = terminal_total()
+
+        with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
+            if writer == "mark_failed":
+                run.mark_failed("stuck", error_type="janitor_timeout")
+            else:
+                run.mark_completed(notify=False)
+
+        assert terminal_total() == before
+
     def test_activating_run_without_prewarmed_marker_does_not_increment(self) -> None:
         # Warm Runs provisioned before this ships have await_user_message but no prewarmed marker;
         # activating them must not inflate the numerator (would push hit rate above 1).
@@ -530,11 +615,13 @@ class TestTaskRunMetrics(TestCase):
 
     @parameterized.expand(
         [
-            ("failed", 1.0),
-            ("completed", 0.0),
+            ("failed", 1.0, "agent_reported"),
+            ("completed", 0.0, "unknown"),
         ]
     )
-    def test_agent_turn_failure_counter_only_on_failed_transition(self, new_status: str, expected_delta: float) -> None:
+    def test_agent_turn_failure_counter_only_on_failed_transition(
+        self, new_status: str, expected_delta: float, terminal_error_type: str
+    ) -> None:
         from products.tasks.backend.facade import api as facade
 
         run = self.task.create_run(
@@ -549,17 +636,27 @@ class TestTaskRunMetrics(TestCase):
             "task_runtime": "acp",
             "runtime_adapter": "codex",
         }
+        terminal_labels = {
+            "origin_product": "user_created",
+            "run_environment": "cloud",
+            "status": new_status,
+            "error_type": terminal_error_type,
+            "termination_reason": "unknown",
+        }
         before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
+        terminal_before = _sample_value("posthog_tasks_task_run_terminal_total", terminal_labels)
 
         with patch.object(facade, "signal_workflow_completion"):
-            facade.update_task_run(
-                run.id,
-                self.task.id,
-                self.team.id,
-                validated_data={"status": new_status, "error_message": "boom"},
-            )
+            for _ in range(2):  # the repeat PATCH must not double count
+                facade.update_task_run(
+                    run.id,
+                    self.task.id,
+                    self.team.id,
+                    validated_data={"status": new_status, "error_message": "boom"},
+                )
 
         assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + expected_delta
+        assert _sample_value("posthog_tasks_task_run_terminal_total", terminal_labels) == terminal_before + 1
 
     @parameterized.expand(
         [
