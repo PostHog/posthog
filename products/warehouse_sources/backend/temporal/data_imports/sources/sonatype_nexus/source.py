@@ -64,7 +64,7 @@ Enter your instance URL (e.g. `https://nexus.example.com`) and the username and 
 Some tables need an extra privilege: `nx-tasks-read` for tasks, `nx-users-read` for users, `nx-roles-read` for roles, `nx-privileges-read` for privileges, and `nx-blobstores-read` for blob stores. Deselect a table if your user doesn't have its privilege.""",
             iconPath="/static/services/sonatype_nexus.png",
             docsUrl="https://posthog.com/docs/cdp/sources/sonatype-nexus",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
