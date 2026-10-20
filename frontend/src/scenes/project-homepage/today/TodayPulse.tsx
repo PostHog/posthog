@@ -101,9 +101,9 @@ function TodayPulsePlaceholder({ tile }: { tile: PulsePlaceholderTile }): JSX.El
     )
 }
 
-const REORDER_MS = 250
+const REORDER_MS = 220
 
-function useSlideOnReorder(listRef: RefObject<HTMLUListElement>): void {
+function useSettleOnReorder(listRef: RefObject<HTMLUListElement>): void {
     const lefts = useRef(new Map<string, number>())
     useLayoutEffect(() => {
         const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -112,7 +112,7 @@ function useSlideOnReorder(listRef: RefObject<HTMLUListElement>): void {
             const left = tile.getBoundingClientRect().left
             const before = lefts.current.get(key)
             if (!still && before !== undefined && Math.abs(before - left) > 1) {
-                tile.animate([{ transform: `translateX(${before - left}px)` }, { transform: 'none' }], {
+                tile.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], {
                     duration: REORDER_MS,
                     easing: 'cubic-bezier(0.2, 0, 0, 1)',
                 })
@@ -124,7 +124,7 @@ function useSlideOnReorder(listRef: RefObject<HTMLUListElement>): void {
 
 export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Element {
     const listRef = useRef<HTMLUListElement>(null)
-    useSlideOnReorder(listRef)
+    useSettleOnReorder(listRef)
     const { baseCurrency } = useValues(teamLogic)
     const { pinnedPulseMetrics } = useValues(todayHighlightsLogic)
     const { pulseMetricOpened, pulseMetricPreviewed, togglePulsePin, holdPulseOrder, releasePulseOrder } =

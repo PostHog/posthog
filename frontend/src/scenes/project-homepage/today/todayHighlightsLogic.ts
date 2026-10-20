@@ -71,6 +71,8 @@ export interface todayHighlightsLogicValues {
     pulseInsightResults: PinnedPulseMetric[]
     pulseInsightResultsLoading: boolean
     pulseOrderHeld: string[] | null
+    pulsePinsSaved: boolean
+    unconfirmedPinKeys: string[]
     pulsePins: PulsePinApi[]
     pulsePinsLoading: boolean
     pulseTiles: TodayPulseTile[]
@@ -165,7 +167,13 @@ export interface todayHighlightsLogicActions {
         pin: PinnedPulseMetric
         source: PulsePinSource
     }
-    unpinAllPulse: () => {
+    pulsePinsSaved: () => {
+        value: true
+    }
+    pulsePinAdded: (key: string) => {
+        key: string
+    }
+    pulsePinsConfirmed: () => {
         value: true
     }
     holdPulseOrder: (keys: string[]) => {
@@ -214,7 +222,8 @@ export interface todayHighlightsLogicMeta {
             pinnedPulseMetrics: PinnedPulseMetric[],
             suggestedPulseMetrics: HighlightMetricApi[],
             highlights: HighlightsApi | null,
-            pulseOrderHeld: string[] | null
+            pulseOrderHeld: string[] | null,
+            unconfirmedPinKeys: string[]
         ) => TodayPulseTile[]
     }
 }
@@ -242,7 +251,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         setPinnedPulseKeys: (metrics: PinnedPulseMetric[]) => ({ metrics }),
         pulseEditorOpened: true,
         togglePulsePin: (pin: PinnedPulseMetric, source: PulsePinSource) => ({ pin, source }),
-        unpinAllPulse: true,
+        pulsePinsSaved: true,
+        pulsePinAdded: (key: string) => ({ key }),
+        pulsePinsConfirmed: true,
         holdPulseOrder: (keys: string[]) => ({ keys }),
         releasePulseOrder: true,
     }),
@@ -318,6 +329,20 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         pulsePins: {
             setPinnedPulseKeys: (_, { metrics }) => metrics,
         },
+        unconfirmedPinKeys: [
+            [] as string[],
+            {
+                pulsePinAdded: (state, { key }) => [...new Set([...state, key])],
+                pulsePinsConfirmed: () => [],
+            },
+        ],
+        pulsePinsSaved: [
+            false,
+            {
+                setPinnedPulseKeys: () => false,
+                pulsePinsSaved: () => true,
+            },
+        ],
         pulseOrderHeld: [
             null as string[] | null,
             {
@@ -359,19 +384,27 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 ),
         ],
         pulseTiles: [
-            (s) => [s.pinnedPulseMetrics, s.suggestedPulseMetrics, s.highlights, s.pulseOrderHeld],
+            (s) => [
+                s.pinnedPulseMetrics,
+                s.suggestedPulseMetrics,
+                s.highlights,
+                s.pulseOrderHeld,
+                s.unconfirmedPinKeys,
+            ],
             (
                 pinnedPulseMetrics: PinnedPulseMetric[],
                 suggestedPulseMetrics: HighlightMetricApi[],
                 highlights: HighlightsApi | null,
-                pulseOrderHeld: string[] | null
+                pulseOrderHeld: string[] | null,
+                unconfirmedPinKeys: string[]
             ): TodayPulseTile[] => {
-                const computing = highlights?.status === 'computing'
+                const firstLoad = highlights?.status === 'computing' && highlights.generated_at === null
                 const pinned: TodayPulseTile[] = pinnedPulseMetrics.map(
                     (pinned) =>
                         highlights?.pulse.find((metric) => metric.key === pinned.key) ?? {
                             ...pinned,
-                            placeholder: computing ? 'computing' : 'unavailable',
+                            placeholder:
+                                firstLoad || unconfirmedPinKeys.includes(pinned.key) ? 'computing' : 'unavailable',
                         }
                 )
                 const tiles = [...pinned, ...suggestedPulseMetrics].slice(0, Math.max(PULSE_TILES, pinned.length))
@@ -428,12 +461,16 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 return
             }
             breakpoint()
+            actions.pulsePinsSaved()
             actions.loadHighlights()
         },
         togglePulsePin: ({ pin, source }) => {
             const pinned = values.pinnedPulseMetrics.some((existing) => existing.key === pin.key)
             if (pulsePinLimitReason(values.pinnedPulseMetrics.length, pinned)) {
                 return
+            }
+            if (!pinned) {
+                actions.pulsePinAdded(pin.key)
             }
             actions.setPinnedPulseKeys(
                 pinned
@@ -445,10 +482,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 source,
                 pinned_count: values.pinnedPulseMetrics.length,
             })
-        },
-        unpinAllPulse: () => {
-            posthog.capture('today pulse numbers unpinned all', { pinned_count: values.pinnedPulseMetrics.length })
-            actions.setPinnedPulseKeys([])
         },
         pulseEditorOpened: () => {
             posthog.capture('today pulse editor opened', { kept_count: values.pinnedPulseMetrics.length })
@@ -511,6 +544,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         loadHighlightsSuccess: ({ highlights }) => {
             if (!highlights) {
                 return
+            }
+            if (values.pulsePinsSaved && highlights.status !== 'computing') {
+                actions.pulsePinsConfirmed()
             }
             if (highlights.status === 'computing') {
                 cache.disposables.add(() => {

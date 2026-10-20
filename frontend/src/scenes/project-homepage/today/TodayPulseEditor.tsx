@@ -54,8 +54,7 @@ function PulsePinRow({
 export function TodayPulseEditor(): JSX.Element {
     const { pinnedPulseMetrics, pulseTiles, pulseInsightResults, pulseInsightResultsLoading } =
         useValues(todayHighlightsLogic)
-    const { togglePulsePin, unpinAllPulse, loadPulseInsightResults, pulseEditorOpened } =
-        useActions(todayHighlightsLogic)
+    const { togglePulsePin, loadPulseInsightResults, pulseEditorOpened } = useActions(todayHighlightsLogic)
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
     const [shownOnOpen, setShownOnOpen] = useState<PinnedPulseMetric[]>([])
@@ -125,23 +124,10 @@ export function TodayPulseEditor(): JSX.Element {
                         {pulseInsightResultsLoading ? 'Searching…' : 'No trends or SQL insights match your search'}
                     </Text>
                 ) : null}
-                {pinnedPulseMetrics.length > 0 ? (
-                    <div className="flex items-center justify-between gap-2 border-t border-border pt-1 ps-2">
-                        <Text size="xs" render={<span />} className="text-muted-foreground">
-                            {pinnedPulseMetrics.length >= PULSE_TILES
-                                ? `${PULSE_TILES} pinned. Unpin one to pin another.`
-                                : null}
-                        </Text>
-                        <Button
-                            size="xs"
-                            variant="link-muted"
-                            className="shrink-0"
-                            onClick={unpinAllPulse}
-                            data-attr="today-pulse-unpin-all"
-                        >
-                            Unpin all
-                        </Button>
-                    </div>
+                {pinnedPulseMetrics.length >= PULSE_TILES ? (
+                    <Text size="xs" render={<p />} className="m-0 px-2 py-1.5 text-muted-foreground">
+                        {PULSE_TILES} pinned. Unpin one to pin another.
+                    </Text>
                 ) : null}
             </PopoverContent>
         </Popover>
