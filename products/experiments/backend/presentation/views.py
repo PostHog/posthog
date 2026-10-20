@@ -46,6 +46,7 @@ from posthog.models.user import User
 from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
+    is_scout_sandbox_request,
     is_service_auth,
     posthog_feature_flag_enabled,
 )
@@ -146,6 +147,11 @@ from products.experiments.backend.running_time_calculator import (
     calculate_sample_size,
     calculate_variance,
     calculate_variance_from_stats,
+)
+from products.experiments.backend.scout_writes import (
+    refuse_scout_experiment_copy_to_project,
+    refuse_scout_experiment_delete,
+    refuse_scout_ship_variant_without_flag_write,
 )
 from products.experiments.backend.session_buckets import (
     ExperimentSessionBucket,
@@ -508,6 +514,9 @@ class EnterpriseExperimentsViewSet(
         return ExperimentSerializer
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The API has no hard delete, so `deleted: true` on an update is the delete a scout must not make.
+        if request.data.get("deleted", False) in serializers.BooleanField.TRUE_VALUES:
+            refuse_scout_experiment_delete(is_scout_sandbox_request(request))
         # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
         # and retry precisely; the default exception handler would flatten it to a plain string.
         try:
@@ -818,6 +827,9 @@ class EnterpriseExperimentsViewSet(
         Returns 400 if the experiment is in draft state, the variant_key is not found
         on the flag, or the experiment has no linked feature flag.
         """
+        refuse_scout_ship_variant_without_flag_write(
+            is_scout_sandbox_request(request), can_write_feature_flag=self._token_can_write_feature_flag(request)
+        )
         experiment: Experiment = self.get_object()
         request_serializer = ShipVariantSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
@@ -1339,6 +1351,7 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
     def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Copy an experiment into another project in the same organization as a new draft."""
+        refuse_scout_experiment_copy_to_project(is_scout_sandbox_request(request))
         source_experiment: Experiment = self.get_object()
 
         if experiment_has_legacy_metrics(source_experiment):

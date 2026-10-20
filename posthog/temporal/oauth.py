@@ -178,11 +178,12 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 # validated against this set where it is stored, and `resolve_scopes` intersects against it
 # again at mint time, so a stale or hand-edited grant cannot widen a token.
 #
-# Every entry is an artifact-shaped write, which is what makes an unattended agent holding one
-# acceptable at all. Kept out on purpose: `hog_function:write` and batch exports, because a
-# destination is arbitrary egress; `feature_flag:write`, `experiment:write` and `survey:write`,
-# because they change what end users see in production; `cohort:write` and `action:write` until
-# a scout needs them; and anything organization, user, member, or role shaped.
+# Every entry but `experiment:write` is an artifact-shaped write, which is what makes an unattended
+# agent holding one acceptable at all. Its entry below says why it is the exception. Kept out on
+# purpose: `hog_function:write` and batch exports, because a destination is arbitrary egress;
+# `feature_flag:write` and `survey:write`, because they change what end users see in production;
+# `cohort:write` and `action:write` until a scout needs them; and anything organization, user,
+# member, or role shaped.
 #
 # These scopes are object-level rather than tool-level, so each one carries update and delete of
 # every matching object the token can reach, not only the objects the scout created. The reach
@@ -253,6 +254,18 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          recoverable soft-delete and only reaches canvases the acting user created.
 #                          A scout cannot create a canvas: a sandbox may only file one in its task's
 #                          space, and a scout task has none. It maintains one a person created.
+#   experiment:write       Every experiment in the scout's project, not only the ones the scout
+#                          created: create, update, duplicate, archive, and the lifecycle actions
+#                          launch, pause, resume, end, and reset. Launch and pause turn the linked
+#                          feature flag on and off, so unlike every other entry here this scope
+#                          CHANGES WHAT END USERS SEE. It is grantable because a person turns it on
+#                          for one scout on purpose, and the picker says so.
+#                          `products/experiments/backend/scout_writes.py` narrows it for scouts: no
+#                          delete (archive instead), no copy to another project, and no ship variant
+#                          without `feature_flag:write`, because a ship rewrites the flag's rollout.
+#                          The extra scopes in `dangerously_get_required_scopes` still apply, so the
+#                          grant alone cannot disable a flag on archive, open a cleanup PR, or set
+#                          the team default repository. It can also create an exposure cohort.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -281,6 +294,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "replay_scanner:write",
         "hog_flow_proposal:write",
         "canvas:write",
+        "experiment:write",
     }
 )
 

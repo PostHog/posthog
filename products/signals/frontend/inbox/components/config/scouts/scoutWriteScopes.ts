@@ -15,6 +15,7 @@ export interface ScoutWriteScopeRow {
         | 'Replay vision'
         | 'Workflows'
         | 'Canvases'
+        | 'Experiments'
     label: string
     description: string
     /** Flag the product is still released behind. Its MCP tools share it, so a grant without it is inert. */
@@ -113,6 +114,13 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         label: 'Canvases',
         description:
             'Publish new versions of any canvas in a public space and of canvases you created, and change their layout and state. A scout cannot create a canvas, so create the one it should keep up to date',
+    },
+    {
+        scope: 'experiment:write',
+        group: 'Experiments',
+        label: 'Experiments',
+        description:
+            'Create and edit any experiment in the project, and launch, pause, resume, and end it. Launching and pausing change what your users see. Scouts cannot delete experiments, copy them to another project, or ship a variant',
     },
 ]
 

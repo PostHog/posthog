@@ -32,6 +32,7 @@ from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthent
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
@@ -10167,3 +10168,92 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(stale_config_edit.status_code, status.HTTP_200_OK, stale_config_edit.json())
         self.assertEqual(stale_config_edit.json()["running_time_calculation"]["minimum_detectable_effect"], 10)
+
+
+class TestExperimentScoutCallerRules(APILicensedTest):
+    def _running_experiment(self) -> Experiment:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Scout rules",
+                "feature_flag_key": "scout-rules-flag",
+                "allow_unknown_events": True,
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{response.json()['id']}/launch/")
+        assert launch.status_code == status.HTTP_200_OK, launch.json()
+        return Experiment.objects.get(id=response.json()["id"])
+
+    def _authenticate(self, scope: str) -> None:
+        application = OAuthApplication.objects.create(
+            name="Signals scout sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_experiment_scout_rules_test",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+    @parameterized.expand(
+        [
+            ("scout_soft_delete", "patch", "", {"deleted": True}, True, False, 403),
+            ("scout_copy_to_project", "post", "copy_to_project/", {}, True, False, 403),
+            ("scout_ship_variant", "post", "ship_variant/", {"variant_key": "test"}, True, False, 403),
+            ("scout_ship_variant_with_flag_write", "post", "ship_variant/", {"variant_key": "test"}, True, True, 200),
+            ("scout_pause", "post", "pause/", {}, True, False, 200),
+            ("non_scout_soft_delete", "patch", "", {"deleted": True}, False, False, 200),
+            ("non_scout_ship_variant", "post", "ship_variant/", {"variant_key": "test"}, False, False, 200),
+        ]
+    )
+    def test_scout_experiment_writes(
+        self,
+        _name: str,
+        method: str,
+        path: str,
+        body: dict[str, Any],
+        is_scout: bool,
+        with_flag_write: bool,
+        expected_status: int,
+    ) -> None:
+        experiment = self._running_experiment()
+        assert experiment.feature_flag is not None
+        flag_filters_before = experiment.feature_flag.filters
+        scopes = ["experiment:read", "experiment:write"]
+        if is_scout:
+            scopes.append("signal_scout_internal:write")
+        if with_flag_write:
+            scopes.append("feature_flag:write")
+        self._authenticate(" ".join(scopes))
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/{path}", body, format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        experiment.refresh_from_db()
+        experiment.feature_flag.refresh_from_db()
+        if expected_status == 403:
+            assert not experiment.deleted
+            assert experiment.end_date is None
+            assert experiment.feature_flag.filters == flag_filters_before
+            assert Experiment.objects.filter(team=self.team).count() == 1
