@@ -47,8 +47,8 @@ function BillingPeriodExplanation({ kind }: { kind: BillingPeriodMarkerKind }): 
             <div className="p-2">
                 <strong>Pricing tiers reset</strong>
                 <p className="mt-2 text-xs">
-                    Usage from this date is priced in a new billing period. Reporting delays can make this date differ
-                    from your subscription renewal date.
+                    Usage from this date counts toward a new billing period's free allowances and pricing tiers. Daily
+                    usage is reported after the day ends, so this date can differ from your subscription's renewal date.
                 </p>
                 <p className="mt-2 text-xs">
                     Free allowances and volume discounts start again, which can change daily spend even when usage stays
@@ -59,15 +59,11 @@ function BillingPeriodExplanation({ kind }: { kind: BillingPeriodMarkerKind }): 
     }
     return (
         <div className="p-2">
-            <strong>New billing period started</strong>
+            <strong>Billing period starts</strong>
             <p className="mt-2 text-xs">
-                Pricing tiers reset when billing periods begin, which can cause temporary usage and spend changes:
+                Your subscription's billing period starts on this date. Usage is shown on the day it occurred. The spend
+                chart marks when usage starts counting toward the new period's pricing.
             </p>
-            <ul className="mt-1 text-xs list-disc list-inside">
-                <li>Usage may drop to zero in last days of the billing period after billing limits are reached</li>
-                <li>Zero spend in first days due to free tier allowance</li>
-                <li>Higher daily spend in first days due to higher rates at lower volume tiers</li>
-            </ul>
         </div>
     )
 }
@@ -136,7 +132,7 @@ export function BillingPeriodMarkers({
             >
                 <Tooltip title={<BillingPeriodExplanation kind={kind} />} placement="bottom">
                     <div className="flex items-center gap-1 px-2 py-1 text-xs font-normal whitespace-nowrap rounded-sm border border-primary bg-surface-primary text-secondary">
-                        <span>{kind === 'pricing_reset' ? 'Pricing tiers reset' : 'New billing period'}</span>
+                        <span>{kind === 'pricing_reset' ? 'Pricing tiers reset' : 'Billing period starts'}</span>
                         <IconInfo className="w-3 h-3" />
                     </div>
                 </Tooltip>
