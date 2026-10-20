@@ -1,16 +1,17 @@
 import math
 import time
 import threading
+from collections.abc import Sequence
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 
 import numpy as np
 
 from posthog.hogql.errors import QueryError
-from posthog.hogql.functions.forecast import MAX_HORIZON, ForecastCall
+from posthog.hogql.functions.forecast import MAX_CONTEXT, MAX_HORIZON, ForecastCall
 
 from posthog.ph_client import feature_enabled_or_false
 
@@ -22,8 +23,6 @@ if TYPE_CHECKING:
 # Timestral-28M constants, from the model config and TimestralForecaster defaults.
 PATCH = 32
 BLOCK_PATCHES = 32
-# Older history barely changes a forecast, and attention cost grows with the context.
-MAX_CONTEXT = 8192
 MIN_SCALE = 1e-6
 CAP_K = 1e4
 EXTREME = 1e30
@@ -117,7 +116,7 @@ class Forecaster:
         nonnegative = mask.any(-1) & ((x >= 0) | ~mask).all(-1)
         return np.where(nonnegative[:, None, None], np.maximum(q, 0.0), q)
 
-    def _run(self, feed: dict[str, np.ndarray], deadline: float) -> list[np.ndarray]:
+    def _run(self, feed: dict[str, np.ndarray], deadline: float) -> Sequence[np.ndarray]:
         import onnxruntime  # noqa: PLC0415 — keeps onnxruntime's native runtime off the HogQL import path
 
         remaining = deadline - time.monotonic()
@@ -128,7 +127,7 @@ class Forecaster:
         timer = threading.Timer(remaining, setattr, (options, "terminate", True))
         timer.start()
         try:
-            return self.session.run(None, feed, options)
+            return cast(Sequence[np.ndarray], self.session.run(None, feed, options))
         # onnxruntime's errors share no base class below Exception.
         except Exception as error:
             if options.terminate:

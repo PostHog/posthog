@@ -4,6 +4,8 @@ from posthog.hogql.errors import QueryError
 from posthog.dataclasses import frozen
 
 MAX_HORIZON = 1024
+# Older history barely changes a forecast, and attention cost grows with the context.
+MAX_CONTEXT = 8192
 
 
 def is_forecast_call(name: str) -> bool:
@@ -14,6 +16,11 @@ def is_forecast_call(name: str) -> bool:
 class ForecastCall:
     input: ast.Expr
     horizon: int
+
+    @property
+    def source_input(self) -> ast.Expr:
+        """The input the source SELECT fetches: only the last MAX_CONTEXT values, so long histories stay in ClickHouse."""
+        return ast.Call(name="arraySlice", args=[self.input, ast.Constant(value=-MAX_CONTEXT)])
 
     @property
     def clickhouse_type(self) -> str:

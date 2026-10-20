@@ -318,6 +318,18 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query("SELECT forecast([1, 2, 3], 2) AS f", self.team, user=self.user)
         self.assertEqual(response.results, [(([1.0, 1.0], [5.0, 5.0], [9.0, 9.0]),)])
 
+    def test_forecast_fetches_only_the_context_it_uses(self) -> None:
+        model = MagicMock()
+        model.forecast.side_effect = lambda c, h, d: np.zeros((c.shape[0], h, 21))
+        with (
+            patch("posthog.hogql.transforms.forecast.feature_enabled_or_false", return_value=True),
+            patch("posthog.hogql.transforms.forecast._model", return_value=model),
+            patch("posthog.hogql.query.sync_execute", wraps=sync_execute) as execute,
+        ):
+            execute_hogql_query("SELECT forecast(range(100000), 1) AS f", self.team, user=self.user)
+        self.assertIn("arraySlice(range(100000), -8192)", execute.call_args_list[0].args[0])
+        self.assertEqual(model.forecast.call_args.args[0].shape, (1, 8192))
+
     def test_credit_lookup_failure_does_not_block_the_query(self) -> None:
         with (
             patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", side_effect=RuntimeError("redis down")),

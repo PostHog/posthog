@@ -458,7 +458,10 @@ class PromptJevPlanner(CloningVisitor):
                 raise QueryError("Use jev as a named SELECT column, then read it from an outer query.")
             source = clone_expr(query)
             for i, spec in specs.items():
-                source.select[i] = ast.Alias(alias=cast(ast.Alias, query.select[i]).alias, expr=clone_expr(spec.input))
+                source_input = spec.source_input if isinstance(spec, ForecastCall) else spec.input
+                source.select[i] = ast.Alias(
+                    alias=cast(ast.Alias, query.select[i]).alias, expr=clone_expr(source_input)
+                )
             if PromptJevFinder.contains(source):
                 raise QueryError("Use jev only in SELECT columns. Filter its results in an outer query.")
             _AliasReferences(aliases).visit(source)
