@@ -49,9 +49,10 @@ class Block(torch.nn.Module):
         super().__init__()
         self.m = forecaster.model.eval()
 
+    # torch.onnx.export maps each returned element to a named graph output, so this must stay a tuple.
     def forward(
         self, context: torch.Tensor, mask: torch.Tensor, horizon: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:  # nosemgrep: tuple-return-prefer-dataclass
         c = self.m.config
         ps = c.patch_size
         rows, t = context.shape
