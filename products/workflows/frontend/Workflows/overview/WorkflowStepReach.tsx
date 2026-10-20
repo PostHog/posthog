@@ -65,10 +65,12 @@ export function WorkflowStepReach({
     id,
     logicKey,
     period = 'in this date range',
+    runId,
 }: {
     id: string
     logicKey: string
     period?: string
+    runId?: string
 }): JSX.Element {
     const logic = workflowOverviewLogic({ id, logicKey })
     const { stepReach, stepTotalsLoading, healthTotals, params, stepTotalsFailed, healthTotalsFailed, retrying } =
@@ -115,7 +117,7 @@ export function WorkflowStepReach({
                             base={started}
                             failed={failed}
                             waiting={waiting}
-                            to={metricsStepUrl(id, action.id, params)}
+                            to={metricsStepUrl(id, action.id, params, runId)}
                         />
                     ))}
                 </div>

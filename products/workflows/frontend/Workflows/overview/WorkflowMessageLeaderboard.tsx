@@ -132,7 +132,7 @@ export function WorkflowMessageLeaderboard({
                     <span className="inline-flex items-center gap-1.5 font-medium text-muted">{label}</span>
                 ) : (
                     <Link
-                        to={metricsStepUrl(id, row.id, params)}
+                        to={metricsStepUrl(id, row.id, params, appSourceId)}
                         className="inline-flex items-center gap-1.5 font-medium"
                         data-attr="workflow-overview-leaderboard-message"
                     >

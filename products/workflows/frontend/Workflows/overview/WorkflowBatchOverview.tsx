@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -19,7 +19,10 @@ function runLabel(run: HogFlowBatchJob): string {
 }
 
 export function WorkflowBatchOverview({ id }: { id: string }): JSX.Element {
-    const { batchWorkflowJobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic({ id }))
+    const { batchWorkflowJobs, batchWorkflowJobsLoading, batchWorkflowJobsFailed } = useValues(
+        batchWorkflowJobsLogic({ id })
+    )
+    const { loadBatchWorkflowJobs } = useActions(batchWorkflowJobsLogic({ id }))
     const runs = useMemo(
         () =>
             (batchWorkflowJobs ?? [])
@@ -28,6 +31,22 @@ export function WorkflowBatchOverview({ id }: { id: string }): JSX.Element {
         [batchWorkflowJobs]
     )
     const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+
+    if (batchWorkflowJobsFailed && batchWorkflowJobs === null) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Try again',
+                    onClick: () => loadBatchWorkflowJobs(),
+                    loading: batchWorkflowJobsLoading,
+                    'data-attr': 'workflow-batch-overview-retry',
+                }}
+            >
+                Couldn't load this workflow's runs.
+            </LemonBanner>
+        )
+    }
 
     if (batchWorkflowJobs === null || (batchWorkflowJobsLoading && runs.length === 0)) {
         return (

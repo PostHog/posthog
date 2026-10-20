@@ -85,9 +85,10 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
             forceParams: { appSource: 'hog_flow', appSourceId: appSourceId ?? id, breakdownBy: 'metric_name' },
         })
     )
+    const previousRunLogicKey = previousRun ? `${logicKey}-previous-${previousRun.id}` : undefined
     const { getSingleTrendSeries: previousRunSeries } = useValues(
         appMetricsLogic({
-            logicKey: `${logicKey}-previous-${previousRun?.id ?? 'none'}`,
+            logicKey: previousRunLogicKey ?? `${logicKey}-previous-none`,
             loadOnChanges: !!previousRun,
             loadOnMount: !!previousRun,
             loadPreviousPeriod: false,
@@ -109,18 +110,19 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
         workflowMetricsSummaryLogic({ logicKey, id, overview: true, appSourceId })
     )
     const { hasEmail, hasPush } = messagingChannels
-    const overviewLogic = workflowOverviewLogic({ id, logicKey })
-    const { trendsFailed, previousPeriodFailed, retrying } = useValues(overviewLogic)
-    // A failed previous-period read leaves the old baseline in place, so the comparison is hidden instead.
+    const overviewLogic = workflowOverviewLogic({ id, logicKey, previousRunLogicKey })
+    const { trendsFailed, previousPeriodFailed, previousRunFailed, retrying } = useValues(overviewLogic)
+    const comparisonFailed = run ? previousRunFailed : previousPeriodFailed
+    // A failed comparison read leaves the old baseline in place, so the comparison is hidden instead.
     const getSingleTrendSeries = (name: string, previous?: boolean): AppMetricsTimeSeriesResponse | null =>
-        run
-            ? previous
-                ? previousRun
-                    ? previousRunSeries(name)
-                    : null
-                : trendSeries(name)
-            : previous && previousPeriodFailed
-              ? null
+        previous && comparisonFailed
+            ? null
+            : run
+              ? previous
+                  ? previousRun
+                      ? previousRunSeries(name)
+                      : null
+                  : trendSeries(name)
               : trendSeries(name, previous)
     const { retry } = useActions(overviewLogic)
     const retryAll = (): void => {
@@ -157,7 +159,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
             <div className="flex flex-wrap items-center justify-end gap-2">
                 {controls ?? <AppMetricsFilters logicKey={logicKey} />}
             </div>
-            {trendsFailed || previousPeriodFailed ? (
+            {trendsFailed || comparisonFailed ? (
                 <LemonBanner
                     type="error"
                     action={{
@@ -276,7 +278,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
 
             <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-2">
                 <div className="flex min-w-0 flex-col gap-4">
-                    <WorkflowStepReach id={id} logicKey={logicKey} period={period} />
+                    <WorkflowStepReach id={id} logicKey={logicKey} period={period} runId={appSourceId} />
                     <WorkflowOverviewDetails id={id} />
                 </div>
                 <div className="flex min-w-0 flex-col gap-4">
