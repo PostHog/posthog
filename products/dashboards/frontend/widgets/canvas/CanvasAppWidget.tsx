@@ -58,6 +58,15 @@ function CanvasAppWidgetMessage({
     )
 }
 
+function CanvasAppNotAvailableMessage(): JSX.Element {
+    return (
+        <CanvasAppWidgetMessage
+            title="Canvas not available"
+            message="You don't have access to this canvas, or it was deleted. Pick another one in the widget settings."
+        />
+    )
+}
+
 function CanvasAppLoadingSkeleton(): JSX.Element {
     return (
         <WidgetCardContent>
@@ -128,8 +137,17 @@ function CanvasAppFrame({ artifactUrl, buildId }: { artifactUrl: string; buildId
     )
 }
 
-function CanvasAppTile({ tileId, canvasId }: { tileId: number; canvasId: string }): JSX.Element {
-    const logic = canvasAppWidgetLogic({ tileId, canvasId })
+function CanvasAppTile({
+    tileId,
+    canvasId,
+    publishedBuildId,
+}: {
+    tileId: number
+    canvasId: string
+    publishedBuildId: string | null
+}): JSX.Element {
+    const logicProps = { tileId, canvasId, publishedBuildId }
+    const logic = canvasAppWidgetLogic(logicProps)
     const { renderState, artifactUrl, buildId, hostProps, viewLoading } = useValues(logic)
     const { loadView } = useActions(logic)
 
@@ -144,6 +162,8 @@ function CanvasAppTile({ tileId, canvasId }: { tileId: number; canvasId: string 
                     </WidgetCardBodyMessage>
                 </WidgetCardContent>
             )
+        case 'unavailable':
+            return <CanvasAppNotAvailableMessage />
         case 'not-published':
             return (
                 <CanvasAppWidgetMessage
@@ -158,7 +178,7 @@ function CanvasAppTile({ tileId, canvasId }: { tileId: number; canvasId: string 
             )
         case 'built':
             return (
-                <BindLogic logic={canvasAppWidgetLogic} props={{ tileId, canvasId }}>
+                <BindLogic logic={canvasAppWidgetLogic} props={logicProps}>
                     <BindLogic logic={canvasHostLogic} props={{ ...hostProps, surface: 'web_dashboard_widget' }}>
                         <div data-quill className="relative h-full min-h-0 w-full">
                             <CanvasAppFrame artifactUrl={artifactUrl as string} buildId={buildId} />
@@ -202,13 +222,14 @@ export function CanvasAppWidget({
     }
 
     if (payload.canvasNotFound || !payload.canvas) {
-        return (
-            <CanvasAppWidgetMessage
-                title="Canvas not available"
-                message="You don't have access to this canvas, or it was deleted. Pick another one in the widget settings."
-            />
-        )
+        return <CanvasAppNotAvailableMessage />
     }
 
-    return <CanvasAppTile tileId={tileId} canvasId={payload.canvas.id} />
+    return (
+        <CanvasAppTile
+            tileId={tileId}
+            canvasId={payload.canvas.id}
+            publishedBuildId={payload.canvas.publishedBuildId}
+        />
+    )
 }

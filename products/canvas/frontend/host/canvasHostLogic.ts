@@ -34,6 +34,8 @@ export interface CanvasHostLogicProps {
     sourceVersionId: string | null
     /** Where the canvas is rendered. Defaults to the canvas scene. */
     surface?: CanvasSurface
+    /** Gives each render of the same canvas its own prompts and bridge state, for example two dashboard tiles. */
+    instanceKey?: string
 }
 
 export type CanvasHostPrompt =
@@ -147,7 +149,7 @@ export type canvasHostLogicType = MakeLogicType<
  */
 export const canvasHostLogic = kea<canvasHostLogicType>([
     props({} as CanvasHostLogicProps),
-    key((props) => props.canvasId),
+    key((props) => (props.instanceKey ? `${props.canvasId}:${props.instanceKey}` : props.canvasId)),
     path((key) => ['products', 'canvas', 'frontend', 'host', 'canvasHostLogic', key]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], teamLogic, ['currentTeam'], userLogic, ['user']],
