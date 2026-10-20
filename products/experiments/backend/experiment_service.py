@@ -161,12 +161,12 @@ ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
 # The launch action is not the only way to launch. A create call or an update that sets the start date launches too.
 ExperimentLaunchPath = Literal["launch_endpoint", "create_request", "update_start_date"]
 
-# A create whose start_date is older than this is a backdated create (e.g. a move from another tool).
+# A launch whose start_date is older than this is a backdated launch (e.g. a move from another tool).
 BACKDATED_LAUNCH_THRESHOLD = timedelta(days=1)
 
 
 def _is_imported_concluded(experiment: Experiment) -> bool:
-    """An experiment created with an end_date that has passed was never launched in PostHog: it is an import."""
+    """An experiment that gets its start_date after its end_date has passed never ran in PostHog: it is an import."""
     return experiment.end_date is not None and experiment.end_date <= timezone.now()
 
 
@@ -1436,8 +1436,7 @@ class ExperimentService:
                 extra_metadata={
                     "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
                     "launch_path": launch_path,
-                    "is_backdated": launch_path == "create_request"
-                    and experiment.start_date is not None
+                    "is_backdated": experiment.start_date is not None
                     and timezone.now() - experiment.start_date > BACKDATED_LAUNCH_THRESHOLD,
                     "flag_age_seconds": int(flag_age.total_seconds()),
                     "health_finding_codes": [finding.code.value for finding in findings],
@@ -3757,12 +3756,13 @@ class ExperimentService:
                 )
 
         if launching:
-            self._report_experiment_launched(
-                experiment,
-                launch_path="update_start_date",
-                request=report_request,
-                event_source=event_source,
-            )
+            if not _is_imported_concluded(experiment):
+                self._report_experiment_launched(
+                    experiment,
+                    launch_path="update_start_date",
+                    request=report_request,
+                    event_source=event_source,
+                )
             self._notify_experiment_launched(experiment)
 
         return experiment
