@@ -2351,6 +2351,17 @@ export interface LogsAgentWindowApi {
 }
 
 /**
+ * * `stored_patterns` - Stored Patterns
+ * * `body_mining` - Body Mining
+ */
+export type PatternsDiffSourceEnumApi = (typeof PatternsDiffSourceEnumApi)[keyof typeof PatternsDiffSourceEnumApi]
+
+export const PatternsDiffSourceEnumApi = {
+    StoredPatterns: 'stored_patterns',
+    BodyMining: 'body_mining',
+} as const
+
+/**
  * Prefilled `query` object for that tool. Pass it as is or adjust it.
  */
 export type LogsAgentNextCallApiQuery = { [key: string]: unknown }
@@ -2468,9 +2479,9 @@ export interface _LogsPatternsDiffResponseApi {
     window: LogsAgentWindowApi
     /** stored_patterns when both windows have ≥99% of rows on the same stored version, else body_mining.
      *
-     * * `stored_patterns` - stored_patterns
-     * * `body_mining` - body_mining */
-    source: LogsPatternsSourceEnumApi
+     * * `stored_patterns` - Stored Patterns
+     * * `body_mining` - Body Mining */
+    source: PatternsDiffSourceEnumApi
     /**
      * Stored pattern version, null for mining.
      * @nullable

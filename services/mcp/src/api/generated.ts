@@ -88846,6 +88846,18 @@ export namespace Schemas {
       funnels_query: unknown;
     }
 
+    /**
+     * * `stored_patterns` - Stored Patterns
+     * * `body_mining` - Body Mining
+     */
+    export type PatternsDiffSourceEnum = typeof PatternsDiffSourceEnum[keyof typeof PatternsDiffSourceEnum];
+
+
+    export const PatternsDiffSourceEnum = {
+      StoredPatterns: 'stored_patterns',
+      BodyMining: 'body_mining',
+    } as const;
+
     export interface PauseResponse {
       /** Always 'paused'. */
       status: string;
@@ -117706,9 +117718,9 @@ export namespace Schemas {
       window: LogsAgentWindow;
       /** stored_patterns when both windows have ≥99% of rows on the same stored version, else body_mining.
        *
-       * * `stored_patterns` - stored_patterns
-       * * `body_mining` - body_mining */
-      source: LogsPatternsSourceEnum;
+       * * `stored_patterns` - Stored Patterns
+       * * `body_mining` - Body Mining */
+      source: PatternsDiffSourceEnum;
       /**
          * Stored pattern version, null for mining.
          * @nullable

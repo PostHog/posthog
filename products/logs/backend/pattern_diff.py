@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from posthog.schema import DateRange, LogsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -283,8 +283,8 @@ def _first_seen_ever(
     response = execute_hogql_query(
         query_type="LogsPatternsFirstSeen",
         query=parse_select(
-            f"SELECT pattern, min(time_bucket) FROM posthog.logs_pattern_buckets WHERE {where} GROUP BY pattern",
-            placeholders=placeholders,
+            "SELECT pattern, min(time_bucket) FROM posthog.logs_pattern_buckets WHERE {where} GROUP BY pattern",
+            placeholders={"where": parse_expr(where, placeholders=placeholders)},
         ),
         team=team,
         workload=Workload.LOGS,

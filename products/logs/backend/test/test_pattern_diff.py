@@ -267,7 +267,7 @@ class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):
         minute: int = 0,
         stored: str | None = None,
     ) -> dict:
-        row = {
+        row: dict[str, str | int] = {
             "timestamp": f"2026-06-{day:02d} 12:{minute:02d}:00.000000",
             "body": body,
             "severity_text": severity,

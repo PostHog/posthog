@@ -1,6 +1,13 @@
+from django.db import models
+
 from rest_framework import serializers
 
 from products.logs.backend.presentation.views.agent_fields import LogsAgentNextCallSerializer, LogsAgentWindowSerializer
+
+
+class PatternsDiffSource(models.TextChoices):
+    STORED_PATTERNS = "stored_patterns"
+    BODY_MINING = "body_mining"
 
 
 class PatternsDiffBodyFields(serializers.Serializer):
@@ -27,7 +34,7 @@ class PatternDiffEntryFields(serializers.Serializer):
 class PatternsDiffResponseFields(serializers.Serializer):
     window = LogsAgentWindowSerializer(help_text="Absolute UTC bounds of the current and baseline windows.")
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=["stored_patterns", "body_mining"],
+        choices=PatternsDiffSource.choices,
         help_text="stored_patterns when both windows have ≥99% of rows on the same stored version, else body_mining.",
     )
     pattern_version = serializers.IntegerField(allow_null=True, help_text="Stored pattern version, null for mining.")
