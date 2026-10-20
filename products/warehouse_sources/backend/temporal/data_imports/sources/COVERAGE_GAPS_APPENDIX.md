@@ -8721,8 +8721,8 @@ Diffed against: <https://raw.githubusercontent.com/openai/openai-openapi/master/
 
 - [ ] `/models` — lookup resolving the model IDs that appear in every usage\_\* and costs row (high)
 - [ ] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high)
-- [ ] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
-- [ ] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
+- [x] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
+- [x] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
 - [ ] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium)
 - [ ] `/batches` — batch job records with request counts and completion status (medium)
 - [ ] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium)
