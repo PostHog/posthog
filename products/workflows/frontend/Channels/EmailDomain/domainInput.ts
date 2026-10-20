@@ -43,6 +43,13 @@ export const rootDomainOf = (hostname: string): string => hostname.split('.').fi
 const SECOND_LEVEL_SUFFIX_LABELS = new Set(['co', 'com', 'org', 'net', 'ac', 'gov', 'edu'])
 
 const PLACEHOLDER_ORGANIZATION_NAME = /^(?:default(?: organization)?|.*['’]s organization)$/i
+const PRINTABLE_ASCII = /^[\x20-\x7E]+$/
+const ADDRESS_SYNTAX = /["<>\\]/
+
+const fitsUnencodedInFromHeader = (name: string): boolean => PRINTABLE_ASCII.test(name) && !ADDRESS_SYNTAX.test(name)
+
+const isUsableOrganizationName = (name: string): boolean =>
+    Boolean(name) && !PLACEHOLDER_ORGANIZATION_NAME.test(name) && fitsUnencodedInFromHeader(name)
 
 const isCountryCodeSuffix = (labels: string[]): boolean => {
     const [secondLevel, topLevel] = labels.slice(-2)
@@ -59,7 +66,7 @@ const capitalize = (label: string): string => label.charAt(0).toUpperCase() + la
 
 export const defaultSenderName = (organizationName: string | null | undefined, domain: string): string => {
     const name = organizationName?.trim() ?? ''
-    return name && !PLACEHOLDER_ORGANIZATION_NAME.test(name) ? name : capitalize(brandLabelOf(domain))
+    return isUsableOrganizationName(name) ? name : capitalize(brandLabelOf(domain))
 }
 
 export const hostnameOfUrl = (url: string): string | null => {
