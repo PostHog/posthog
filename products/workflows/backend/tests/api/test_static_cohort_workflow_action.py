@@ -120,6 +120,13 @@ class TestStaticCohortWorkflowAction(APIBaseTest):
             draft={"actions": flow["actions"], "edges": flow["edges"], "trigger": trigger["config"]},
         )
 
+    def _set_draft_cohort_input(self, workflow: HogFlow, cohort_id_input: dict) -> None:
+        draft = deepcopy(workflow.draft)
+        cohort_action = next(action for action in draft["actions"] if action["id"] == "cohort")
+        cohort_action["config"]["inputs"]["cohort_id"] = cohort_id_input
+        workflow.draft = draft
+        workflow.save(update_fields=["draft"])
+
     def test_static_cohort_action_round_trips(self) -> None:
         response = self.client.post(self.url, self._flow(), format="json")
 
@@ -392,3 +399,65 @@ class TestStaticCohortWorkflowAction(APIBaseTest):
 
         assert response.status_code == 403, response.json()
         invoke.assert_not_called()
+
+    @parameterized.expand([("float", float), ("string", str)])
+    @patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test")
+    def test_live_draft_invocation_rejects_a_non_integer_cohort_id(
+        self, _name: str, cohort_id_type: type, invoke: MagicMock
+    ) -> None:
+        workflow = self._active_workflow_with_static_cohort_draft()
+        self._set_draft_cohort_input(workflow, {"value": cohort_id_type(self.cohort.id)})
+        self._deny_selected_cohort_edit_access()
+
+        response = self.client.post(
+            f"{self.url}/{workflow.id}/invocations",
+            {
+                "use_draft": True,
+                "mock_async_functions": False,
+                "globals": {"event": {"event": "$pageview", "properties": {}}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "Select a static cohort" in str(response.json())
+        invoke.assert_not_called()
+
+    @patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test")
+    def test_live_draft_invocation_strips_executable_cohort_input_metadata(self, invoke: MagicMock) -> None:
+        restricted_cohort = Cohort.objects.create(team=self.team, name="Restricted", is_static=True)
+        self._enable_member_access_control()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="cohort",
+            resource_id=str(restricted_cohort.id),
+            access_level="none",
+        )
+        workflow = self._active_workflow_with_static_cohort_draft()
+        self._set_draft_cohort_input(
+            workflow,
+            {
+                "value": self.cohort.id,
+                "bytecode": ["_H", 1, 32, restricted_cohort.id],
+                "bytecode_contract": "client-supplied",
+                "templating": "hog",
+                "transpiled": str(restricted_cohort.id),
+            },
+        )
+        invoke.return_value.status_code = 200
+        invoke.return_value.json.return_value = {"status": "success"}
+
+        response = self.client.post(
+            f"{self.url}/{workflow.id}/invocations",
+            {
+                "use_draft": True,
+                "mock_async_functions": False,
+                "globals": {"event": {"event": "$pageview", "properties": {}}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        actions = invoke.call_args.kwargs["payload"]["configuration"]["actions"]
+        cohort_action = next(action for action in actions if action["id"] == "cohort")
+        assert cohort_action["config"]["inputs"]["cohort_id"] == {"value": self.cohort.id}

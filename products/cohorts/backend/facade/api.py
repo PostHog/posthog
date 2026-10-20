@@ -9,9 +9,6 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from django.db.models import F, Value
-from django.db.models.functions import Coalesce
-
 from posthog.dataclasses import frozen
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -77,13 +74,7 @@ def add_resolved_person_to_static_cohort(
         reconcile_static_cohort_count_after_addition.delay(team_id=team_id, cohort_id=cohort_id)
         return StaticCohortMembershipOutcome.ALREADY_PRESENT
 
-    try:
-        Cohort.objects.filter(team_id=team_id, id=cohort_id).update(
-            count=Coalesce(F("count"), Value(0)) + inserted_count
-        )
-    finally:
-        # Personhog membership and cohort metadata are separate writes, so repair after either outcome.
-        reconcile_static_cohort_count_after_addition.delay(team_id=team_id, cohort_id=cohort_id)
+    reconcile_static_cohort_count_after_addition.delay(team_id=team_id, cohort_id=cohort_id)
     return StaticCohortMembershipOutcome.ADDED
 
 

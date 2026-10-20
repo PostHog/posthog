@@ -449,7 +449,7 @@ def _contains_static_cohort_action(value: Any) -> bool:
     return False
 
 
-def _static_cohort_ids(actions: Any) -> set[int]:
+def _static_cohort_ids(actions: Any, *, strip_runtime_input_metadata: bool = False) -> set[int]:
     cohort_ids: set[int] = set()
     for flow_action in actions if isinstance(actions, list) else []:
         config = (flow_action.get("config") or {}) if isinstance(flow_action, dict) else {}
@@ -458,8 +458,12 @@ def _static_cohort_ids(actions: Any) -> set[int]:
         inputs = config.get("inputs") or {}
         cohort_id_input = inputs.get("cohort_id") if isinstance(inputs, dict) else None
         cohort_id = cohort_id_input.get("value") if isinstance(cohort_id_input, dict) else None
-        if isinstance(cohort_id, int) and not isinstance(cohort_id, bool):
-            cohort_ids.add(cohort_id)
+        if not isinstance(cohort_id, int) or isinstance(cohort_id, bool) or cohort_id < 1:
+            raise serializers.ValidationError({"inputs": {"cohort_id": "Select a static cohort."}})
+        if strip_runtime_input_metadata:
+            cohort_id_input.clear()
+            cohort_id_input["value"] = cohort_id
+        cohort_ids.add(cohort_id)
     return cohort_ids
 
 
@@ -6236,12 +6240,12 @@ class HogFlowViewSet(
             if error is not None:
                 raise exceptions.PermissionDenied(error)
 
-    def _require_static_cohort_caller_access(self, actions: Any) -> None:
+    def _require_static_cohort_caller_access(self, actions: Any, *, strip_runtime_input_metadata: bool = False) -> None:
         if not _contains_static_cohort_action(actions):
             return
         if not self.user_access_control.check_access_level_for_resource("cohort", "editor"):
             raise exceptions.PermissionDenied("You do not have access to edit cohorts.")
-        for cohort_id in _static_cohort_ids(actions):
+        for cohort_id in _static_cohort_ids(actions, strip_runtime_input_metadata=strip_runtime_input_metadata):
             cohort_access = get_static_cohort_access(team_id=self.team_id, cohort_id=cohort_id)
             if cohort_access.status == StaticCohortMembershipOutcome.NOT_FOUND:
                 continue
@@ -6275,9 +6279,10 @@ class HogFlowViewSet(
         serializer.is_valid(raise_exception=True)
 
         payload = dict(serializer.validated_data)
-        if payload.pop("use_draft", False):
-            # The staged draft was validated when written, so it goes to the executor inline exactly
-            # like an explicit configuration override — workers never read (or cache) the draft column.
+        use_draft = payload.pop("use_draft", False)
+        if use_draft:
+            # Workers never read or cache the draft column, so pass it inline like an explicit override.
+            # Web drafts can be incomplete; live side effects get their additional checks below.
             if payload.get("configuration"):
                 raise exceptions.ValidationError(
                     {"use_draft": "Pass either use_draft or an explicit configuration override, not both."}
@@ -6303,7 +6308,7 @@ class HogFlowViewSet(
             configuration = payload.get("configuration") or {}
             actions = configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
             self._require_replay_vision_caller_access(request, actions)
-            self._require_static_cohort_caller_access(actions)
+            self._require_static_cohort_caller_access(actions, strip_runtime_input_metadata=use_draft)
 
         res = create_hog_flow_invocation_test(
             team_id=self.team_id,

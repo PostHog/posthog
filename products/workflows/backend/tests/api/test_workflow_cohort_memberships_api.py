@@ -80,7 +80,7 @@ class TestWorkflowCohortMembershipsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["result"] == "added"
         self.cohort.refresh_from_db()
-        assert self.cohort.count == 11
+        assert self.cohort.count == 10
         resolve.assert_called_once_with(self.team.id, [PERSON_UUID])
         insert.assert_called_once_with([(42, PERSON_UUID)], team_id=self.team.id, raise_on_error=True, save_state=False)
         self.reconcile_count.assert_called_once_with(team_id=self.team.id, cohort_id=self.cohort.id)
