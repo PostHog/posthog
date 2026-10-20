@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -198,8 +198,9 @@ class TestScoutToolOperations(SimpleTestCase):
             .replace("{file_path}", "references/limits.md")
         )
         match = resolve(path)
-        view = match.func.cls()
-        view.action = match.func.actions["delete"]
+        callback = cast(Any, match.func)
+        view = callback.cls()
+        view.action = callback.actions["delete"]
 
         assert request_matches_operation(view=view, method="DELETE", path=path, operation=operation)
 
