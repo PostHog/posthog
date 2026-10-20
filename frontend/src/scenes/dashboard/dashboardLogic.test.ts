@@ -1742,18 +1742,73 @@ describe('dashboardLogic', () => {
             return movedTile
         }
 
-        it('saving a tile moved into a group sends only that tile its new group', async () => {
-            const movedTile = await moveFirstTileIntoGroup()
+        it.each([
+            {
+                name: 'into a group',
+                setup: async (movedTile: DashboardTile) => {
+                    await expectLogic(logic, () => {
+                        logic.actions.setTileProperty(movedTile.id, { group_key: 'plans' })
+                    }).toFinishAllListeners()
+                },
+                expectedUnsavedBeforeSave: true,
+                expectedGroupKeyEntries: (movedTile: DashboardTile) => [
+                    expect.objectContaining({ id: movedTile.id, group_key: 'plans' }),
+                ],
+            },
+            {
+                name: 'out of a group',
+                setup: async (movedTile: DashboardTile) => {
+                    await expectLogic(logic, () => {
+                        logic.actions.setTileProperty(movedTile.id, { group_key: 'plans' })
+                    }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        logic.actions.saveLayoutChanges()
+                    }).toFinishAllListeners()
+                    ;(api.update as jest.Mock).mockClear()
+                    await expectLogic(logic, () => {
+                        logic.actions.setTileProperty(movedTile.id, { group_key: null })
+                    }).toFinishAllListeners()
+                },
+                expectedUnsavedBeforeSave: true,
+                expectedGroupKeyEntries: (movedTile: DashboardTile) => [
+                    expect.objectContaining({ id: movedTile.id, group_key: null }),
+                ],
+            },
+            {
+                name: 'into then back out of a group',
+                setup: async (movedTile: DashboardTile) => {
+                    await expectLogic(logic, () => {
+                        logic.actions.setTileProperty(movedTile.id, { group_key: 'plans' })
+                    }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        logic.actions.setTileProperty(movedTile.id, { group_key: null })
+                    }).toFinishAllListeners()
+                },
+                // The dirty check must see this as a no-op, not send a group_key entry nobody changed.
+                expectedUnsavedBeforeSave: false,
+                expectedGroupKeyEntries: () => [],
+            },
+        ])(
+            'saving a tile moved $name sends the expected group_key change',
+            async ({ setup, expectedUnsavedBeforeSave, expectedGroupKeyEntries }) => {
+                await expectLogic(logic).toFinishAllListeners()
+                const movedTile = logic.values.dashboard!.tiles[0]
+                jest.spyOn(api, 'update')
+                await setup(movedTile)
 
-            await expectLogic(logic, () => {
-                logic.actions.saveLayoutChanges()
-            }).toFinishAllListeners()
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(expectedUnsavedBeforeSave)
+                ;(api.update as jest.Mock).mockClear()
 
-            const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
-            expect(payload.tiles.filter((tile: { group_key?: string }) => 'group_key' in tile)).toEqual([
-                expect.objectContaining({ id: movedTile.id, group_key: 'plans' }),
-            ])
-        })
+                await expectLogic(logic, () => {
+                    logic.actions.saveLayoutChanges()
+                }).toFinishAllListeners()
+
+                const payload = (api.update as jest.Mock).mock.calls.at(-1)?.[1]
+                const groupKeyEntries =
+                    payload?.tiles.filter((tile: { group_key?: string }) => 'group_key' in tile) ?? []
+                expect(groupKeyEntries).toEqual(expectedGroupKeyEntries(movedTile))
+            }
+        )
 
         it('a failed save keeps a tile moved into a group as an unsaved change', async () => {
             const movedTile = await moveFirstTileIntoGroup()
