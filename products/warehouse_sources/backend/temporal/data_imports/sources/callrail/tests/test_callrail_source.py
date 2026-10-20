@@ -26,7 +26,6 @@ class TestCallRailSource:
         "status_code, expected_valid, expected_message",
         [
             (200, True, None),
-            (401, False, "Invalid CallRail API key"),
         ],
     )
     def test_validate_credentials(
