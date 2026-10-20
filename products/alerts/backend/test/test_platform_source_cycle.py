@@ -284,7 +284,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(held.id),)
 
-        with patch(f"{_MODULE}.cancel_query_on_cluster") as cancel:
+        with patch("posthog.clickhouse.cancel.cancel_query_on_cluster") as cancel:
             retried = readmit_retried_check(
                 self.team.id, str(held.id), previous_query_id="run:1:1", held_until=expires_at, attempt=2
             )
