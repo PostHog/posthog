@@ -102,12 +102,33 @@ describe('shared-image policy and legacy projection', () => {
 
   test.each([
     ['unknown build', fixture.replace('posthog-cloud:', 'unknown-image:'), 'images.unknown-image: unknown build input'],
+    ['prototype build', fixture.replace('posthog-cloud:', '__proto__:'), 'images.__proto__: unknown build input'],
     ['unapproved destination', fixture.replace(destination.repository, 'posthog-temporal-workers/unapproved'), 'expected one approved destination binding'],
     ['duplicate channel', fixture + '\n      another:\n        repository: posthog-temporal-workers/data-warehouse-metadata\n        filter: metadataAlias\n', 'conflicting destination']
   ])('parses but does not approve %s', (_name, text, message) => {
     const policy = loadPolicy(text)
+    const authored = yaml.load(text) as {images: Record<string, unknown>}
+    expect(Object.keys(policy.images)).toEqual(Object.keys(authored.images))
     expect(() => projectLegacyFilters(policy, '{}')).not.toThrow()
     expect(() => bindChannels(policy, approved)).toThrow(message)
+  })
+
+  test.each(['dw-metadata', '__proto__'])('enumerates explicitly approved prototype image and %s channel keys', name => {
+    const policy = loadPolicy(fixture.replace('posthog-cloud:', '__proto__:').replace(/dataWarehouseMetadata/g, '__proto__'))
+    const channels = policy.images['__proto__'].channels
+    expect(Object.keys(channels)).toEqual(['dw-metadata'])
+    const channel = channels['dw-metadata']
+    policy.images['__proto__'].channels = Object.fromEntries([[name, channel]])
+    const resolved = bindChannels(policy, Object.fromEntries([['__proto__', source]]))
+    expect(Object.keys(resolved)).toEqual(['__proto__'])
+    expect(Object.keys(resolved['__proto__'])).toEqual([name])
+    expect(Object.prototype.hasOwnProperty.call(resolved, '__proto__')).toBe(true)
+    expect(Object.prototype.hasOwnProperty.call(resolved['__proto__'], name)).toBe(true)
+    expect(resolved['__proto__'][name]).toEqual(destination)
+    expect(Object.keys(policy.filters)).toEqual(['__proto__', 'metadataAlias', 'dataWarehouse'])
+    const projected = yaml.load(projectLegacyFilters(policy, '{}')) as Record<string, Paths>
+    expect(Object.keys(projected)).toEqual(Object.keys(policy.filters))
+    expect(projected['__proto__']).toEqual(policy.filters['__proto__'])
   })
 
   test('rejects independent channels whose regional replicas collide', () => {

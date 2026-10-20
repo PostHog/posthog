@@ -98,11 +98,11 @@ export function loadPolicy(text: string): Policy {
     Object.entries(object(root.filters, 'filters')).map(([name, value]) => [name, paths(value, `filters.${name}`)])
   )
   new Filter(yaml.dump(filters))
-  const images: Policy['images'] = {}
+  const images: Policy['images'] = Object.create(null)
   for (const [image, value] of Object.entries(object(root.images, 'images'))) {
     const definition = object(value, `images.${image}`)
     shape(definition, ['channels'], [], `images.${image}`)
-    const channels: {[name: string]: Channel} = {}
+    const channels: {[name: string]: Channel} = Object.create(null)
     for (const [name, channelValue] of Object.entries(object(definition.channels, `images.${image}.channels`))) {
       const location = `images.${image}.channels.${name}`
       if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name)) throw new Error(`${location}: invalid channel key`)
@@ -130,11 +130,11 @@ export function loadPolicy(text: string): Policy {
 
 export function bindChannels(policy: Policy, approved: ApprovedImages): ChannelBindings {
   const destinations = new Set<string>()
-  const resolved: ChannelBindings = {}
+  const resolved: ChannelBindings = Object.create(null)
   for (const [image, definition] of Object.entries(policy.images)) {
     if (!Object.prototype.hasOwnProperty.call(approved, image)) throw new Error(`images.${image}: unknown build input`)
     const source = approved[image]
-    resolved[image] = {}
+    resolved[image] = Object.create(null)
     for (const [name, channel] of Object.entries(definition.channels)) {
       const location = `images.${image}.channels.${name}`
       if (!source.registry || !source.repository || source.sourceRepository !== CANONICAL_SOURCE_REPOSITORY) {
@@ -160,7 +160,7 @@ export function bindChannels(policy: Policy, approved: ApprovedImages): ChannelB
 
 export function projectLegacyFilters(policy: Policy, inlineYaml: string): string {
   const inline = object(yaml.load(inlineYaml), 'legacy filters')
-  const merged = {...inline}
+  const merged: Record<string, unknown> = Object.assign(Object.create(null), inline)
   for (const name of Object.keys(policy.filters)) {
     if (Object.prototype.hasOwnProperty.call(inline, name) && inline[name] !== null) {
       throw new Error(`legacy filters.${name}: duplicate policy`)
