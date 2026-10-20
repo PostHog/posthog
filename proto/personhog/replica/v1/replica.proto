@@ -82,4 +82,11 @@ service PersonHogReplica {
   // Reads for the person consistency scan and repair. Rows include tombstones.
   rpc GetDistinctIdRows(personhog.types.v1.GetDistinctIdRowsRequest) returns (personhog.types.v1.GetDistinctIdRowsResponse);
   rpc ListPersonsForTeam(personhog.types.v1.ListPersonsForTeamRequest) returns (personhog.types.v1.ListPersonsForTeamResponse);
+
+  // Writes for the person consistency repair. Raises and mapping writes claim lifecycle marks on
+  // the persons they write; restores only insert absent persons. Versions only go up. Same routing
+  // caveat as DeletePersons above.
+  rpc RaisePersonVersionFloors(personhog.types.v1.RaisePersonVersionFloorsRequest) returns (personhog.types.v1.RaisePersonVersionFloorsResponse);
+  rpc RestorePersons(personhog.types.v1.RestorePersonsRequest) returns (personhog.types.v1.RestorePersonsResponse);
+  rpc WriteDistinctIds(personhog.types.v1.WriteDistinctIdsRequest) returns (personhog.types.v1.WriteDistinctIdsResponse);
 }
