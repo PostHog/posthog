@@ -7,6 +7,8 @@ from typing import Any
 
 from clickhouse_driver import Client
 
+_MAX_CONCURRENT_HOST_KILLS = 8
+
 
 def run_metadata_job(job: dict[str, Any]) -> Any:
     def execute(sql: str, params: dict[str, Any], host: str | None = None, *, typed: bool = False) -> Any:
@@ -47,27 +49,27 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
         if not matches:
             return False
 
-        def kill(match: tuple[str, str]) -> bool:
-            host, query_id = match
+        query_ids_by_host: dict[str, list[str]] = {}
+        for host, query_id in matches:
+            query_ids_by_host.setdefault(host, []).append(query_id)
+
+        def kill(host: str, query_ids: list[str]) -> bool:
             rows, columns = execute(
-                "KILL QUERY WHERE query_id=%(query_id)s SYNC SETTINGS max_execution_time=5",
-                {"query_id": query_id},
+                "KILL QUERY WHERE query_id IN %(query_ids)s SYNC SETTINGS max_execution_time=5",
+                {"query_ids": tuple(query_ids)},
                 host,
                 typed=True,
             )
             names = [name for name, _ in columns]
-            return (
-                "query_id" in names
-                and "kill_status" in names
-                and any(
-                    row[names.index("kill_status")] == "finished" and row[names.index("query_id")] == query_id
-                    for row in rows
-                )
-            )
+            if "query_id" not in names or "kill_status" not in names:
+                return False
+            finished = {row[names.index("query_id")] for row in rows if row[names.index("kill_status")] == "finished"}
+            return finished.issuperset(query_ids)
 
-        # Kill on every host at once, so stalled hosts cannot use up the shared deadline before a healthy host.
-        with ThreadPoolExecutor(max_workers=len(matches)) as executor:
-            futures = [executor.submit(kill, match) for match in matches]
+        # One connection per host, run in parallel, so stalled hosts cannot use up the shared deadline before a healthy host.
+        workers = min(len(query_ids_by_host), _MAX_CONCURRENT_HOST_KILLS)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(kill, host, query_ids) for host, query_ids in query_ids_by_host.items()]
         errors = [error for future in futures if (error := future.exception()) is not None]
         if errors:
             raise errors[0]
