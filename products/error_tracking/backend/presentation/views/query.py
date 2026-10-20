@@ -222,8 +222,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             first_event_properties = self._issue_event_properties(
                 request,
                 issue_id,
-                after=window[0],
-                before=window[1],
+                after=window.after,
+                before=window.before,
                 order="ASC",
                 filter_test_accounts=False,
                 select=RELEASE_EVENT_SELECTS,

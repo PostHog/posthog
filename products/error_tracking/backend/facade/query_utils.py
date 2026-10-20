@@ -546,11 +546,20 @@ def parse_timestamp(value: object) -> datetime | None:
         return None
 
 
-def first_event_window(first_seen: object) -> tuple[str, str] | None:
+@frozen
+class EventWindow:
+    after: str
+    before: str
+
+
+def first_event_window(first_seen: object) -> EventWindow | None:
     first_seen_at = parse_timestamp(first_seen)
     if first_seen_at is None:
         return None
-    return (first_seen_at - FIRST_EVENT_LOOKBACK).isoformat(), (first_seen_at + FIRST_EVENT_LOOKAHEAD).isoformat()
+    return EventWindow(
+        after=(first_seen_at - FIRST_EVENT_LOOKBACK).isoformat(),
+        before=(first_seen_at + FIRST_EVENT_LOOKAHEAD).isoformat(),
+    )
 
 
 @frozen
