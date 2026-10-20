@@ -376,9 +376,10 @@ class TestDepotReconciliation:
                 rows = [row for batch in _batches(resumed) for row in batch]
 
         assert [row["run_id"] for row in rows] == (["old", "old"] if endpoint == ARTIFACTS else ["old"])
-        assert manager.staged is not None
-        assert manager.staged.reconciled_at == NOW.isoformat()
-        assert manager.staged.scanned_through == runs[0]["createdAt"]
+        staged = cast(DepotReconciliationCursor | None, manager.staged)
+        assert staged is not None
+        assert staged.reconciled_at == NOW.isoformat()
+        assert staged.scanned_through == runs[0]["createdAt"]
 
 
 class TestValidateCredentials:
