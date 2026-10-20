@@ -3212,6 +3212,10 @@ snapshots:
         hash: v1.k794b7964.48197d9cf132e3225936969e3d4d337db9811ab31ab2624df878317847e38109.6jga9VY3EA1ilp9PgPNPVdrux9Elev944fjSFOJjGqo
     errortracking-ratelimitsimulationchart--with-limit--light:
         hash: v1.k794b7964.3319d12b63700f0e20c2345c8706223a8940d5fe37a4278a597ba5f13d81ba65.ubh71HB2yJA2-HrliI_wUJB_HMOlOgRNmgb_o0Lhu9U
+    errortracking-sourcemapsexamplestable--mixed-reasons--dark:
+        hash: v1.k794b7964.1f0038112ffc1decccfaf7ce26f4c2f21e65a8abaed4b5a95181b9928c9073c1.bPXu5YnctDYV3nfhok0GJMfzN2AjfKMWpGNOq19XaV0
+    errortracking-sourcemapsexamplestable--mixed-reasons--light:
+        hash: v1.k794b7964.d093147386bd68089da328ebbd8311a6f5a1ea750e4eb367d4c60c2f77a7e8b5.BtOIWSxyRr0cJI1lIlWjtdmAbFSXL_DhtPjspcia6Yc
     errortracking-stacktraceactions--default--dark:
         hash: v1.k794b7964.66675f9b97886c67caa1944ddebc31ea5efb020398be48d74bbc1bf09e6dcab0.h_iqU-qk8JaIXWcf4fo7OBrIK0IVvMaOTQ-2KIjoH3A
     errortracking-stacktraceactions--default--light:
@@ -10659,9 +10663,9 @@ snapshots:
     scenes-app-errortracking--list-page-with-source-maps-banner--light:
         hash: v1.k794b7964.b24ffe1fee7932dfaa60f7e33c45d47292175915d4d6808e8b14ad385c79a4ab.HmCwMfIGY7bB3-m_Qm7qMUMw6weAb3YaB0DsmG8g4jw
     scenes-app-errortracking--list-page-with-source-maps-banner-narrow--dark:
-        hash: v1.k794b7964.25fc21ca53021e7713863dbfced91bf8ffca3dbf971b43e4829a720af0dca39d.qV3HWzyRoqwXBPStErs7a6kOAS_nVtpsWf_l2hr3BGY
+        hash: v1.k794b7964.60412bd38796fcf6d175b271473e0e6c8e7369fac615b9526fb8a1dbc096aec8.tA4k1TFss0qi7Fkbe0r6_uXMdm-zWmDnG9W9zJpgjnk
     scenes-app-errortracking--list-page-with-source-maps-banner-narrow--light:
-        hash: v1.k794b7964.c60191ccfaa5f77b9d3691f63a83e908e0344a64a9a91ca35ccfe0ab560ca943.1EYQMH1U8EtHyKqW9f5JAPgdno3UEGP_LycNCelaqjU
+        hash: v1.k794b7964.8dc8c88879ea19b5e4f2e6d8ae63e6142ba7f9b8c75402ba1a96a035b96a95b4.PalcmYlPLQMm5kMHgeUhiOgwRS-KsNat0h4X5MoO1Kw
     scenes-app-errortracking--list-page-with-stacked-banners--dark:
         hash: v1.k794b7964.aff3898ea14ab795c09e66d34c11e4b968fb1694d5825107ccc6d804636b09c5.FD3T-3N8kACVT6lTwvI6zI5uK5eFvorATmyyoPA8IjY
     scenes-app-errortracking--list-page-with-stacked-banners--light:
