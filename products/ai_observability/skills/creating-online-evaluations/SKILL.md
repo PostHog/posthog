@@ -350,7 +350,7 @@ enable yet) and what would unblock it.
 
 An enabled eval only scores traffic from now on. If the user wants results on data they already have, offer
 a backfill over a recent window, at most the last 30 days. `posthog:llma-evaluation-backfill-create` refuses a
-disabled eval, so enable it first (2.6).
+disabled eval, so enable it first (see 2.6).
 
 1. Call `posthog:llma-evaluation-backfill-estimate` with the window, `conditions`, and `rerun_existing` the
    user wants. Tell the user `total_units`, the
