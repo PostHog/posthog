@@ -42,6 +42,20 @@ class TestParser(SimpleTestCase):
         self.assertTrue(finder.has_filters)
         self.assertTrue(finder.has_date_filters)
 
+    @parameterized.expand(
+        [
+            ("filters",),
+            ("filters.dateRange.from",),
+            ("filters(event AS 'event')",),
+            ("filters.interval('day')",),
+        ]
+    )
+    def test_replace_placeholders_leaves_filters_for_replace_filters(self, placeholder: str) -> None:
+        query = cast(ast.SelectQuery, parse_select("select {foo} from events where {" + placeholder + "}"))
+        replaced = cast(ast.SelectQuery, replace_placeholders(query, {"foo": ast.Constant(value=1)}))
+        self.assertEqual(cast(ast.Constant, replaced.select[0]).value, 1)
+        self.assertEqual(clear_locations(replaced.where), clear_locations(query.where))
+
     def test_find_placeholders_dotted_filters_calls(self):
         # The dotted call forms must count as filters usage too; the Hog VM has no `filters` global.
         # A dotted call on anything else stays an expression placeholder.
