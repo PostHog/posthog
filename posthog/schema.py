@@ -3867,11 +3867,7 @@ class AssistantBIVisualizationNode(BaseModel):
 
 
 class AssistantBareInsightQuery(BaseModel):
-    kind: InsightNodeKind
-
-
-class AssistantBareMetricsQuery(BaseModel):
-    kind: AssistantMetricsNodeKind
+    kind: InsightNodeKind | AssistantMetricsNodeKind
 
 
 class AssistantBreakdownFilter(BaseModel):
@@ -19054,7 +19050,6 @@ class InsightQuery(
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
         | AssistantBareHogQLQuery
-        | AssistantBareMetricsQuery
         | AssistantEventsQuery
     ]
 ):
@@ -19065,7 +19060,6 @@ class InsightQuery(
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
         | AssistantBareHogQLQuery
-        | AssistantBareMetricsQuery
         | AssistantEventsQuery
     )
 

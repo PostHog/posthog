@@ -2242,17 +2242,14 @@
             "additionalProperties": {},
             "properties": {
                 "kind": {
-                    "$ref": "#/definitions/InsightNodeKind"
-                }
-            },
-            "required": ["kind"],
-            "type": "object"
-        },
-        "AssistantBareMetricsQuery": {
-            "additionalProperties": {},
-            "properties": {
-                "kind": {
-                    "$ref": "#/definitions/AssistantMetricsNodeKind"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/InsightNodeKind"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantMetricsNodeKind"
+                        }
+                    ]
                 }
             },
             "required": ["kind"],
@@ -30446,9 +30443,6 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantBareHogQLQuery"
-                },
-                {
-                    "$ref": "#/definitions/AssistantBareMetricsQuery"
                 },
                 {
                     "$ref": "#/definitions/AssistantEventsQuery"
