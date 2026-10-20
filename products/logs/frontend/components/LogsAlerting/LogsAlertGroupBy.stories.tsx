@@ -65,6 +65,8 @@ const meta: Meta = {
         layout: 'padded',
         viewMode: 'story',
         mockDate: '2026-10-19',
+        // The simulation placeholder draws skeletons as decoration, so they never disappear.
+        testOptions: { waitForLoadersToDisappear: false },
     },
 }
 export default meta
@@ -129,8 +131,10 @@ export const GroupLimitOutOfRange: Story = {
 
 export const GroupFiringAlertConfirmation: Story = {
     render: () => <GroupByForm alert={FIRING_UNGROUPED_ALERT} width="max-w-2xl" regroupTo="service" />,
+    parameters: { layout: 'fullscreen', testOptions: { waitForSelector: '.LemonModal' } },
 }
 
 export const RegroupConfirmation: Story = {
     render: () => <GroupByForm alert={GROUPED_ALERT} width="max-w-2xl" regroupTo="severity" />,
+    parameters: { layout: 'fullscreen', testOptions: { waitForSelector: '.LemonModal' } },
 }
