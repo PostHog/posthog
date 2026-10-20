@@ -450,7 +450,6 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Speedcurve",
     "Squadcast",
     "TawkTo",
-    "TrafficStars",
     "Trino",
     "TrustPilot",
     "Turso",
