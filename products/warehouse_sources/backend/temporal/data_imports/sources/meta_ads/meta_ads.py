@@ -476,8 +476,9 @@ META_INVALID_CURSOR_ERROR_CODE = 2642
 # read again per row (see `_restore_refusable_fields`).
 META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048})
 
-# Meta's multi-id lookup (`GET /?ids=...`) accepts at most 50 ids in one request.
-META_NODE_LOOKUP_MAX_IDS = 50
+# Meta's batch endpoint (see `_fetch_refusable_fields`) accepts at most 50 subrequests per call.
+# https://developers.facebook.com/docs/graph-api/batch-requests
+META_BATCH_MAX_SUBREQUESTS = 50
 
 META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
@@ -707,54 +708,69 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
     raise IntegrationAccountListingError("Meta returned too many pages while listing ad accounts. Please try again.")
 
 
-def _is_refused_node(node_id: str, node: typing.Any, fields: tuple[str, ...]) -> bool:
-    """Return True for a node in a successful multi-id lookup that carries Meta's creative refusal.
+def _is_refused_batch_subresponse(error: typing.Any) -> bool:
+    """Return True for a batch subresponse error that is Meta's creative refusal.
 
-    Meta can report an error per node inside an HTTP 200 lookup. Any error other than the refusal
-    raises, so a transient or permission failure is not stored as empty fields.
+    Meta reports a per-node error inside its own HTTP status, not embedded in a 200 like the
+    deprecated multi-id lookup did. Any error other than the refusal raises, so a transient or
+    permission failure is not stored as empty fields.
     """
-    error = node.get("error") if isinstance(node, dict) else None
-    if not isinstance(error, dict):
-        return False
-    subcode = error.get("error_subcode")
-    if not isinstance(subcode, int) or subcode not in META_REFUSED_CREATIVE_ERROR_SUBCODES:
-        raise Exception(f"Meta API request failed: node lookup error - {json.dumps(error)}")
-    logger.warning("meta_ads_refused_fields_for_node", node_id=node_id, fields=fields)
-    return True
+    subcode = error.get("error_subcode") if isinstance(error, dict) else None
+    return isinstance(subcode, int) and subcode in META_REFUSED_CREATIVE_ERROR_SUBCODES
 
 
 def _fetch_refusable_fields(
     node_lookup_url: str, ids: list[str], fields: tuple[str, ...], access_token: str
 ) -> dict[str, dict]:
-    """Read ``fields`` for each node in ``ids``, keyed by id, without the nodes Meta refuses to serve.
+    """Read ``fields`` for each node in ``ids``, keyed by id, skipping a node Meta refuses to serve.
 
-    A multi-id lookup fails as a whole when Meta refuses one node, so a refused batch is split in
-    half until the refused node is alone. Only that node then misses the fields.
+    Uses Meta's batch endpoint (``POST`` with a ``batch`` parameter,
+    https://developers.facebook.com/docs/graph-api/batch-requests) rather than the root multi-id
+    lookup (``GET /?ids=...``), which Meta deprecated in v26.0+. Each subrequest carries its own
+    status, so one refused node doesn't need the rest of its batch retried or bisected, and up to
+    ``META_BATCH_MAX_SUBREQUESTS`` ids are read per request rather than one request per id.
     """
-    params = {"ids": ",".join(ids), "fields": ",".join(fields), "access_token": access_token}
-    malformed_json_attempts = 0
-    while True:
-        response = _get_initial_request(node_lookup_url, params)
-        if response.status_code != 200:
+    fields_param = ",".join(fields)
+    nodes: dict[str, dict] = {}
+    for start in range(0, len(ids), META_BATCH_MAX_SUBREQUESTS):
+        chunk = ids[start : start + META_BATCH_MAX_SUBREQUESTS]
+        data = {
+            "access_token": access_token,
+            "batch": json.dumps(
+                [{"method": "GET", "relative_url": f"{node_id}?fields={fields_param}"} for node_id in chunk]
+            ),
+        }
+
+        def _issue(data: dict[str, str] = data) -> Response:
+            return make_tracked_session().post(node_lookup_url, data=data)
+
+        malformed_json_attempts = 0
+        while True:
+            response = _get_with_transient_retry(_issue)
+            if response.status_code != 200:
+                _raise_meta_api_error(response)
+            try:
+                sub_responses = response.json()
+            except RequestsJSONDecodeError:
+                malformed_json_attempts += 1
+                if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
+                    raise
+                continue
             break
-        try:
-            nodes = response.json()
-        except RequestsJSONDecodeError:
-            malformed_json_attempts += 1
-            if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
-                raise
-            continue
-        return {node_id: node for node_id, node in nodes.items() if not _is_refused_node(node_id, node, fields)}
-    if not _is_refused_creative_error(response):
-        _raise_meta_api_error(response)
-    if len(ids) == 1:
-        logger.warning("meta_ads_refused_fields_for_node", node_id=ids[0], fields=fields)
-        return {}
-    middle = len(ids) // 2
-    return {
-        **_fetch_refusable_fields(node_lookup_url, ids[:middle], fields, access_token),
-        **_fetch_refusable_fields(node_lookup_url, ids[middle:], fields, access_token),
-    }
+
+        for node_id, sub_response in zip(chunk, sub_responses):
+            try:
+                body = json.loads(sub_response.get("body") or "{}")
+            except (ValueError, TypeError):
+                body = None
+            error = body.get("error") if isinstance(body, dict) else None
+            if sub_response.get("code") == 200 and isinstance(body, dict):
+                nodes[node_id] = body
+            elif _is_refused_batch_subresponse(error):
+                logger.warning("meta_ads_refused_fields_for_node", node_id=node_id, fields=fields)
+            else:
+                raise Exception(f"Meta API request failed: node lookup error - {json.dumps(error or body)}")
+    return nodes
 
 
 def _restore_refusable_fields(
@@ -762,13 +778,7 @@ def _restore_refusable_fields(
 ) -> list[dict]:
     """Add ``fields`` back to rows fetched without them, as ``None`` for a row Meta refuses them for."""
     ids = [str(row["id"]) for row in rows if row.get("id")]
-    nodes: dict[str, dict] = {}
-    for start in range(0, len(ids), META_NODE_LOOKUP_MAX_IDS):
-        nodes.update(
-            _fetch_refusable_fields(
-                node_lookup_url, ids[start : start + META_NODE_LOOKUP_MAX_IDS], fields, access_token
-            )
-        )
+    nodes = _fetch_refusable_fields(node_lookup_url, ids, fields, access_token)
     return [{**row, **{field: nodes.get(str(row.get("id")), {}).get(field) for field in fields}} for row in rows]
 
 

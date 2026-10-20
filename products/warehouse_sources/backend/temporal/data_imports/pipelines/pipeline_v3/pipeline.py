@@ -1,9 +1,12 @@
 import time
 import asyncio
+import decimal
 import datetime
 import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import TYPE_CHECKING, Any, Generic
+
+from django.conf import settings
 
 import pyarrow as pa
 import posthoganalytics
@@ -186,6 +189,10 @@ class PipelineV3(Generic[ResumableData]):
     _resumed_incremental_run_uuid: str | None = None
     _sent_resumed_run_finalization: bool = False
     _writes_staged_repartition_scheme: bool = False
+    # Set only for a run whose batches record the watermark that each loaded prefix covers.
+    _prefix_checkpoint: IncrementalHandoffCheckpoint | None = None
+    _job_rows_synced_through_batch: int = 0
+    _kept_rows_synced: int | None = None
 
     def __init__(
         self,
@@ -202,8 +209,10 @@ class PipelineV3(Generic[ResumableData]):
         resumed_incremental_run_uuid: str | None = None,
         resumed_incremental_value: Any = None,
         preemption: PreemptionConfig | None = None,
+        kept_rows_synced: int | None = None,
     ) -> None:
         self._resource = source_response
+        self._kept_rows_synced = kept_rows_synced
         self._source_cursor_manager = source_cursor_manager
         self._resource_name = source_response.name
 
@@ -273,6 +282,22 @@ class PipelineV3(Generic[ResumableData]):
         )
         if incremental_checkpoints_allowed and self._tracks_handoff_checkpoint(source_response, reset_pipeline):
             self._handoff_checkpoint = IncrementalHandoffCheckpoint(resumed_incremental_value)
+            self._batch_range_reader = IncrementalBatchRangeReader(self._schema)
+        # A continuing attempt or a source with its own cursor does not read from the watermark, and
+        # a first sync appends, so the loaded batches of such a run say nothing about the watermark.
+        # A file destination publishes the batches of a run only when the run completes, so a loaded
+        # warehouse prefix does not prove that an external destination has the rows.
+        if (
+            settings.DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED
+            and incremental_checkpoints_allowed
+            and self._tracks_handoff_checkpoint(source_response, reset_pipeline)
+            and not is_resume
+            and source_cursor_manager is None
+            and self._resource.primary_keys
+            and not is_first_ever_sync
+            and not models.external_destination_ids
+        ):
+            self._prefix_checkpoint = IncrementalHandoffCheckpoint()
             self._batch_range_reader = IncrementalBatchRangeReader(self._schema)
 
         # A queued repartition target is the scheme of the table when this attempt deletes the table
@@ -445,8 +470,11 @@ class PipelineV3(Generic[ResumableData]):
         # `hold_batch` only inserts the batch this attempt is already holding, not the one it is
         # about to hold. A row from this attempt exists in the queue only once this call flushes one.
         flushes_a_held_batch = self._pg_producer.has_held_batch
+        loaded_prefix_cursor = self._loaded_prefix_cursor(pa_table)
         try:
-            self._pg_producer.hold_batch(batch_result, cumulative_row_count=row_count)
+            self._pg_producer.hold_batch(
+                batch_result, cumulative_row_count=row_count, loaded_prefix_cursor=loaded_prefix_cursor
+            )
         except Exception:
             # The insert that failed belongs to the batch before this one. The checkpoint already
             # counts that batch, so no later value of it is safe. The value staged earlier stays valid.
@@ -457,6 +485,42 @@ class PipelineV3(Generic[ResumableData]):
             # describes rows it holds, not rows an earlier attempt queued.
             self._queued_own_batch = True
         return pa_table.num_rows
+
+    def _loaded_prefix_cursor(self, pa_table: pa.Table) -> dict[str, Any] | None:
+        """The watermark that this batch and every earlier batch of the run cover once loaded.
+
+        The value is below the newest value seen so far, because rows that hold the newest value can
+        still be in the next batch. A batch out of ascending order voids it for the rest of the run.
+        """
+        self._job_rows_synced_through_batch += pa_table.num_rows
+        checkpoint = self._prefix_checkpoint
+        if checkpoint is None or not self._schema.incremental_field:
+            return None
+        if pa_table.num_rows > 0:
+            checkpoint.observe(self._batch_range_reader.read(pa_table))
+        value = checkpoint.resume_value
+        if value is None:
+            return None
+        serialized = self._schema.serialize_incremental_value(value)
+        if isinstance(value, decimal.Decimal) and isinstance(serialized, int | float) and serialized > value:
+            # Numeric values are stored as integers, so a negative decimal rounds up, past rows the
+            # run has not read. Record nothing rather than a value above the loaded rows.
+            return None
+        return {
+            "field": self._schema.incremental_field,
+            "value": serialized,
+            "job_rows_synced": self._job_rows_synced_through_batch,
+        }
+
+    async def _drop_prefix_checkpoint_for_active_sinks(self) -> None:
+        """Stop recording prefix values for a table that has an active chunk sink.
+
+        A retry after a prefix promotion skips rows that this job already staged for a sink, and
+        clearing the sinks at the start of an attempt deletes those staged files. The skipped rows
+        would never reach the sink, so such a table keeps its watermark until the run completes.
+        """
+        if self._prefix_checkpoint is not None and any([await sink.should_run() for sink in self._sinks.all]):
+            self._prefix_checkpoint = None
 
     def _total_batches(self) -> int:
         return len(self._batch_results)
@@ -485,6 +549,7 @@ class PipelineV3(Generic[ResumableData]):
 
     def _mark_first_ever_sync(self) -> None:
         self._pg_producer.is_first_ever_sync = True
+        self._prefix_checkpoint = None
 
     async def _record_table_rebuild(self, run_uuid: str) -> None:
         """Record that this attempt loads the table from empty (see `TableRebuildRun`).
@@ -504,6 +569,29 @@ class PipelineV3(Generic[ResumableData]):
         history table all the same.
         """
         return self._resource.cdc_write_mode == SCD2_APPEND_MODE
+
+    async def _first_batch_restores_table(self, should_resume: bool) -> bool:
+        """Whether the loader restores the table to undo an unfinished append run before this attempt loads.
+
+        The restore undoes a pre-write compaction too, so the compaction is wasted work that also makes the
+        restore commit larger. A pre-write vacuum can delete files that the restore needs, once they were
+        removed longer ago than `VACUUM_RETENTION`, and a failed restore leaves the unfinished run's rows in
+        the table. The post-load pass of a run that completes maintains the table instead.
+        """
+        if should_resume or self._run_uuid is None or self._pg_producer.sync_type != "append":
+            return False
+        # Deferred: the `load` package imports the load processor, which imports the facade that imports this module.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback import (  # noqa: PLC0415
+            UnfinishedAppendRuns,
+        )
+
+        append_runs = UnfinishedAppendRuns(self._schema, self._delta_table_ref)
+        try:
+            return await database_sync_to_async_pool(append_runs.restores_before_first_batch)(self._run_uuid)
+        except Exception:
+            # Pre-write maintenance never fails an attempt, so a failed read must not either.
+            await self._logger.awarning("V3 Pipeline: Could not check for a pending append restore", exc_info=True)
+            return False
 
     def _close_producers(self) -> None:
         self._pg_producer.close()
@@ -675,9 +763,13 @@ class PipelineV3(Generic[ResumableData]):
         try:
             await self._sinks.clear()
 
+            await self._drop_prefix_checkpoint_for_active_sinks()
+
             # v3 stages the incremental cursor until job completion, so a retried attempt
-            # re-extracts from batch 0 and the previous attempt's count must not be kept.
-            await reset_rows_synced_if_needed(self._job, should_resume)
+            # re-extracts from batch 0 and the previous attempt's count must not be kept. Only the
+            # rows below a watermark that a loaded prefix of this job moved stay counted.
+            await reset_rows_synced_if_needed(self._job, should_resume, kept_rows_synced=self._kept_rows_synced)
+            self._job_rows_synced_through_batch = self._job.rows_synced or 0
 
             validate_incremental_sync(
                 self._is_incremental,
@@ -750,7 +842,7 @@ class PipelineV3(Generic[ResumableData]):
 
             # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
             # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
-            if not is_fresh_sync:
+            if not is_fresh_sync and not await self._first_batch_restores_table(should_resume):
                 await DeltaMaintenance(self._delta_table_ref).run_scheduled(
                     self._schema,
                     is_cdc_companion=self._maintains_companion_table(),
