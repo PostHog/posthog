@@ -1042,8 +1042,18 @@ describe('EmailService', () => {
             )
         })
 
-        it('should send an email if verified', async () => {
-            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+        it.each([
+            ['an ordinary template', {}, [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }]],
+            [
+                'a sensitive template',
+                { sensitive: true },
+                [
+                    { Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
+                    { Name: 'ph_sensitive', Value: 'true' },
+                ],
+            ],
+        ])('should send an email if verified, for %s', async (_name, extraMetadata, expectedTags) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
@@ -1063,7 +1073,7 @@ describe('EmailService', () => {
                     },
                 },
                 Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
-                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
+                EmailTags: expectedTags,
                 FeedbackForwardingEmailAddress: 'test@posthog-test.com',
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
             })

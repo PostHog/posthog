@@ -31,6 +31,7 @@ def _content(
     from_integration_id: int | None = None,
     html: str = "<a href='{{ variables.link }}'>Reset</a>",
     text: str = "Reset: {{ variables.link }}",
+    sensitive: bool = False,
 ) -> TransactionalEmailContent:
     return TransactionalEmailContent(
         message_template_id=uuid4(),
@@ -41,6 +42,7 @@ def _content(
         text=text,
         from_integration_id=from_integration_id,
         message_category_id=None,
+        sensitive=sensitive,
     )
 
 
@@ -65,10 +67,11 @@ class TestTransactionalEmailWorkflows(BaseTest):
             team_id=self.team.id,
             user_id=self.user.id,
             hog_flow_id=flow_id,
-            content=_content(subject="New subject"),
+            content=_content(subject="New subject", sensitive=True),
         )
 
         flow = HogFlow.objects.get(id=flow_id)
+        assert flow.actions[1]["config"]["sensitive"] is True
         assert flow.status == HogFlow.State.ACTIVE
         assert flow.origin_product == "transactional_emails"
         assert flow.version == 2

@@ -54,6 +54,7 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
                 "message_category_id": str(content.message_category_id) if content.message_category_id else None,
                 # Puts the send on the email queue's fast lane and skips marketing opt-outs.
                 "message_category_type": "transactional",
+                "sensitive": content.sensitive,
                 "inputs": {
                     "email": {
                         "templating": "liquid",

@@ -211,6 +211,11 @@ const sesUnattributedEventsCounter = new Counter({
 // cheap enough to carry here.
 export const SES_LINK_INDEX_TAG = 'phl'
 
+// SES message tag set at send time on emails whose template is marked sensitive, and echoed back on
+// every event for that message. A clicked link in such an email can carry a reset token or a login code,
+// so its click is recorded with the normalized URL, which drops the query string.
+export const SES_SENSITIVE_TAG = 'ph_sensitive'
+
 // Path of our own click-tracking redirect, which used to wrap every anchor before SES saw it.
 const TRACKING_REDIRECT_PATH = '/public/m/redirect'
 
@@ -741,7 +746,11 @@ export class SesWebhookHandler {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    properties.$link_url = resolveClickDestination(rec.click.link)
+                    const destination = resolveClickDestination(rec.click.link)
+                    properties.$link_url =
+                        rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
+                            ? normalizeClickUrl(destination)
+                            : destination
                     const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
                     if (linkIndex !== undefined) {
                         properties.$link_index = linkIndex

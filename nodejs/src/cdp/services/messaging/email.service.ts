@@ -29,6 +29,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
+import { SES_SENSITIVE_TAG } from './helpers/ses'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -1135,7 +1136,12 @@ export class EmailService {
             ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
-            EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
+            EmailTags: [
+                { Name: 'ph_id', Value: shortTrackingCode },
+                ...(result.invocation.hogFunction?.metadata?.sensitive === true
+                    ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
+                    : []),
+            ],
             FeedbackForwardingEmailAddress: from.email,
         }
 

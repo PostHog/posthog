@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -61,6 +62,7 @@ export interface messageTemplateLogicValues {
     hasUnsavedChanges: boolean
     isDiscardingDraft: boolean
     isMakingTransactional: boolean
+    isSavingSensitive: boolean
     isSavingDraft: boolean
     isSyncingExternalEdit: boolean
     isTemplateSubmitting: boolean
@@ -180,6 +182,12 @@ export interface messageTemplateLogicActions {
     }
     makeTransactionalDone: (hogFlowId: string | null) => {
         hogFlowId: string | null
+    }
+    setSensitive: (sensitive: boolean) => {
+        sensitive: boolean
+    }
+    setSensitiveDone: () => {
+        value: true
     }
     replayDeferredExternalEdit: () => {
         value: true
@@ -462,6 +470,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setSyncingExternalEdit: (syncing: boolean) => ({ syncing }),
         makeTransactional: true,
         makeTransactionalDone: (hogFlowId: string | null) => ({ hogFlowId }),
+        setSensitive: (sensitive: boolean) => ({ sensitive }),
+        setSensitiveDone: true,
         setTransactionalTab: (tab: TransactionalTemplateTab) => ({ tab }),
         setDraftState: (draft: TemplateContent | null, published: TemplateContent) => ({ draft, published }),
         autoSaveDraft: true,
@@ -517,6 +527,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             {
                 makeTransactional: () => true,
                 makeTransactionalDone: () => false,
+            },
+        ],
+        isSavingSensitive: [
+            false,
+            {
+                setSensitive: () => true,
+                setSensitiveDone: () => false,
             },
         ],
         // The draft as last saved, and the content sends use. Both come from the server.
@@ -679,6 +696,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             if (
                 values.templateLoading ||
                 values.isMakingTransactional ||
+                values.isSavingSensitive ||
                 values.isSavingDraft ||
                 values.isDiscardingDraft
             ) {
@@ -814,6 +832,26 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.replayDeferredExternalEdit()
                 lemonToast.error(error?.detail ?? 'Could not make the template transactional.')
             }
+        },
+        setSensitive: async ({ sensitive }) => {
+            try {
+                // Saved on its own, so it applies to sends at once and leaves any content draft untouched.
+                const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
+                    sensitive,
+                })
+                const changes = { sensitive: updated.sensitive, updated_at: updated.updated_at }
+                actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
+                if (values.templateChanged) {
+                    actions.setTemplateValues(changes)
+                } else {
+                    actions.resetTemplate({ ...values.template, ...changes })
+                }
+                posthog.capture('email template sensitive changed', { template_id: props.id, sensitive })
+            } catch (error: any) {
+                lemonToast.error(error?.detail ?? "Couldn't change the setting. Try again.")
+            }
+            actions.setSensitiveDone()
+            actions.replayDeferredExternalEdit()
         },
         loadTemplateFailure: () => {
             // The form is still the stale copy. The banner keeps the conflict visible and offers the retry.

@@ -403,6 +403,17 @@ describe('messageTemplateLogic', () => {
             expect(bodies).toEqual([{ draft_content: edited }])
         })
 
+        it('protecting sensitive data saves only the flag, so the draft stays unpublished', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSensitive(true)
+            }).toDispatchActions(['setSensitiveDone'])
+
+            expect(bodies).toEqual([{ sensitive: true }])
+            expect(logic.values.originalTemplate.sensitive).toBe(true)
+            expect(logic.values.templateChanged).toBe(false)
+            expect(logic.values.hasDraft).toBe(true)
+        })
+
         it('publishing sends the content and leaves no draft behind', async () => {
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()

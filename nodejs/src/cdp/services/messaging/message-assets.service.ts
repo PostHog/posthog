@@ -108,6 +108,9 @@ const oversizedPlaceholderHtml = (bytes: number): string => {
     return `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email too large to capture</h3><p style="margin:0">The rendered email was ${mb}&nbsp;MB, which exceeds the ${MAX_HTML_BYTES / 1024 / 1024}&nbsp;MB capture limit. The send itself succeeded — this placeholder is stored so the &ldquo;View email&rdquo; link works, but the original body is not viewable here.</p></div>`
 }
 
+// Stored instead of the body when the template is marked sensitive, so the person view still shows the send.
+const SENSITIVE_PLACEHOLDER_HTML = `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email body not stored</h3><p style="margin:0">This email was sent. Its template is marked sensitive, so PostHog doesn't keep a copy of its content.</p></div>`
+
 /**
  * Buffers rendered-email snapshots and flushes them as a single bulk Kafka
  * produce at the batch boundary — one round-trip per partition for the whole
@@ -139,7 +142,9 @@ export class MessageAssetsService {
         }
         const bodyBytes = Buffer.byteLength(body, 'utf8')
         let html = body
-        if (bodyBytes > MAX_HTML_BYTES) {
+        if (invocation.hogFunction.metadata?.sensitive === true) {
+            html = SENSITIVE_PLACEHOLDER_HTML
+        } else if (bodyBytes > MAX_HTML_BYTES) {
             counterMessageAssetsTruncated.inc()
             html = oversizedPlaceholderHtml(bodyBytes)
         }

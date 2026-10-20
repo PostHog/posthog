@@ -68201,6 +68201,8 @@ export namespace Schemas {
       message_category?: string | null;
       /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
+      /** For emails that carry login codes, reset links or other secrets. Sent emails keep a placeholder instead of their body, and clicked links are recorded without their query string. Can change at any time. */
+      sensitive?: boolean;
       /**
          * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
          * @nullable
@@ -84135,6 +84137,8 @@ export namespace Schemas {
       message_category?: string | null;
       /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
+      /** For emails that carry login codes, reset links or other secrets. Sent emails keep a placeholder instead of their body, and clicked links are recorded without their query string. Can change at any time. */
+      sensitive?: boolean;
       /**
          * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
          * @nullable
