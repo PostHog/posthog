@@ -2,7 +2,7 @@ import {ChildProcessWithoutNullStreams, spawn, SpawnOptionsWithoutStdio} from 'c
 import {accessSync, constants, realpathSync, statSync} from 'fs'
 import * as path from 'path'
 
-export type CommandExecutable = 'git' | 'aws' | 'helper' | 'client' | 'shell'
+export type CommandExecutable = 'git' | 'aws' | 'helper' | 'client'
 export interface CommandOptions {
   cwd: string
   timeoutMs: number
@@ -31,7 +31,6 @@ function launch(executable: CommandExecutable, args: string[], options: SpawnOpt
     case 'aws': return spawn('aws', args, options)
     case 'helper': return spawn('bash', args, options)
     case 'client': return spawn('sh', ['-c', 'exec "$REGCTL" "$@"', 'regctl', ...args], options)
-    case 'shell': return spawn('sh', args, options)
   }
 }
 

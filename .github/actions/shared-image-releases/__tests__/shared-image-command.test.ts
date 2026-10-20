@@ -10,7 +10,7 @@ afterEach(() => rmSync(cwd, {recursive: true, force: true}))
 describe('bounded shared-image processes', () => {
   test('timeout kills the process group, including a sleeping grandchild', async () => {
     const pidFile = path.join(cwd, 'grandchild.pid')
-    await expect(command('shell', ['-c', 'sleep 30 & echo "$!" > "$1"; wait', 'fixture', pidFile], {
+    await expect(command('helper', ['-c', 'sleep 30 & echo "$!" > "$1"; wait', 'fixture', pidFile], {
       cwd, timeoutMs: 200, maxBuffer: 1024
     })).rejects.toThrow('timed out')
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
@@ -26,7 +26,7 @@ describe('bounded shared-image processes', () => {
   })
 
   test('output beyond maxBuffer rejects even if the child exits successfully', async () => {
-    await expect(command('shell', ['-c', 'printf 1234567890'], {cwd, timeoutMs: 10000, maxBuffer: 4})).rejects.toThrow('output budget exhausted')
+    await expect(command('helper', ['-c', 'printf 1234567890'], {cwd, timeoutMs: 10000, maxBuffer: 4})).rejects.toThrow('output budget exhausted')
   })
 
   test('the configured client preserves literal arguments through the fixed executable dispatch', async () => {

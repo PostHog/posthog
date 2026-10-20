@@ -5,6 +5,7 @@ import * as path from 'path'
 import {publishChannels, PublisherOptions} from '../src/shared-image-publisher'
 import {approvedImages, CANONICAL_SOURCE_REPOSITORY, POLICY_PATH} from '../src/shared-image'
 import {ReleaseRegistry} from '../src/shared-image-registry'
+import * as commands from '../src/shared-image-command'
 
 jest.unmock('../src/shared-image-command')
 let scratch: string
@@ -15,7 +16,8 @@ beforeEach(() => { scratch = mkdtempSync(path.join(tmpdir(), 'shared-image-fetch
 afterEach(() => { jest.restoreAllMocks(); rmSync(scratch, {recursive: true, force: true}) })
 
 describe('publisher bounded tree fetching with the real command runner', () => {
-  test.each([true, false])('origin contains the missing tree=%s', async available => {
+  test.each(['available', 'missing', 'probe failure', 'fetch and probe failure'])('bounded tree fetch: %s', async mode => {
+    const available = mode === 'available' || mode === 'probe failure'
     const cwd = path.join(scratch, 'executing')
     const origin = path.join(scratch, 'origin.git')
     mkdirSync(cwd)
@@ -57,14 +59,28 @@ describe('publisher bounded tree fetching with the real command runner', () => {
       budgets: {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 1024 * 1024, registryMs: 30000, copySeconds: 1,
         readbackSeconds: 1, maxChannels: 1, concurrency: 1, channelMs: 120000, totalMs: 120000}
     }
+    if (mode.includes('probe failure')) {
+      const run = commands.command
+      let fetched = false
+      jest.spyOn(commands, 'command').mockImplementation(async (executable, args, configuration) => {
+        if (fetched && executable === 'git' && args[0] === 'cat-file' && args.includes('--batch-check=%(objectname) %(objecttype)')) {
+          throw new Error('post-fetch availability probe timed out')
+        }
+        try { return await run(executable, args, configuration) } finally {
+          if (executable === 'git' && args[0] === 'fetch') fetched = true
+        }
+      })
+    }
     expect(options.approved['posthog-cloud'].sourceRepository).toBe(CANONICAL_SOURCE_REPOSITORY)
     const [result] = await publishChannels(options)
-    if (available) {
+    if (mode === 'available') {
       expect(result).toMatchObject({decision: 'published', outcome: 'present-at-expected-digest'})
       expect(() => git(cwd, 'cat-file', '-e', tree)).not.toThrow()
       expect(published.has(options.alias)).toBe(true)
     } else {
       expect(result).toMatchObject({decision: 'blocked', reason: expect.stringContaining('remain unavailable after bounded fetch')})
+      if (mode.includes('probe failure')) expect(result.reason).toContain('post-fetch availability probe timed out')
+      if (!available) expect(result.reason).toContain('git: exited')
       expect(published.size).toBe(0)
     }
   })

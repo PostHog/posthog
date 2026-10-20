@@ -74,10 +74,12 @@ Counter-example, not gated: `build-phrocs.yml`.
 For a new monorepo publisher or independent releases of a shared built image,
 read [Ordered image releases](references/ordered-image-releases.md). Reuse the
 repository helper and canonical policy. Use `.github/actions/shared-image-releases`
-for `inspect` and the publication helper APIs. The legacy paths-filter action
-owns manifest loading and projection. The foundation supports the common
-alias and policy helpers. Channels must stay empty; selective worker publication
-is not implemented. Services built elsewhere retain their existing publisher family.
+for `inspect` and `publish`. The legacy paths-filter action owns manifest loading
+and projection. Selective channels compare each destination frontier with the
+successful build and publish only eligible digests. Keep channels empty until
+their destinations, approved configuration, seed and consumer binding have
+separate activation review. Services built elsewhere retain their existing
+publisher family.
 
 The publisher validates source policy and approved publication destinations.
 For new-service onboarding or an existing-service migration, hand the consumer's

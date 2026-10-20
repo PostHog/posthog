@@ -29,8 +29,8 @@ const policy = (paths = ['worker/**'], extra: Record<string, unknown> = {}): str
   images: {'posthog-cloud': {channels: {worker: {repository: 'workers/worker', filter: 'worker', ...extra},
     other: {repository: 'workers/other', filter: 'other'}}}}
 })
-const image = (revision: string, source = `https://github.com/${CANONICAL_SOURCE_REPOSITORY}`): string => {
-  const raw = JSON.stringify({schemaVersion: 2, annotations: {'org.opencontainers.image.revision': revision, 'org.opencontainers.image.source': source}})
+const image = (revision: string, source = `https://github.com/${CANONICAL_SOURCE_REPOSITORY}`, marker = ''): string => {
+  const raw = JSON.stringify({schemaVersion: 2, annotations: {'org.opencontainers.image.revision': revision, 'org.opencontainers.image.source': source}, ...(marker ? {marker} : {})})
   const digest = `sha256:${createHash('sha256').update(raw).digest('hex')}`
   manifests.set(digest, raw)
   return digest
@@ -119,7 +119,7 @@ describe('shared-image publication', () => {
     expect(tags.get('workers/worker')?.get(success ? firstAlias : options.alias)).toBe(success ? firstDigest : options.digest)
   })
 
-  test.each(['reverted policy', 'destination rebind'])('%s affects only the selected channel', async mode => {
+  test.each(['reverted policy', 'merged policy', 'destination rebind'])('%s affects only the selected channel', async mode => {
     if (mode === 'destination rebind') {
       const source = options.approved['posthog-cloud']
       source.destinations = [...source.destinations, {...source.destinations[0], repository: 'workers/rebound'}]
@@ -133,8 +133,15 @@ describe('shared-image publication', () => {
       ]))
       return
     }
+    if (mode === 'merged policy') git('checkout', '-b', 'policy-change', base)
     put(POLICY_PATH, policy(['worker/**', 'dependency/**'])); commit()
-    put(POLICY_PATH, policy()); commit(); build()
+    if (mode === 'merged policy') {
+      git('checkout', 'main'); put('unrelated.txt', 'main'); commit()
+      git('merge', '--no-ff', 'policy-change', '-m', 'merge policy')
+    } else {
+      put(POLICY_PATH, policy()); commit()
+    }
+    build()
     expect(await publishChannels(options)).toEqual(expect.arrayContaining([
       expect.objectContaining({channel: 'posthog-cloud/worker', decision: 'published'}),
       expect.objectContaining({channel: 'posthog-cloud/other', decision: 'unchanged'})
@@ -152,15 +159,30 @@ describe('shared-image publication', () => {
     expect(() => validateRequests(loadPolicy(policy()), '*', undefined)).toThrow()
   })
 
-  test.each(['invalid revision', 'ordinal mismatch', 'second parent', 'missing history', 'older build'])('frontier handles %s explicitly', async mode => {
+  test.each(['same digest', 'different digest'])('equal-revision rerun with %s preserves exact publication identity', async mode => {
+    put('worker/run.py', 'relevant'); commit(); build(); seed(options.revision)
+    const existing = options.digest
+    if (mode === 'different digest') options.digest = image(options.revision, `https://github.com/${CANONICAL_SOURCE_REPOSITORY}`, 'different build')
+    expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toEqual({
+      channel: 'posthog-cloud/worker', decision: mode === 'same digest' ? 'present' : 'blocked',
+      outcome: mode === 'same digest' ? 'present-at-expected-digest' : 'integrity-mismatch', tag: options.alias, digest: options.digest
+    })
+    expect(tags.get('workers/worker')!.get(options.alias)).toBe(existing)
+  })
+
+  test.each(['invalid revision', 'ordinal mismatch', 'second parent', 'higher second parent', 'missing history', 'older build'])('frontier handles %s explicitly', async mode => {
     put('worker/run.py', 'relevant'); const head = commit(); build()
     const entries = tags.get('workers/worker')!
     entries.clear()
     if (mode === 'invalid revision') entries.set('r000000000002-abcdef', image('abcdef'))
     if (mode === 'ordinal mismatch') entries.set(`r000000000099-${base.slice(0, 6)}`, image(base))
     if (mode === 'missing history') entries.set('r000000000002-ffffff', image('f'.repeat(40)))
-    if (mode === 'second parent') {
-      git('checkout', '-b', 'feature', base); put('feature.txt', 'feature'); const second = commit()
+    if (mode === 'second parent' || mode === 'higher second parent') {
+      git('checkout', '-b', 'feature', base)
+      let second = base
+      for (let index = 0; index < (mode === 'higher second parent' ? 3 : 1); index++) {
+        put('feature.txt', `feature ${index}`); second = commit()
+      }
       git('checkout', 'main'); git('merge', '--no-ff', 'feature', '-m', 'merge'); build()
       entries.set(alias(second), image(second))
     }
@@ -215,7 +237,7 @@ describe('shared-image publication', () => {
     expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
   })
 
-  test.each(['ordinary', 'seed', 'retry after advancement', 'missing seed', 'conflict', 'missing historical policy', 'missing fingerprint'])('bootstrap: %s', async mode => {
+  test.each(['ordinary', 'seed', 'retry after advancement', 'missing seed', 'conflict', 'missing historical policy', 'missing fingerprint', 'newer seed'])('bootstrap: %s', async mode => {
     const entries = tags.get('workers/worker')!
     entries.clear()
     if (['missing historical policy', 'missing fingerprint'].includes(mode)) {
@@ -228,9 +250,15 @@ describe('shared-image publication', () => {
     if (mode === 'retry after advancement') { entries.set(alias(base), image(base)); entries.set(options.alias, options.digest) }
     if (mode === 'missing seed') entries.set(options.alias, options.digest)
     if (mode === 'conflict') entries.set(alias(base), image(base, 'https://example.invalid/conflict'))
+    if (mode === 'newer seed') {
+      put('future.txt', 'future seed'); const future = commit()
+      options.bootstrap = {channel: 'posthog-cloud/worker', revision: future, digest: image(future)}
+      git('checkout', '--detach', options.revision)
+    }
     const result = (await publishChannels(options)).find(row => row.channel.endsWith('/worker'))!
     const succeeds = ['seed', 'retry after advancement', 'missing historical policy'].includes(mode)
     expect(result.decision).toBe(succeeds ? mode === 'retry after advancement' ? 'present' : 'published' : 'blocked')
+    if (mode === 'newer seed') expect(result.reason).toContain('seed is newer than the executing revision')
     if (succeeds) expect(JSON.parse(readFileSync(path.join(options.evidence, 'bootstrap/posthog-cloud/worker.json'), 'utf8'))).toEqual({
       version: 1, sourceRepository: CANONICAL_SOURCE_REPOSITORY, sourceImage: 'registry.example.com/posthog-cloud',
       destination: options.approved['posthog-cloud'].destinations[0], policyRevision: options.revision,

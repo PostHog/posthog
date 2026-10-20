@@ -1,9 +1,13 @@
 import * as core from '@actions/core'
 import * as path from 'path'
+import {mkdtempSync, rmSync, writeFileSync} from 'fs'
+import {tmpdir} from 'os'
 import {run} from '../src/inspect'
 import {approvedImages} from '../src/shared-image'
+import {command} from '../src/shared-image-command'
 
 jest.mock('@actions/core', () => ({getInput: jest.fn(), setOutput: jest.fn(), setFailed: jest.fn()}))
+jest.mock('../src/shared-image-command')
 
 const destination = {
   owner: 'metadata', repository: 'posthog-temporal-workers/data-warehouse-metadata',
@@ -81,6 +85,37 @@ describe('inspect action inputs and outputs', () => {
     await run()
     expect(core.setFailed).not.toHaveBeenCalled()
     expect(core.setOutput).toHaveBeenCalledWith('channels', 'true')
+  })
+
+  test.each([
+    ['non-default branch', 'refs/heads/feature', 'workflow_dispatch', '[]', '', 'Shared-image publication requires the default branch'],
+    ['force on push', 'refs/heads/main', 'push', '["posthog-cloud/dw-metadata"]', '', 'Force and bootstrap require an authorized manual default-branch invocation'],
+    ['bootstrap on push', 'refs/heads/main', 'push', '[]', JSON.stringify({channel: 'posthog-cloud/dw-metadata', revision: 'a'.repeat(40), digest: 'sha256:' + 'b'.repeat(64)}), 'Force and bootstrap require an authorized manual default-branch invocation']
+  ])('rejects publish for %s before running a command', async (_name, ref, eventName, force, bootstrap, error) => {
+    const environment = {...process.env}
+    const scratch = mkdtempSync(path.join(tmpdir(), 'shared-image-entry-'))
+    try {
+      const event = path.join(scratch, 'event.json')
+      writeFileSync(event, JSON.stringify({repository: {default_branch: 'main'}}))
+      process.env.GITHUB_EVENT_PATH = event
+      process.env.GITHUB_REF = ref
+      process.env.GITHUB_EVENT_NAME = eventName
+      process.env.GITHUB_SHA = 'a'.repeat(40)
+      jest.mocked(command).mockClear()
+      const publishInputs: Record<string, string> = {
+        ...inputs, 'shared-image-operation': 'publish', 'shared-image-force': force, 'shared-image-bootstrap': bootstrap,
+        'shared-image-budgets': JSON.stringify({fetchMs: 30000, comparisonMs: 30000, maxBuffer: 1024, registryMs: 30000,
+          copySeconds: 1, readbackSeconds: 1, maxChannels: 1, concurrency: 1, channelMs: 60000, totalMs: 120000})
+      }
+      jest.mocked(core.getInput).mockImplementation(name => publishInputs[name] || '')
+      await run()
+      expect(command).not.toHaveBeenCalled()
+      expect(core.setFailed).toHaveBeenCalledWith(error)
+      expect(core.setOutput).not.toHaveBeenCalled()
+    } finally {
+      process.env = environment
+      rmSync(scratch, {recursive: true, force: true})
+    }
   })
 
   test('an empty configured channel set emits false and the resolved empty map', async () => {

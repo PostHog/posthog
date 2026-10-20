@@ -3,7 +3,7 @@ import {existsSync, mkdtempSync, readFileSync, rmSync} from 'fs'
 import {tmpdir} from 'os'
 import * as path from 'path'
 import {command, CommandOptions, configureCopyClient} from './shared-image-command'
-import {DIGEST, ORDERED_ALIAS, REVISION, CANONICAL_SOURCE_REPOSITORY, DestinationBinding, ImageBinding} from './shared-image-releases'
+import {DIGEST, REVISION, CANONICAL_SOURCE_REPOSITORY, DestinationBinding, ImageBinding} from './shared-image-releases'
 
 export type Outcome = 'present-at-expected-digest' | 'absent' | 'integrity-mismatch' | 'unknown'
 export interface Publication {
@@ -80,7 +80,7 @@ export class ReleaseRegistry {
     return digest
   }
 
-  async identity(registry: string, repository: string, digest: string, tag?: string): Promise<ImageIdentity> {
+  async identity(registry: string, repository: string, digest: string): Promise<ImageIdentity> {
     if (!DIGEST.test(digest)) throw new Error('Expected exact image digest')
     const raw = await command('client', ['manifest', 'get', `${registry}/${repository}@${digest}`, '--format', 'raw-body'], {
       ...this.options(), env: {REGCTL: this.regctl}
@@ -91,9 +91,6 @@ export class ReleaseRegistry {
     const source = manifest.annotations?.['org.opencontainers.image.source']
     if (!REVISION.test(revision) || source !== `https://github.com/${CANONICAL_SOURCE_REPOSITORY}`) {
       throw new Error(`${repository}: invalid canonical source/revision metadata`)
-    }
-    if (tag && (!ORDERED_ALIAS.test(tag) || tag.slice(14) !== revision.slice(0, 6))) {
-      throw new Error(`${repository}:${tag}: alias revision mismatch`)
     }
     return {revision, digest}
   }

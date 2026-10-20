@@ -1692,6 +1692,13 @@ jobs:
               timeout-minutes: 2
               run: bash .github/scripts/ordered-image-release.sh tag
 
+            - name: Fail when shared-image ordered tag is unavailable
+              if: ${{ steps.shared-image-channels.outputs.channels == 'true' && steps.ordered-release.outputs.tag == '' }}
+              shell: bash
+              run: |
+                  echo "::error title=Shared-image ordered tag unavailable::Channels could not be evaluated because no ordered tag was generated. Check the tag step and retry."
+                  exit 1
+
             - name: Install shared-image copy client
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 1

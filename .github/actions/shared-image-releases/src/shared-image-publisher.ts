@@ -59,22 +59,20 @@ export function validateRequests(policy: Policy, force: unknown, bootstrap: unkn
   return {force, bootstrap: seed}
 }
 
-function selectedPolicy(policy: Policy | undefined, image: string, name: string, current: Channel, approved: ApprovedImages, destination: DestinationBinding): string | undefined {
+function selectedPolicy(policy: Policy | undefined, image: string, name: string, current: Channel): string | undefined {
   const channel = policy?.images[image]?.channels[name]
   if (!channel || !policy) return undefined
   if (channel.bootstrapPolicyDigest !== undefined && channel.bootstrapPolicyDigest !== current.bootstrapPolicyDigest) {
     throw new Error(`${image}/${name}: bootstrapPolicyDigest cannot change after adoption`)
   }
-  const binding = bindChannels({...policy, images: {[image]: {channels: {[name]: channel}}}}, approved)[image][name]
-  if (binding.owner !== destination.owner || binding.registry !== destination.registry || binding.repository !== destination.repository ||
-      JSON.stringify(binding.replicas) !== JSON.stringify(destination.replicas)) throw new Error(`${image}/${name}: historical destination changed`)
+  if (channel.repository !== current.repository) throw new Error(`${image}/${name}: historical destination changed`)
   return policyDigest(policy.filters[channel.filter])
 }
 
-function policyChanged(policies: (Policy | undefined)[], image: string, name: string, channel: Channel, options: PublisherOptions, destination: DestinationBinding): boolean {
+function policyChanged(policies: (Policy | undefined)[], image: string, name: string, channel: Channel): boolean {
   let seen = false
   const digests = policies.map(policy => {
-    const digest = selectedPolicy(policy, image, name, channel, options.approved, destination)
+    const digest = selectedPolicy(policy, image, name, channel)
     if (digest) seen = true
     if (!seen) {
       if (!channel.bootstrapPolicyDigest) throw new Error(`${image}/${name}: missing bootstrapPolicyDigest for historical policy gap`)
@@ -107,7 +105,7 @@ async function bootstrapChannel(selected: ResolvedChannel, seed: Bootstrap, cont
   const tag = await history.alias(seed.revision)
   if (await history.relation(seed.revision, options.revision) === 'older') throw new Error(`${key}: seed is newer than the executing revision`)
   const seedPolicy = await history.policyAt(seed.revision)
-  if (selectedPolicy(seedPolicy, image, name, channel, options.approved, destination) === undefined &&
+  if (selectedPolicy(seedPolicy, image, name, channel) === undefined &&
       channel.bootstrapPolicyDigest !== policyDigest(policy.filters[channel.filter])) {
     throw new Error(`${key}: bootstrapPolicyDigest must match the reviewed current policy`)
   }
@@ -138,7 +136,7 @@ async function advanceChannel(selected: ResolvedChannel, force: string[], contex
   if (!frontier) throw new Error(`${key}: empty ordered frontier requires explicit bootstrap`)
   const digest = await registry.read(destination, frontier)
   if (!digest) throw new Error(`${key}: frontier disappeared during readback`)
-  const identity = await registry.identity(destination.registry, destination.repository, digest, frontier)
+  const identity = await registry.identity(destination.registry, destination.repository, digest)
   if (await history.alias(identity.revision) !== frontier) throw new Error(`${key}: frontier ordinal mismatch`)
   const relation = await history.relation(identity.revision, options.revision)
   if (relation === 'older') return {channel: key, decision: 'older-revision'}
@@ -146,7 +144,7 @@ async function advanceChannel(selected: ResolvedChannel, force: string[], contex
     return publication(key, {outcome: digest === options.digest ? 'present-at-expected-digest' : 'integrity-mismatch'}, frontier, options.digest, true)
   }
   const comparison = await history.compare(identity.revision, options.revision)
-  const changed = policyChanged(comparison.policies, image, name, channel, options, destination)
+  const changed = policyChanged(comparison.policies, image, name, channel)
   const matches = new Filter(JSON.stringify({channel: policy.filters[channel.filter]})).match(comparison.files).channel.length > 0
   if (!changed && !matches && !force.includes(key)) return {channel: key, decision: 'unchanged'}
   await verifyImage(registry, history, source, options.digest, options.revision, options.alias)
@@ -198,7 +196,7 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
 }
 
 async function verifyImage(registry: ReleaseRegistry, history: SourceHistory, coordinate: Pick<ImageBinding, 'registry' | 'repository'>, digest: string, revision: string, tag: string): Promise<void> {
-  const identity = await registry.identity(coordinate.registry, coordinate.repository, digest, tag)
+  const identity = await registry.identity(coordinate.registry, coordinate.repository, digest)
   if (identity.revision !== revision || await history.alias(revision) !== tag) throw new Error('Image revision differs from approved source identity')
 }
 

@@ -62,10 +62,10 @@ export class SourceHistory {
       return output.split('\n').some(line => line.startsWith('?'))
     }
     if (await missing()) {
-      let failure: unknown
-      try { await this.fetch(trees, 'blob:none', fetchDeadline) } catch (error) { failure = error }
-      const available = await missing().then(result => !result, () => false)
-      if (!available) throw new Error(`Interval trees remain unavailable after bounded fetch${failure ? `: ${String(failure)}` : ''}`)
+      const failures: unknown[] = []
+      try { await this.fetch(trees, 'blob:none', fetchDeadline) } catch (error) { failures.push(error) }
+      const available = await missing().then(result => !result, error => { failures.push(error); return false })
+      if (!available) throw new Error(`Interval trees remain unavailable after bounded fetch${failures.length ? `: ${failures.map(String).join('; ')}` : ''}`)
     }
   }
 
@@ -126,7 +126,7 @@ export class SourceHistory {
     await this.trees([base, ...commits], fetchDeadline)
     const deadline = Math.min(this.deadline, Date.now() + this.budgets.comparisonMs)
     const changes = (await this.git([
-      'log', '--first-parent', '--diff-merges=first-parent', '--format=%H', `${base}..${revision}`, '--', this.policyPath
+      'log', '--first-parent', '--diff-merges=first-parent', '--no-patch', '--format=%H', `${base}..${revision}`, '--', this.policyPath
     ], deadline)).split('\n').filter(Boolean).reverse()
     const policies = await this.readPolicies([base, ...changes], fetchDeadline)
     const files = await intervalFiles(base, revision, args => this.git(args, deadline))
