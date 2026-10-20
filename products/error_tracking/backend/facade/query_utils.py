@@ -536,8 +536,6 @@ FIRST_EVENT_LOOKAHEAD = timedelta(seconds=1)
 
 
 def parse_timestamp(value: object) -> datetime | None:
-    if isinstance(value, datetime):
-        return value
     if not isinstance(value, str):
         return None
     try:
@@ -552,13 +550,12 @@ class EventWindow:
     before: str
 
 
-def first_event_window(first_seen: object) -> EventWindow | None:
-    first_seen_at = parse_timestamp(first_seen)
-    if first_seen_at is None:
+def first_event_window(first_seen: datetime | None) -> EventWindow | None:
+    if first_seen is None:
         return None
     return EventWindow(
-        after=(first_seen_at - FIRST_EVENT_LOOKBACK).isoformat(),
-        before=(first_seen_at + FIRST_EVENT_LOOKAHEAD).isoformat(),
+        after=(first_seen - FIRST_EVENT_LOOKBACK).isoformat(),
+        before=(first_seen + FIRST_EVENT_LOOKAHEAD).isoformat(),
     )
 
 
@@ -688,10 +685,11 @@ TREND_VOLUME_RESOLUTION = 2
 TREND_CHANGE_FRACTION = 0.25
 
 
-def trend_direction(previous: int, current: int, first_seen: object, current_from: object) -> IssueTrendDirection:
-    first_seen_at = parse_timestamp(first_seen)
+def trend_direction(
+    previous: int, current: int, first_seen: datetime | None, current_from: object
+) -> IssueTrendDirection:
     current_from_at = parse_timestamp(current_from)
-    if previous == 0 and current > 0 and first_seen_at and current_from_at and first_seen_at >= current_from_at:
+    if previous == 0 and current > 0 and first_seen and current_from_at and first_seen >= current_from_at:
         return IssueTrendDirection.NEW
     change = current - previous
     if change and abs(change) >= previous * TREND_CHANGE_FRACTION:
