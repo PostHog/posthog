@@ -26,3 +26,18 @@ class TodayHighlights(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"{self.user_id} {self.local_day} {self.status}"
+
+
+class TodayPulsePins(ProductTeamModel):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    user_id = models.BigIntegerField()
+    pins = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "user_id"], name="today_pulse_pins_unique_user"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {len(self.pins)} pins"

@@ -23,7 +23,7 @@ from posthog.week_start_day import WeekStartDay
 
 from ..facade import contracts
 from ..facade.contracts import HighlightCandidate, HighlightFindings, HighlightSource
-from ..facade.enums import HighlightInterval, HighlightLabel, HighlightPriority, HighlightsStatus
+from ..facade.enums import HighlightInterval, HighlightLabel, HighlightMetricReason, HighlightPriority, HighlightsStatus
 from ..feature_flags import pulse_ranking
 from ..models import TodayHighlights
 from ..temporal.inputs import (
@@ -34,6 +34,7 @@ from ..temporal.inputs import (
     HighlightSourceResult,
     highlights_workflow_id,
 )
+from . import pulse_pins
 from .highlight_registry import load_sources
 from .highlight_types import CACHE_SECONDS, Context, property_restrictions
 
@@ -84,7 +85,8 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
 def _key(team: Team, user: User, scopes: frozenset[str] | None) -> str:
     granted = "session" if scopes is None else ",".join(sorted(scopes))
     restrictions = property_restrictions(team, user)
-    return hashlib.sha256(f"{granted}:{restrictions}:{pulse_ranking(user, team)}".encode()).hexdigest()[:32]
+    pinned = ",".join(pin.key for pin in pulse_pins.get_pins(team_id=team.id, user_id=user.id))
+    return hashlib.sha256(f"{granted}:{restrictions}:{pulse_ranking(user, team)}:{pinned}".encode()).hexdigest()[:32]
 
 
 def _is_due(row: TodayHighlights, now: datetime) -> bool:
@@ -143,7 +145,10 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
     if row is None:
         return
     found = {result.source_name: _FINDINGS.validate_json(result.found) for result in inputs.results if result.found}
-    highlights = build_highlights(load_sources(), found, Team.objects.get(id=inputs.team_id), row.local_day)
+    pinned = [pin.key for pin in pulse_pins.get_pins(team_id=inputs.team_id, user_id=row.user_id)]
+    highlights = build_highlights(
+        load_sources(), found, Team.objects.get(id=inputs.team_id), row.local_day, pinned=pinned
+    )
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
     row.status = (
@@ -163,17 +168,22 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
 
 def delete_for_teams(team_ids: list[int]) -> None:
     TodayHighlights.objects.unscoped().filter(team_id__in=team_ids).delete()
+    pulse_pins.delete_for_teams(team_ids)
 
 
 def build_highlights(
-    sources: Sequence[HighlightSource], found: Mapping[str, HighlightFindings], team: Team, day: date
+    sources: Sequence[HighlightSource],
+    found: Mapping[str, HighlightFindings],
+    team: Team,
+    day: date,
+    pinned: Sequence[str] = (),
 ) -> contracts.Highlights:
-    pulse = [
-        metric
-        for source in sorted(sources, key=lambda source: source.pulse_order)
-        if source.name in found
-        for metric in found[source.name].pulse
-    ][:PULSE_TILES]
+    offered: dict[str, contracts.HighlightMetric] = {}
+    for source in sorted(sources, key=lambda source: source.pulse_order):
+        for metric in found[source.name].pulse if source.name in found else ():
+            offered.setdefault(metric.key, metric)
+    chosen = [replace(offered[key], reason=HighlightMetricReason.PINNED) for key in pinned if key in offered]
+    pulse = [*chosen, *(metric for key, metric in offered.items() if key not in pinned)][:PULSE_TILES]
     ranked = rank([replace(c, source=name) for name, result in found.items() for c in result.items])
     return contracts.Highlights(
         status=HighlightsStatus.READY,

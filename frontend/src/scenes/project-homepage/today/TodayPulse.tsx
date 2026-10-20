@@ -1,17 +1,26 @@
 import { useActions, useValues } from 'kea'
 
+import { Skeleton } from '@posthog/quill'
+
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import type { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
+import type { InsightShortId } from '~/types'
 
 import type { HighlightMetricApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
-import { todayHighlightsLogic } from './todayHighlightsLogic'
+import {
+    type PulsePlaceholderTile,
+    type TodayPulseTile,
+    isPlaceholderTile,
+    todayHighlightsLogic,
+} from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
@@ -56,12 +65,57 @@ function metricFormatter(metric: HighlightMetricApi, currency: CurrencyCode): (v
     return (value) => formatAggregationAxisValue(trendsFilter, value, currency)
 }
 
-export function TodayPulse({ metrics }: { metrics: HighlightMetricApi[] }): JSX.Element {
+function TodayPulsePlaceholder({ tile }: { tile: PulsePlaceholderTile }): JSX.Element {
+    if (tile.placeholder === 'computing') {
+        return (
+            <>
+                <span className="TodayPulse__name">{tile.name}</span>
+                <span className="TodayPulse__row">
+                    <span className="TodayPulse__value">
+                        <Skeleton className="inline-block h-4 w-20 align-middle" />
+                    </span>
+                </span>
+                <span className="TodayPulse__spark">
+                    <Skeleton className="h-3 w-full" />
+                </span>
+            </>
+        )
+    }
+    const shortId = tile.key.startsWith('insight:') ? tile.key.slice('insight:'.length) : null
+    const content = (
+        <>
+            <span className="TodayPulse__name">{tile.name}</span>
+            <span className="TodayPulse__row">
+                <span className="TodayPulse__unavailable">Can't show this insight</span>
+            </span>
+        </>
+    )
+    return shortId ? (
+        <LinkPrimitive to={urls.insightView(shortId as InsightShortId)} className="TodayPulse__link">
+            {content}
+        </LinkPrimitive>
+    ) : (
+        content
+    )
+}
+
+export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
     const { pulseMetricOpened, pulseMetricPreviewed } = useActions(todayHighlightsLogic)
     return (
         <ul className="TodayPulse" aria-label="Key numbers, against the period before">
             {metrics.map((metric, position) => {
+                if (isPlaceholderTile(metric)) {
+                    return (
+                        <li
+                            key={metric.key}
+                            className="TodayPulse__metric"
+                            aria-busy={metric.placeholder === 'computing'}
+                        >
+                            <TodayPulsePlaceholder tile={metric} />
+                        </li>
+                    )
+                }
                 const isInsight = metric.key.startsWith('insight:')
                 const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
                 const formatValue = metric.value_format ? metricFormatter(metric, baseCurrency) : todayNumber

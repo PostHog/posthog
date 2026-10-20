@@ -18,6 +18,8 @@ from ..facade.contracts import (
     PageLink,
     PreviewLine,
     PullRequestLink,
+    PulsePin,
+    PulsePins,
     RecordingTarget,
     ReportKeyClauses,
     ReportPage,
@@ -286,6 +288,29 @@ class HighlightMoverSerializer(DataclassSerializer):
         dataclass = HighlightMover
 
 
+class PulsePinSerializer(DataclassSerializer):
+    key = serializers.CharField(
+        max_length=200,
+        help_text="Key of the number to keep: a key metric setting such as signup_event, or insight:<short_id>.",
+    )
+    name = serializers.CharField(
+        max_length=400, help_text="Name to show for the number until the highlights compute its value."
+    )
+
+    class Meta:
+        dataclass = PulsePin
+
+
+class PulsePinsSerializer(DataclassSerializer):
+    pins = PulsePinSerializer(
+        many=True,
+        help_text="Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 are kept.",
+    )
+
+    class Meta:
+        dataclass = PulsePins
+
+
 class HighlightMetricSerializer(DataclassSerializer):
     key = serializers.CharField(
         help_text="Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>."
@@ -324,7 +349,7 @@ class HighlightMetricSerializer(DataclassSerializer):
     reason = serializers.ChoiceField(
         choices=HighlightMetricReason.choices,
         allow_null=True,
-        help_text="Why the pulse shows the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for metrics computed before this field existed.",
+        help_text="Why the pulse shows the metric: `pinned` for a number the person chose to keep, `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for metrics computed before this field existed.",
     )
     dashboard_name = serializers.CharField(
         allow_null=True,

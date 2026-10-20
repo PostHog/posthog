@@ -63,6 +63,9 @@ export function pulseWhy(metric: HighlightMetricApi, today: dayjs.Dayjs = dayjs(
     if (metric.reason === 'key_metric') {
         return 'It is a key metric for this project, set in Customer analytics.'
     }
+    if (metric.reason === 'pinned') {
+        return 'You keep this number on your home. Change it with Edit.'
+    }
     if (metric.reason !== 'routine' && metric.reason !== 'dashboard') {
         return null
     }

@@ -206,6 +206,17 @@ class HighlightItem:
 
 
 @dataclass(frozen=True)
+class PulsePin:
+    key: str
+    name: str
+
+
+@dataclass(frozen=True)
+class PulsePins:
+    pins: list[PulsePin]
+
+
+@dataclass(frozen=True)
 class Highlights:
     status: HighlightsStatus
     generated_at: datetime | None

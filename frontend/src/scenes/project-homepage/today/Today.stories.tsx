@@ -715,6 +715,54 @@ const HIGHLIGHTS: HighlightsApi = {
     ],
 }
 
+const SAVED_INSIGHTS = [
+    { id: 1, short_id: 'chk01', name: 'Checkout conversion' },
+    { id: 2, short_id: 'rev01', name: 'Refunds' },
+    { id: 3, short_id: 'arr01', name: 'Monthly recurring revenue' },
+    { id: 4, short_id: 'ret01', name: 'Week 1 retention' },
+    { id: 5, short_id: 'trl01', name: 'Trial to paid' },
+]
+
+const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
+    ...HIGHLIGHTS.pulse[0],
+    key: 'insight:chk01',
+    name: 'Checkout conversion',
+    value: 0.342,
+    change_pct: 4.1,
+    series: [0.31, 0.32, 0.3, 0.33, 0.32, 0.31, 0.33, 0.32, 0.33, 0.33, 0.329, 0.342],
+    url: '/insights/chk01',
+    value_format: { format: 'percentage_scaled', prefix: null, postfix: null, decimal_places: 1 },
+    reason: 'routine',
+    dashboard_name: null,
+    previous_value: 0.329,
+    movers: [],
+}
+
+let storyPins: { key: string; name: string }[] = []
+let storyComputingCalls = 0
+
+function storyHighlights(): HighlightsApi {
+    if (storyComputingCalls > 0) {
+        storyComputingCalls -= 1
+        return { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
+    }
+    const offered = [CHECKOUT_METRIC, ...HIGHLIGHTS.pulse]
+    const chosen = storyPins.flatMap((pin) => {
+        const metric = offered.find((candidate) => candidate.key === pin.key)
+        return metric ? [{ ...metric, reason: 'pinned' as const }] : []
+    })
+    const suggested = HIGHLIGHTS.pulse.filter((metric) => !storyPins.some((pin) => pin.key === metric.key))
+    return { ...HIGHLIGHTS, pulse: [...chosen, ...suggested].slice(0, 4) }
+}
+
+function keepNumbers(pins: { key: string; name: string }[]) {
+    return function KeepNumbers(Story: () => JSX.Element): JSX.Element {
+        storyPins = pins
+        storyComputingCalls = 0
+        return <Story />
+    }
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Project Homepage/Today',
@@ -758,7 +806,17 @@ const meta: Meta = {
                 ],
                 '/api/users/@me/integrations/': { results: [] },
                 '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
-                '/api/projects/:team_id/today/highlights/': HIGHLIGHTS,
+                '/api/projects/:team_id/today/highlights/': () => [200, storyHighlights()],
+                '/api/projects/:team_id/today/pulse_pins/': () => [200, { pins: storyPins }],
+                '/api/projects/:team_id/insights/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const search = (params.get('search') ?? '').toLowerCase()
+                    const results =
+                        params.get('insight') === 'TRENDS'
+                            ? SAVED_INSIGHTS.filter((insight) => insight.name.toLowerCase().includes(search))
+                            : []
+                    return [200, { results, count: results.length }]
+                },
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
                     200,
@@ -853,6 +911,14 @@ const meta: Meta = {
                     ],
                 },
             },
+            put: {
+                '/api/projects/:team_id/today/pulse_pins/': async ({ request }) => {
+                    const body = (await request.json()) as { pins: { key: string; name: string }[] }
+                    storyPins = body.pins
+                    storyComputingCalls = 2
+                    return [200, { pins: storyPins }]
+                },
+            },
         }),
     ],
     parameters: {
@@ -868,7 +934,16 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const Home: Story = {}
+export const Home: Story = { decorators: [keepNumbers([])] }
+
+export const HomeWithKeptNumbers: Story = {
+    decorators: [
+        keepNumbers([
+            { key: 'insight:chk01', name: 'Checkout conversion' },
+            { key: 'activity_event', name: 'Active users' },
+        ]),
+    ],
+}
 
 export const HomeWithSampleReports: Story = {
     parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },

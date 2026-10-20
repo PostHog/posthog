@@ -19,6 +19,7 @@ from ..highlight_rules import short
 from ..highlight_series import pretty, usable_series
 from ..highlight_trends import complete, detect
 from ..highlight_types import Context, Found, Source
+from ..pulse_pins import get_pins
 
 ROUTINE_WINDOW_DAYS = 28
 DAILY_ROUTINE_DAYS = 8
@@ -45,17 +46,34 @@ class ViewedItem:
 
 
 def find(context: Context) -> Found:
+    pinned = _pinned_metrics(context)
+    shown = {metric.key for metric in pinned}
     ranking = pulse_ranking(context.user, context.team)
     if ranking in (FRECENCY_RANKING, RECENCY_RANKING):
-        return Found(pulse=tuple(_frecent_metrics(context, ranking)))
+        frecent = [metric for metric in _frecent_metrics(context, ranking) if metric.key not in shown]
+        return Found(pulse=(*pinned, *frecent))
     metrics: list[contracts.HighlightMetric] = []
     for item in _routine_insights(context):
+        if f"insight:{item.ref}" in shown:
+            continue
         metric = context.guard(f"routine {item.ref}", partial(_metric, context, item.ref, viewed=item), None)
         if metric is not None:
             metrics.append(metric)
         if len(metrics) == ROUTINE_TILES:
             break
-    return Found(pulse=tuple(metrics))
+    return Found(pulse=(*pinned, *metrics))
+
+
+def _pinned_metrics(context: Context) -> list[contracts.HighlightMetric]:
+    metrics: list[contracts.HighlightMetric] = []
+    for pin in get_pins(team_id=context.team.id, user_id=context.user.id):
+        short_id = pin.key.removeprefix("insight:")
+        if short_id == pin.key:
+            continue
+        metric = context.guard(f"pinned {short_id}", partial(_metric, context, short_id), None)
+        if metric is not None:
+            metrics.append(metric)
+    return metrics
 
 
 def routine_days(view_days: Sequence[date], today: date, warming_up: bool = False) -> int:

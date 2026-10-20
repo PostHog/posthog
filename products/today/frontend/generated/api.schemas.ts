@@ -96,6 +96,7 @@ export interface HighlightValueFormatApi {
  * * `routine` - You open this often
  * * `dashboard` - On a dashboard you open often
  * * `key_metric` - Project key metric
+ * * `pinned` - You keep this on your home
  */
 export type HighlightMetricReasonEnumApi =
     (typeof HighlightMetricReasonEnumApi)[keyof typeof HighlightMetricReasonEnumApi]
@@ -104,6 +105,7 @@ export const HighlightMetricReasonEnumApi = {
     Routine: 'routine',
     Dashboard: 'dashboard',
     KeyMetric: 'key_metric',
+    Pinned: 'pinned',
 } as const
 
 export interface HighlightMoverApi {
@@ -153,11 +155,12 @@ export interface HighlightMetricApi {
     value_format: HighlightValueFormatApi | null
     /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
     period_starts: string[]
-    /** Why the pulse shows the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for metrics computed before this field existed.
+    /** Why the pulse shows the metric: `pinned` for a number the person chose to keep, `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for metrics computed before this field existed.
      *
      * * `routine` - You open this often
      * * `dashboard` - On a dashboard you open often
-     * * `key_metric` - Project key metric */
+     * * `key_metric` - Project key metric
+     * * `pinned` - You keep this on your home */
     reason: HighlightMetricReasonEnumApi | null
     /**
      * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -264,6 +267,24 @@ export interface HighlightsApi {
     pulse: HighlightMetricApi[]
     /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
     items: HighlightItemApi[]
+}
+
+export interface PulsePinApi {
+    /**
+     * Key of the number to keep: a key metric setting such as signup_event, or insight:<short_id>.
+     * @maxLength 200
+     */
+    key: string
+    /**
+     * Name to show for the number until the highlights compute its value.
+     * @maxLength 400
+     */
+    name: string
+}
+
+export interface PulsePinsApi {
+    /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 are kept. */
+    pins: PulsePinApi[]
 }
 
 /**

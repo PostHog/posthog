@@ -57,6 +57,7 @@ class HighlightMetricReason(LabeledStrEnum):
     ROUTINE = "routine", "You open this often"
     DASHBOARD = "dashboard", "On a dashboard you open often"
     KEY_METRIC = "key_metric", "Project key metric"
+    PINNED = "pinned", "You keep this on your home"
 
 
 class HighlightInterval(LabeledStrEnum):
