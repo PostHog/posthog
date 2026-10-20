@@ -23,6 +23,7 @@ class TestGetSchemas:
             ("latest", False),
             ("archive", True),
             ("crypto", True),
+            ("market", True),
             ("sources", False),
         ]
     )
