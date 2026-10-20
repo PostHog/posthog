@@ -241,7 +241,7 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: python3 .github/scripts/cancel_superseded_depot_runs.py
     # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
-    # Dependabot runs get no secret; the queue always runs everything anyway.
+    # The queue always runs everything, so it needs no recommendation.
     # The step fails open, because this telemetry must not turn a passing workflow red.
     dynamic-ci-filter:
         name: Trunk Dynamic CI (Learning Mode)
