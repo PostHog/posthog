@@ -209,7 +209,7 @@ In Node, `validateHostnameIPLiteral` (`nodejs/src/common/utils/request.ts`) and 
 Both read the hand-written mirror in `nodejs/src/common/utils/oob-domains.ts`, which a parity test holds against the JSON.
 Both log `team_id`, the field the Python guards bind.
 The email guard always has a team.
-The request guard has one only when the fetch runs under `fetchAttribution`, as a CDP destination fetch does, and logs `team_id: null` for any other caller, such as the recording rasterizer.
+The request guard has one only when the fetch runs under `fetchAttribution`, as a CDP destination fetch and a recording export's stylesheet fetch do, and logs `team_id: null` for any other caller.
 `noteOobDomain` logs one line per host, team and guard every 15 minutes, because a retrying destination would otherwise log per attempt.
 
 The check runs on cloud only, and it runs before each guard's own DNS resolution, because the
