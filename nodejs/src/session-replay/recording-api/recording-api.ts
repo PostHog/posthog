@@ -210,8 +210,6 @@ export class RecordingApi {
                 legacySecret: this.config.INTERNAL_API_SECRET,
                 allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
                 op,
-                // Key minting is new, so it never inherits the fleet-wide legacy secret.
-                requireJwt: op === 'write',
             })
         const readAuth = auth('read')
         const deleteAuth = auth('delete')
