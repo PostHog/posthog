@@ -21,6 +21,7 @@ export function buildToolCallProperties(
 ): Record<string, unknown> {
     const category = getToolCategory(toolName)
     const description = getToolDescription(toolName)
+    const code = errorCode(properties)
     return {
         tool_name: toolName,
         $mcp_tool_name: toolName,
@@ -29,13 +30,8 @@ export function buildToolCallProperties(
         output_format: properties.output_format,
         ...(category ? { $mcp_tool_category: category } : {}),
         ...(description ? { $mcp_tool_description: description } : {}),
-        ...(properties.success
-            ? {}
-            : {
-                  error_class: errorClass(properties),
-                  $mcp_error_type: errorType(properties),
-                  ...errorCodeProperties(properties),
-              }),
+        ...(properties.success ? {} : { error_class: errorClass(properties), $mcp_error_type: errorType(properties) }),
+        ...(code ? { $mcp_error_code: code } : {}),
         ...(properties.error_status !== undefined
             ? { error_status: properties.error_status, $mcp_error_status: properties.error_status }
             : {}),
@@ -88,10 +84,7 @@ function errorType(properties: ExecInnerCallProperties): MCPToolResultError['err
     return status >= 500 ? 'api_5xx' : 'api_4xx'
 }
 
-function errorCodeProperties(properties: ExecInnerCallProperties): { $mcp_error_code?: string } {
-    if (!(properties.error instanceof MCPToolResultError) || !properties.error.errorCode) {
-        return {}
-    }
-    const errorCode = sanitizeErrorToken(properties.error.errorCode)
-    return errorCode ? { $mcp_error_code: errorCode } : {}
+function errorCode(properties: ExecInnerCallProperties): string | undefined {
+    const code = properties.error instanceof MCPToolResultError ? properties.error.errorCode : undefined
+    return code ? sanitizeErrorToken(code) : undefined
 }

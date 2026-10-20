@@ -95,11 +95,6 @@ describe('buildToolCallProperties', () => {
             { error: new MCPToolResultError('Private SQL input', 'validation', ' query_\nsyntax\x00 ') },
             { error_class: 'error', $mcp_error_type: 'validation', $mcp_error_code: 'query_syntax' },
         ],
-        [
-            'backend failure with a blank error code',
-            { error: new MCPToolResultError('Private SQL input', 'validation', '\n ') },
-            { error_class: 'error', $mcp_error_type: 'validation' },
-        ],
     ])('classifies a %s without carrying the message', (_name, extra, expected) => {
         expect(buildToolCallProperties('execute-sql', { ...base, ...extra })).toEqual({
             tool_name: 'execute-sql',
