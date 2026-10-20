@@ -15,6 +15,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
     AmplitudeResumeConfig,
+    AmplitudeRetryableError,
     _auth_headers,
     _iter_export_window,
     _normalize_event,
@@ -196,6 +197,19 @@ class TestIterExportWindow:
             _iter_export_window(session, "https://amplitude.com", {}, "20260101T00", "20260101T23", mock.MagicMock())
         )
         assert [row["uuid"] for row in rows] == ["a", "b"]
+
+    def test_invalid_zip_body_raises_retryable_error(self) -> None:
+        # Amplitude has occasionally served a 2xx response whose body isn't a valid archive
+        # (e.g. truncated by a network blip). That must surface as a retryable failure so
+        # Temporal retries the activity, not as an unhandled BadZipFile crash.
+        session = self._session_returning(_response(status=200, content=b"not a zip file"))
+
+        with pytest.raises(AmplitudeRetryableError):
+            list(
+                _iter_export_window(
+                    session, "https://amplitude.com", {}, "20260101T00", "20260101T23", mock.MagicMock()
+                )
+            )
 
     def test_non_ok_status_raises(self) -> None:
         response = _response(status=400, text="bad request")

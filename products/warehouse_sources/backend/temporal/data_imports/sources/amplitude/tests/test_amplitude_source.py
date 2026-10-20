@@ -1,5 +1,8 @@
 import time_machine
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
+    AMPLITUDE_INVALID_ARCHIVE_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.settings import EVENTS_ENDPOINT
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.source import AmplitudeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -30,3 +33,7 @@ class TestAmplitudeSource:
         # When the user isn't running incrementally, no watermark should leak through.
         assert result.requests[0].param("start") == "20260505T10"
         assert result.raised is None
+
+    def test_invalid_archive_error_is_classified_retryable(self) -> None:
+        error_message = f"{AMPLITUDE_INVALID_ARCHIVE_ERROR}: url=https://amplitude.com/api/2/export?start=20260101T00&end=20260101T23"
+        assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
