@@ -682,6 +682,7 @@ export function AgentsRoster(): JSX.Element {
         sourceCategory,
         sourceCategoryOptions,
         sourcesLoadError,
+        dataWarehouseSourcesLoading,
         conversationsConfig,
         evalReportsConfig,
         anomalyInvestigationConfig,
@@ -1012,7 +1013,10 @@ export function AgentsRoster(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             {sourcesLoadError && (
-                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadSources() }}>
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Retry', onClick: () => loadSources(), loading: dataWarehouseSourcesLoading }}
+                >
                     Couldn't load your connections. Retry to check which sources are already connected.
                 </LemonBanner>
             )}

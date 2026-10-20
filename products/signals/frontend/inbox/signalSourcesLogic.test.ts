@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -140,14 +141,28 @@ describe('signalSourcesLogic', () => {
             warehouseType: 'Jira' as const,
             table: 'issues',
             recordType: SignalSourceType.Issue,
+            refresh: false,
+        },
+        {
+            source: 'sonarqube' as const,
+            warehouseType: 'Sonarqube' as const,
+            table: 'issues',
+            recordType: SignalSourceType.ScannerFinding,
             refresh: true,
         },
         {
-            source: 'semgrep' as const,
-            warehouseType: 'Semgrep' as const,
-            table: 'sast_findings',
-            recordType: SignalSourceType.ScannerFinding,
-            refresh: true,
+            source: 'github' as const,
+            warehouseType: 'Github' as const,
+            table: 'issues',
+            recordType: SignalSourceType.Issue,
+            refresh: false,
+        },
+        {
+            source: 'linear' as const,
+            warehouseType: 'Linear' as const,
+            table: 'issues',
+            recordType: SignalSourceType.Issue,
+            refresh: false,
         },
         {
             source: 'intercom' as const,
@@ -188,13 +203,82 @@ describe('signalSourcesLogic', () => {
                 logic.actions.initiateDataWarehouseSourceToggle(source)
             ).toFinishAllListeners()
             expect(logic.values.dataSourceSetupSource).toBeNull()
-            expect(configWrites).toEqual([
-                { source_product: source, source_type: recordType, enabled: true, config: {} },
-            ])
+            expect(configWrites).toEqual(
+                source === 'linear'
+                    ? []
+                    : [{ source_product: source, source_type: recordType, enabled: true, config: {} }]
+            )
+            if (source === 'linear') {
+                expect(logic.values.linearTeamsPicker).toEqual({ enableOnSave: true, viaSetupWizard: false })
+            }
             expect(schemaWrites).toEqual(refresh ? [{ should_sync: true, sync_type: 'full_refresh' }] : [])
             expect(logic.values.externalSourceStates[source].loading).toBe(false)
         }
     )
+
+    it.each([
+        ['image-only connection', 'search_analytics_by_query_page_image'],
+        ['connection without schemas', null],
+    ])('does not enable Search Console signals with an %s', async (_name, schemaName) => {
+        const createConfig = jest.spyOn(api.signalSourceConfigs, 'create')
+        const toastError = jest.spyOn(lemonToast, 'error')
+        warehouseSources = [
+            {
+                ...githubSource,
+                source_type: 'GoogleSearchConsole',
+                schemas: schemaName ? [githubSchema('gsc-1', schemaName)] : [],
+            },
+        ]
+        logic.actions.loadSourceConfigsSuccess([])
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: warehouseSources, next: null, previous: null })
+
+        await expectLogic(logic, () =>
+            logic.actions.initiateDataWarehouseSourceToggle('google_search_console')
+        ).toFinishAllListeners()
+
+        expect(createConfig).not.toHaveBeenCalled()
+        expect(toastError).toHaveBeenCalledWith(expect.stringContaining('Add the Web search type'))
+        expect(logic.values.externalSourceStates.google_search_console.loading).toBe(false)
+        createConfig.mockRestore()
+        toastError.mockRestore()
+    })
+
+    it('resumes Intercom setup after OAuth and enables signals on completion', async () => {
+        logic.unmount()
+        router.actions.push(
+            '/inbox',
+            { setup: 'signal-sources', signal_source: 'intercom', integration_id: '7', source: 'saved-filter' },
+            { tab: 'details' }
+        )
+        const callbackPath = router.values.location.pathname
+        const createConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue({
+            ...githubIssuesConfig,
+            source_product: SignalSourceProduct.Intercom,
+            source_type: SignalSourceType.Ticket,
+        })
+        logic = signalSourcesLogic()
+        logic.mount()
+        logic.actions.loadSourceConfigsSuccess([])
+
+        expect(logic.values.dataSourceSetupSource).toBe('intercom')
+        const redirect = new URL(logic.values.dataSourceSetupOAuthRedirectUrl!, 'https://example.com')
+        expect(redirect.pathname).toBe(callbackPath)
+        expect(redirect.searchParams.get('signal_source')).toBe('intercom')
+        expect(redirect.searchParams.get('source')).toBe('saved-filter')
+
+        await expectLogic(logic, () => logic.actions.onDataSourceSetupComplete()).toFinishAllListeners()
+
+        expect(createConfig).toHaveBeenCalledWith({
+            source_product: 'intercom',
+            source_type: 'ticket',
+            enabled: true,
+            config: {},
+        })
+        expect(logic.values.dataSourceSetupSource).toBeNull()
+        expect(router.values.searchParams.signal_source).toBeUndefined()
+        expect(router.values.searchParams.source).toBe('saved-filter')
+        createConfig.mockRestore()
+    })
 
     it('pins sources before connected tools and filters the catalog without hiding PostHog sources', () => {
         sourcesDataLogic.actions.loadSourcesSuccess({

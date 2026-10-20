@@ -10,6 +10,8 @@ interface ExternalSignalSourceDefinition {
     dwSourceType: ExternalDataSourceTypeEnumApi
     requiredTables: readonly string[]
     sourceType: SignalSourceConfigSourceTypeEnumApi
+    // Creation-only cursors miss later edits, so these sources opt into full refresh.
+    requiredTableSyncType?: 'full_refresh'
 }
 
 // Only warehouse tables registered in the signals emission registry belong here.
@@ -247,6 +249,7 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         dwSourceType: 'Sonarqube',
         requiredTables: ['issues'],
         sourceType: 'scanner_finding',
+        requiredTableSyncType: 'full_refresh',
     },
     {
         source: 'aha',
@@ -265,6 +268,7 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         dwSourceType: 'Asknicely',
         requiredTables: ['responses'],
         sourceType: 'feedback',
+        requiredTableSyncType: 'full_refresh',
     },
     {
         source: 'canny',
@@ -310,6 +314,7 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         dwSourceType: 'Retently',
         requiredTables: ['feedback'],
         sourceType: 'feedback',
+        requiredTableSyncType: 'full_refresh',
     },
     {
         source: 'uservoice',
@@ -328,6 +333,7 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         dwSourceType: 'Appfigures',
         requiredTables: ['reviews'],
         sourceType: 'review',
+        requiredTableSyncType: 'full_refresh',
     },
     {
         source: 'appfollow',

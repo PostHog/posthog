@@ -151,6 +151,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: source.label,
                 category: source.category,
                 watches: source.watches,
+                detail: `Reads the ${source.label} data you sync to Data warehouse.`,
                 steerable: true,
             })),
             {
