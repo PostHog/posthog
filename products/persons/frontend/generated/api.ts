@@ -564,6 +564,8 @@ export const getPersonsBulkDeleteCreateUrl = (projectId: string, params?: Person
  * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
  *
  * Person records are removed in the background shortly after the request returns, so a successful response reports them in `persons_queued_for_deletion` and `persons_deleted` is 0.
+ *
+ * With `delete_events=true`, events are deleted later by a weekly batch job, not during this request. Check progress with the `deletion_status` endpoint.
  */
 export const personsBulkDeleteCreate = async (
     projectId: string,
@@ -627,6 +629,8 @@ export const getPersonsDeletionStatusListUrl = (projectId: string, params?: Pers
 
 /**
  * List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed.
+ *
+ * Events are deleted by a weekly batch job that runs after Saturday 22:00 UTC. A request made shortly before a run can wait for the following week's run, so a deletion can stay pending for up to two weeks. That is expected and doesn't need a new request. Recording deletions are not tracked here.
  */
 export const personsDeletionStatusList = async (
     projectId: string,

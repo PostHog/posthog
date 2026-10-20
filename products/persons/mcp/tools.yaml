@@ -20,7 +20,8 @@ tools:
         description: >
             Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and
             recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is
-            irreversible.
+            irreversible. Events are not deleted during the request: a weekly batch job deletes them, which can take up
+            to two weeks. Check progress with persons-deletion-status-list.
         exclude_params:
             - format
     persons-cohorts-retrieve:
@@ -38,6 +39,29 @@ tools:
             Get all cohorts that a specific person belongs to. Requires the person_id query parameter.
         exclude_params:
             - format
+    persons-deletion-status-list:
+        operation: persons_deletion_status_list
+        enabled: true
+        scopes:
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List person event deletion status
+        description: >
+            Check whether event deletions queued by persons-bulk-delete with delete_events are still pending or
+            completed. Filter by person_uuid or status. Events are deleted by a weekly batch job after Saturday 22:00
+            UTC, so a deletion can stay pending for up to two weeks. That is expected and does not need a new request. A
+            deletion is complete when delete_verified_at is set.
+        exclude_params:
+            - format
+        param_overrides:
+            limit:
+                cast: string-int
+            offset:
+                cast: string-int
     persons-list:
         operation: persons_list
         enabled: true

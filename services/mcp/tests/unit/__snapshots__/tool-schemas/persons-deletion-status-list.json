@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "person_uuid": {
+            "description": "Filter by a specific person UUID.",
+            "type": "string"
+        },
+        "status": {
+            "description": "Filter by deletion status: 'pending', 'completed', or 'all'.",
+            "enum": ["all", "completed", "pending"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

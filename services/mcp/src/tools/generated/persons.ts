@@ -66,6 +66,36 @@ const personsCohortsRetrieve = (): ToolBase<
     },
 })
 
+const PersonsDeletionStatusListSchema = () => {
+    const PersonsDeletionStatusListQueryParams = orvalSchemas.PersonsDeletionStatusListQueryParams()
+    return PersonsDeletionStatusListQueryParams.omit({ format: true }).extend({
+        limit: z.preprocess(castStringToInt, PersonsDeletionStatusListQueryParams.shape['limit']).optional(),
+        offset: z.preprocess(castStringToInt, PersonsDeletionStatusListQueryParams.shape['offset']).optional(),
+    })
+}
+
+const personsDeletionStatusList = (): ToolBase<
+    ReturnType<typeof PersonsDeletionStatusListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAsyncDeletionStatusList>
+> => ({
+    name: 'persons-deletion-status-list',
+    schema: PersonsDeletionStatusListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsDeletionStatusListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAsyncDeletionStatusList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/deletion_status/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                person_uuid: params.person_uuid,
+                status: params.status,
+            },
+        })
+        return await withPostHogUrl(context, result, '/persons')
+    },
+})
+
 const PersonsListSchema = () => {
     const PersonsListQueryParams = orvalSchemas.PersonsListQueryParams()
     return PersonsListQueryParams.omit({ format: true, include_matched_fields: true, properties: true }).extend({
@@ -223,6 +253,7 @@ const personsValuesRetrieve = (): ToolBase<ReturnType<typeof PersonsValuesRetrie
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'persons-bulk-delete': personsBulkDelete,
     'persons-cohorts-retrieve': personsCohortsRetrieve,
+    'persons-deletion-status-list': personsDeletionStatusList,
     'persons-list': personsList,
     'persons-property-delete': personsPropertyDelete,
     'persons-property-set': personsPropertySet,
