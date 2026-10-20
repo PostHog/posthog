@@ -228,6 +228,23 @@ def test_embedding_hands_the_judge_its_text_before_clickhouse_has_it(
     assert result.embedding.merge_inputs.content == "TypeError: boom"
 
 
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
+def test_embedding_skips_when_the_exception_event_is_unavailable(
+    generate_embedding: MagicMock,
+    get_team: MagicMock,
+    fetch_event_properties: MagicMock,
+) -> None:
+    get_team.return_value.organization.is_ai_data_processing_approved = True
+    fetch_event_properties.return_value = None
+
+    result = generate_issue_created_embedding_activity(_inputs("fingerprint"))
+
+    assert result == IssueEmbeddingPreparationResult(team_exists=True, skipped_reason="event_properties_unavailable")
+    generate_embedding.assert_not_called()
+
+
 def _decision(choice: str) -> DecisionResult:
     return DecisionResult(
         model="severity-model",
@@ -350,18 +367,23 @@ def test_fetches_full_event_properties_from_valkey_without_clickhouse(
     execute_hogql_query.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "clickhouse_properties",
+    [{"$exception_list": [{"type": "TypeError", "value": "expired"}]}, None],
+)
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.event_properties.execute_hogql_query")
 @patch("products.error_tracking.backend.temporal.lifecycle.event_properties.get_client")
 def test_falls_back_to_clickhouse_when_valkey_payload_expired(
-    get_client: MagicMock, execute_hogql_query: MagicMock
+    get_client: MagicMock, execute_hogql_query: MagicMock, clickhouse_properties: dict[str, object] | None
 ) -> None:
     inputs = _inputs("fingerprint")
-    properties = {"$exception_list": [{"type": "TypeError", "value": "expired"}]}
     get_client.return_value.get.return_value = None
-    execute_hogql_query.return_value = SimpleNamespace(results=[[json.dumps(properties)]])
+    execute_hogql_query.return_value = SimpleNamespace(
+        results=[] if clickhouse_properties is None else [[json.dumps(clickhouse_properties)]]
+    )
 
-    assert fetch_event_properties(MagicMock(), inputs) == properties
+    assert fetch_event_properties(MagicMock(), inputs) == clickhouse_properties
     execute_hogql_query.assert_called_once()
 
 

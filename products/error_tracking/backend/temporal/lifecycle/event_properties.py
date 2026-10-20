@@ -5,6 +5,7 @@ from typing import Protocol
 from django.conf import settings
 from django.utils.dateparse import parse_datetime
 
+import structlog
 from prometheus_client import Counter, Histogram
 from redis.exceptions import RedisError
 
@@ -15,6 +16,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models import Team
 from posthog.redis import get_client
+
+logger = structlog.get_logger(__name__)
 
 ERROR_TRACKING_EVENT_PROPERTIES_KEY_PREFIX = "error_tracking:event_properties:v1"
 
@@ -28,10 +31,6 @@ ERROR_TRACKING_EVENT_PROPERTIES_READ_DURATION = Histogram(
     "Duration of Error Tracking event property reads by storage source",
     labelnames=("source",),
 )
-
-
-class IssueCreatedEventNotFoundError(RuntimeError):
-    pass
 
 
 class EventPropertiesIssueSnapshot(Protocol):
@@ -89,7 +88,9 @@ def _fetch_event_properties_from_valkey(inputs: EventPropertiesWorkflowInputs) -
     return properties
 
 
-def _fetch_event_properties_from_clickhouse(team: Team, inputs: EventPropertiesWorkflowInputs) -> dict[str, object]:
+def _fetch_event_properties_from_clickhouse(
+    team: Team, inputs: EventPropertiesWorkflowInputs
+) -> dict[str, object] | None:
     event_timestamp = parse_datetime(inputs.event_timestamp) or parse_datetime(inputs.issue.created_at)
     if event_timestamp is None:
         raise ValueError(f"Invalid exception timestamp: {inputs.event_timestamp}")
@@ -120,7 +121,13 @@ def _fetch_event_properties_from_clickhouse(team: Team, inputs: EventPropertiesW
         )
     if not response.results:
         ERROR_TRACKING_EVENT_PROPERTIES_READS.labels(source="clickhouse", outcome="miss").inc()
-        raise IssueCreatedEventNotFoundError(f"Exception event {inputs.event_uuid} not found for team {inputs.team_id}")
+        logger.warning(
+            "error_tracking_event_properties_not_found",
+            team_id=inputs.team_id,
+            event_uuid=inputs.event_uuid,
+            event_timestamp=inputs.event_timestamp,
+        )
+        return None
 
     properties = response.results[0][0]
     if isinstance(properties, str):
@@ -131,7 +138,13 @@ def _fetch_event_properties_from_clickhouse(team: Team, inputs: EventPropertiesW
     return properties
 
 
-def fetch_event_properties(team: Team, inputs: EventPropertiesWorkflowInputs) -> dict[str, object]:
+def fetch_event_properties(team: Team, inputs: EventPropertiesWorkflowInputs) -> dict[str, object] | None:
+    """The exception event's properties, or None when neither store has the event.
+
+    Retries do not reliably fix a miss: Cymbal skips the Valkey write for oversized payloads,
+    and the event can sit outside the ClickHouse window. The properties only enrich a
+    notification, so callers send it without them.
+    """
     properties = _fetch_event_properties_from_valkey(inputs)
     if properties is not None:
         return properties

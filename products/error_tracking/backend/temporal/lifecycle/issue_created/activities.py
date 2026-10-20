@@ -119,6 +119,9 @@ def _prepare_issue_created_embedding(inputs: IssueCreatedWorkflowInputs) -> Issu
         )
 
     event_properties = fetch_event_properties(team, inputs)
+    if event_properties is None:
+        # An empty stack trace would embed close to every other empty one and drive bad merges.
+        return IssueEmbeddingPreparationResult(team_exists=True, skipped_reason="event_properties_unavailable")
     skipped_reason = _embedding_skip_reason(event_properties)
     if skipped_reason is not None:
         return IssueEmbeddingPreparationResult(team_exists=True, skipped_reason=skipped_reason)
@@ -189,6 +192,8 @@ def _severity_state(inputs: IssueCreatedWorkflowInputs) -> str | SeverityInferen
         return SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED
 
     event_properties = fetch_event_properties(team, inputs)
+    if event_properties is None:
+        return SeverityInferenceSkipReason.NO_EXCEPTION
     stacktrace = render_stacktrace(event_properties, SEVERITY_INFERENCE_MAX_TOKENS)
     if not stacktrace:
         return SeverityInferenceSkipReason.NO_EXCEPTION
