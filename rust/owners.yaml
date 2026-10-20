@@ -23,6 +23,7 @@ rules:
           - '/personhog-common/'
           - '/personhog-coordination/'
           - '/personhog-leader/'
+          - '/personhog-parity-monitor/'
           - '/personhog-proto/'
           - '/personhog-replica/'
           - '/personhog-router/'
