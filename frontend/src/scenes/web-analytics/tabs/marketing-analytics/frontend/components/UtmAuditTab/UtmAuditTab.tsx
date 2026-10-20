@@ -7,7 +7,6 @@ import {
     LemonButton,
     LemonInput,
     LemonSelect,
-    LemonSkeleton,
     LemonTable,
     LemonTabs,
     LemonTag,
@@ -17,6 +16,7 @@ import {
 
 import { IconLink } from 'lib/lemon-ui/icons'
 
+import { OverviewMetricCardGrid } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import {
     MARKETING_INTEGRATION_CONFIGS,
     NativeMarketingSource,
@@ -131,31 +131,6 @@ function formatCurrency(value: number, currency: string = 'USD'): string {
 
 function formatNumber(value: number): string {
     return new Intl.NumberFormat('en-US').format(value)
-}
-
-function StatCard({
-    label,
-    value,
-    loading,
-    alert,
-}: {
-    label: string
-    value: number
-    loading?: boolean
-    alert?: boolean
-}): JSX.Element {
-    return (
-        <div className="bg-bg-light rounded-lg border p-3">
-            <div className="text-xs text-secondary uppercase tracking-wide">{label}</div>
-            {loading ? (
-                <LemonSkeleton className="h-7 w-12 mt-1" />
-            ) : (
-                <div className={`text-2xl font-bold mt-1 tabular-nums ${alert ? 'text-warning' : ''}`}>
-                    {value.toLocaleString()}
-                </div>
-            )}
-        </div>
-    )
 }
 
 function ActionsMenu({ columnName, value }: { columnName: string; value: string }): JSX.Element {
@@ -547,22 +522,27 @@ export function UtmAuditTab(): JSX.Element {
                     account.
                 </LemonBanner>
             ) : (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <StatCard label="Campaigns" value={auditData?.total_campaigns ?? 0} loading={auditDataLoading} />
-                    <StatCard
-                        label="Not linked"
-                        value={campaignsWithoutUtmCount}
-                        loading={auditDataLoading}
-                        alert={campaignsWithoutUtmCount > 0}
-                    />
-                    <StatCard label="UTM sources" value={totalUtmSourcesCount} loading={auditDataLoading} />
-                    <StatCard
-                        label="Unmapped sources"
-                        value={unmappedSourcesCount}
-                        loading={auditDataLoading}
-                        alert={unmappedSourcesCount > 0}
-                    />
-                </div>
+                <OverviewMetricCardGrid
+                    loading={auditDataLoading}
+                    numSkeletons={4}
+                    labelFromKey={(key) => key}
+                    items={[
+                        { key: 'Campaigns', value: auditData?.total_campaigns ?? 0, kind: 'unit' },
+                        {
+                            key: 'Not linked',
+                            value: campaignsWithoutUtmCount,
+                            kind: 'unit',
+                            warning: campaignsWithoutUtmCount > 0 ? ISSUE_LABELS.not_linked : undefined,
+                        },
+                        { key: 'UTM sources', value: totalUtmSourcesCount, kind: 'unit' },
+                        {
+                            key: 'Unmapped sources',
+                            value: unmappedSourcesCount,
+                            kind: 'unit',
+                            warning: unmappedSourcesCount > 0 ? 'Unmapped sources' : undefined,
+                        },
+                    ]}
+                />
             )}
 
             {/* Tabs */}

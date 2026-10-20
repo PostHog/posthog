@@ -73,3 +73,39 @@ export const WithWarning: Story = {
         ),
     },
 }
+
+export const MarketingMetrics: Story = {
+    args: {
+        labelFromKey: (key) => key,
+        items: [
+            {
+                key: 'Cost',
+                value: 12450,
+                previous: 11800,
+                changeFromPreviousPct: 6,
+                kind: 'currency',
+                isIncreaseBad: true,
+            },
+            { key: 'Clicks', value: 8300, previous: 7500, changeFromPreviousPct: 11, kind: 'unit' },
+            { key: 'Cost per conversion', value: undefined, kind: 'currency' },
+            { key: 'Reported conversions', value: 'N/A', previous: 'N/A', kind: 'unit' },
+        ],
+    },
+}
+
+export const MarketingMetricsNarrow: Story = {
+    ...MarketingMetrics,
+    decorators: [
+        (Story) => (
+            <div className="w-[520px]">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
+export const ActiveMetric: Story = {
+    args: {
+        items: overviewItems.map((item) => ({ ...item, selected: item.key === 'visitors', onClick: () => {} })),
+    },
+}

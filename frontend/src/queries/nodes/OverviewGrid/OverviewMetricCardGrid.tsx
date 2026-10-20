@@ -15,10 +15,7 @@ import { WebAnalyticsPreComputeStrategy } from '~/queries/schema/schema-general'
 
 import { formatItem, NO_BASELINE_CHANGE_SENTINEL, OverviewItem, SamplingNotice, SamplingRate } from './OverviewGrid'
 
-export interface OverviewMetricCardItem extends Omit<OverviewItem, 'value' | 'previous'> {
-    value: number | undefined
-    previous?: number
-}
+export type OverviewMetricCardItem = OverviewItem
 
 interface OverviewMetricCardGridProps {
     items: OverviewMetricCardItem[]
@@ -81,8 +78,10 @@ function MetricCardCell({
 }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
 
-    const format = (n: number): string => formatItem(n, item.kind, { currency: baseCurrency })
+    const format = (n: number | string): string => formatItem(n, item.kind, { currency: baseCurrency })
     const subtitle = item.previous != null ? `vs. ${format(item.previous)} prior` : item.caption
+    // MetricCard needs a numeric value to render text metrics through its formatter.
+    const numericValue = typeof item.value === 'number' ? item.value : typeof item.value === 'string' ? 0 : undefined
 
     return (
         <AnalyticsMetricCard
@@ -90,10 +89,13 @@ function MetricCardCell({
             title={<MetricCardTitle label={labelFromKey(item.key)} item={item} />}
             onClick={item.onClick}
             selected={item.selected}
-            value={item.value}
+            value={numericValue}
+            emptyMessage="-"
             change={metricChange(item)}
             goodDirection={item.isIncreaseBad ? 'down' : 'up'}
-            formatValue={format}
+            formatValue={(value) =>
+                formatItem(typeof item.value === 'number' ? value : item.value, item.kind, { currency: baseCurrency })
+            }
             subtitle={subtitle}
             adornment={
                 preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute ? (

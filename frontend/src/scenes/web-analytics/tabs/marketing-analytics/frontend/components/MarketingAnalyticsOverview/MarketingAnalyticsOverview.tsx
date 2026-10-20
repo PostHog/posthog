@@ -5,7 +5,7 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
+import { OverviewMetricCardGrid, OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import {
     AnyResponseType,
     MarketingAnalyticsAggregatedQuery,
@@ -52,8 +52,7 @@ export function MarketingAnalyticsOverview(props: {
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
-    // Convert results dict to array for rendering and map to OverviewItem
-    const overviewItems: OverviewItem[] = marketingOverviewQueryResponse?.results
+    const overviewItems: OverviewMetricCardItem[] = marketingOverviewQueryResponse?.results
         ? Object.entries(marketingOverviewQueryResponse.results).map(([key, item]) => ({
               key,
               value: item.value,
@@ -88,14 +87,12 @@ export function MarketingAnalyticsOverview(props: {
     return (
         <>
             {allWarnings.length > 0 && <MarketingAnalyticsValidationWarningBanner warnings={allWarnings} />}
-            <OverviewGrid
-                compact
-                items={overviewItems}
+            <OverviewMetricCardGrid
+                items={overviewItems.filter(filterEmptyMetrics)}
                 loading={responseLoading}
                 numSkeletons={numSkeletons}
                 samplingRate={samplingRate}
                 labelFromKey={labelFromKey}
-                filterEmptyItems={filterEmptyMetrics}
             />
         </>
     )
@@ -114,7 +111,7 @@ const labelFromKey = (key: string): string => {
         .join(' ')
 }
 
-const filterEmptyMetrics = (item: OverviewItem): boolean => {
+const filterEmptyMetrics = (item: OverviewMetricCardItem): boolean => {
     // Always show cost per metrics, even if they're null (they'll display as "-")
     if (item.key.toLowerCase().startsWith('cost per')) {
         return true
