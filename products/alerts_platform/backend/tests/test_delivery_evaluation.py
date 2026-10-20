@@ -480,6 +480,8 @@ class TestDeliverEvaluation(APIBaseTest):
     def test_the_destination_owner_registers_its_lookup_at_startup(self) -> None:
         # Every other case here patches the lookup, so none of them notices a missing registration.
         assert delivery_paths._chooser is not None
+        # Without it an insight alert on the HogFunction path sends nothing at all.
+        assert delivery_paths.emitter_for(SourceKind.INSIGHT) is not None
         assert (
             list_alert_destination_groups(team_id=self.team.id, alert_id="unknown", allowed_event_ids=[FIRING_EVENT])
             == []
