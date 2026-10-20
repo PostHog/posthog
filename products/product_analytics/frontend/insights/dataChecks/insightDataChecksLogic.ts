@@ -209,7 +209,7 @@ export interface insightDataChecksLogicActions {
 export interface insightDataChecksLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        postHogAIOpen: (sidePanelOpen: any, selectedTab: any) => boolean
+        postHogAIOpen: (sidePanelOpen: boolean, selectedTab: SidePanelTab | null) => boolean
         filterRemovesBots: (currentTeam: TeamPublicType | TeamType | null) => boolean
         checkedQuery: (
             query: Node<Record<string, any>> | null,
