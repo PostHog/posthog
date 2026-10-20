@@ -10,6 +10,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.query_tagging import AccessMethod, QueryTags
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.models import Organization, Team, User
@@ -18,6 +19,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
+from products.managed_warehouse.backend.facade.query_labels import MANAGED_TRINO_RAW_QUERY_STATUS_LABEL
 from products.managed_warehouse.backend.query_execution import execute_managed_trino_query, validate_managed_trino_query
 
 
@@ -140,7 +142,13 @@ def test_live_query_binds_values_and_uses_hosted_service_credentials(
     assert response.columns == ["value"]
 
 
-def test_raw_target_rejects_non_admins_before_cached_results(team: Team) -> None:
+@pytest.mark.parametrize(
+    "access_method,is_admin,error",
+    [(None, False, "organization admin"), *[(method, True, "browser session") for method in AccessMethod]],
+)
+def test_raw_target_rejects_unauthorized_callers_before_cached_results(
+    team: Team, access_method: AccessMethod | None, is_admin: bool, error: str
+) -> None:
     runner = object.__new__(HogQLQueryRunner)
     runner.query = HogQLQuery(query="SELECT 1", executionTarget="managed_trino", sendRawQuery=True)
     runner.team = team
@@ -150,10 +158,14 @@ def test_raw_target_rejects_non_admins_before_cached_results(team: Team) -> None
         patch(
             "products.managed_warehouse.backend.query_execution.UserAccessControl.is_organization_admin",
             new_callable=PropertyMock,
-            return_value=False,
+            return_value=is_admin,
+        ),
+        patch(
+            "products.managed_warehouse.backend.query_execution.get_query_tags",
+            return_value=QueryTags(access_method=access_method),
         ),
         patch.object(AnalyticsQueryRunner, "run") as cached_run,
-        pytest.raises(ExposedHogQLError, match="organization admin"),
+        pytest.raises(ExposedHogQLError, match=error),
     ):
         runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
     cached_run.assert_not_called()
@@ -198,7 +210,9 @@ def test_raw_query_passes_native_sql_without_compilation(team: Team, sql: str) -
             runner.is_query_service = True
             runner._direct_connection_validated = False
             with patch.object(runner, "_parse_query", side_effect=AssertionError("raw SQL reached the HogQL parser")):
-                return runner._calculate()
+                result = runner._calculate()
+            assert runner.query_status_labels() == [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL]
+            return result
 
         if sql.startswith("DELETE"):
             with pytest.raises(ExposedHogQLError, match="read-only"):

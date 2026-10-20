@@ -33,6 +33,20 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+def validate_managed_trino_raw_access(team: Team, user: User | None) -> None:
+    if user is None or not user.is_authenticated:
+        raise ExposedHogQLError("Sign in to run a raw query against hosted Trino.")
+    # Token credentials can restrict projects while the warehouse grant spans the organization.
+    if get_query_tags().access_method is not None:
+        raise ExposedHogQLError(
+            "Raw Trino queries require a browser session. Turn off Send raw query to use HogQL with a token."
+        )
+    if not UserAccessControl(user=user, team=team).is_organization_admin:
+        raise ExposedHogQLError(
+            "Raw Trino queries require organization admin access. Turn off Send raw query to use HogQL."
+        )
+
+
 def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | None) -> None:
     if user is None or not user.is_authenticated:
         raise ExposedHogQLError("Sign in to run a query against hosted Trino.")
@@ -54,10 +68,8 @@ def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | Non
         )
     if query.connectionId:
         raise ExposedHogQLError("Hosted Trino uses the managed warehouse. Clear the external connection.")
-    if query.sendRawQuery and not UserAccessControl(user=user, team=team).is_organization_admin:
-        raise ExposedHogQLError(
-            "Raw Trino queries require organization admin access. Turn off Send raw query to use HogQL."
-        )
+    if query.sendRawQuery:
+        validate_managed_trino_raw_access(team, user)
 
 
 def execute_managed_trino_query(
