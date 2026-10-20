@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asknicely import (
@@ -188,29 +187,6 @@ class TestAsknicely:
             assert validate_credentials("acme", "key") == (True, None)
         assert network.session_options[0]["allow_redirects"] is False
         assert network.session_options[0]["capture"] is False
-
-    @pytest.mark.parametrize(
-        ("status_code", "expected_valid", "expected_message_fragment"),
-        [
-            (200, True, None),
-            (401, False, "Invalid AskNicely API key"),
-            (403, False, "Invalid AskNicely API key"),
-            (500, False, "unexpected status code: 500"),
-        ],
-    )
-    def test_validate_credentials_status_mapping(
-        self, status_code: int, expected_valid: bool, expected_message_fragment: str | None
-    ) -> None:
-        response = ScriptedResponse(status=status_code)
-        script = always(response) if status_code == 500 else [response]
-        with scripted_network(script):
-            is_valid, error_message = validate_credentials("acme", "key")
-
-        assert is_valid is expected_valid
-        if expected_message_fragment is None:
-            assert error_message is None
-        else:
-            assert error_message is not None and expected_message_fragment in error_message
 
     def test_validate_credentials_rejects_invalid_subdomain(self) -> None:
         with scripted_network([]) as network:

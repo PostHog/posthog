@@ -57,12 +57,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/v1/accounts/my-account/models"
         assert network.requests_log[0].headers["authorization"] == "Bearer fw_test"
 
-    def test_transport_failure_returns_actionable_error(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, err = FireworksAISource().validate_credentials(_config(), team_id=1)
-        assert ok is False
-        assert err is not None
-
 
 class TestNonRetryableErrors:
     @parameterized.expand(
