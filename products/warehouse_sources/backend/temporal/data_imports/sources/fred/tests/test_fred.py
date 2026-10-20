@@ -106,37 +106,46 @@ class TestFredTransport:
         assert result.rows == [{"id": 18, "name": "BEA", "release_id": 30}]
         assert result.final_state == FredResumeConfig(next_release_id=31)
 
-    def test_release_tables_flatten_the_element_tree_once_per_element(self):
-        durable = {"element_id": 12888, "release_id": 53, "parent_id": 12887, "name": "Durable goods", "children": []}
-        goods = {"element_id": 12887, "release_id": 53, "parent_id": 12886, "name": "Goods", "children": [durable]}
-        nested_only = {"element_id": 12891, "release_id": 53, "parent_id": 12890, "name": "Housing", "children": []}
-        services = {
-            "element_id": 12890,
+    def test_release_tables_flatten_the_tree_and_drill_into_elements_listed_without_children(self):
+        durable = {
+            "element_id": 12888,
+            "release_id": 53,
+            "parent_id": 12887,
+            "type": "series",
+            "name": "Durable goods",
+            "children": [],
+        }
+        goods = {
+            "element_id": 12887,
             "release_id": 53,
             "parent_id": 12886,
-            "name": "Services",
-            "children": [nested_only],
+            "type": "series",
+            "name": "Goods",
+            "children": [durable],
+        }
+        table = {"element_id": 12890, "release_id": 53, "parent_id": 12886, "type": "table", "children": []}
+        housing = {
+            "element_id": 12891,
+            "release_id": 53,
+            "parent_id": 12890,
+            "type": "series",
+            "name": "Housing",
+            "children": [],
         }
         result = self._driver().run(
             "release_tables",
             [
                 ScriptedResponse(json={"releases": [{"id": 53}]}),
-                ScriptedResponse(
-                    json={
-                        "name": "Personal consumption expenditures",
-                        "elements": {"12887": goods, "12888": durable, "12890": services},
-                    }
-                ),
+                ScriptedResponse(json={"elements": {"12887": goods, "12888": durable, "12890": table}}),
+                ScriptedResponse(json={"element_id": 12890, "elements": {"12891": housing, "12888": durable}}),
             ],
         )
 
         assert result.raised is None
-        assert sorted(result.rows, key=lambda row: row["element_id"]) == [
-            {"element_id": 12887, "release_id": 53, "parent_id": 12886, "name": "Goods"},
-            {"element_id": 12888, "release_id": 53, "parent_id": 12887, "name": "Durable goods"},
-            {"element_id": 12890, "release_id": 53, "parent_id": 12886, "name": "Services"},
-            {"element_id": 12891, "release_id": 53, "parent_id": 12890, "name": "Housing"},
-        ]
+        assert result.params("element_id") == [None, None, "12890"]
+        assert [[row["element_id"] for row in page] for page in result.items] == [[12887, 12888, 12890], [12891]]
+        assert all("children" not in row for row in result.rows)
+        assert result.final_state == FredResumeConfig(next_release_id=54)
 
     @pytest.mark.parametrize(
         "resume_state, script, expected_category_ids, expected_row_ids",

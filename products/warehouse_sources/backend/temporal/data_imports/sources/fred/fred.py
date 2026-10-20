@@ -33,13 +33,15 @@ SERIES_ID_SEPARATOR = re.compile(r"[\s,;]+")
 SERIES_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FredResumeConfig:
     # Position in the source's series list. Always 0 for endpoints that don't fan out.
     series_index: int = 0
     offset: int = 0
     # Release fan-out: the lowest release id not synced yet.
     next_release_id: Optional[int] = None
+    # Release table drill-down: the elements of `next_release_id` not fetched yet.
+    pending_element_ids: Optional[list[int]] = None
     # Category tree walk: the categories whose children are not fetched yet, as a DFS stack.
     pending_category_ids: Optional[list[int]] = None
 
@@ -132,6 +134,17 @@ def _flatten_elements(elements: Iterable[Any], rows: dict[Any, dict[str, Any]]) 
             continue
         rows.setdefault(element.get("element_id"), {k: v for k, v in element.items() if k != "children"})
         _flatten_elements(element.get("children") or [], rows)
+
+
+def _elements_to_drill_into(elements: Iterable[Any], found: list[int]) -> None:
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        children = element.get("children") or []
+        if children:
+            _elements_to_drill_into(children, found)
+        elif element.get("type") != "series" and isinstance(element.get("element_id"), int):
+            found.append(element["element_id"])
 
 
 def _extract_rows(payload: dict[str, Any], config: FredEndpointConfig, stamp: dict[str, Any]) -> list[dict[str, Any]]:
@@ -227,21 +240,58 @@ def _walk_releases(
         if release_id < start_release_id:
             continue
 
-        interruptible_wait(FAN_OUT_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
-        try:
-            payload = _fetch(session, api_key, config.path, {**config.params, "release_id": release_id})
-        except FredRequestError as error:
-            # One release FRED rejects (for example one with no table tree) must not fail the
-            # whole table. A bad key raises FredAuthenticationError and still fails the sync.
-            logger.warning(f"FRED: skipping release {release_id} for {config.name}: {error}")
-            payload = {}
+        # None stands for the release root, which is requested without an element_id.
+        pending: list[Optional[int]] = [None]
+        if (
+            resume_config is not None
+            and resume_config.next_release_id == release_id
+            and resume_config.pending_element_ids is not None
+        ):
+            pending = list(resume_config.pending_element_ids)
+        requested = {element_id for element_id in pending if element_id is not None}
+        emitted: set[Any] = set()
 
-        rows = _extract_rows(payload, config, {"release_id": release_id} if config.stamp_release_id else {})
-        resumable_source_manager.save_state(FredResumeConfig(next_release_id=release_id + 1))
-        if rows:
-            yield rows
-        else:
-            resumable_source_manager.safe_point()
+        while pending:
+            element_id = pending.pop()
+            params: dict[str, Any] = {**config.params, "release_id": release_id}
+            if element_id is not None:
+                params["element_id"] = element_id
+
+            interruptible_wait(FAN_OUT_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
+            try:
+                payload = _fetch(session, api_key, config.path, params)
+            except FredRequestError as error:
+                # One release FRED rejects (for example one with no table tree) must not fail the
+                # whole table. A bad key raises FredAuthenticationError and still fails the sync.
+                logger.warning(f"FRED: skipping release {release_id} element {element_id} for {config.name}: {error}")
+                payload = {}
+
+            if config.drill_down_elements and isinstance(payload.get(config.data_key), dict):
+                found: list[int] = []
+                _elements_to_drill_into(payload[config.data_key].values(), found)
+                for child_id in reversed(found):
+                    if child_id not in requested:
+                        requested.add(child_id)
+                        pending.append(child_id)
+
+            rows = _extract_rows(payload, config, {"release_id": release_id} if config.stamp_release_id else {})
+            if config.drill_down_elements:
+                # A drilled element's response can repeat elements an earlier response listed.
+                rows = [row for row in rows if row.get("element_id") not in emitted]
+                emitted.update(row.get("element_id") for row in rows)
+
+            if pending:
+                next_state = FredResumeConfig(
+                    next_release_id=release_id,
+                    pending_element_ids=[pending_id for pending_id in pending if pending_id is not None],
+                )
+            else:
+                next_state = FredResumeConfig(next_release_id=release_id + 1)
+            resumable_source_manager.save_state(next_state)
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
 
 
 def _walk_category_tree(

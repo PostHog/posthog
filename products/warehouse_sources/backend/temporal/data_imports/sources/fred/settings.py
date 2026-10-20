@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 FRED_EARLIEST_REALTIME_DATE = "1776-07-04"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FredEndpointConfig:
     name: str
     path: str
@@ -20,6 +20,9 @@ class FredEndpointConfig:
     per_series: bool = False
     # Endpoints taking a `release_id`: fetched once per release FRED lists.
     per_release: bool = False
+    # Release table trees: FRED answers the release root with its top elements, and a
+    # non-series element listed without children needs its own `element_id` request.
+    drill_down_elements: bool = False
     # Walk the whole category tree from the root, one children request per category.
     category_tree: bool = False
     # Stamp the requested series id onto each row. Observations and the per-series lookups
@@ -134,6 +137,7 @@ FRED_ENDPOINTS: dict[str, FredEndpointConfig] = {
         data_key="elements",
         primary_keys=["release_id", "element_id"],
         per_release=True,
+        drill_down_elements=True,
     ),
     "categories": FredEndpointConfig(
         name="categories",
