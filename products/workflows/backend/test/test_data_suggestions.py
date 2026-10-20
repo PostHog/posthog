@@ -312,6 +312,7 @@ class TestDataSuggestions(SimpleTestCase):
             email_paragraphs=[
                 "Your [[product_name|items]] cost [[price|less than you think]].",
                 "Pick [[product_name|your team's choice]] or [[price|Tom's deal]].",
+                "See [[product_name|Tom&#x27;s plan\\]] today.",
             ],
         )
 
@@ -320,7 +321,11 @@ class TestDataSuggestions(SimpleTestCase):
         assert built is not None
         email = built.workflow["actions"][1]
         assert email["config"]["inputs"]["email"]["value"]["subject"] == (
-            "You left {{ event.properties.product_name | default: 'something' }} behind"
+            "You left {{ event.properties.product_name | default: 'something' | raw }} behind"
+        )
+        assert (
+            "See {{ event.properties.product_name | default: 'Toms plan' | raw }} today."
+            in (email["config"]["inputs"]["email"]["value"]["text"])
         )
         assert (
             "Your {{ event.properties.product_name | default: 'items' }} cost less than you think."

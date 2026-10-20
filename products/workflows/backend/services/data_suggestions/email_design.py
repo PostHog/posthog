@@ -1,6 +1,6 @@
 import re
 from collections.abc import Callable
-from html import escape
+from html import escape, unescape
 
 from posthog.dataclasses import frozen
 
@@ -27,18 +27,27 @@ class RenderedEmail:
 _VARIABLE = re.compile(r"\[\[\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\|([^\[\]|]*))?\]\]")
 
 
-def with_variables(text: str, variables: frozenset[str], escape_text: Callable[[str], str] = str) -> str:
+def _unescape_fully(value: str) -> str:
+    while (decoded := unescape(value)) != value:
+        value = decoded
+    return value
+
+
+def with_variables(
+    text: str, variables: frozenset[str], escape_text: Callable[[str], str] = str, raw: bool = False
+) -> str:
     """Turns [[name|fallback]] into a Liquid variable on the trigger event. An unknown name keeps only its fallback,
-    so the model can never reach person data or other events."""
+    so the model can never reach person data or other events. Pass raw for subjects and plain text, which the send
+    would otherwise HTML-escape."""
 
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
-        # Stripped before escaping: the send decodes entities inside a Liquid tag, so an escaped quote would end the
-        # default early.
-        fallback = escape_text(re.sub(r"['{}%]", "", match.group(2) or "").strip())
+        # Stripped after decoding and before escaping: the send decodes entities inside a Liquid tag, so an encoded
+        # quote or a trailing backslash would end the default early.
+        fallback = escape_text(re.sub(r"['\"{}%\\]", "", _unescape_fully(match.group(2) or "")).strip())
         if name not in variables:
             return fallback
-        return f"{{{{ event.properties.{name} | default: '{fallback}' }}}}"
+        return f"{{{{ event.properties.{name} | default: '{fallback}'{' | raw' if raw else ''} }}}}"
 
     parts: list[str] = []
     end = 0
@@ -70,6 +79,6 @@ def render_email(copy: EmailCopy) -> RenderedEmail:
         '<a href="{{ unsubscribe_url }}" style="color:#6b6e76">Unsubscribe</a></td></tr>'
         "</table></body></html>"
     )
-    text = with_variables("\n\n".join([copy.heading, *copy.paragraphs]), copy.variables)
-    subject = with_variables(copy.subject, copy.variables)
+    text = with_variables("\n\n".join([copy.heading, *copy.paragraphs]), copy.variables, raw=True)
+    subject = with_variables(copy.subject, copy.variables, raw=True)
     return RenderedEmail(subject=subject, html=html, text=text, design=build_html_wrap_design(html))
