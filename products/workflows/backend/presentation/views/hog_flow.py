@@ -609,10 +609,13 @@ def _strip_replay_vision_code(inputs: Any) -> None:
 def _alert_configuration_ids(filters: dict) -> list[uuid_mod.UUID] | None:
     """The alerts an `$alert_transition` trigger names, or None when a named one is not an alert id."""
     ids: list[uuid_mod.UUID] = []
-    for prop in filters.get("properties") or []:
+    properties = filters.get("properties")
+    for prop in properties if isinstance(properties, list) else []:
         if not isinstance(prop, dict) or prop.get("key") != "alert_configuration_id":
             continue
-        if (prop.get("operator") or "exact") != "exact":
+        # Only an exact event-property filter restricts which events match. Another type, such
+        # as a flag, compiles to a condition that does not read the event at all.
+        if prop.get("type") != "event" or (prop.get("operator") or "exact") != "exact":
             continue
         value = prop.get("value")
         for item in value if isinstance(value, list) else [value]:
