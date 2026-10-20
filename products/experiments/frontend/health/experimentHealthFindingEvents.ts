@@ -18,6 +18,7 @@ export type ExperimentHealthFindingCode =
     | 'flag_live_after_end'
     | 'flag_live_before_launch'
     | 'bias_risk_multiple_excluded'
+    | 'multiple_variants_share'
     | 'srm'
     | 'zero_exposures'
     | 'no_metric'

@@ -9946,6 +9946,7 @@ export namespace Schemas {
      * * `flag_live_after_end` - Flag Live After End
      * * `flag_live_before_launch` - Flag Live Before Launch
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -9961,6 +9962,7 @@ export namespace Schemas {
         | "flag_live_after_end"
         | "flag_live_before_launch"
         | "bias_risk_multiple_excluded"
+        | "multiple_variants_share"
         | "no_metric"
         | "srm"
         | "zero_exposures"
@@ -10006,6 +10008,7 @@ export namespace Schemas {
          * * `flag_live_after_end` - Flag Live After End
          * * `flag_live_before_launch` - Flag Live Before Launch
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
@@ -10388,7 +10391,8 @@ export namespace Schemas {
     export type ExperimentExposureHealthFindingCode =
         | "zero_exposures"
         | "srm"
-        | "bias_risk_multiple_excluded";
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
