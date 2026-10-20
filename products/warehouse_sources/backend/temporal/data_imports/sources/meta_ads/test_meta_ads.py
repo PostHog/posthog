@@ -369,9 +369,8 @@ class TestSimplePaginationRefusedFields:
                     "paging": {"next": "https://graph.facebook.com/v20/act_123/ads?fields=id%2Cname&after=p1"},
                 },
             ),
-            # The lookup for both ads is refused, so it splits until the refused ad is alone.
-            _mock_response(400, refused_body),
-            _mock_response(200, {"1": {"id": "1", "creative": {"id": "c1"}}}),
+            # Per-node lookups: id 1 restores its creative, id 2 is refused again and is left out.
+            _mock_response(200, {"id": "1", "creative": {"id": "c1"}}),
             _mock_response(400, refused_body),
             _mock_response(200, {"data": [{"id": "3", "name": "c", "creative": {"id": "c3"}}], "paging": {}}),
         ]
@@ -392,24 +391,29 @@ class TestSimplePaginationRefusedFields:
         ]
         calls = mock_get.return_value.get.call_args_list
         assert calls[1].kwargs["params"]["fields"] == "id,name"
-        assert calls[2].kwargs["params"]["ids"] == "1,2"
-        assert "fields=id%2Cname%2Ccreative" in calls[5].args[0]
+        # Node lookups hit the node's own URL (`GET /{id}`) rather than the deprecated
+        # root `?ids=...` multi-id lookup, which Meta rejects on v26.0+.
+        assert calls[2].args[0] == f"{self.NODE_LOOKUP_URL}1"
+        assert calls[2].kwargs["params"]["fields"] == "creative"
+        assert calls[3].args[0] == f"{self.NODE_LOOKUP_URL}2"
+        assert "fields=id%2Cname%2Ccreative" in calls[4].args[0]
         saved = manager.save_state.call_args.args[0]
         assert saved.next_url is not None and "fields=id%2Cname%2Ccreative" in saved.next_url
 
-    def test_lookup_node_error_other_than_refusal_raises(self) -> None:
+    def test_node_lookup_error_other_than_refusal_raises(self) -> None:
         manager = _build_manager()
+        other_error_body = {"error": {"message": "Something else went wrong", "code": 100}}
         responses = [
             _mock_response(400, self.REFUSED_BODY),
             _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
-            _mock_response(200, {"1": {"error": {"message": "Service temporarily unavailable", "code": 2}}}),
+            _mock_response(500, other_error_body),
         ]
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.get.side_effect = responses
-            with pytest.raises(Exception, match="node lookup error"):
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
                 list(
                     _iter_simple_pagination(
                         self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
