@@ -59,6 +59,8 @@ class CutoverSkip(StrEnum):
     """Why an alert stays with the insight stack for now."""
 
     ALREADY_MOVED = "already_moved"
+    # Platform rows live on the project's root team, so an alert in a child environment stays.
+    ENVIRONMENT = "environment"
     # The platform does not evaluate it in parallel, such as a detector or a real-time alert.
     NOT_ON_PLATFORM = "not_on_platform"
     # The investigation agent reads and writes the insight stack's checks, which the platform does not keep.
@@ -102,42 +104,76 @@ def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCu
 
 def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
     with transaction.atomic():
-        alert = AlertConfiguration.objects.select_for_update(no_key=True).select_related("threshold").get(id=alert_id)
+        # Only the alert's own row is locked. Locking the team row would make a hot parent a mutex.
+        alert = (
+            AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
+            .select_related("team", "threshold")
+            .get(id=alert_id)
+        )
         # Read after the lock, so a check that became due while earlier alerts moved is seen as due.
         at = now or timezone.now()
         if alert.platform_owned:
             return CutoverSkip.ALREADY_MOVED
-        upsert = platform_upsert_of(alert)
-        if upsert is None:
-            return CutoverSkip.NOT_ON_PLATFORM
-        if alert.investigation_agent_enabled:
-            return CutoverSkip.INVESTIGATION
+        if in_an_environment(alert):
+            return CutoverSkip.ENVIRONMENT
+        if not can_move(alert):
+            return CutoverSkip.INVESTIGATION if alert.investigation_agent_enabled else CutoverSkip.NOT_ON_PLATFORM
         if alert.state == AlertState.FIRING:
             return CutoverSkip.FIRING
         if _insight_check_owed(alert.id, at):
             return CutoverSkip.CHECK_DUE
-
-        savepoint = transaction.savepoint()
-        upsert_configuration(upsert)
-        taken = take_ownership(
-            PlatformOwnershipHandover(
-                legacy_configuration_id=alert.id,
-                team_id=alert.team_id,
-                state=PLATFORM_HANDOVER_STATE[alert.state],
-                last_notified_at=alert.last_notified_at,
-                consecutive_failures=0,
-                next_check_at=alert.next_check_at or at,
-                at=at,
-            )
-        )
-        if not taken:
-            # The copy stays as live delivery left it. A copy disabled here would drop out of
-            # discovery and never resolve the firing it is inside.
-            transaction.savepoint_rollback(savepoint)
+        if not hand_over(alert, at):
             return CutoverSkip.PLATFORM_FIRING
-        transaction.savepoint_commit(savepoint)
-        AlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at)
     return None
+
+
+def in_an_environment(alert: AlertConfiguration) -> bool:
+    """Whether the alert belongs to a child environment, whose copy would live on its project."""
+    return alert.team.parent_team_id is not None
+
+
+def can_move(alert: AlertConfiguration) -> bool:
+    """Whether the platform can own the alert: it evaluates the alert, and no investigation agent reads it."""
+    return platform_upsert_of(alert) is not None and not alert.investigation_agent_enabled
+
+
+def has_begun_cutover(team_id: int) -> bool:
+    """Whether the platform owns any of the team's insight alerts, which makes it the owner of new ones."""
+    return AlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM).exists()
+
+
+def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
+    """Copies an insight alert locked by the caller onto the platform and makes the platform its owner,
+    on both rows. False, changing nothing, when the platform copy is inside a firing of its own.
+
+    The caller checks `can_move` first.
+    """
+    upsert = platform_upsert_of(alert)
+    assert upsert is not None
+    savepoint = transaction.savepoint()
+    upsert_configuration(upsert)
+    taken = take_ownership(
+        PlatformOwnershipHandover(
+            legacy_configuration_id=alert.id,
+            team_id=alert.team_id,
+            state=PLATFORM_HANDOVER_STATE[alert.state],
+            last_notified_at=alert.last_notified_at,
+            consecutive_failures=0,
+            next_check_at=alert.next_check_at or at,
+            at=at,
+        )
+    )
+    if not taken:
+        # The copy stays as live delivery left it. A copy disabled here would drop out of
+        # discovery and never resolve the firing it is inside.
+        transaction.savepoint_rollback(savepoint)
+        return False
+    transaction.savepoint_commit(savepoint)
+    # `update()` rather than `save()`: a handover is not a user's edit, and `save()` would log one.
+    AlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at)
+    alert.owner = PlatformAlertOwner.PLATFORM
+    alert.owner_changed_at = at
+    return True
 
 
 class RollbackSkip(StrEnum):
