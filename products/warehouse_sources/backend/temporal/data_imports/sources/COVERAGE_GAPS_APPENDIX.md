@@ -4924,10 +4924,10 @@ Today (9): `observations`, `release_dates`, `releases`, `series`, `series_catego
 
 Diffed against: <https://fred.stlouisfed.org/docs/api/fred/>
 
-- [ ] `Child categories (GET /fred/category/children)` — resolve parent_id values from synced series categories and build a complete category hierarchy (high)
-- [ ] `Series vintage dates (GET /fred/series/vintagedates)` — identify publication and revision dates for economic series (medium)
-- [ ] `Release sources (GET /fred/release/sources)` — join economic releases to their publishing institutions (medium)
-- [ ] `Release tables (GET /fred/release/tables)` — preserve official release hierarchies for reports such as national accounts (medium)
+- [x] `Child categories (GET /fred/category/children)` — resolve parent_id values from synced series categories and build a complete category hierarchy (high)
+- [x] `Series vintage dates (GET /fred/series/vintagedates)` — identify publication and revision dates for economic series (medium)
+- [x] `Release sources (GET /fred/release/sources)` — join economic releases to their publishing institutions (medium)
+- [x] `Release tables (GET /fred/release/tables)` — preserve official release hierarchies for reports such as national accounts (medium)
 
 Note: Read the official operation index and the individual reference pages for all four gaps. Current series tables cover configured series IDs; categories need tree traversal and release resources need release fan-out. Vintage dates describe revision timing; historical values require observation requests and keys that preserve each vintage. Excluded search variants and reverse listings that mainly repeat existing series, tags, or release data.
 
