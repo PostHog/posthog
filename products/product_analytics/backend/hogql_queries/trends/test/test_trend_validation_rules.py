@@ -24,9 +24,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.api.services.query import NATIVE_EVENTS_CLUSTER_USER_FLAG, native_events_cluster_modifiers_for_user
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 from posthog.models.instance_setting import override_instance_config
 
@@ -494,3 +495,33 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
             assert restored_source is not None and restored_source is not anonymous_source
             assert restored_source.user is self.user
             assert bool(restored_source.modifiers.useNewEventsCluster) is native
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_rollout_flag_route_survives_async_worker_reconstruction(self) -> None:
+        query = InsightActorsQuery(source=TrendsQuery(series=[EventsNode(event="$pageview")]))
+        cache_manager = MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None)
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+            patch(
+                "posthog.api.services.query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
+            ),
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture"),
+            patch("posthog.hogql_queries.query_runner.groups", return_value={}),
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+        ):
+            modifiers = native_events_cluster_modifiers_for_user(self.team, self.user, query, is_query_service=False)
+            request = get_query_runner(query, self.team, user=self.user, modifiers=modifiers)
+            request.enqueue_async_calculation(cache_manager=cache_manager, user=self.user)
+            state = enqueue.call_args.kwargs["runner_state"]
+            worker = get_query_runner(
+                state["query"],
+                self.team,
+                user=self.user,
+                modifiers=HogQLQueryModifiers.model_validate(state["modifiers"]),
+            )
+            old_worker = get_query_runner(enqueue.call_args.kwargs["query_json"], self.team, user=self.user)
+        assert worker.modifiers.useNewEventsCluster is True
+        assert old_worker.modifiers.useNewEventsCluster is True
+        assert worker.get_cache_key() == request.get_cache_key()
