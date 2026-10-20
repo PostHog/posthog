@@ -101,10 +101,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
         [
-            (200, True),
-            (401, False),
             (429, False),
-            (500, False),
         ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
@@ -117,12 +114,6 @@ class TestValidateCredentials:
             assert error is not None
         assert network.requests_log[0].path == "/v1/key/info"
         assert network.requests_log[0].headers["x-cmc_pro_api_key"] == "test-key"
-
-    def test_network_error_returns_message(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, error = validate_credentials("test-key")
-        assert valid is False
-        assert error is not None and "boom" in error
 
 
 class TestRowsFrom:

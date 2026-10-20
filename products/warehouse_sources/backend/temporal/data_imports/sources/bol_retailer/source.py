@@ -121,7 +121,7 @@ class BolRetailerSource(ResumableSource[BolRetailerSourceConfig, BolRetailerResu
             caption="Sync order items, shipments, returns, offers, inventory and invoices from your bol.com seller account.",
             docsUrl="https://posthog.com/docs/cdp/sources/bol-retailer",
             iconPath="/static/services/bol_retailer.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

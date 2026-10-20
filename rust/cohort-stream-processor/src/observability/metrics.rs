@@ -115,8 +115,8 @@ pub const CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS: &str =
 /// `full_upload_at` of the newest upload: when its chain of incrementals began (gauge, seconds).
 pub const CHECKPOINT_LAST_FULL_UPLOAD_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_full_upload_timestamp_seconds";
-/// Checkpoint ticks skipped before the checkpoint, labelled by `reason` (`positions`|`incomplete`)
-/// (counter).
+/// Checkpoint ticks skipped before the checkpoint, labelled by `reason`
+/// (`positions`|`foreign`|`incomplete`) (counter). `foreign` is a position another split stamped.
 pub const CHECKPOINT_CAPTURE_FAILURES_TOTAL: &str = "checkpoint_capture_failures_total";
 /// Wall-clock duration of one checkpoint S3 upload, labelled by `result` (histogram, seconds).
 pub const CHECKPOINT_UPLOAD_DURATION_SECONDS: &str = "checkpoint_upload_duration_seconds";
@@ -139,7 +139,8 @@ pub const CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS: &str =
     "checkpoint_file_fetch_store_duration_seconds";
 /// Latency of listing a checkpoint's recent attempt folders from S3 (histogram, seconds).
 pub const CHECKPOINT_LIST_DURATION_SECONDS: &str = "checkpoint_list_duration_seconds";
-/// Boot store choices, labelled by `source` (`reopen_live`|`pending`|`local`|`s3`|`cold`) (counter).
+/// Boot store choices, labelled by `source` (`reopen_live`|`pending`|`local`|`s3`|`parent_s3`|`cold`)
+/// (counter). `parent_s3` is a reshard child restoring its parent's lineage.
 pub const CHECKPOINT_RESTORE_TOTAL: &str = "checkpoint_restore_total";
 /// Checkpoint candidates a boot restore tried, labelled by `verdict`
 /// (`published`|`unusable`|`failed`) (counter).
@@ -297,20 +298,23 @@ pub const PARTITIONS_PAUSED: &str = "partitions_paused";
 /// paused partition stops fetching — so a climbing value flags a stuck worker.
 pub const PENDING_HELD_EVENTS: &str = "pending_held_events";
 
-/// Non-empty rebalance callbacks, labelled by `event_type` (`assign`|`revoke`) (counter).
+/// Rebalance callbacks on the events consumer, labelled by `event_type`
+/// (`assign`|`revoke`|`error`) (counter). The consumer never subscribes, so any increase means a
+/// code change made it subscribe (see `partitions::rebalance`).
 pub const REBALANCES_TOTAL: &str = "rebalances_total";
-/// Partitions assigned to this consumer across all rebalances (counter).
+/// Partitions this pod took ownership of at boot (counter).
 pub const PARTITIONS_ASSIGNED_TOTAL: &str = "partitions_assigned_total";
-/// Partitions revoked from this consumer across all rebalances (counter).
-pub const PARTITIONS_REVOKED_TOTAL: &str = "partitions_revoked_total";
-/// Empty rebalance callbacks short-circuited, labelled by `event_type` (counter).
-pub const REBALANCE_EMPTY_SKIPPED_TOTAL: &str = "rebalance_empty_skipped_total";
-/// Per-partition revoke drain latency (histogram, seconds).
-pub const REVOKE_DRAIN_DURATION_SECONDS: &str = "revoke_drain_duration_seconds";
-/// Per-partition RocksDB state slices reclaimed on revoke (counter).
-pub const PARTITION_STATE_DELETED_TOTAL: &str = "partition_state_deleted_total";
-/// Revoke cleanups skipped because the partition was re-acquired, labelled by `phase` (counter).
-pub const REBALANCE_CLEANUP_SKIPPED_TOTAL: &str = "rebalance_cleanup_skipped_total";
+/// Partitions this pod owns on every input (gauge).
+pub const OWNED_PARTITIONS: &str = "owned_partitions";
+/// This pod's place in the partition split, labelled by `pods` and `ordinal`. Always 1 (gauge).
+pub const PARTITION_OWNERSHIP_INFO: &str = "partition_ownership_info";
+/// 1 while the ownership fence holds the boot, labelled by `reason`
+/// (`foreign_split`|`unrecognized`|`parent_running`), else 0 (gauge). **Alert on it**: the pod reads
+/// not ready until the logged cause clears.
+pub const OWNERSHIP_FENCE_BLOCKED: &str = "ownership_fence_blocked";
+/// Commits by another split, or with unreadable metadata, that the run-time audit found on an owned
+/// partition, labelled by `topic` (counter). Each one stops the pod.
+pub const OWNERSHIP_FENCE_VIOLATIONS_TOTAL: &str = "ownership_fence_violations_total";
 
 /// Events fully processed (counter).
 pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
@@ -863,6 +867,11 @@ mod tests {
             "durable_restore_pending_transfers_recovered_partitions_total",
         );
         // Alerts select on these.
+        assert_eq!(OWNERSHIP_FENCE_BLOCKED, "ownership_fence_blocked");
+        assert_eq!(
+            OWNERSHIP_FENCE_VIOLATIONS_TOTAL,
+            "ownership_fence_violations_total"
+        );
         assert_eq!(SLICES_ADOPTED_TOTAL, "cohort_slices_adopted_total");
         assert_eq!(SLICES_BEGUN_TOTAL, "cohort_slices_begun_total");
         assert_eq!(
