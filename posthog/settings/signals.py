@@ -3,6 +3,8 @@ import os
 from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import get_list, get_set
 
+SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID: str = os.getenv("SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID", "")
+
 SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE = os.getenv("SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", "false").lower() == "true"
 
 # Signs the per-delivery map of already-rendered chart assets that scout Slack delivery keeps in the

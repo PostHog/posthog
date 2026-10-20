@@ -1,0 +1,284 @@
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
+import time_machine
+from posthog.test.base import BaseTest
+from unittest.mock import Mock, patch
+
+from django.core.exceptions import ImproperlyConfigured
+from django.db import transaction
+from django.test import override_settings
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.models import Organization, Team, User
+from posthog.transactional_email import (
+    TransactionalEmailDeliveryUncertain,
+    TransactionalEmailRejected,
+    TransactionalEmailRetryableError,
+    send_transactional_email,
+)
+
+from products.signals.backend.first_report_notification import (
+    deliver_first_report_email,
+    register_first_report_notification,
+)
+from products.signals.backend.first_report_notification_tasks import sweep_first_report_notifications
+from products.signals.backend.models import SignalFirstReportNotification, SignalReport
+
+MODULE = "products.signals.backend.first_report_notification"
+TASK_MODULE = "products.signals.backend.first_report_notification_tasks"
+
+
+@time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+@override_settings(SITE_URL="https://app.example.com")
+class TestFirstReportNotification(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.template_id = uuid4()
+        self.enterContext(
+            override_settings(
+                POSTHOG_HOST="https://us.posthog.com",
+                POSTHOG_PROJECT_ID=123456789,
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_fake_transactional_key",
+                SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID=str(self.template_id),
+            )
+        )
+        self.enterContext(patch(f"{MODULE}.is_cloud", return_value=True))
+        response = Mock(status_code=202)
+        response.json.return_value = {"message_id": "example-message-id"}
+        self.post = self.enterContext(patch("posthog.transactional_email.requests.post", return_value=response))
+        self.send = self.enterContext(patch(f"{MODULE}.send_transactional_email", wraps=send_transactional_email))
+        register_first_report_notification(team=self.team, user=self.user)
+
+    def report(self, **overrides: object) -> SignalReport:
+        return SignalReport.objects.create(
+            **{
+                "team": self.team,
+                "status": SignalReport.Status.READY,
+                "title": "Checkout errors increased",
+                "summary": "An actionable report.",
+                "signal_count": 1,
+                "total_weight": 1,
+                "first_visible_at": timezone.now(),
+                "latest_actionability": "immediately_actionable",
+                "latest_already_addressed": False,
+                **overrides,
+            }
+        )
+
+    def notification(self) -> SignalFirstReportNotification:
+        return SignalFirstReportNotification.objects.for_team(self.team.id).get()
+
+    @time_machine.travel("2026-01-15T12:01:00Z", tick=False)
+    def test_first_report_targets_activator_once_per_project(self) -> None:
+        first = self.report(first_visible_at=timezone.now() - timedelta(seconds=1))
+        self.report()
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        register_first_report_notification(team=self.team, user=other_user)
+
+        deliver_first_report_email(self.team.id)
+        deliver_first_report_email(self.team.id)
+
+        self.send.assert_called_once_with(
+            str(self.template_id),
+            to=self.user.email,
+            distinct_id=str(self.user.distinct_id),
+            message_data={
+                "project_id": self.team.id,
+                "report_id": str(first.id),
+                "report_title": first.title,
+                "report_url": f"https://app.example.com/project/{self.team.id}/inbox/reports/{first.id}",
+                "activation_id": str(self.notification().id),
+            },
+        )
+        assert self.notification().queued_at is not None
+        assert self.notification().message_id == "example-message-id"
+        assert self.post.call_args.args[0] == (
+            f"https://us.posthog.com/api/projects/123456789/messaging_templates/{self.template_id}/send/"
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Another project")
+        register_first_report_notification(team=other_team, user=self.user)
+        self.report(team=other_team)
+        deliver_first_report_email(other_team.id)
+        assert self.send.call_count == 2
+
+    @parameterized.expand(
+        [
+            ("researching", {"status": SignalReport.Status.IN_PROGRESS}),
+            ("suppressed", {"status": SignalReport.Status.SUPPRESSED}),
+            ("failed", {"status": SignalReport.Status.FAILED}),
+            ("needs_input", {"status": SignalReport.Status.PENDING_INPUT}),
+            ("not_actionable", {"latest_actionability": "not_actionable"}),
+            ("already_addressed", {"latest_already_addressed": True}),
+            ("not_judged", {"latest_actionability": None}),
+            ("empty", {"summary": ""}),
+            ("never_visible", {"first_visible_at": None}),
+            ("before_activation", {"first_visible_at": datetime(2026, 1, 14, tzinfo=UTC)}),
+        ]
+    )
+    def test_waits_for_an_eligible_report(self, _name: str, overrides: dict[str, object]) -> None:
+        self.report(**overrides)
+        deliver_first_report_email(self.team.id)
+        self.send.assert_not_called()
+        assert self.notification().send_started_at is None
+        assert self.notification().cancelled_at is None
+
+    @parameterized.expand([("inactive",), ("removed",), ("no_email",), ("no_access",), ("deleted",)])
+    def test_does_not_substitute_another_recipient(self, reason: str) -> None:
+        self.report()
+        if reason == "inactive":
+            self.user.is_active = False
+            self.user.save(update_fields=["is_active"])
+        elif reason == "removed":
+            self.organization.members.remove(self.user)
+        elif reason == "no_email":
+            self.user.email = ""
+            self.user.save(update_fields=["email"])
+        elif reason == "deleted":
+            SignalFirstReportNotification.objects.for_team(self.team.id).update(activated_by=None)
+        with patch(f"{MODULE}.may_read_reports", return_value=reason != "no_access"):
+            deliver_first_report_email(self.team.id)
+        self.send.assert_not_called()
+        assert self.notification().cancelled_at is not None
+
+    @parameterized.expand(
+        [
+            ("quota", TransactionalEmailRetryableError("rate_limited")),
+            ("connect", TransactionalEmailRetryableError("connect_timeout")),
+            ("template", TransactionalEmailRejected("http_404")),
+            ("setup", ImproperlyConfigured()),
+        ]
+    )
+    @time_machine.travel("2026-01-15T12:01:00Z", tick=False)
+    def test_confirmed_rejection_retries_the_same_report(self, _name: str, error: Exception) -> None:
+        first = self.report()
+        self.send.side_effect = error
+        with self.assertRaises(type(error)):
+            deliver_first_report_email(self.team.id)
+        initial_send = self.send.call_args
+        assert self.notification().send_started_at is None
+        assert self.notification().last_error
+        self.report(first_visible_at=timezone.now() - timedelta(seconds=1))
+        self.send.side_effect = None
+
+        deliver_first_report_email(self.team.id)
+
+        assert self.send.call_args == initial_send
+        assert initial_send.kwargs["message_data"]["report_id"] == str(first.id)
+        assert self.notification().queued_at is not None
+
+    @parameterized.expand(
+        [
+            ("ambiguous_response", TransactionalEmailDeliveryUncertain("request_failed")),
+            ("invalid_response", ValueError()),
+        ]
+    )
+    def test_uncertain_send_is_not_repeated(self, _name: str, error: Exception) -> None:
+        self.report()
+        self.send.side_effect = error
+        with self.assertRaises(type(error)):
+            deliver_first_report_email(self.team.id)
+        self.send.side_effect = None
+        deliver_first_report_email(self.team.id)
+        with patch(f"{TASK_MODULE}.dispatch_first_report_notification.delay") as enqueue:
+            sweep_first_report_notifications()
+        enqueue.assert_not_called()
+        self.send.assert_called_once()
+        assert self.notification().send_started_at is not None
+        assert self.notification().queued_at is None
+        assert self.notification().last_error == "delivery_uncertain"
+
+    def test_worker_loss_does_not_expire_a_send_and_duplicate_it(self) -> None:
+        self.report()
+        SignalFirstReportNotification.objects.for_team(self.team.id).update(
+            send_started_at=timezone.now() - timedelta(days=1)
+        )
+        deliver_first_report_email(self.team.id)
+        self.send.assert_not_called()
+
+    def test_concurrent_dispatch_does_not_send_twice(self) -> None:
+        self.report()
+
+        def send(*_args: object, **_kwargs: object) -> str:
+            deliver_first_report_email(self.team.id)
+            return "example-message-id"
+
+        self.send.side_effect = send
+        deliver_first_report_email(self.team.id)
+        self.send.assert_called_once()
+        assert self.notification().queued_at is not None
+
+    def test_environment_activation_and_reports_keep_their_own_recipient(self) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
+        other_user = User.objects.create_and_join(self.organization, "staging@example.com", None)
+        register_first_report_notification(team=child, user=other_user)
+        report = self.report(team=child)
+        deliver_first_report_email(self.team.id)
+        self.send.assert_not_called()
+        deliver_first_report_email(child.id)
+        sent = self.send.call_args.kwargs
+        assert sent["to"] == other_user.email
+        assert sent["distinct_id"] == str(other_user.distinct_id)
+        assert sent["message_data"]["project_id"] == child.id
+        assert sent["message_data"]["report_id"] == str(report.id)
+        assert self.notification().queued_at is None
+
+    @parameterized.expand([("suppressed",), ("deleted",)])
+    def test_selected_report_removed_before_retry_is_not_replaced(self, reason: str) -> None:
+        report = self.report()
+        self.send.side_effect = TransactionalEmailRetryableError("rate_limited")
+        with self.assertRaises(TransactionalEmailRetryableError):
+            deliver_first_report_email(self.team.id)
+        if reason == "deleted":
+            report.delete()
+        else:
+            SignalReport.objects.filter(pk=report.pk).update(status=SignalReport.Status.SUPPRESSED)
+        self.report()
+        self.send.side_effect = None
+        deliver_first_report_email(self.team.id)
+        self.send.assert_called_once()
+        assert self.notification().cancelled_at is not None
+
+    @parameterized.expand([("not_cloud",), ("no_project",), ("no_key",), ("no_template",)])
+    def test_disabled_delivery_does_not_claim_a_notification(self, reason: str) -> None:
+        self.report()
+        with (
+            patch(f"{MODULE}.is_cloud", return_value=reason != "not_cloud"),
+            override_settings(
+                POSTHOG_PROJECT_ID=0 if reason == "no_project" else 123456789,
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="" if reason == "no_key" else "phs_fake_transactional_key",
+                SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID="" if reason == "no_template" else str(self.template_id),
+            ),
+        ):
+            deliver_first_report_email(self.team.id)
+        self.send.assert_not_called()
+        assert self.notification().send_started_at is None
+
+    def test_rollback_does_not_queue_a_notification_and_transient_ready_is_not_sent(self) -> None:
+        with patch(f"{TASK_MODULE}.dispatch_first_report_notification.delay") as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                with self.assertRaises(RuntimeError), transaction.atomic():
+                    self.report()
+                    raise RuntimeError("rollback")
+            enqueue.assert_not_called()
+            with self.captureOnCommitCallbacks(execute=True), transaction.atomic():
+                report = self.report()
+                report.status = SignalReport.Status.CANDIDATE
+                report.save(update_fields=["status"])
+            enqueue.assert_called_once_with(self.team.id)
+        deliver_first_report_email(self.team.id)
+        self.send.assert_not_called()
+
+    def test_sweep_recovers_a_missing_enqueue_without_crossing_tenants(self) -> None:
+        self.report()
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
+        self.report(team=other_team)
+        with patch(f"{TASK_MODULE}.dispatch_first_report_notification.delay") as enqueue:
+            sweep_first_report_notifications()
+        enqueue.assert_called_once_with(self.team.id)
+        deliver_first_report_email(other_team.id)
+        self.send.assert_not_called()
+        deliver_first_report_email(self.team.id)
+        self.send.assert_called_once()

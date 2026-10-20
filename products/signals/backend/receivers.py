@@ -24,7 +24,7 @@ from posthog.event_usage import groups
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
@@ -37,6 +37,32 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import PrCloseReason
 
 logger = structlog.get_logger(__name__)
+
+
+def _enqueue_first_report_notification(team_id: int) -> None:
+    if (
+        SignalFirstReportNotification.objects.for_team(team_id)
+        .filter(queued_at__isnull=True, cancelled_at__isnull=True, send_started_at__isnull=True)
+        .exists()
+    ):
+        from products.signals.backend.first_report_notification_tasks import (
+            dispatch_first_report_notification,  # noqa: PLC0415 - keep the task graph off Django startup
+        )
+
+        dispatch_first_report_notification.delay(team_id)
+
+
+@receiver(post_save, sender=SignalReport)
+def enqueue_first_report_notification(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    if instance.status == SignalReport.Status.READY and (created or update_fields is None or "status" in update_fields):
+        transaction.on_commit(partial(_enqueue_first_report_notification, instance.team_id), robust=True)
+
 
 _SNOOZE_SOURCE_STATUSES = frozenset(
     {SignalReport.Status.READY, SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
@@ -819,6 +845,8 @@ def sync_report_latest_actionability_on_save(
     tools. Not gated on `created`, because `update_content` edits a judgment row in place.
     """
     _sync_report_latest_actionability(instance)
+    if instance.type == SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
+        transaction.on_commit(partial(_enqueue_first_report_notification, instance.team_id), robust=True)
 
 
 def _deleted_directly(origin: Any) -> bool:
