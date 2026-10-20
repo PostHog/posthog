@@ -27,6 +27,9 @@ The agent diagnoses and proposes. A person approves and runs any retry, cancel o
 Never start a recalculation (admin "Start new", "Retry failures" or the API) without a person's agreement:
 during saturation, each run adds load.
 
+**ClickHouse saturated now?** Do the cause-or-victim triage in [references/fleet-health.md](references/fleet-health.md) first.
+If recalculation is the cause, the levers are in the staff-only runbook it links.
+
 ## Access
 
 | Source                           | Tool                                                                                                              | Trap                                                                                                                               |
@@ -129,6 +132,11 @@ Only Temporal history proves the queue of one run.
 
 **Write-up.** The run, the metric, the error class, the evidence and the next step, with placeholder ids.
 Propose a retry only when the cause is gone; a person starts it.
+
+## The fleet
+
+Follow [references/fleet-health.md](references/fleet-health.md): window, cause or victim, scope, retry depth, worker metrics, then the runbook.
+Its drift checks show when this skill is stale.
 
 ## Privacy rules
 
