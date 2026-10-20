@@ -135,6 +135,7 @@ export interface InsightCardProps extends Resizeable {
     loadPriority?: number
     doNotLoad?: boolean
     keepMountedDuringInteraction?: boolean
+    renderVizWhenMounted?: boolean
     onOverlayVisibilityChange?: (visible: boolean) => void
     /** Dashboard filters to override the ones in the insight */
     filtersOverride?: DashboardFilter
@@ -200,6 +201,7 @@ function InsightCardInternal(
         loadPriority,
         doNotLoad,
         keepMountedDuringInteraction,
+        renderVizWhenMounted,
         onOverlayVisibilityChange,
         filtersOverride,
         variablesOverride,
@@ -218,7 +220,7 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
-    const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
+    const { ref: inViewRef, inView } = useInView({ rootMargin: '500px', skip: renderVizWhenMounted })
     const { isVisible: isPageVisible } = usePageVisibility()
 
     /**
@@ -229,7 +231,7 @@ function InsightCardInternal(
     const shouldRenderViz = shouldRenderInsightCardViz({
         isStorybook: IS_STORYBOOK,
         placement,
-        inView: inView || !!keepMountedDuringInteraction,
+        inView: inView || !!keepMountedDuringInteraction || !!renderVizWhenMounted,
         isPageVisible,
         query: insight.query,
     })

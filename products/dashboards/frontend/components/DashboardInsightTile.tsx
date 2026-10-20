@@ -8,6 +8,7 @@ import { useInView } from 'react-intersection-observer'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { InsightCard, InsightCardProps } from 'lib/components/Cards/InsightCard/InsightCard'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
@@ -79,6 +80,7 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
     ])
     const gridClasses = className?.split(' ') ?? []
     const interactionActive = gridClasses.includes('resizing') || gridClasses.includes('react-draggable-dragging')
+    const shouldMountCard = inView || exportPlacement || interactionActive || keepMountedForOverlay
 
     return (
         <div
@@ -90,15 +92,21 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
             onTouchStart={onTouchStart}
             onTouchEnd={onTouchEnd}
         >
-            {(inView || exportPlacement || interactionActive || keepMountedForOverlay) && (
+            {shouldMountCard ? (
                 <MemoizedInsightCard
                     {...cardProps}
                     {...tileActions}
                     keepMountedDuringInteraction={interactionActive}
                     onOverlayVisibilityChange={setKeepMountedForOverlay}
+                    renderVizWhenMounted
                 >
                     {decorations}
                 </MemoizedInsightCard>
+            ) : (
+                <div className="dashboard-insight-tile__placeholder" aria-hidden="true">
+                    <LemonSkeleton className="h-3 w-2/5" active={false} />
+                    <LemonSkeleton className="min-h-0 w-full flex-1" active={false} />
+                </div>
             )}
             {showResizeHandles && <DashboardResizeHandles />}
             {(canEnterEditModeFromEdge || showResizeHandles) && onEnterEditModeFromEdge && (

@@ -114,6 +114,8 @@ Track DOM nodes, chart instances, observers, timers, decoded images, and memory 
 - Release offscreen resources after they are no longer needed.
 - Preserve active gestures, open dialogs or details, and export rendering.
 - Keep enough layout information to preserve tile positions while content is absent.
+- Render a cheap placeholder for an unmounted tile so a fast scroll never exposes an empty grid cell.
+- Avoid a second visibility delay after the tile mounts; the mount boundary already limits offscreen work.
 - Avoid remounting neighboring content solely because its position changes.
 - Inspect existing observer sharing before introducing another observer layer.
 
