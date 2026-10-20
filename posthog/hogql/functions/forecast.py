@@ -17,7 +17,7 @@ class ForecastCall:
 
     @property
     def clickhouse_type(self) -> str:
-        return "Array(Tuple(p10 Float64, p50 Float64, p90 Float64))"
+        return "Tuple(p10 Array(Float64), p50 Array(Float64), p90 Array(Float64))"
 
     @classmethod
     def parse(cls, node: ast.Call) -> "ForecastCall":

@@ -213,7 +213,7 @@ class TestPromptJev(SimpleTestCase):
         with patch("posthog.hogql.transforms.forecast._model") as model:
             model.return_value.forecast.side_effect = last_value
             results = PromptJevRunner(team_id=1, distinct_id=None).evaluate(ForecastCall.parse(node), values)
-        self.assertEqual(results, [[(float(i),) * 3] for i in range(300)] + [[], []])
+        self.assertEqual(results, [([float(i)], [float(i)], [float(i)]) for i in range(300)] + [([], [], [])] * 2)
         self.assertGreater(len(batch_points), 1)
         self.assertLessEqual(max(batch_points), 32768)
 
@@ -269,7 +269,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 model.forecast.assert_not_called()
                 return
             response = execute_hogql_query("SELECT forecast([1, 2, 3], 2) AS f", self.team, user=self.user)
-        self.assertEqual(response.results, [([(1.0, 5.0, 9.0), (1.0, 5.0, 9.0)],)])
+        self.assertEqual(response.results, [(([1.0, 1.0], [5.0, 5.0], [9.0, 9.0]),)])
 
     def test_credit_lookup_failure_does_not_block_the_query(self) -> None:
         with (

@@ -180,7 +180,7 @@ def evaluate_forecast(spec: ForecastCall, values: list[object], deadline: float)
         raise QueryError(
             f"forecast reads at most {MAX_TOTAL_POINTS} values across all rows. Use fewer rows or shorter histories."
         )
-    out: list[object] = [[] for _ in values]
+    out: list[object] = [([], [], []) for _ in values]
     for batch in _batches(series):
         if time.monotonic() >= deadline:
             raise QueryError("forecast exceeded its time limit. Use fewer rows or shorter histories.")
@@ -194,5 +194,5 @@ def evaluate_forecast(spec: ForecastCall, values: list[object], deadline: float)
             raise QueryError("forecast values must be an array of numbers.") from error
         bands = _model().forecast(context, spec.horizon)[..., [P10, P50, P90]]
         for row, i in enumerate(batch):
-            out[i] = [tuple(float(v) for v in step) for step in bands[row]]
+            out[i] = tuple(band.tolist() for band in bands[row].T)
     return out
