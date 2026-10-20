@@ -111,6 +111,8 @@ A long dashboard should not require every expensive card to stay active after th
 Track DOM nodes, chart instances, observers, timers, decoded images, and memory after a full scroll and return.
 
 - Mount expensive content near the viewport when the surface permits it.
+- Apply that limit to widget bodies as well as insight charts. Offscreen list widgets can retain thousands of DOM nodes.
+- Keep live widget bodies mounted because their data streams update in the component.
 - Release offscreen resources after they are no longer needed.
 - Preserve active gestures, open dialogs or details, and export rendering.
 - Keep enough layout information to preserve tile positions while content is absent.
