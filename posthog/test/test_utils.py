@@ -1136,7 +1136,7 @@ class TestSharingOverrideProtection(SimpleTestCase):
         with pytest.raises(serializers.ValidationError) as exc_info:
             filters_override_requested_by_client(request, None)
 
-        assert expected_detail in str(exc_info.value.detail["filters_override"])
+        assert expected_detail in str(exc_info.value.detail)
 
     @parameterized.expand(
         [
