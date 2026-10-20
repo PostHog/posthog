@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DocusealSource(ResumableSource[DocusealSourceConfig, DocusealResumeConfig]):
+    codebase_detection = detect(
+        env=("^DOCUSEAL_",),
+        script_hosts=("cdn.docuseal.com", "cdn.docuseal.co"),
+        npm=("@docuseal/api", "@docuseal/react", "@docuseal/vue", "@docuseal/angular"),
+        pypi=("docuseal",),
+        composer=("docusealco/docuseal-php",),
+        rubygems=("docuseal",),
+    )
+
     api_docs_url = "https://www.docuseal.com/docs/api"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

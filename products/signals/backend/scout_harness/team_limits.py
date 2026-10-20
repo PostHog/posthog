@@ -28,7 +28,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.scout_harness.limits import COORDINATOR_INTERVAL_MINUTES, MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.limits import (
+    COORDINATOR_INTERVAL_MINUTES,
+    MAX_DISPATCH_SMEAR_SECONDS,
+    MAX_ENABLED_SCOUTS_PER_TEAM,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -609,12 +613,28 @@ DISPATCH_SMEAR_SECONDS_KEY = "dispatch_smear_seconds"
 
 
 def _resolve_dispatch_smear_seconds(payload: dict | None, default: int) -> int:
+    """The smear window from the flag, else `default`, capped at `MAX_DISPATCH_SMEAR_SECONDS`.
+
+    The cap keeps the runs of one tick out of the next tick.
+    """
     if payload is None:
-        return default
+        return min(default, MAX_DISPATCH_SMEAR_SECONDS)
     override = payload.get(DISPATCH_SMEAR_SECONDS_KEY)
     if isinstance(override, int) and not isinstance(override, bool) and override >= 0:
-        return override
-    return default
+        return min(override, MAX_DISPATCH_SMEAR_SECONDS)
+    return min(default, MAX_DISPATCH_SMEAR_SECONDS)
+
+
+# Flag payload key that moves the smear from the coordinator into each child. On, the coordinator
+# starts every child of the tick at once, and each child sleeps a stable per-config delay inside the
+# smear window before it starts work. Off, the coordinator dispatches in paced batches. Absent or
+# malformed → off.
+CHILD_START_DELAY_KEY = "child_start_delay"
+
+
+def _resolve_child_start_delay(payload: dict | None) -> bool:
+    """Whether children carry their own start delay. Only a literal `true` turns it on."""
+    return payload is not None and payload.get(CHILD_START_DELAY_KEY) is True
 
 
 # Flag payload key toggling slot-aligned dispatch anchors (the coordinator's `_slot_anchor`). On,

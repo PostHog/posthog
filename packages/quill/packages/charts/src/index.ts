@@ -85,6 +85,7 @@ export type {
     HeatmapTooltipContext,
 } from './charts/Heatmap/Heatmap'
 export type { HeatmapColorScale } from './charts/Heatmap/heatmap-layout'
+export type { HeatmapCellLabelFormatter } from './charts/Heatmap/HeatmapCellLabels'
 
 // Slope chart
 export { SlopeChart } from './charts/SlopeChart/SlopeChart'

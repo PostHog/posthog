@@ -5,6 +5,10 @@ import numpy as np
 
 from posthog.dataclasses import frozen
 
+# The exported graph's names. A network without context takes only the first input.
+ONNX_INPUTS = ("report", "project", "has_history")
+ONNX_OUTPUT = "probabilities"
+
 
 @frozen
 class NetworkConfig:
@@ -32,7 +36,7 @@ class ProjectContext:
 
 @frozen
 class NetworkInputs:
-    # (rows, D) float32.
+    # (rows, D + report features) float32: the report vector, then any columns the feature set adds.
     reports: np.ndarray
     context: ProjectContext | None = None
 

@@ -182,3 +182,27 @@ class TestPurchaseOrderLineItemsFanout:
         assert [row["purchase_order_number"] for row in result.rows] == [4002]
         assert result.paths == ["/api/purchase_orders", "/api/purchase_orders/4002/purchase_order_line_items"]
         assert any(state.completed is not None and completed in state.completed for state in result.saved_states)
+
+
+class TestLocationEntriesFanout:
+    @parameterized.expand(
+        [
+            (FLEETIO_LEGACY_VERSION, "/api/v1/vehicles", "/api/v1/vehicles/7/location_entries"),
+            (FLEETIO_VERSION_2025_05_05, "/api/vehicles", "/api/vehicles/7/location_entries"),
+        ]
+    )
+    def test_lists_entries_per_vehicle_and_keys_them_by_the_parent(
+        self, api_version: str, parent_path: str, child_path: str
+    ) -> None:
+        result = _driver().run(
+            "location_entries",
+            [
+                _response([{"id": 7}], None),
+                _response([{"id": 501, "location": "40.0,-75.0"}, {"id": 502, "vehicle_id": 7}], None),
+            ],
+            api_version=api_version,
+        )
+
+        assert result.raised is None
+        assert result.paths == [parent_path, child_path]
+        assert [(row["vehicle_id"], row["id"]) for row in result.rows] == [(7, 501), (7, 502)]

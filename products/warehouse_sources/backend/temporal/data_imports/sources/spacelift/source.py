@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SpaceliftSource(ResumableSource[SpaceliftSourceConfig, SpaceliftResumeConfig]):
+    codebase_detection = detect(env=("^SPACELIFT_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -118,6 +121,11 @@ Your account name is the subdomain you use to access Spacelift (e.g. `my-company
             return (
                 "All runs across every stack and module. Incremental syncs re-pull the last "
                 f"{RUNS_INCREMENTAL_LOOKBACK_SECONDS // 86400} days so state changes on recent runs are captured"
+            )
+        if endpoint == "run_changes":
+            return (
+                "Per-resource changes of each run. Incremental syncs re-pull the runs of the last "
+                f"{RUNS_INCREMENTAL_LOOKBACK_SECONDS // 86400} days so changes from runs that finish later are captured"
             )
         if endpoint == "managed_entities":
             return "Terraform/OpenTofu resources managed across your stacks, including drift status"

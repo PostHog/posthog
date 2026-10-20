@@ -138,7 +138,9 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsCreateBodyCooldownMinutesMin)
         .default(logsAlertsCreateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -260,7 +262,9 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsUpdateBodyCooldownMinutesMin)
         .default(logsAlertsUpdateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -382,7 +386,9 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsPartialUpdateBodyCooldownMinutesMin)
         .default(logsAlertsPartialUpdateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -540,7 +546,9 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsSimulateCreateBodyCooldownMinutesMin)
         .default(logsAlertsSimulateCreateBodyCooldownMinutesDefault)
-        .describe('Minutes to wait after firing before sending another notification.'),
+        .describe(
+            'Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.'
+        ),
     date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
 })
 
@@ -1343,6 +1351,35 @@ export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .default(logsMetricRulesPartialUpdateBodySourceDefault)
         .describe(
             'Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.\n\n\* `logs` - Logs\n\* `spans` - Spans'
+        ),
+})
+
+/**
+ * Turn a plain-language request into ranked log viewer filter candidates. Nothing is persisted. Only the request text, service names and attribute keys are sent to the models.
+ */
+export const logsNaturalLanguageQueryCreateBodyQueryMax = 500
+
+export const LogsNaturalLanguageQueryCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(logsNaturalLanguageQueryCreateBodyQueryMax)
+        .describe("The plain-language request, for example 'error logs from checkout in the last 2 hours'."),
+    dateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Start of the date range. Accepts ISO 8601 timestamps or relative formats such as -1h or -7d.'
+                ),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the date range. Same format as date_from. Null means \"now\".'),
+        })
+        .optional()
+        .describe(
+            "The viewer's current date range. Used when the request names no time, and to scope the service and attribute lists the model may choose from."
         ),
 })
 

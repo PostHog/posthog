@@ -11,15 +11,18 @@ inbox_ranking/
 │   └── project_vectors.py  # per-team context vectors (pure function)
 ├── training/
 │   ├── dag.py        # examples → candidate → champion assets + job + schedule
+│   ├── promote.py    # the manual promote job that writes served.json
 │   ├── examples.py   # birth-grain training examples over the snapshots
 │   ├── heads.py      # the v0 outcome heads
 │   ├── train.py      # per-head XGBoost fit + holdout/null metrics
-│   └── promotion.py  # the champion promotion rule
-├── multihead/        # dev-only: offline multi-head network prototype, no dag
+│   └── promotion.py  # the candidate grading rule
+├── multihead/        # the multi-head network, its ONNX export, and the offline prototype
+├── nn/               # the `nn` family: examples → candidate → champion assets, on the `signals_ml` location
+├── activity_summary/ # per-person activity summary inputs and their cost projection (no LLM call)
 └── tests/
 ```
 
-Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally through `.dagster_home/workspace.yaml`.
+Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally through `.dagster_home/workspace.yaml`. The `nn` family is registered via `posthog/dags/locations/signals_ml.py` instead, because it needs torch (see [The nn family](#the-nn-family)).
 
 ## The dataset dag
 
@@ -42,7 +45,7 @@ s3://<bucket>/<prefix>/
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
 
-`inbox_report_title_embeddings` is a report-grain leaf. It snapshots the `title_v1` rendering the same way `inbox_report_embeddings` snapshots `title_summary_v1`, and nothing joins it: the training side pairs the two by `report_id` when it measures one rendering against the other, and each carries its own `embedding_inserted_at`, because a summary-only edit re-emits only `title_summary_v1`. Its dependency on `inbox_report_model_data` is for ordering, not data — it holds a vector per live report, so it runs last and alone in the run pod. That edge has a cost: a failed join, or a run that hits the job's runtime cap, skips the title snapshot for the day, and the schedule never revisits a day. Repair such a gap with a single-asset backfill while the source rows are inside their 3-month TTL.
+`inbox_report_title_embeddings` is a report-grain leaf. It snapshots the `title_v1` rendering the same way `inbox_report_embeddings` snapshots `title_summary_v1`, and nothing joins it. No model family trains on it since `title_embeddings` was retired; the snapshot stays for offline reads. It carries its own `embedding_inserted_at`, because a summary-only edit re-emits only `title_summary_v1`. Its dependency on `inbox_report_model_data` is for ordering, not data — it holds a vector per live report, so it runs last and alone in the run pod. That edge has a cost: a failed join, or a run that hits the job's runtime cap, skips the title snapshot for the day, and the schedule never revisits a day. Repair such a gap with a single-asset backfill while the source rows are inside their 3-month TTL.
 
 `inbox_report_reviewers` is a (report, reviewer) leaf for user–report affinity modeling. It holds one row per entry of each spine report's current `SignalReportSuggestedReviewer` index, for teams that allow AI training. Nothing joins it, and its object carries its own schema version (`REVIEWERS_SCHEMA_VERSION`), so a failure here does not fail the training table.
 
@@ -73,6 +76,7 @@ Point-in-time contract:
 - A report born on day D uses the project vectors of dt=D−1. Their `as_of` is D 00:00 UTC, strictly before the birth, and that matches serving, where the sweep reads the newest snapshot.
 - A report enters a vector only when its vector landed and its engagement happened strictly before `as_of`. The snapshot holds only the latest vector per report, so a report re-embedded after `as_of` is left out rather than read with text it did not have yet.
 - The training side can rebuild any past day by calling the function on newer snapshots with an earlier `as_of`. No backfill is needed while the vectors are inside the embedding TTL.
+- Serving: when any manifest entry reads project vectors, `inbox_ranking_serving_manifest` copies the dt=D day into the deployment's object store before it writes the manifest. The sweep reads that day once per pass, only for the teams it scores. Its `as_of` is the end of dt=D, so it is never newer than a report scored after the publish. Until the next publish, a report scored on day D+2 still reads dt=D, which is one day older than training reads.
 
 ### Partition semantics
 
@@ -137,39 +141,53 @@ Point-in-time caveats, per source:
 ```text
 s3://<bucket>/<prefix>/
 ├── inbox_ranking_training_examples/v1/<feature_set>/dt=YYYY-MM-DD/  # one row per report at its birth, all heads, one parquet per feature set
-├── inbox_ranking_models/v1/<model_name>/
-│   ├── dt=YYYY-MM-DD/<head>.ubj + <head>.holdout.ubj    # the day's candidate: serving fit + train-only fit
-│   │                  + metadata.json                     # (a re-run replaces this prefix in full)
-│   └── champion.json                                     # pointer the scoring sweep loads (the only object written across partitions)
+├── inbox_ranking_models/v1/
+│   ├── served.json                                       # the model key the scoring sweep serves; only the promote job writes it
+│   └── <model_name>/
+│       ├── dt=YYYY-MM-DD/<head>.ubj + <head>.holdout.ubj  # the day's candidate: serving fit + train-only fit
+│       │                  + metadata.json                   # (a re-run replaces this prefix in full)
+│       └── champion.json                                   # retired automatic pointer; read only for the cross-family role
 └── inbox_ranking_served_scores/v1/dt=YYYY-MM-DD/       # the scoring sweep's scores of the reports born that day, per model key
 ```
 
-- **A model is a `(model_name, model_version, model_role)`.** `model_name` is the family: which features and which learner: `report_embeddings` and `title_embeddings`, both per-head XGBoost, are the two trained here. `model_version` is the partition day it was fit on, and `model_role` is the role it was scored or trained under (`candidate` on the training events; `served`, `daily_candidate` or `cross_family` on the online grade). Each family owns a prefix under the models path and its own `champion.json`, so two families trained on the same day cannot collide, and promotion stays inside a family. A second family is a second model graded on the same online rows, not a competitor for another family's pointer.
-- **A feature set is one feature universe.** `products/signals/backend/ranking/features.py` holds a `FeatureSet` per universe: its name, its schema version, its ordered feature names, the report-state columns it reads, `build_matrix`, and how many rows it wants per report and per head. `report_embeddings` and `title_embeddings` are the two today. A candidate records the set it was fit on in its `metadata.json`, so the grader checks a model against its own set rather than one global contract, the examples asset writes one Parquet per set, and the unseen scorer builds one matrix per set and shares it across the families that read it. Adding a set means an entry in `FEATURE_SETS`; a model naming a set this build cannot produce is logged and left unscored.
-- **Examples are one row per report at its birth, by default.** For partition `dt=D` the examples asset reads the report-state and labels snapshots `dt=D-lookback..D` and emits one row per report, on the snapshot of the day it was created, labeled from the snapshot `horizon_days` later (3 for open, 7 for action / pr_created / discuss / thumbs_up, 14 for pr_merged / refund / reviewer_fix, 21 for dismiss_wrong / fixed / dismiss_lowvalue). Features are built by the feature set from that snapshot's state columns plus `age_hours`, the report's age at the snapshot. Labels are aligned to the state spine, so a report with no label event is a negative (all-zero labels), not absent. Label-only rows (no Postgres state) are skipped, as are state rows read long after their snapshot day (backfills carry current Postgres state; see `features_observed_at`) and, for the heads that read the status stream (`dismiss_wrong`, `action`, `fixed` and `dismiss_lowvalue`), rows whose status telemetry fails the dataset's `label_provenance_ok` check. Birth is the moment serving scores a report, and the label that comes out is a per-report probability, which is what the inbox ordering needs. A report born before the window, or one whose birth-day snapshot is missing from it, is no example; `reports_missing_birth_snapshot` on the asset counts the second case, which is a gap in the partitions.
+- **A model is a `(model_name, model_version, model_role)`.** `model_name` is the recipe: which features, which learner and which training settings: `report_embeddings_v2`, per-head XGBoost, is the one trained here. `nn_v2`, one ONNX network, and `nn_with_prio`, the same network with the report's priority as an input, are trained by the `signals_ml` location, and each `MODEL_FAMILIES` entry names its `learner` and the `location` that trains it. `model_version` is the partition day it was fit on, and `model_role` is the role it was scored or trained under (`candidate` on the training events; `served`, `recent`, `challenger`, `pinned` or `cross_family` on the online grade, and `daily_candidate` on grades written before the `recent` role). Each family owns a prefix under the models path, so two families trained on the same day cannot collide. A candidate is graded only against the served model of its own name. The served pointer can name any family, so a rollback can cross families.
+- **A recipe change gets a new `model_name`.** `report_embeddings` and `nn` became `report_embeddings_v2` and `nn_v2` when `action` started to count a thumbs up. A candidate's `metadata.json` carries `recipe` and `recipe_hash`, a stable hash of the recipe (`training/recipe.py`): the learner, the feature set and its schema version, the project-vector kinds and their history settings, the booster params or network config, each head's cohort, label, horizon, label columns and status-label flag, `lookback_days`, `holdout_days`, the example grain and row budget, and `dataset_version`. Dates, `run_id`, row counts and metrics stay out, so a daily retrain keeps the hash. The candidate asset compares its hash with the newest version of the same name, at or before its partition, that has one, and on a mismatch it fails before it writes the partition and names the changed inputs. A re-run of a partition therefore compares with that partition's own saved recipe. The search covers every dataset version, so a `DATASET_VERSION` bump also needs a new name. A version without a hash is not compared. This includes an env change such as `INBOX_RANKING_TRAINING_LOOKBACK_DAYS`. To start a new recipe, add a `MODEL_FAMILIES` entry with a new name (`nn_v2` after `nn`) and remove the old entry: the old versions stay servable by key, and the promotion gate never compares two recipes. Two recipes can train side by side for a comparison, but each costs a manifest slot, so do not do it by default. `recipe_hash` is on `inbox_ranking_candidate_trained` and `inbox_ranking_promotion_decided` (with `incumbent_recipe_hash`), and `inbox_ranking_serving_manifest_published` carries `model_recipe_hashes` per model key.
+- **A feature set is one feature universe.** `products/signals/backend/ranking/features.py` holds a `FeatureSet` per universe: its name, its schema version, its ordered feature names, the report-state columns it reads, `build_matrix`, and how many rows it wants per report and per head. `report_embeddings` is the report vector, and `report_embeddings_priority` is that vector plus one column per priority level (`priority_P0` to `priority_P4`, all zero when the report has no judgment), read from the `priority` state column. A candidate records the set it was fit on in its `metadata.json`, so the grader checks a model against its own set rather than one global contract, the examples asset writes one Parquet per set, and the unseen scorer builds one matrix per set and shares it across the families that read it. Adding a set means an entry in `FEATURE_SETS`; a model naming a set this build cannot produce is logged and left unscored. The main examples asset writes a Parquet only for the sets of the families the main location trains, so a set only `signals_ml` reads costs it nothing.
+- **Examples are one row per report at its birth, by default.** For partition `dt=D` the examples asset reads the report-state and labels snapshots `dt=D-lookback..D` and emits one row per report, on the snapshot of the day it was created, labeled from the snapshot `horizon_days` later (7 for open, 14 for action, 30 for fixed). Features are built by the feature set from that snapshot's state columns plus `age_hours`, the report's age at the snapshot. Labels are aligned to the state spine, so a report with no label event is a negative (all-zero labels), not absent. Label-only rows (no Postgres state) are skipped, as are state rows read long after their snapshot day (backfills carry current Postgres state; see `features_observed_at`) and, for the heads that read the status stream (`action` and `fixed`), rows whose status telemetry fails the dataset's `label_provenance_ok` check. Birth is the moment serving scores a report, and the label that comes out is a per-report probability, which is what the inbox ordering needs. A report born before the window, or one whose birth-day snapshot is missing from it, is no example; `reports_missing_birth_snapshot` on the asset counts the second case, which is a gap in the partitions.
 - **An outcome already visible on the birth day is a future positive.** A report born on day D has no scoring moment before D, so an outcome visible at D belongs to the moment being built rather than to an earlier one; the labels of D therefore read as their defaults for a report born on D. Most outcomes land on the birth day, so this is where the positives are: censoring on them costs the `pr_created` head most of its training signal. `<set>_<head>_birth_day_positives` on the examples asset, and `birth_day_positives` on the `inbox_ranking_examples_built` event, say how many positives the rule keeps. These rows carry a hindsight the other rows do not: the state snapshot reads `signal_count`, `total_weight`, `run_count` and the text sizes live from Postgres a few hours after day D ends, so a birth-day outcome happened before its own feature read. Both the holdout AUC and the newborn unseen grade therefore read optimistically on these rows, until the scoring sweep's timestamped score log replaces the daily snapshot as this table's source.
-- **Every head asks whether the outcome happened within N days of the scoring moment.** `pr_merged` includes every report, so the label covers the whole report-to-merge path without requiring a PR at birth or at the horizon.
+- **Every head asks whether the outcome happened within N days of the scoring moment.**
 - **A set may ask for another grain**, and cap the rows one head keeps (`max_examples_per_head`, whole report-creation days, newest first). The scoring-moment grain is one row per (report, snapshot) whose head label is still 0 on that snapshot: the serving situation replayed over history, but its label is a hazard conditional on the report still being live, and one long-lived report contributes dozens of near-duplicate rows. The report grain is the first snapshot of the window where the report is a usable moment, which is later than birth only when a side input landed late. Both stay selectable for re-scoring families; nothing ships on them today. The row budget shortens the history a head is fit on and keeps each kept day whole, so the scores stay calibrated to the population of that window. The lookback is the training job's whatever the grain, so positives accrue over the whole window until the budget binds.
 - **The embedding sets are the serving contract.** Each reads one rendering's vector and nothing else, so the scoring sweep needs only the report's latest vector for that rendering. The sweep must build features through the same module; the booster's `feature_names` are checked against it at load. A model whose metadata names no set is left unscored.
 - **`report_embeddings` is the report's own vector and nothing else**, read from the dt=D `inbox_report_embeddings` snapshot as a side input. Age is deliberately left out: it is the whole signal of the `recency_auc` line the unseen read already reports, so a gap to that line is content rather than recency. The scoring sweep does not serve this set: it is an offline candidate, and serving it needs the report vector at scoring time.
-- **`title_embeddings` is the same set over the title-only vector**, read from the dt=D `inbox_report_title_embeddings` snapshot, a separate leaf partition with its own `embedding_inserted_at`. One `ReportEmbeddingsFeatureSet` class parameterized by the input it reads, so the two renderings share this width, this grain, this row budget and the trainer's booster params by construction: the pair measures the text choice, and a recipe that drifted on one side would read as a text effect. A set reads its own input only and never falls back to the other rendering's vector, so a report present in one snapshot and absent from the other is an example for one family and not the other. The inbox title is what a person reads before opening a report and the summary is read after, which is the question the pair answers: whether the summary carries `open` signal or only post-open signal.
 - **A moment only takes a vector that already existed for it.** The snapshot holds the latest vector per report, and a report is re-embedded whenever its text changes (the summary workflow and every re-research run rewrite it), so the latest vector often postdates an earlier moment. Each row carries `embedding_inserted_at`, and a moment keeps the vector only when it landed at or before that snapshot's end; at the birth grain a report whose birth-day snapshot holds only a later vector is no example, and at the report grain it moves to the first snapshot where the vector was already its own. Without that check the family would train on text that did not exist when the report was supposedly scored. A report the snapshot has no vector for at all is not an example either, because the source table's TTL runs from report creation and a long-lived report loses its vector while still live. The scores asset records each set's coverage of the newborn pool, so a thin side input is visible rather than silent.
 - **A set whose side input is unavailable is skipped, not rebuilt from nothing.** The examples asset writes no object for it, the candidate asset leaves that family's partition as it stands, and the unseen scorer drops its models for the day. Rebuilding would write an empty examples object, then an empty candidate, and the candidate's prefix cleanup would delete boosters a champion pointer can name.
-- **Missing and empty are different inputs.** The case above is a snapshot object that is absent. A snapshot that exists and carries no usable vector keeps its key, so the family builds no row and the ordinary thin-input path applies. Each rendering is a separate dependency of the examples and scores assets, so a failed title snapshot costs the title family's day and nothing else.
+- **Missing and empty are different inputs.** The case above is a snapshot object that is absent. A snapshot that exists and carries no usable vector keeps its key, so the family builds no row and the ordinary thin-input path applies.
 - **One rendering's vectors are held at a time.** The examples asset loads a set's side inputs, builds that set's object, and releases them before the next set. Each snapshot carries a vector per live report, so a further embedding family costs runtime rather than peak memory. The scores asset narrows each snapshot to the newborn pool it scores for the same reason. Raising the pod memory limit is not the first move here.
 - **Candidate**: one per family, per-head XGBoost with fixed params, holdout = the last `holdout_days` of reports (cut by report, never by row), AUC + a label-permutation null. Each family trains on the examples of the feature set its registry entry names, and a family whose examples or metadata are missing that day is logged and skipped rather than failing the asset. A head is _readable_ when it has enough holdout positives and clears its null by 0.05. The shipped booster (`<head>.ubj`) is refit on everything; the train-only fit is kept as `<head>.holdout.ubj` so a later candidate can grade this model on its own holdout.
 - **Metrics telemetry**: each asset also captures its metrics as events into the dogfood project (the same project the label events land in), through `training/telemetry.py`: `inbox_ranking_examples_built` once per head and feature set, `inbox_ranking_candidate_trained` once per head (`head`, `model_role` always `candidate`, holdout / train AUC, average precision, logloss, positive rate, mean predicted score, the row-weighted decile calibration error, the permutation-null mean and spread, counts, `readable`), `inbox_ranking_holdout_calibration` once per head and holdout score decile `inbox_ranking_promotion_decided` once per run and `inbox_ranking_serving_manifest_published` once per run, all carrying `model_name` and `model_version` and stamped midday UTC on the partition day so re-runs and backfills chart on the day they describe. Per-head stability is a trends insight with a `head` breakdown; a readability drop is an insight alert. `metadata.json` stays the durable record. Capture is best-effort. Local dev runs (`DEBUG`) emit too, under `distinct_id` `inbox_ranking_training_local` with `environment=local`, so filter or break down on `environment` when reading the prod series; any other non-Cloud deployment emits nothing.
-- **Champion**: one decision per family against that family's own pointer. `promotion.decide_promotion` — promote when the candidate has a readable head, is within 0.02 AUC and 0.02 holdout ECE of the champion on every head the champion could read, and the champion is at least `INBOX_RANKING_PROMOTION_MIN_DAYS` old. The quality gates run before the wait: `gates_passed` on the decision event and the `<family>_gates_passed` asset metadata say whether the candidate passed them, also on a day the wait blocks it, and `would_promote` stays the final decision. The champion's AUCs and ECEs come from its `<head>.holdout.ubj` scored on the candidate's holdout (`paired_champion_grades`), so both models are compared on one set of reports; a champion without that file falls back to its stored AUC and skips the calibration check. A head whose shared holdout has fewer than its `min_holdout_positives` is skipped rather than blocking, and is listed in `skipped_heads` on the decision event and the asset metadata; a head the candidate did not train still blocks. The pointer is rewritten only when `INBOX_RANKING_AUTO_PROMOTE` is on; otherwise the decision is logged and surfaced as asset metadata, so the daily candidate series is monitoring. To promote by hand, copy a candidate's `metadata.json` to `champion.json` with a `promoted_at`.
+- **Champion**: one decision per family, recorded and never written to a pointer. The incumbent is the model `served.json` names when it has the candidate's `model_name`; otherwise there is no paired comparison, and the reason says so. `promotion.decide_promotion` says the candidate would promote when it has a readable head and is within 0.02 AUC and 0.02 holdout ECE of the incumbent on every head the incumbent could read. `would_promote` and `gates_passed` on the `inbox_ranking_promotion_decided` event and the asset metadata carry the decision, and `promoted` is always false. The incumbent's AUCs and ECEs come from its `<head>.holdout.ubj` scored on the candidate's holdout (`paired_champion_grades`), so both models are compared on one set of reports; an incumbent without that file falls back to its stored AUC and skips the calibration check. A head whose shared holdout has fewer than its `min_holdout_positives` is skipped rather than blocking, and is listed in `skipped_heads`; a head the candidate did not train still blocks.
+- **Promotion is manual.** `inbox_ranking_promote_job` (`training/promote.py`, `signals` location) takes a `model_key` and a `reason`. It refuses a malformed key, a model this build cannot serve, a missing model file, and a model without every head in `HEADS`, and then writes nothing. Otherwise it writes `served.json` (`model_key`, `promoted_at`, `reason`, `previous_key`, `run_id`), captures `inbox_ranking_model_promoted`, and publishes the serving manifest for the newest partition with project vectors, so the sweep serves the model without waiting for the 05:00 UTC run. Rollback is the same job with an older key, of any family. Launch it from the Dagster UI, or:
+
+```bash
+dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locations.signals -j inbox_ranking_promote_job \
+    --config-json '{"ops": {"inbox_ranking_promote": {"config": {"model_key": "nn_v2@2026-10-20", "reason": "seed the pointer"}}}}'
+```
 
 - **Serving manifest**: the dag's decision about what the scoring sweep runs, published where the sweep can read it. The Temporal workers have no credential for the dataset bucket, so `inbox_ranking_serving_manifest` copies the models the sweep needs into the deployment's own object store and writes a manifest naming them:
 
 ```text
 s3://<object-storage bucket>/<prefix>/serving/
-├── models/<model_name>@<model_version>/metadata.json + <head>.ubj   # the refit boosters only
+├── models/<model_name>@<model_version>/metadata.json + <head>.ubj   # xgboost: the refit boosters only
+├── models/<model_name>@<model_version>/metadata.json + model.onnx   # onnx: one graph for every head
 └── manifest.json                                                    # the models one scoring pass runs
 ```
 
-The manifest holds one entry per model with its `roles`: `served` for the champion of `INBOX_RANKING_SERVED_FAMILY`, `daily_candidate` for that family's candidate on this partition when it is a different, readable model, `pinned` for each model the `pin` override keeps (see [Overrides](#overrides)), and `cross_family` for every other family's champion that has a readable head. A pass scores all of them, so an online paired read and a later interleaving need no rescoring; the entry count is capped at the `ranking_score` artefact's own limit, dropping `cross_family` entries first and `pinned` entries next. The schema, the role names and the object keys live in `products/signals/backend/ranking/serving_manifest.py`, and its validators run at write time, so the dag refuses a manifest the sweep could not act on. A model version is immutable, so a version already in the store is not copied again, and `manifest.json` is written last: a failed copy leaves the previous manifest and the previous models serving. No family has a champion until the first promotion, so until then the asset writes nothing and says why.
+Each entry names its `model_kind`, and the sweep loads it through that kind's handler in `products/signals/backend/ranking/model_store.py`:
+
+- `xgboost`, the default for a model without the field: one booster per head, `<head>.ubj`. The entry's `heads` list names the files.
+- `onnx`: one `model.onnx` for every head. The entry names it in `model_file`, and `heads` still lists the heads it scores. The graph takes one float32 input, `report`, of shape (batch, feature-set width), and gives one output, `probabilities`, of shape (batch, heads). The column order of that output is `output_heads` in the model's `metadata.json`, and each head entry in `heads` there names `model.onnx` as its `file`. At load, the handler checks the input names and widths against what the model's feature set builds, and a mismatch skips the model like an unloadable booster. The session runs on CPU with a bounded thread count, and `onnxruntime` is imported only when a model loads. The project-vector inputs are not served yet, so the sweep skips an `nn` model, whose graph also takes `project` and `has_history`, until it feeds them.
+
+The manifest holds one entry per model with its `roles`: `served` for the model `served.json` names, `recent` for each of the newest `INBOX_RANKING_SERVING_RECENT_VERSIONS` (default 2) versions of the served `model_name`, `challenger` for the newest readable version of each other `MODEL_FAMILIES` entry, read from its last 2 days because an `nn` candidate can land after the manifest runs, `pinned` for each model the `pin` override keeps (see [Overrides](#overrides)), and `cross_family` for every other family's `champion.json` that has a readable head. Nothing writes those files anymore, so they name the last version the retired automatic promotion chose. The dag reads the `recent` versions newest first from `<model_name>/dt=D/metadata.json` in the 2N days up to the partition, where N is the setting. It skips a version with no readable head, the served version, and a version that fails the pin check, and it removes duplicate keys. So each version gets online scores for about N days, not for one. A pass scores all of them, so an online paired read and a later interleaving need no rescoring; the entry count is capped at the `ranking_score` artefact's own limit (5). The order is `served`, `recent`, `challenger`, `pinned`, `cross_family`, so the cap drops `cross_family` entries first and `pinned` entries next. Challengers come in family registration order, so when there are more challengers than free entries, the last registered families lose their place. A challenger is how a new recipe gets online scores on the same reports as the served model before anyone promotes it. Each `recent` version adds one model to every sweep pass, so a higher N costs sweep time and pod memory. The schema, the role names and the object keys live in `products/signals/backend/ranking/serving_manifest.py`, and its validators run at write time, so the dag refuses a manifest the sweep could not act on. A model version is immutable, so a version already in the store is not copied again, and `manifest.json` is written last: a failed copy leaves the previous manifest and the previous models serving. When `served.json` is missing, or names a model that fails the pin check, the asset writes nothing and says why, and the previous manifest keeps serving.
 
 A region that does not train serves the same models through a mirror. When `INBOX_RANKING_SERVING_MIRROR_BUCKET` is set, the asset repeats the publish into that bucket after the primary publish succeeds, in the same order and with the same skip of versions already there. A mirror failure does not fail the asset: it logs, and the `inbox_ranking_serving_manifest_published` event carries `mirror_published=false`. The property is absent when no mirror is set.
 
@@ -177,7 +195,7 @@ The reader is `score_reports` in `products/signals/backend/ranking/scorer.py`. I
 
 ### Overrides
 
-An owner can change serving and promotion without a training run, through the payload of the `inbox-ranking-overrides` feature flag in the internal PostHog project. The flag is inert by default. When the flag is off, the payload is empty, or the lookup fails, the sweep and the dag run as they do without the flag. The parser is `products/signals/backend/ranking/overrides.py`, and the sweep and the dag share it.
+An owner can change serving without a training run or a Dagster launch, through the payload of the `inbox-ranking-overrides` feature flag in the internal PostHog project. The flag is inert by default. When the flag is off, the payload is empty, or the lookup fails, the sweep and the dag run as they do without the flag. The parser is `products/signals/backend/ranking/overrides.py`, and the sweep and the dag share it.
 
 Every key is optional, but no key applies without `expires_at`:
 
@@ -185,71 +203,60 @@ Every key is optional, but no key applies without `expires_at`:
 {
   "expires_at": "2026-10-11T00:00:00Z",
   "served": "report_embeddings@2026-10-03",
-  "pin": ["report_embeddings@2026-09-26"],
-  "promotion": {
-    "freeze": ["report_embeddings"],
-    "force": ["report_embeddings"],
-    "skip_gates": { "report_embeddings": ["min_days", "ece", "min_holdout_positives"] }
-  }
+  "pin": ["report_embeddings@2026-09-26"]
 }
 ```
 
-| Key                    | Read by                                | Effect                                                                                                                                                                                                                                    |
-| ---------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `expires_at`           | sweep and dag                          | Required. After this time the sweep and the dag ignore the payload and log `inbox_ranking_override_expired`. A payload with no `expires_at`, or one more than 14 days ahead, is invalid.                                                  |
-| `served`               | sweep, once per pass                   | Gives this model key the `served` role for the pass. The key must name a model in the current manifest, a pinned one included. No `champion.json` changes, and removing the key reverts on the next tick.                                 |
-| `pin`                  | dag (`inbox_ranking_serving_manifest`) | Keeps these model keys in the manifest with the `pinned` role, so a `served` override survives the next manifest rewrite and can roll back to an older model.                                                                             |
-| `promotion.freeze`     | dag (`inbox_ranking_model_champion`)   | For these families, the run trains, grades and records the decision, but never writes `champion.json`.                                                                                                                                    |
-| `promotion.force`      | dag (`inbox_ranking_model_champion`)   | For these families, the run promotes the day's candidate when `decide_promotion` refuses it. The candidate must still be newer than the champion and have a readable head. This is a lasting champion change.                             |
-| `promotion.skip_gates` | dag (`inbox_ranking_model_champion`)   | Waives named checks of `decide_promotion` for one family: `min_days` (the `INBOX_RANKING_PROMOTION_MIN_DAYS` wait), `ece` (`ECE_TOLERANCE`), `min_holdout_positives` (a head whose candidate holdout is too thin to read does not block). |
+| Key          | Read by                                | Effect                                                                                                                                                                                                       |
+| ------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `expires_at` | sweep and dag                          | Required. After this time the sweep and the dag ignore the payload and log `inbox_ranking_override_expired`. A payload with no `expires_at`, or one more than 14 days ahead, is invalid.                     |
+| `served`     | sweep, once per pass                   | Gives this model key the `served` role for the pass. The key must name a model in the current manifest, a pinned one included. `served.json` does not change, and removing the key reverts on the next tick. |
+| `pin`        | dag (`inbox_ranking_serving_manifest`) | Keeps these model keys in the manifest with the `pinned` role, so a `served` override survives the next manifest rewrite and can roll back to an older model.                                                |
 
-`freeze` wins over `force` and `skip_gates` for the same family. `force` and `skip_gates` still need `INBOX_RANKING_AUTO_PROMOTE` on, so the flag cannot promote where promotion is off. An unknown key, an unknown gate, or a model key that is not `<model_name>@<YYYY-MM-DD>` makes the whole payload invalid: it is never partly applied, and `inbox_ranking_override_invalid` logs the reason.
+Promotion is not an override: use `inbox_ranking_promote_job`. A payload that still carries the retired `promotion` key is invalid. An unknown key, or a model key that is not `<model_name>@<YYYY-MM-DD>`, makes the whole payload invalid: it is never partly applied, and `inbox_ranking_override_invalid` logs the reason.
 
 The worst result of a bad payload is a warning, never a stopped pass or an unpublished manifest:
 
 - A `served` key that is not in the manifest, that did not load (missing files, a feature contract mismatch, an untrained head), that has fewer heads than the manifest's served model is rejected. The sweep logs `inbox_ranking_override_rejected` and scores with the manifest's served model. The override only moves the `served` role among models the pods already load, so it never adds memory.
 - A pinned key whose `metadata.json` or boosters are missing in the dataset bucket, or that fails `model_mismatch`, is dropped before composition. The manifest still publishes, and the asset metadata lists `pinned_keys` and `dropped_pins` with reasons.
 
-During a `served` override, the override model carries the roles `served` and `served_override`, and the manifest's served model carries `manifest_served` in place of `served`. The sweep compares the served key on the latest `ranking_score` with the effective one, so setting or removing an override rescores every report in the window. The `inbox_ranking_sweep_finished` log and each `inbox_ranking_report_scored` event carry `override_served` and `override_expires_at`. The `inbox_ranking_promotion_decided` event carries `override` (`frozen`, `forced`, `skipped_gates` or null) and `override_skipped_gates`, next to the `reason` the rule gave, so a forced promotion still records why the rule refused it.
+During a `served` override, the override model carries the roles `served` and `served_override`, and the manifest's served model carries `manifest_served` in place of `served`. The sweep compares the served key on the latest `ranking_score` with the effective one, so setting or removing an override rescores every report in the window. The `inbox_ranking_sweep_finished` log and each `inbox_ranking_report_scored` event carry `override_served` and `override_expires_at`.
 
 Examples, each with an `expires_at` at most 14 days ahead:
 
-- Serve today's candidate now: set `served` to the `daily_candidate` key of the current manifest.
-- Roll back to an older champion: add its key to `pin`, wait for the next manifest run (or rematerialize `inbox_ranking_serving_manifest`), then set `served` to the same key.
-- Pause promotion while a regression is investigated: `"promotion": {"freeze": ["report_embeddings"]}`.
-- Promote a candidate the rule refused for a harmless reason: `"promotion": {"force": ["report_embeddings"]}`, or the narrower `skip_gates` with the gate that refused it.
+- Serve a recent version now: set `served` to a `recent` key of the current manifest.
+- Roll back to an older model without a Dagster launch: add its key to `pin`, wait for the next manifest run (or rematerialize `inbox_ranking_serving_manifest`), then set `served` to the same key. For a lasting rollback, run `inbox_ranking_promote_job` with the key.
 
 Both regions read the same flag, so one override applies everywhere, if the region's `posthoganalytics` client evaluates flags in the internal project. A region that cannot read the flag runs with no override. Nothing deletes old model prefixes in the dataset bucket or old `serving/models/<key>/` copies. If the bucket has a lifecycle rule, a rollback through `pin` works only while the model files are still there.
 
 ### Outcome heads
 
-| Head               | Cohort at the horizon | Horizon (days) |
-| ------------------ | --------------------- | -------------- |
-| `open`             | Every report          | 3              |
-| `action`           | Every report          | 7              |
-| `dismiss_wrong`    | Every report          | 21             |
-| `pr_created`       | Every report          | 7              |
-| `pr_merged`        | Every report          | 14             |
-| `fixed`            | Every report          | 21             |
-| `discuss`          | Every report          | 7              |
-| `refund`           | Every report          | 14             |
-| `thumbs_up`        | Every report          | 7              |
-| `reviewer_fix`     | Every report          | 14             |
-| `dismiss_lowvalue` | Every report          | 21             |
+| Head     | Cohort at the horizon | Horizon (days) |
+| -------- | --------------------- | -------------- |
+| `open`   | Every report          | 7              |
+| `action` | Every report          | 14             |
+| `fixed`  | Every report          | 30             |
+
+The families train only these three heads, because the inbox reads only these three.
+The dataset still snapshots the label columns of other outcomes, so a head can come back without a labels backfill.
+The promotion rule compares only the heads in `HEADS`, so an incumbent that carries a retired head does not block a candidate without it.
 
 `action` counts intent from every surface, not only the cloud inbox list.
-A report is a positive when someone clicked an intent action in the inbox UI (create PR, implement, copy the prompt, discuss, open or view a PR, edit the reviewers, restore), or when a person or an external agent claimed it, linked a PR, left a note, discussed it in Slack, or resolved it with a reason.
+A report is a positive when someone clicked an intent action in the inbox UI (create PR, implement, copy the prompt, discuss, open or view a PR, edit the reviewers, restore), or when a person or an external agent claimed it, linked a PR, left a note, discussed it in Slack, or resolved it.
+A thumbs up on the report counts too (`feedback_positive_count`). A thumbs down does not, because it is a negative judgment and not intent.
+A resolve counts when it carries a reason or when its `actor_kind` is `user` or `agent`, so the one-click Today resolve counts.
 Self-driving's own `task` and `system` writes do not count: they are internal operational work.
-A resolve without a reason is the automatic resolve after a tracked PR merges, so it does not count either.
+A resolve with no reason and no human actor is the automatic resolve after a tracked PR merges, so it does not count either.
+
+`fixed` counts a resolve without a not-fixed reason, and a dismissal with a fixed reason.
+A reason-less resolve by a `user` or an `agent` waits for a 24-hour grace window first.
+It counts as fixed only when the window closed before the snapshot and no not-fixed reason arrived inside it as a `reason_added` row.
+The label is dated from the resolve, and a reason after the window cannot take it back, so the label only grows.
 
 The Today home sends the same client events as the Inbox, with `surface: 'today'` and a `list` property (`briefing` or `sidebar_more`) on impressions and opens.
 Filter on `surface` where a metric must stay Inbox-only.
 Today sets a verdict first and sends its optional reason in a second state call, which does not change the status.
 For that call the server emits `signal_report_status_changed` with `previous_status` equal to `status` and `reason_added: true`, so the reason reaches the status-stream heads.
-
-`thumbs_up` (a positive rating on the report body) and `reviewer_fix` (a suggested reviewer added or removed) are the explicit human-feedback pair.
-Both are rare, so neither clears its holdout bar on a single day.
-They are carried for the pooled newborn grade and as scorer inputs, not for a holdout AUC, and the promotion gate keeps ignoring an unreadable head.
 
 Every training series resets on the first partition after deploy.
 Before and after holdout numbers are not comparable because the example population changes.
@@ -261,7 +268,7 @@ The model is read in three layers: **training** (train metrics), **test** (the r
 The holdout grades the recipe, not the model that ships: the shipped booster is refit on train plus holdout, and every holdout row comes from the same snapshots the trainer saw.
 Two assets add the missing number, from the scores the sweep actually wrote for reports no model trained on.
 
-- **`inbox_ranking_served_scores` (dt=D)** (`training/served.py`) takes the dt=D state rows of the reports **created on D**, the pool the rows tag `pool=newborn`. A newborn has no scoring moment before D, and the dt=D examples stop at D minus the head's horizon (3 days at the shortest), so no example can cover it. It reads this deployment's `inbox_ranking_report_scored` events for that pool inside D and keeps the earliest `scored` event per (report, model key), so every model the manifest named is graded: the served champion, the served family's `daily_candidate`, and the other families' `cross_family` champions. `model_role` comes from the event's roles: `served` when they hold it, else the first role, else `candidate`. The sweep scores a candidate only after a manifest names it, so a candidate's online cohort starts the day after it was trained. Every head a model fit is scored, readable or not, and each row carries `head_readable` and the model's own `classification_threshold`. One Parquet row per (report, model key, head) carries the score, `age_hours`, `label_at_scoring` (the head outcome that had already happened when the report was scored, which for a newborn is one that landed on its own birth day, so the grade keeps it; a status-label head's rows are still dropped on it, because no scores column carries the scoring-day `label_provenance_ok` that the example builder checks), `model_name`, `model_role`, and `pool`. `served_pool_coverage` and `pool_coverage_by_model` say how much of the pool each model covered. A re-run that reads no event is refused when the partition already holds rows, and so is one that reads fewer families than the object already holds. Rows of a retired family (`RETIRED_MODEL_NAMES`) are dropped on read, and the rewrite guard does not require them.
+- **`inbox_ranking_served_scores` (dt=D)** (`training/served.py`) takes the dt=D state rows of the reports **created on D**, the pool the rows tag `pool=newborn`. A newborn has no scoring moment before D, and the dt=D examples stop at D minus the head's horizon (7 days at the shortest), so no example can cover it. It reads this deployment's `inbox_ranking_report_scored` events for that pool inside D and keeps the earliest `scored` event per (report, model key), so every model the manifest named is graded: the served model, the served family's `recent` versions, the `pinned` models, and the other families' `cross_family` champions. `model_role` comes from the event's roles: `served` when they hold it, else the first role, else `candidate`. The sweep scores a candidate only after a manifest names it, so a candidate's online cohort starts the day after it was trained, and it stays a `recent` entry until N newer versions replace it. Every head a model fit is scored, readable or not, and each row carries `head_readable` and the model's own `classification_threshold`. One Parquet row per (report, model key, head) carries the score, `age_hours`, `label_at_scoring` (the head outcome that had already happened when the report was scored, which for a newborn is one that landed on its own birth day, so the grade keeps it; a status-label head's rows are still dropped on it, because no scores column carries the scoring-day `label_provenance_ok` that the example builder checks), `model_name`, `model_role`, and `pool`. `served_pool_coverage` and `pool_coverage_by_model` say how much of the pool each model covered. A re-run that reads no event is refused when the partition already holds rows, and so is one that reads fewer families than the object already holds. Rows of a retired family (`RETIRED_MODEL_NAMES`) are dropped on read, and the rewrite guard does not require them.
 - **`inbox_ranking_unseen_graded` (dt=D)** reads saved scores from D back through each head's horizon and evaluates them against the dt=D labels. Daily head evaluations include both unbaked and baked metrics, marked by `is_mature`; existing head, report and calibration grade events remain baked-only at `D - horizon_days`. See [baked and unbaked unseen metrics](../../../../docs/internal/inbox-ranking-training.md#baked-and-unbaked-unseen-metrics) for the event contract and chart revision rules. It keeps the rows whose cohort holds at D, reads the outcome with `Head.label`, and reports the AUC per model and head next to two comparison lines on the same rows: `recency_auc`, the AUC of ranking newest first by `report_created_at`, and `null_auc` / `null_auc_std`, the mean and spread of the AUC over seeded permutations of the scores. The mean is 0.5 by construction; the spread is the noise band a per-day AUC has to clear before a gap between two families means anything. It also reads the calibration of those scores, which no AUC can see: the in-cohort rows are cut into score deciles by rank (`training/calibration.py`, shared with the trainer so both sides cut them the same way), and each decile's mean score is compared against the rate the outcome actually happened at. A run of equal scores stays in one decile, so a head reports fewer deciles rather than a gap that only reflects the row order. Read each grade with the model's `pool_coverage_by_model`: a key that joined the manifest part of the way through D grades only part of the pool.
 
 At the full horizon, the cohort, label and provenance rules are the trainer's own, so the baked online AUC is directly comparable to the holdout AUC of the same head and model version. The gap between the two series is the overfitting read the promotion gate cannot see.
@@ -279,19 +286,6 @@ The inbox sorts the reports of one team, so the order that matters is the order 
 
 Compare model families on the within-team AUC when they differ in team-level inputs, such as project vectors: a gain in pooled AUC alone can be team identity rather than a better order. The promotion gate still reads the pooled holdout AUC.
 
-#### Reading one rendering against another
-
-The `title_embeddings` and `report_embeddings` families are trained and graded to be compared, not promoted. The read:
-
-- **Pair the rows, then take the difference.** The sweep scores each report with both families when both are in the manifest, so for one head and one day they are mostly graded on the same reports. Break the unseen grade down by `model_name` and difference the two AUCs on the rows both grades had. An unpaired difference of two full-population AUCs is not this comparison: keep each family's full-population number, and the matched one, as separate figures.
-- **Read the uncertainty before the sign.** `null_auc_std` on each grade is the spread a per-day AUC has on those rows. A difference inside that band is inconclusive, not evidence that the two renderings carry the same signal. Pool about 30 days before treating a direction as real.
-- **Carry coverage and positives with every figure.** `pool_coverage_by_model` on the scores asset says how much of the pool each model scored, and `rows` / `positives` / `birth_day_positives` on each grade say how much outcome the AUC rests on. A family graded largely on its missing branch reads low for a reason that is not the text.
-- **Keep the baselines on the same rows.** `recency_auc` and the other embedding family are reported on the same grade, so the reading is title against combined against newest-first, not against numbers from another day.
-- **Read `open` first.** It has the shortest horizon (3 days), so its labels mature first; `action` and `pr_created` follow at 7 days. Emission is forward-only and a moment only takes a vector that had already landed, so both families accrue from the first partition after their input starts flowing.
-- **This is not an online experiment.** Every row is a live birth-day score graded against a later snapshot, and the outcomes it grades happened under the order the inbox actually served. A gap between two families is a difference in rank quality on logged outcomes, not a causal claim about what the inbox would do differently.
-
-Nothing in this read changes what the inbox serves. The scoring sweep serves the family the manifest names (`INBOX_RANKING_SERVED_FAMILY`), promotion stays inside a family, and `INBOX_RANKING_AUTO_PROMOTE` gates the pointer rewrite; a rendering that wins here earns a separate decision, not an automatic promotion.
-
 ### Running the training job locally
 
 The training job is S3-only, so it can run on a laptop against copies of the prod snapshots. The dataset job cannot: it needs the dogfood project's ClickHouse and cross-region Postgres.
@@ -303,7 +297,7 @@ The training job is S3-only, so it can run on a laptop against copies of the pro
    INBOX_RANKING_READER_SECRET_ID=<secret id> products/signals/dags/inbox_ranking/bin/sync_snapshots_local.sh
    ```
 
-   This copies `inbox_report_state/v1/dt=*` and `inbox_report_labels/v1/dt=*` to `~/.cache/posthog/inbox_ranking/` and from there into `s3://posthog/inbox_ranking/` on SeaweedFS (`localhost:19000`). `INBOX_RANKING_SYNC_EMBEDDINGS=1` adds `inbox_report_embeddings`, which the `report_embeddings` family needs; it is off by default because that table carries a vector per live report per partition. Without it the job still runs, and that family builds no examples. `INBOX_RANKING_SYNC_TITLE_EMBEDDINGS=1` adds `inbox_report_title_embeddings`, which the `title_embeddings` family needs, on its own switch and for the same reason. It prints the partition days present in both tables; pick the **newest** of those as the partition to run. The examples asset reads the `INBOX_RANKING_TRAINING_LOOKBACK_DAYS` snapshots behind the partition it runs for, so an early day has little history behind it and trains on almost nothing. Re-runs only move new days.
+   This copies `inbox_report_state/v1/dt=*` and `inbox_report_labels/v1/dt=*` to `~/.cache/posthog/inbox_ranking/` and from there into `s3://posthog/inbox_ranking/` on SeaweedFS (`localhost:19000`). `INBOX_RANKING_SYNC_EMBEDDINGS=1` adds `inbox_report_embeddings`, which the `report_embeddings` family needs; it is off by default because that table carries a vector per live report per partition. Without it the job still runs, and that family builds no examples. `INBOX_RANKING_SYNC_TITLE_EMBEDDINGS=1` adds `inbox_report_title_embeddings` on its own switch and for the same reason. No family trains on it. It prints the partition days present in both tables; pick the **newest** of those as the partition to run. The examples asset reads the `INBOX_RANKING_TRAINING_LOOKBACK_DAYS` snapshots behind the partition it runs for, so an early day has little history behind it and trains on almost nothing. Re-runs only move new days.
 
    Note that the dev stack's object storage accepts unsigned requests and publishes port 19000 on every host interface, so anything synced here (and the disk cache) is readable by whoever can reach your machine. The snapshots are internal dogfood telemetry, not customer data, but run the sync on a network you trust.
 
@@ -318,11 +312,11 @@ The training job is S3-only, so it can run on a laptop against copies of the pro
 
    The schedule is stopped outside prod US, so nothing runs unasked. If the run sits in `QUEUED`, check the daemon log for `Maximum is 10, won't launch more`: runs from a killed `dagster dev` stay `STARTED` forever and count against the local queue. Terminate them from the Runs page (force termination).
 
-4. Read the result from `s3://posthog/inbox_ranking/inbox_ranking_models/v1/report_embeddings/dt=<day>/metadata.json` (per-head AUCs, readability); the examples are at `s3://posthog/inbox_ranking/inbox_ranking_training_examples/v1/report_embeddings/dt=<day>/part-00000.parquet`:
+4. Read the result from `s3://posthog/inbox_ranking/inbox_ranking_models/v1/report_embeddings_v2/dt=<day>/metadata.json` (per-head AUCs, readability); the examples are at `s3://posthog/inbox_ranking/inbox_ranking_training_examples/v1/report_embeddings/dt=<day>/part-00000.parquet`:
 
    ```bash
    AWS_ACCESS_KEY_ID=object_storage_root_user AWS_SECRET_ACCESS_KEY=object_storage_root_password \
-       aws --endpoint-url http://localhost:19000 s3 cp s3://posthog/inbox_ranking/inbox_ranking_models/v1/report_embeddings/dt=2026-08-25/metadata.json -
+       aws --endpoint-url http://localhost:19000 s3 cp s3://posthog/inbox_ranking/inbox_ranking_models/v1/report_embeddings_v2/dt=2026-08-25/metadata.json -
    ```
 
 Nothing here touches the prod bucket: the reader credential is read-only and the dag writes only to the local bucket.
@@ -331,7 +325,7 @@ Nothing here touches the prod bucket: the reader credential is read-only and the
 
 `multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up.
 
-The network is PyTorch. torch is not a main dependency: it comes from the `inbox-ranking` dependency group, with the CPU-only wheels, together with `onnx` and `onnxruntime`. The group conflicts with the `sentiment` group, which takes the CUDA build of torch, so install one or the other. No image installs the group.
+The network is PyTorch. torch is not a main dependency: it comes from the `inbox-ranking` dependency group, with the CPU-only wheels, together with `onnx` and `onnxruntime`. The group conflicts with the `sentiment` group, which takes the CUDA build of torch, so install one or the other. Only `Dockerfile.dagster-ml`, the image of the `signals_ml` code location, installs the group. Each master push publishes that image, and `container-images-cd.yml` sends its digest to PostHog/charts with the `restart_dagster_ml_code_location` dispatch. A failed build or dispatch does not block CD.
 
 ```bash
 uv sync --group inbox-ranking
@@ -350,20 +344,79 @@ The run takes the newest day that has the state, labels and report embeddings ca
 
 The network leaves out every report that is in any head's holdout, so the comparison is conservative for it. A run holds one embeddings snapshot: the title embeddings are never read, and the project vectors are computed from the same table as the report vectors. Results vary with `--seed`, so compare a few seeds before you read a small AUC gap as a result.
 
+### The nn family
+
+`nn` is one multi-head network (`multihead/network.py`) over the report vector and the team's `typical`, `open`, `action` and `dismiss` project vectors, with the heads `open`, `action` and `fixed`. It is a model family like the per-head ones: it has its own prefix, the main job's serving manifest names a served, challenger or cross-family `nn` model as an `onnx` entry, and the online grader grades it. The main location's candidate and champion assets never fit it.
+
+Two `nn` families train every day. `nn_v2` reads the `report_embeddings` set. `nn_with_prio` reads `report_embeddings_priority`: its `report` input carries the 1536 vector components and then the five priority levels, and those five columns skip the shared projection and go straight into the trunk input. Neither is served by default; a person serves one with `inbox_ranking_promote_job` after comparing their online grades.
+
+`inbox_ranking_nn_training_job` lives on its own code location, `posthog/dags/locations/signals_ml.py`, which runs on an image with the `inbox-ranking` group. torch is imported only inside the candidate asset's body, so the location module imports on the main image too, and `test_multihead_network.py` fails if torch reaches it. The job writes:
+
+```text
+s3://<bucket>/<prefix>/
+├── inbox_ranking_nn_examples/v1/dt=YYYY-MM-DD/   # rows, a label and a holdout flag per head, priority; no vectors
+├── inbox_ranking_models/v1/nn_v2/
+│   ├── dt=YYYY-MM-DD/model.onnx + model.holdout.onnx + metadata.json
+│   └── champion.json   # retired; nothing writes it
+└── inbox_ranking_models/v1/nn_with_prio/dt=YYYY-MM-DD/model.onnx + model.holdout.onnx + metadata.json
+```
+
+- **Examples** are the prototype's: each head's `example_moments` over the `report_embeddings` set, capped by `cap_examples` and split by `holdout_mask`, so every head's rows and holdout are the ones its `report_embeddings` champion is graded on. The object holds no vector, and one object serves both families. Each row carries its `priority` from its own snapshot. The candidate and champion assets rebuild the report vectors and the project vectors from the dt=D embeddings and labels snapshots. An object written before the `priority` column existed makes the `nn_with_prio` candidate skip with a warning; re-run the examples asset for that day.
+- **Candidate**: the network trains on the rows in no head's holdout and is graded on each head's own holdout through the same `head_metrics` the boosters use, so `metadata.json` carries the same per-head fields (pooled and within-team AUC, average precision, ECE, readability, row counts, example window). Readability uses the boosters' permutation null: three networks fit on permuted labels. `model.onnx` is a refit on every labeled row, and `model.holdout.onnx` is the train-only fit. `metadata.json` has `model_kind: onnx`, the family's `feature_set`, and `output_heads`, the graph's column order. The `nn_with_prio` candidate runs after the `nn_v2` champion, for memory and not for data: each candidate holds an embeddings snapshot and the project vectors.
+- **Champion**: the same rule as the other families (`decide_family_champion`), recorded and never written to a pointer. The incumbent is the served model when it has the candidate's `model_name`, graded through its `model.holdout.onnx` on the candidate's holdout, with `onnxruntime`.
+- **A missing partition is a skip.** If the dt=D state, labels or embeddings snapshot is missing, each asset logs and writes nothing, so the partition keeps the objects it holds.
+- **Schedule**: 04:30 UTC, after the dataset job's 2h budget (02:30 UTC start) and before the 05:00 UTC training job when the run is short enough. A candidate that lands after that day's manifest is paired by the next day's manifest. The schedule runs by default on prod US and is stopped everywhere else.
+
+To run it locally, install the group (`uv sync --group inbox-ranking`), sync the snapshots with `INBOX_RANKING_SYNC_EMBEDDINGS=1` as in [Running the training job locally](#running-the-training-job-locally), and uncomment `posthog.dags.locations.signals_ml` in `.dagster_home/workspace.yaml`. The entry is commented out because most developers do not have torch installed. Then launch the job:
+
+```bash
+dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locations.signals_ml \
+    -j inbox_ranking_nn_training_job --tags '{"dagster/partition": "2026-08-25"}'
+```
+
+## The activity summary dag
+
+`activity_summary/` prepares per-person activity summaries for inbox ranking, without calling an LLM.
+`activity_summary_job` runs two assets on the shared daily partition, over the 28 days that end with D.
+Its weekly schedule ships stopped, so run the job by hand.
+
+- `activity_summary_inputs/v1/dt=D/` holds one row per (project, member) for active members of the dogfood organization with an `@posthog.com` email, in that organization's own projects only.
+  `rendered_input` has up to three sections, built by `render.py`:
+  - tasks the member started in PostHog AI, Slack or by hand, as `[tags] goal` from the latest run's `task_summary` and `task_tags`, read through the tasks facade;
+  - the member's own MCP sessions (`source` `mcp` with the `user` preset or none) from the dogfood project's events, as `first step → last step`;
+  - the member's activity log, one line per changed object.
+- The sampling seed comes from (partition, team, user), so a re-run writes the same object.
+- `activity_summary_cost_projection/v1/dt=D/` covers every MCP (project, distinct id) pair in the events and holds counts only, never free text.
+  It has one row per `MIN_UNITS` and `MIN_DAYS` option, with eligible pairs, input token percentiles and monthly volume.
+  The task and activity sections go in at their capped maximum (`capped_sections_tokens`), so the projection errs high.
+  Set `input_price_per_million_tokens` and `output_price_per_million_tokens` in the run config to fill `projected_monthly_cost_usd`.
+
+Most activity recorded under a person is not theirs: scouts, agents and scheduled jobs act with the person's identity.
+Every filter in `render.py` is a named rule in `Drop`, and each inputs row records in `drops` how many units or calls each rule removed.
+When a rule drops everything for a person, or stops dropping anything, start there.
+
+The input size is bounded for every person, in this order:
+
+1. Rows read per person, newest first: `MAX_TASKS_PER_PERSON`, `MAX_MCP_SESSIONS_PER_PERSON`, `MAX_ACTIVITY_ROWS_PER_PERSON`.
+2. The named filters.
+3. At most `MAX_UNITS_PER_DAY` tasks and sessions per UTC day (activity lines are already one per object and skip this).
+4. A recency-weighted sample: `TASK_LINES`, `MCP_LINES` and `ACTIVITY_LINES`.
+5. A character cap on every line, and `SECTIONS_MAX_CHARS` as a hard stop on all sections.
+
+Bump `RENDER_VERSION` with any change to a filter, a cap or the layout.
+
 ## Configuration
 
-| Setting                                | Default             | Meaning                                                                                                                                                                                                             |
-| -------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `INBOX_RANKING_DATASET_S3_BUCKET`      | unset               | Destination bucket. Unset on Cloud makes every asset log and skip, so the dag can deploy before the bucket exists. Unset elsewhere falls back to the deployment's object-storage service (SeaweedFS in dev and CI). |
-| `INBOX_RANKING_DATASET_S3_PREFIX`      | `inbox_ranking`     | Key prefix under the bucket.                                                                                                                                                                                        |
-| `INBOX_RANKING_TRAINING_LOOKBACK_DAYS` | `60`                | How many daily snapshots back the training examples reach.                                                                                                                                                          |
-| `INBOX_RANKING_TRAINING_HOLDOUT_DAYS`  | `7`                 | Trailing days of reports that grade a candidate.                                                                                                                                                                    |
-| `INBOX_RANKING_AUTO_PROMOTE`           | `false`             | Whether a winning candidate rewrites `champion.json`; off, the decision is only logged.                                                                                                                             |
-| `INBOX_RANKING_PROMOTION_MIN_DAYS`     | `0`                 | Minimum age of the champion before another promotion. The scoring sweep stamps each score with its model key, so no wait is needed for a clean read.                                                                |
-| `INBOX_RANKING_SERVED_FAMILY`          | `report_embeddings` | Family whose champion the serving manifest serves.                                                                                                                                                                  |
-| `INBOX_RANKING_SERVING_MIRROR_BUCKET`  | unset               | A second deployment's object-storage bucket that receives a copy of every serving publish, through ambient AWS config. Unset means no mirror.                                                                       |
-| `INBOX_RANKING_SERVING_MIRROR_REGION`  | unset               | AWS region of the mirror bucket.                                                                                                                                                                                    |
-| `INBOX_RANKING_SCORING_BATCH_SIZE`     | `500`               | Report ids per ClickHouse vector read in the scorer. A larger call is paged at this size.                                                                                                                           |
+| Setting                                 | Default         | Meaning                                                                                                                                                                                                             |
+| --------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `INBOX_RANKING_DATASET_S3_BUCKET`       | unset           | Destination bucket. Unset on Cloud makes every asset log and skip, so the dag can deploy before the bucket exists. Unset elsewhere falls back to the deployment's object-storage service (SeaweedFS in dev and CI). |
+| `INBOX_RANKING_DATASET_S3_PREFIX`       | `inbox_ranking` | Key prefix under the bucket.                                                                                                                                                                                        |
+| `INBOX_RANKING_TRAINING_LOOKBACK_DAYS`  | `60`            | How many daily snapshots back the training examples reach.                                                                                                                                                          |
+| `INBOX_RANKING_TRAINING_HOLDOUT_DAYS`   | `7`             | Trailing days of reports that grade a candidate.                                                                                                                                                                    |
+| `INBOX_RANKING_SERVING_MIRROR_BUCKET`   | unset           | A second deployment's object-storage bucket that receives a copy of every serving publish, through ambient AWS config. Unset means no mirror.                                                                       |
+| `INBOX_RANKING_SERVING_MIRROR_REGION`   | unset           | AWS region of the mirror bucket.                                                                                                                                                                                    |
+| `INBOX_RANKING_SERVING_RECENT_VERSIONS` | `2`             | How many of the served family's newest versions the manifest carries under the `recent` role, read from the last 2N days. Each one adds one model to every sweep pass and takes an entry a challenger could use.    |
+| `INBOX_RANKING_SCORING_BATCH_SIZE`      | `500`           | Report ids per ClickHouse vector read in the scorer. A larger call is paged at this size.                                                                                                                           |
 
 Writes use boto3: ambient AWS config (the node role) when the dedicated bucket is set, the `OBJECT_STORAGE_*` endpoint and credentials otherwise. Readers (project-level warehouse tables, model training) use a separate read-only credential provisioned with the bucket.
 

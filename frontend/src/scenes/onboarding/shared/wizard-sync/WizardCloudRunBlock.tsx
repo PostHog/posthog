@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react'
 import { IconCheckCircle, IconChevronDown, IconGithub, IconPullRequest } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
@@ -35,7 +34,6 @@ export function WizardCloudRunBlock({
     onRetryLocally?: () => void
 }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
-    const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
     const { githubIntegration, selectedRepository, cloudRunStatus, connectGitHubUrl } = useValues(wizardCloudRunLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const { setSelectedRepository, startCloudRun } = useActions(wizardCloudRunLogic)
@@ -80,28 +78,16 @@ export function WizardCloudRunBlock({
 
     if (cloudRunStatus === 'queued') {
         const repoLabel = selectedRepository ? <span className="font-mono">{selectedRepository}</span> : 'your repo'
-        // The brief window after kickoff before the run handle settles. With sync on the Installation
-        // layer takes over above; without sync we cannot observe the run, so set honest expectations.
+        // The brief window after kickoff before the run handle settles and the Installation layer
+        // takes over above.
         return (
             <LemonBanner type="info">
                 <div className="space-y-1" data-attr="wizard-cloud-run-queued">
-                    {syncEnabled ? (
-                        <>
-                            <div className="font-semibold">Starting your cloud run…</div>
-                            <div className="text-sm text-muted">
-                                Kicking off the wizard on {repoLabel}. Progress will appear here in a moment and stays
-                                in the corner as you keep going.
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <div className="font-semibold">Cloud run queued for {repoLabel}.</div>
-                            <div className="text-sm text-muted">
-                                If it succeeds we'll open a pull request in your repo to review. We can't show live
-                                progress here, so keep an eye on your repository.
-                            </div>
-                        </>
-                    )}
+                    <div className="font-semibold">Starting your cloud run…</div>
+                    <div className="text-sm text-muted">
+                        Kicking off the wizard on {repoLabel}. Progress will appear here in a moment and stays in the
+                        corner as you keep going.
+                    </div>
                 </div>
             </LemonBanner>
         )

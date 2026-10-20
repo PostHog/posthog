@@ -68,8 +68,8 @@ describe('dataWarehouseSceneLogic', () => {
     })
 
     const useOnlyTheTrinoFlag = (): void => {
-        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO], {
-            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO]: true,
+        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.MANAGED_TRINO_QUERY], {
+            [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: true,
         })
     }
 
@@ -81,10 +81,10 @@ describe('dataWarehouseSceneLogic', () => {
     })
 
     it('prefers the Trino variant when both flags are on', async () => {
-        flagsLogic.actions.setFeatureFlags(
-            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE, FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO],
-            { [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true, [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO]: true }
-        )
+        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_WAREHOUSE_SCENE, FEATURE_FLAGS.MANAGED_TRINO_QUERY], {
+            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true,
+            [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: true,
+        })
         mountScene()
         await waitForWarehouseStatus()
 

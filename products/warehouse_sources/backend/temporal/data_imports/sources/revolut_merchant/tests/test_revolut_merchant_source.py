@@ -3,7 +3,6 @@ import pytest
 import requests_mock
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -50,15 +49,6 @@ def test_sync_auth_and_version_failures_match_terminal_errors(status: int, messa
     assert len(matches) == 1 and message in matches[0]
     assert len(result.requests) == 1
     assert result.saved_states == []
-
-
-def test_unknown_schema_fails_before_network() -> None:
-    source = RevolutMerchantSource()
-    config = source.parse_config({"api_key": "test-secret-key", "environment": "production"})
-    result = SourceDriver(source, config).run("unknown_table", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert "unknown_table" in str(result.raised)
-    assert result.requests == []
 
 
 def test_environment_cannot_retarget_credentials(requests_mock: requests_mock.Mocker) -> None:

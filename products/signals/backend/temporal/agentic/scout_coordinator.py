@@ -21,6 +21,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -52,7 +53,10 @@ from products.signals.backend.scout_harness.lazy_seed import (
 )
 from products.signals.backend.scout_harness.limits import (
     AUTO_PAUSE_PROBE_INTERVAL_S,
+    CHILD_START_CHUNK_SIZE,
+    CHILD_START_DELAY_MAX_RUNS_PER_TICK,
     COORDINATOR_INTERVAL_MINUTES,
+    CRON_START_DELAY_CAP_SECONDS,
     DISPATCH_BATCH_INTERVAL_SECONDS,
     DISPATCH_SMEAR_SECONDS,
     DUE_GRACE_SECONDS,
@@ -73,6 +77,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _parse_background,
     _parse_enrollment,
     _read_flag_payload,
+    _resolve_child_start_delay,
     _resolve_dispatch_smear_seconds,
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
@@ -111,12 +116,14 @@ BACKGROUND_TICK_EVENT = "signals_scout_background_tick"
 BACKGROUND_TICK_DISTINCT_ID = "internal_signals_scout_coordinator"
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlannedRun:
     """One unit of fan-out: a single (team, skill) pair the coordinator will trigger."""
 
     team_id: int
     skill_name: str
+    # How long the child sleeps before it starts work. See `_start_delay_seconds`.
+    start_delay_seconds: int = 0
 
 
 @dataclass
@@ -130,6 +137,8 @@ class FetchEnabledRunsInput:
 class FetchEnabledRunsOutput:
     planned_runs: list[PlannedRun]
     dispatch_smear_seconds: int = 0
+    # On, the coordinator starts every child at once and each child sleeps its own start delay.
+    child_start_delay: bool = False
 
 
 @frozen
@@ -220,12 +229,24 @@ async def fetch_enabled_signals_scout_runs_activity(
         # tests patching the module global still take effect.
         global_max_runs_per_tick = _resolve_global_max_runs_per_tick(payload, MAX_RUNS_PER_TICK)
         smear_seconds = _resolve_dispatch_smear_seconds(payload, DISPATCH_SMEAR_SECONDS)
+        child_start_delay = _resolve_child_start_delay(payload)
+        if child_start_delay:
+            # Every child of the tick is pending while the coordinator starts them, and Temporal
+            # limits the pending children of one workflow.
+            global_max_runs_per_tick = min(global_max_runs_per_tick, CHILD_START_DELAY_MAX_RUNS_PER_TICK)
         planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(
-            enrollment, team_configs, default_team_config, global_max_runs_per_tick, background
+            enrollment,
+            team_configs,
+            default_team_config,
+            global_max_runs_per_tick,
+            background,
+            start_delay_spread_seconds=smear_seconds if child_start_delay else 0,
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
     increment_coordinator_tick(len(planned))
-    return FetchEnabledRunsOutput(planned_runs=planned, dispatch_smear_seconds=smear_seconds)
+    return FetchEnabledRunsOutput(
+        planned_runs=planned, dispatch_smear_seconds=smear_seconds, child_start_delay=child_start_delay
+    )
 
 
 @activity.defn
@@ -270,6 +291,31 @@ def _dispatch_slot(config_pk: str, run_interval_minutes: int) -> int:
     ticks_per_interval = dispatch_ticks_per_interval(run_interval_minutes)
     digest = hashlib.sha256(str(config_pk).encode("utf-8"), usedforsecurity=False).digest()
     return int.from_bytes(digest[:8], "big") % ticks_per_interval
+
+
+def _start_delay_seconds(config_pk: str, spread_seconds: int) -> int:
+    """The config's stable start delay inside a spread window of `spread_seconds`.
+
+    A fraction of the spread rather than a modulo, so a spread change scales every offset in
+    proportion: no offset moves by more than the change, and the order of scouts stays the same.
+    The salt keeps the offset independent of the slot from `_dispatch_slot`.
+    """
+    digest = hashlib.sha256(f"{config_pk}:start-delay".encode(), usedforsecurity=False).digest()
+    fraction = int.from_bytes(digest[:8], "big") / 2**64
+    return int(fraction * max(0, spread_seconds))
+
+
+def _config_start_delay_seconds(config: SignalScoutConfig, spread_seconds: int) -> int:
+    """The start delay for one scheduled run of `config`.
+
+    A config with no previous run starts at once, so the first result of a new scout is not held
+    back. A cron scout uses a smaller spread, so it starts soon after its cron time.
+    """
+    if spread_seconds <= 0 or config.last_run_at is None:
+        return 0
+    if config.run_cron_schedule:
+        spread_seconds = min(spread_seconds, CRON_START_DELAY_CAP_SECONDS)
+    return _start_delay_seconds(str(config.pk), spread_seconds)
 
 
 def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datetime) -> datetime:
@@ -479,12 +525,13 @@ def _engaged_team_ids(since_by_team: dict[int, datetime]) -> set[int]:
     return {team_id for team_id, engaged_at in latest.items() if engaged_at > since_by_team[team_id]}
 
 
-@dataclass
+@dataclass(frozen=True)
 class _DueRun:
     overdue_s: float
     config_pk: str
     team_id: int
     skill_name: str
+    start_delay_s: int = 0
 
 
 @dataclass(frozen=True)
@@ -503,6 +550,7 @@ def _collect_planned_runs(
     default_team_config: dict | None = None,
     max_runs_per_tick: int | None = None,
     background: BackgroundEnrollment | None = None,
+    start_delay_spread_seconds: int = 0,
 ) -> list[PlannedRun]:
     """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
 
@@ -512,6 +560,9 @@ def _collect_planned_runs(
 
     Background configs are dispatched only through `_collect_background_runs`, never through the
     participating-team loop, so the consent check and the background kill switch gate every one.
+
+    `start_delay_spread_seconds` is the window the start delays of the planned runs spread across.
+    0 gives every run no delay.
     """
     now = timezone.now()
     team_configs = _canonicalize_team_config_keys(team_configs or {})
@@ -542,51 +593,58 @@ def _collect_planned_runs(
         # specific-first from this team's `team_configs` entry, then the fleet `default_team_config`):
         # skip seeding the skill, skip seeding/enabling a config, and skip dispatch.
         withheld_for_team = _resolve_withheld_skills(team.id, team_configs, default_team_config)
-        if needs_seed:
-            # Explicitly enrolled (a pinned / force-provisioned id): seed from nothing. The periodic
-            # tick is the reconciliation path. `sync_canonical_skills(prune=True)` tombstones rows
-            # whose canonical was removed from disk and propagates merged SKILL.md updates to
-            # harness-seeded rows the team hasn't edited, so a content change rolls out within one
-            # tick. Idempotent; a failure here doesn't abort the tick.
-            try:
-                sync_canonical_skills(team, prune=True, withheld_skill_names=withheld_for_team)
-            except Exception:
-                logger.exception(
-                    "signals_scout coordinator: canonical skill sync failed for team; continuing",
-                    team_id=team.id,
+        try:
+            if needs_seed:
+                # Explicitly enrolled (a pinned / force-provisioned id): seed from nothing. The periodic
+                # tick is the reconciliation path. `sync_canonical_skills(prune=True)` tombstones rows
+                # whose canonical was removed from disk and propagates merged SKILL.md updates to
+                # harness-seeded rows the team hasn't edited, so a content change rolls out within one
+                # tick. Idempotent; a failure here doesn't abort the tick.
+                try:
+                    sync_canonical_skills(team, prune=True, withheld_skill_names=withheld_for_team)
+                except Exception:
+                    logger.exception(
+                        "signals_scout coordinator: canonical skill sync failed for team; continuing",
+                        team_id=team.id,
+                    )
+                # This team's seed posture resolves like the tick cap: its own `team_configs` override
+                # layered over the fleet-wide `default_team_config`, most-specific first. Passing the
+                # layers (not a shallow merge) lets `_resolve_seed_posture` fall back per key, so a
+                # malformed per-team value doesn't clobber a valid fleet default.
+                seed_config_layers = [team_configs.get(team.id) or {}, default_team_config]
+                # `register_missing_configs` drops withheld skills from its return, so they're already
+                # excluded from `live_skills` (and thus from dispatch below) as well as from seeding.
+                live_skills = register_missing_configs(
+                    team.id, seed_config_layers, withheld_skill_names=withheld_for_team
                 )
-            # This team's seed posture resolves like the tick cap: its own `team_configs` override
-            # layered over the fleet-wide `default_team_config`, most-specific first. Passing the
-            # layers (not a shallow merge) lets `_resolve_seed_posture` fall back per key, so a
-            # malformed per-team value doesn't clobber a valid fleet default.
-            seed_config_layers = [team_configs.get(team.id) or {}, default_team_config]
-            # `register_missing_configs` drops withheld skills from its return, so they're already
-            # excluded from `live_skills` (and thus from dispatch below) as well as from seeding.
-            live_skills = register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld_for_team)
-        else:
-            # Wildcard-discovered (`"*"`): the team already self-seeded its configs through the
-            # product-autonomy-gated UI / `sync` materialization, so skip the per-tick seed +
-            # reconcile — that's what keeps the hot path cheap as self-enrollment scales to thousands
-            # of teams. Read only the live scout skill names (cheap) so a config whose skill was
-            # deleted/superseded isn't dispatched, and honor the holdback denylist. Central canonical
-            # SKILL.md updates still reach these teams: the runner cold-starts with its own
-            # `sync_canonical_skills` before loading the skill (runner.py), so a merged change lands
-            # on the scout's NEXT RUN for any harness-seeded row the team hasn't forked. What the
-            # per-tick skip drops is only the eager refresh on ticks where nothing dispatches, plus
-            # the `prune=True` tombstoning of disk-deleted canonicals and first-appearance of
-            # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
-            # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
-            live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
-            # The one part of the reconcile the wildcard path still runs: an operational scout
-            # that stays off stops the checks and validation that run on it. Only teams with a
-            # row that needs it pay for the call, and a withheld scout is never a reason to call.
-            if reconcile_by_team.get(team.id, set()) - withheld_for_team:
-                _reconcile_wildcard_operational_configs(
-                    team.id,
-                    live_skills,
-                    withheld_for_team,
-                    [team_configs.get(team.id) or {}, default_team_config],
-                )
+            else:
+                # Wildcard-discovered (`"*"`): the team already self-seeded its configs through the
+                # product-autonomy-gated UI / `sync` materialization, so skip the per-tick seed +
+                # reconcile — that's what keeps the hot path cheap as self-enrollment scales to thousands
+                # of teams. Read only the live scout skill names (cheap) so a config whose skill was
+                # deleted/superseded isn't dispatched, and honor the holdback denylist. Central canonical
+                # SKILL.md updates still reach these teams: the runner cold-starts with its own
+                # `sync_canonical_skills` before loading the skill (runner.py), so a merged change lands
+                # on the scout's NEXT RUN for any harness-seeded row the team hasn't forked. What the
+                # per-tick skip drops is only the eager refresh on ticks where nothing dispatches, plus
+                # the `prune=True` tombstoning of disk-deleted canonicals and first-appearance of
+                # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
+                # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
+                live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
+                # The one part of the reconcile the wildcard path still runs: an operational scout
+                # that stays off stops the checks and validation that run on it. Only teams with a
+                # row that needs it pay for the call, and a withheld scout is never a reason to call.
+                if reconcile_by_team.get(team.id, set()) - withheld_for_team:
+                    _reconcile_wildcard_operational_configs(
+                        team.id,
+                        live_skills,
+                        withheld_for_team,
+                        [team_configs.get(team.id) or {}, default_team_config],
+                    )
+        except TeamScopeError:
+            # The project was deleted during the tick. Skip it rather than fail the whole plan.
+            logger.info("signals_scout coordinator: team is gone, skipping it", team_id=team.id)
+            continue
         # The tools drop every output of a run without AI data processing consent, so the run
         # only spends model time. The configs keep their status and dispatch again after approval.
         if not _ai_data_processing_approved(team):
@@ -601,7 +659,15 @@ def _collect_planned_runs(
             overdue_s = _overdue_seconds(config, now, team.timezone_info)
             if overdue_s is None:
                 continue
-            due.append(_DueRun(overdue_s, str(config.pk), team.id, config.skill_name))
+            due.append(
+                _DueRun(
+                    overdue_s,
+                    str(config.pk),
+                    team.id,
+                    config.skill_name,
+                    _config_start_delay_seconds(config, start_delay_spread_seconds),
+                )
+            )
         due.extend(_collect_probe_runs(paused_by_team.get(team.id, []), live_skills, now))
 
     if skipped_without_consent:
@@ -614,7 +680,12 @@ def _collect_planned_runs(
     runs_last_24h: int | None = None
     if background is not None and background.enabled:
         background_due = _collect_background_runs(
-            background, background_team_ids, team_configs, default_team_config, now
+            background,
+            background_team_ids,
+            team_configs,
+            default_team_config,
+            now,
+            start_delay_spread_seconds=start_delay_spread_seconds,
         )
         admitted = [d.run for d in background_due]
         if background.budget is not None and background_due:
@@ -635,7 +706,9 @@ def _collect_planned_runs(
         selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today, max_runs_per_tick)
     if background is not None and background.enabled:
         _capture_background_tick(background_due, selected, background.budget, runs_last_24h)
-    planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
+    planned = [
+        PlannedRun(team_id=d.team_id, skill_name=d.skill_name, start_delay_seconds=d.start_delay_s) for d in selected
+    ]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
     return planned
@@ -1171,6 +1244,8 @@ def _collect_background_runs(
     team_configs: dict[int, dict],
     default_team_config: dict,
     now: datetime,
+    *,
+    start_delay_spread_seconds: int = 0,
 ) -> list[_BackgroundDueRun]:
     """Due runs for background configs on listed teams whose organization approved AI data processing.
 
@@ -1229,7 +1304,19 @@ def _collect_background_runs(
                     config.run_interval_minutes, config.background_backoff_level
                 )
             overdue_s = _overdue_seconds(config, now, config.team.timezone_info, interval_minutes=interval_minutes)
-            runs = [] if overdue_s is None else [_DueRun(overdue_s, str(config.pk), config.team_id, config.skill_name)]
+            runs = (
+                []
+                if overdue_s is None
+                else [
+                    _DueRun(
+                        overdue_s,
+                        str(config.pk),
+                        config.team_id,
+                        config.skill_name,
+                        _config_start_delay_seconds(config, start_delay_spread_seconds),
+                    )
+                ]
+            )
         for run in runs:
             due.append(
                 _BackgroundDueRun(
@@ -1309,6 +1396,11 @@ class SignalsScoutCoordinatorWorkflow:
     a `workflow.patched()` gate (see `.claude/rules/temporal-workflow-versioning.md`) — this
     change itself is gated on `FetchEnabledRunsOutput.dispatch_smear_seconds` defaulting to 0.
 
+    With `child_start_delay` on in the flag payload, the coordinator instead starts every child at
+    once and exits. Each child sleeps its own stable start delay (`_start_delay_seconds`), so the
+    spread no longer depends on this workflow's sleep loop. Remove the batch loop only after that
+    path has been on everywhere for longer than one coordinator execution.
+
     The schedule advances only after dispatch (not during planning) so a fan-out failure
     re-dispatches next tick rather than silently suppressing a scout for a full interval, and
     is stamped per batch so a coordinator that dies mid-smear leaves only its undispatched
@@ -1356,6 +1448,9 @@ class SignalsScoutCoordinatorWorkflow:
         # new child ids and double-launch.
         tick_id = workflow.info().workflow_id
         tick_started_at = workflow.info().start_time
+        if workflow.patched("scout-child-start-delay") and fetch_result.child_start_delay:
+            return await _dispatch_with_child_start_delays(planned_runs, tick_id, tick_started_at)
+
         smear_seconds = max(0, fetch_result.dispatch_smear_seconds)
         smear_deadline = tick_started_at + timedelta(seconds=smear_seconds)
         batches = _dispatch_batches(planned_runs, smear_seconds)
@@ -1403,6 +1498,54 @@ class SignalsScoutCoordinatorWorkflow:
         )
 
 
+async def _dispatch_with_child_start_delays(
+    planned_runs: list[PlannedRun], tick_id: str, tick_started_at: datetime
+) -> CoordinatorWorkflowOutput:
+    """Start every planned child at once, stamp them, and return.
+
+    Each child sleeps its own `start_delay_seconds` before it starts work, so the spread no longer
+    depends on how long this workflow stays alive. Children start in chunks, so each workflow task
+    stays small. A hard start error does not stop the other starts: every child that started is
+    stamped first, and then the error is raised.
+    """
+    indexed = list(enumerate(planned_runs))
+    dispatched: list[PlannedRun] = []
+    started = 0
+    skipped = 0
+    errors: list[BaseException] = []
+    for offset in range(0, len(indexed), CHILD_START_CHUNK_SIZE):
+        chunk = indexed[offset : offset + CHILD_START_CHUNK_SIZE]
+        outcomes = await asyncio.gather(
+            *(_start_child(planned=planned, tick_id=tick_id, idx=idx) for idx, planned in chunk),
+            return_exceptions=True,
+        )
+        for (_, planned), outcome in zip(chunk, outcomes):
+            if isinstance(outcome, BaseException):
+                errors.append(outcome)
+                continue
+            if outcome:
+                started += 1
+            else:
+                skipped += 1
+            dispatched.append(planned)
+
+    if dispatched:
+        await workflow.execute_activity(
+            stamp_dispatched_signals_scout_runs_activity,
+            StampDispatchedRunsInput(
+                dispatched_runs=dispatched,
+                dispatched_at=tick_started_at,
+                started_count=started,
+                deduped_count=skipped,
+            ),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=5),
+        )
+    if errors:
+        raise errors[0]
+    return CoordinatorWorkflowOutput(planned_count=len(planned_runs), started_count=started, skipped_count=skipped)
+
+
 def _dispatch_batches(planned_runs: list[PlannedRun], smear_seconds: int) -> list[list[tuple[int, PlannedRun]]]:
     """Split the tick's planned runs into the batches to dispatch one `DISPATCH_BATCH_INTERVAL_SECONDS`
     apart, each entry carrying its index in the full planned list so child ids stay stable.
@@ -1436,6 +1579,7 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
             RunSignalsScoutInput(
                 team_id=planned.team_id,
                 skill_name=planned.skill_name,
+                start_delay_seconds=planned.start_delay_seconds,
             ),
             id=child_id,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,

@@ -1,4 +1,6 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -9,6 +11,8 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
+import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { defaultPlatformAddons } from '~/mocks/fixtures/_billing_platform_addons'
@@ -163,6 +167,109 @@ describe('billingProductLogic', () => {
         })
     })
 
+    describe('companions', () => {
+        const replay = productByType('session_replay')
+        const logs: BillingProductV2Type = {
+            ...replay,
+            type: 'logs',
+            name: 'Logs',
+            current_amount_usd: '100.00',
+            projected_amount_usd_with_limit: '200.00',
+        }
+        const companion = (type: string, companionOf: string, held: boolean): BillingProductV2Type => ({
+            ...replay,
+            type,
+            companion_of: companionOf,
+            inclusion_only: true,
+            no_billing_limit: true,
+            addons: [],
+            usage_limit: null,
+            subscribed: held,
+            plans: replay.plans.map((plan) => ({ ...plan, current_plan: false })),
+            current_amount_usd: '10.00',
+            projected_amount_usd: '20.00',
+        })
+
+        const seedProducts = async (products: BillingProductV2Type[], discountPercent?: number): Promise<void> => {
+            useMocks({
+                get: {
+                    '/api/billing': () => [200, { ...billingJson, products, discount_percent: discountPercent }],
+                },
+            })
+            billingLogic.mount()
+            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        }
+
+        const mountLogs = (product: BillingProductV2Type = logs): ReturnType<typeof billingProductLogic.build> => {
+            const logic = billingProductLogic({ product })
+            logic.mount()
+            mounted.push(logic)
+            return logic
+        }
+
+        it('lists only the held companions of this parent', async () => {
+            await seedProducts([
+                logs,
+                companion('logs_retention_custom', 'logs', true),
+                companion('logs_not_held', 'logs', false),
+                companion('replay_companion', 'session_replay', true),
+            ])
+
+            expect(mountLogs().values.heldCompanions.map((p) => p.type)).toEqual(['logs_retention_custom'])
+        })
+
+        it('lists nothing when the parent holds no companion', async () => {
+            await seedProducts([logs, companion('logs_not_held', 'logs', false)])
+
+            expect(mountLogs().values.heldCompanions).toEqual([])
+        })
+
+        it('totals the header amounts and the held companions after the discount', async () => {
+            await seedProducts([logs, companion('logs_retention_custom', 'logs', true)], 10)
+            const logic = mountLogs()
+
+            expect(logic.values.combinedMonetaryData).toMatchObject({ currentTotal: 90, projectedTotal: 180 })
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 99, projectedTotal: 198 })
+        })
+
+        it('rounds a half-cent header amount the way the card displays it', async () => {
+            const halfCentLogs = { ...logs, current_amount_usd: '2.01', projected_amount_usd_with_limit: '2.01' }
+            await seedProducts(
+                [
+                    halfCentLogs,
+                    {
+                        ...companion('logs_retention_custom', 'logs', true),
+                        current_amount_usd: '1.00',
+                        projected_amount_usd: '1.00',
+                    },
+                ],
+                50
+            )
+            const logic = mountLogs(halfCentLogs)
+
+            // The header shows $1.01 for $1.005, so the total must be $1.01 + $0.50.
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 1.51, projectedTotal: 1.51 })
+        })
+
+        it('leaves a held companion that can have its own billing limit out of the amounts and the total', async () => {
+            await seedProducts([
+                logs,
+                companion('logs_retention_custom', 'logs', true),
+                { ...companion('logs_limited_extra', 'logs', true), no_billing_limit: undefined },
+            ])
+            const logic = mountLogs()
+
+            expect(logic.values.heldCompanions.map((p) => p.type)).toEqual([
+                'logs_retention_custom',
+                'logs_limited_extra',
+            ])
+            expect(logic.values.noLimitCompanionAmounts.map(({ companion }) => companion.type)).toEqual([
+                'logs_retention_custom',
+            ])
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 110, projectedTotal: 220 })
+        })
+    })
+
     describe('unsubscribe survey state', () => {
         it('keeps survey responses isolated per product type', async () => {
             await seedBilling({})
@@ -276,7 +383,15 @@ describe('billingProductLogic — confirm purchase modal', () => {
         // Respond with an error so activation stops before any real-charge side effects, while still
         // proving the request fired with the right add-on + plan.
         const activate = jest.fn(() => [200, { success: false, error: 'stop before charge' }] as [number, unknown])
-        useMocks({ post: { '/api/billing/activate': activate } })
+        let body: unknown
+        useMocks({
+            post: {
+                '/api/billing/activate': async ({ request }) => {
+                    body = await request.json()
+                    return activate()
+                },
+            },
+        })
         logic = billingProductLogic({ product: scaleAddon })
         logic.mount()
 
@@ -290,6 +405,93 @@ describe('billingProductLogic — confirm purchase modal', () => {
             .toFinishAllListeners()
 
         expect(activate).toHaveBeenCalled()
+        expect(body).toEqual({
+            organization_id: organizationLogic.values.currentOrganization!.id,
+            products: `${scaleAddon.type}:${scaleAddon.plans[0].plan_key}`,
+        })
+    })
+
+    it('refreshes the paid organization and keeps the page params after an add-on purchase', async () => {
+        const organization = organizationLogic.values.currentOrganization!
+        const billingBefore = billingLogic.values.billing
+        const billingReads: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/billing': ({ request }) => {
+                    billingReads.push(new URL(request.url).searchParams.get('organization_id'))
+                    return [200, { customer_id: 'cus_test', subscription_level: 'paid', has_active_subscription: true }]
+                },
+            },
+            post: { '/api/billing/activate': () => [200, { success: true }] },
+        })
+        router.actions.push('/project/1/replay', { foo: 'bar' })
+        logic = billingProductLogic({ product: scaleAddon })
+        logic.mount()
+        const push = jest.spyOn(router.actions, 'push')
+        try {
+            await expectLogic(logic, () => logic.actions.handleProductUpgrade('scale:scale', '')).toFinishAllListeners()
+            expect(billingReads).toEqual([organization.id])
+            expect(billingLogic.values.billing).not.toBe(billingBefore)
+            expect(billingLogic.values.billing?.has_active_subscription).toBe(true)
+            expect(push).toHaveBeenCalledWith('/project/1/replay', {
+                foo: 'bar',
+                upgraded: 'true',
+                products: 'scale:scale',
+            })
+            expect(toastErrorSpy).not.toHaveBeenCalled()
+        } finally {
+            push.mockRestore()
+        }
+    })
+
+    it('keeps the add-on loading until its activation settles', async () => {
+        let resolveActivation!: (response: [number, unknown]) => void
+        const activate = jest.fn(
+            () =>
+                new Promise<[number, unknown]>((resolve) => {
+                    resolveActivation = resolve
+                })
+        )
+        useMocks({ post: { '/api/billing/activate': activate } })
+        logic = billingProductLogic({ product: scaleAddon })
+        logic.mount()
+        logic.actions.initiateProductUpgrade(scaleAddon, scaleAddon.plans[0], '')
+        await waitFor(() => expect(activate).toHaveBeenCalledTimes(1))
+        expect(logic.values.billingProductLoading).toBe(scaleAddon.type)
+        resolveActivation([200, { success: false, error: 'Stopped before charging' }])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.billingProductLoading).toBe(null)
+    })
+
+    it('keeps another selected organization after the original product activation succeeds', async () => {
+        const original = organizationLogic.values.currentOrganization!
+        const selected = { ...original, id: '00000000-0000-4000-8000-000000000002', name: 'Selected organization' }
+        let resolveActivation!: (response: [number, { success: boolean }]) => void
+        const response = new Promise<[number, { success: boolean }]>((resolve) => {
+            resolveActivation = resolve
+        })
+        const activate = jest.fn(() => response)
+        useMocks({ post: { '/api/billing/activate': activate } })
+        logic = billingProductLogic({ product: scaleAddon })
+        logic.mount()
+        const push = jest.spyOn(router.actions, 'push')
+        try {
+            logic.actions.handleProductUpgrade('scale:scale', '/project/1/replay')
+            await waitFor(() => expect(activate).toHaveBeenCalledTimes(1))
+            organizationLogic.actions.loadCurrentOrganizationSuccess(selected)
+            resolveActivation([200, { success: true }])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(organizationLogic.values.currentOrganization?.id).toBe(selected.id)
+            expect(push).not.toHaveBeenCalled()
+            expect(paymentEntryLogic.values.completedPaymentOrganization).toEqual({
+                id: original.id,
+                name: original.name,
+            })
+            expect(toastErrorSpy).not.toHaveBeenCalled()
+        } finally {
+            push.mockRestore()
+        }
     })
 
     it('auto-closes the modal once activation finishes', async () => {

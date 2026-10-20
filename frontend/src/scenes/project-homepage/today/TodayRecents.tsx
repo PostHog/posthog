@@ -1,88 +1,104 @@
-import { useActions, useValues } from 'kea'
-import { useId } from 'react'
+import { Collapsible } from '@base-ui/react/collapsible'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { useId, useMemo } from 'react'
 
-import { dayjs } from 'lib/dayjs'
+import { IconChevronDown } from '@posthog/icons'
+
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { libraryObjectHref, libraryObjectName, libraryTypeLabel } from 'scenes/library/libraryUtils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { todayObjectGlanceLogic } from '~/layout/today/todayObjectGlanceLogic'
+import { TodayObjectIcon } from '~/layout/today/TodayObjectIcon'
+import { TodayPreviewCardProvider } from '~/layout/today/TodayPreviewCardProvider'
+import { objectPreview } from '~/layout/today/todayPreviewCards'
+import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
-import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import { todayLogic } from './todayLogic'
-import { TodaySectionTitle } from './TodaySectionTitle'
+import { TodayHomeHeading } from './TodayHomeHeading'
+import { RECENT_OBJECT_COUNT, todayLogic } from './todayLogic'
 
 function RecentObjectRow({ entry }: { entry: FileSystemEntry }): JSX.Element {
-    const typeLabel = libraryTypeLabel(entry.type)
+    const preview = useMemo(() => objectPreview(entry), [entry])
     return (
-        <li className="TodayRecentRow">
-            <span className="TodayRecentIcon" aria-hidden>
-                {iconForType(entry.type as FileSystemIconType | undefined)}
-            </span>
-            <LinkPrimitive
-                to={libraryObjectHref(entry) ?? undefined}
-                className="TodayInlineLink truncate"
-                data-attr="today-home-recent-object"
-            >
-                {libraryObjectName(entry)}
-            </LinkPrimitive>
-            <span className="TodayRecentRow__meta">
-                {typeLabel && <span>{typeLabel}</span>}
-                {typeLabel && entry.last_viewed_at && <span className="TodayRecentRow__time"> · </span>}
-                {entry.last_viewed_at && (
-                    <time className="TodayRecentRow__time" dateTime={entry.last_viewed_at}>
-                        {dayjs(entry.last_viewed_at).fromNow()}
-                    </time>
+        <li className="TodayJumpRow">
+            <TodayObjectIcon type={entry.type} className="TodayJumpRow__icon" />
+            <TodayPreviewTrigger payload={preview}>
+                <LinkPrimitive
+                    to={preview.href ?? undefined}
+                    className="TodayJumpRow__link"
+                    data-attr="today-home-recent-object"
+                >
+                    {preview.name}
+                </LinkPrimitive>
+                {preview.typeLabel && (
+                    <span className="TodayJumpRow__meta">{capitalizeFirstLetter(preview.typeLabel)}</span>
                 )}
-            </span>
+            </TodayPreviewTrigger>
         </li>
     )
 }
 
 export function TodayRecents(): JSX.Element {
-    const { recentObjects, recentsHasLoaded } = useValues(todayLogic)
+    useMountedLogic(todayObjectGlanceLogic)
+    const { recentObjects, recentsHasLoaded, listExpanded } = useValues(todayLogic)
+    const { setListExpanded } = useActions(todayLogic)
     const { pickPane } = useActions(todayShellLogic)
     const titleId = useId()
-
-    const productsButton = (
-        <button
-            type="button"
-            className="TodayInlineAction"
-            data-attr="today-home-recent-library"
-            onClick={() => pickPane('products')}
-        >
-            Products
-        </button>
-    )
+    const shown = recentObjects.slice(0, RECENT_OBJECT_COUNT)
+    const more = recentObjects.slice(RECENT_OBJECT_COUNT)
 
     return (
-        <section
-            className="TodayHome__prose TodayHome__recents group/colorful-product-icons colorful-product-icons-true flex flex-col gap-2.5"
-            aria-labelledby={titleId}
+        <Collapsible.Root
+            open={listExpanded.recents}
+            onOpenChange={(open) => setListExpanded('recents', open)}
+            render={<section className="TodayHome__list" aria-labelledby={titleId} />}
         >
-            <TodaySectionTitle id={titleId}>Recent</TodaySectionTitle>
+            <div className="TodayHome__headingRow">
+                <TodayHomeHeading id={titleId}>Jump back in</TodayHomeHeading>
+                {recentsHasLoaded && more.length > 0 && (
+                    <Collapsible.Trigger className="TodayHome__headingLink" data-attr="today-home-recent-more">
+                        <span>{listExpanded.recents ? 'Less' : 'More'}</span>
+                        <IconChevronDown className="TodayHome__headingChevron size-3" aria-hidden />
+                    </Collapsible.Trigger>
+                )}
+            </div>
             {!recentsHasLoaded ? (
-                <p>Finding what you looked at last…</p>
+                <p className="TodayHome__note">Finding what you looked at last…</p>
             ) : recentObjects.length === 0 ? (
-                <p>
-                    <span>Dashboards, insights and other things you open show up here. Find them in the </span>
-                    {productsButton}
+                <p className="TodayHome__note">
+                    <span>
+                        Anything you open, like a dashboard or a feature flag, shows up here. Find things to open
+                        in{' '}
+                    </span>
+                    <button
+                        type="button"
+                        className="TodayHome__noteLink"
+                        data-attr="today-home-recent-library"
+                        onClick={() => pickPane('products')}
+                    >
+                        Products
+                    </button>
                     <span>.</span>
                 </p>
             ) : (
-                <>
-                    <ul className="TodayRecentList">
-                        {recentObjects.map((entry) => (
+                <TodayPreviewCardProvider>
+                    <ul className="TodayJumpList">
+                        {shown.map((entry) => (
                             <RecentObjectRow key={entry.id} entry={entry} />
                         ))}
                     </ul>
-                    <p>
-                        <span>Everything else is in </span>
-                        {productsButton}
-                        <span>.</span>
-                    </p>
-                </>
+                    {more.length > 0 && (
+                        <Collapsible.Panel className="TodayJumpList__more">
+                            <ul className="TodayJumpList">
+                                {more.map((entry) => (
+                                    <RecentObjectRow key={entry.id} entry={entry} />
+                                ))}
+                            </ul>
+                        </Collapsible.Panel>
+                    )}
+                </TodayPreviewCardProvider>
             )}
-        </section>
+        </Collapsible.Root>
     )
 }

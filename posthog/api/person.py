@@ -539,6 +539,10 @@ _PERSON_ID_PARAMETER = OpenApiParameter(
 _id_schema = extend_schema(parameters=[_PERSON_ID_PARAMETER])
 
 
+# A send with no person attached is matched to a person by its distinct ID. The cap keeps the query small
+# for a person with thousands of distinct IDs.
+_MESSAGE_ASSET_DISTINCT_ID_LIMIT = 100
+
 # Per-action distinct-id fetch caps for the person loaded by ``safely_get_object``. Listed actions
 # read only one distinct_id (property updates) or none (``destroy``/``activity`` use the uuid/pk;
 # ``properties_timeline``/``delete_events`` don't read distinct_ids), so the fetch is capped here.
@@ -1313,11 +1317,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "The original person always retains its properties. To clear individual "
             "properties afterward, use the `delete_property` endpoint.\n\n"
             "The split runs asynchronously: a 201 response means the task was enqueued. "
-            "Newly-created split-off persons get a deterministic UUID derived from "
-            "`(team_id, distinct_id)`, so they can be located client-side without polling. "
-            "If you need to delete a split-off person after this call, prefer looking it up by "
-            "that deterministic UUID rather than by distinct_id, since the latter still "
-            "resolves to the original merged person until the async task completes."
+            "A split-off person usually gets a UUID derived from `(team_id, distinct_id)`, "
+            "but gets a random UUID when another person already holds that UUID, so do not "
+            "compute it client-side. To find or delete a split-off person, look it up by its "
+            "distinct_id once the task completes. Until then the distinct_id still resolves "
+            "to the original person."
         ),
         request=PersonSplitRequestSerializer,
         responses={201: PersonSplitResponseSerializer},
@@ -1343,6 +1347,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             unknown = set(distinct_ids_to_split) - set(distinct_ids)
             if unknown:
                 raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
+            if set(distinct_ids) <= set(distinct_ids_to_split):
+                raise ValidationError({"distinct_ids_to_split": "must leave at least one distinct ID on this person"})
+        elif main_distinct_id and main_distinct_id not in distinct_ids:
+            # An unknown main ID would split off every distinct ID and leave the person unreachable.
+            raise ValidationError({"main_distinct_id": "not on this person"})
 
         split_person.delay(
             person.id,
@@ -1655,6 +1664,25 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def push_notifications(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         return self._message_assets_response(request, kind="push")
 
+    def _person_email(self, person: Person) -> Optional[str]:
+        # Person properties come from ClickHouse, not from the personhog lookup that loaded the person.
+        from posthog.hogql import ast  # noqa: PLC0415 — deferred to avoid a circular import at module load
+        from posthog.hogql.parser import parse_select  # noqa: PLC0415
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
+        results = execute_hogql_query(
+            parse_select(
+                "SELECT properties.email FROM persons WHERE id = {person_id} LIMIT 1",
+                placeholders={"person_id": ast.Constant(value=str(person.uuid))},
+            ),
+            team=self.team,
+            # A property rule can hide the email from this user. Without the user, only the team-wide rules apply.
+            user=self.request.user,
+            query_type="person_message_assets_email",
+        ).results
+        email = results[0][0] if results else None
+        return email if isinstance(email, str) and email.strip() else None
+
     def _message_assets_response(self, request: request.Request, kind: str) -> response.Response:
         person = self.get_object()
         param_serializer = PersonMessageAssetsRequestSerializer(data=request.query_params)
@@ -1676,6 +1704,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             after=after_date,
             before=before_date,
             kind=kind,
+            distinct_ids=person.distinct_ids[:_MESSAGE_ASSET_DISTINCT_ID_LIMIT],
+            email=self._person_email(person) if kind == "email" else None,
         )
         # Single lookup for every workflow referenced by this page of rows so the tab shows
         # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map

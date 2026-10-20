@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailosaurSource(ResumableSource[MailosaurSourceConfig, MailosaurResumeConfig]):
+    codebase_detection = detect(
+        env=("^MAILOSAUR_",),
+        npm=("mailosaur", "cypress-mailosaur"),
+        pypi=("mailosaur",),
+        composer=("mailosaur/mailosaur",),
+        go=("github.com/mailosaur/mailosaur-go",),
+        maven=("com.mailosaur:mailosaur-java",),
+        rubygems=("mailosaur",),
+        swiftpm=("github.com/mailosaur/mailosaur-swift",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://mailosaur.com/docs/api/"
 

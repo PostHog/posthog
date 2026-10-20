@@ -96,6 +96,7 @@ STREAMLIT_AUTH_PROXY_PORT = 8080
 # host.docker.internal at `docker run` time (non-localhost hosts pass through).
 _DOCKER_URL_ENV_KEYS = frozenset(
     {
+        "AI_GATEWAY_URL",
         "LLM_GATEWAY_URL",
         "POSTHOG_API_URL",
         "POSTHOG_SITE_URL",

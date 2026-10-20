@@ -42,8 +42,12 @@ tools:
             label and the source of the derived output property name). An action target needs the action:read scope.
             horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from
             target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique
-            among the project's non-archived pipelines. After creating, call autoresearch-train-create to start an
-            asynchronous agent training run.
+            among the project's non-archived pipelines. Scores are written to that person property only when
+            write_person_property is true (default false); prediction events, validation and segments work without it.
+            iterations_per_run (default 5) sets the experiments in each training run. research_interval_days (7, 14, 30,
+            60 or 90, default 7; null means only when asked) sets how often scheduled research runs once the first burst
+            of daily runs ends. After creating, call autoresearch-train-create to start an asynchronous agent training
+            run.
         exclude_params:
             - id
             - created_by
@@ -77,8 +81,10 @@ tools:
                 - target_event
                 - horizon_days
                 - status
-                - iteration_budget
-                - iteration_budget_remaining
+                - iterations_per_run
+                - research_interval_days
+                - training_phase
+                - next_research_at
                 - last_scored_at
                 - created_at
                 - updated_at
@@ -168,6 +174,37 @@ tools:
             keeps its rows, while the new champion has none until its first horizon elapses. A wide AUC interval means
             the date had few positives. Rows exist only after a prediction horizon has elapsed and online validation has
             run. Use limit to bound the number of dates (default 60).
+        feature_flag: autoresearch
+    autoresearch-partial-update:
+        operation: autoresearch_partial_update
+        enabled: true
+        scopes:
+            - autoresearch:write
+            - person:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update a pipeline
+        description: >
+            Change fields of an existing pipeline. Send only the fields to change. Use write_person_property to turn
+            person profile writes on or off. When it is on, each live scoring run writes the champion's score to
+            output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target
+            people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a
+            cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list).
+            Changing write_person_property needs the person:write scope. Prediction events, online validation and
+            segments work with it off. Use iterations_per_run and research_interval_days to change the training
+            schedule; null research_interval_days stops scheduled research. target_event, target_definition,
+            horizon_days, training_lookback_days and the two populations cannot change once a model has been trained.
+        exclude_params:
+            - id
+            - created_by
+            - created_at
+            - updated_at
+            - last_scored_at
+            - status
+            - iteration_budget_remaining
         feature_flag: autoresearch
     autoresearch-pause-create:
         operation: autoresearch_pause_create
@@ -434,7 +471,8 @@ tools:
             and ask the user to start training from the pipeline's page in PostHog. Needs PostHog Desktop access,
             because the run is a cloud sandbox. After a run promotes a champion, the daily 02:00 UTC scoring job scores
             the inference population and emits autoresearch_prediction events. To score now instead, call
-            autoresearch-score-create once. You can optionally override the iteration_budget for this run. A pipeline
+            autoresearch-score-create once. The run uses the pipeline's iterations_per_run unless you override
+            iteration_budget for this run. A manual run resets the clock for the next scheduled research run. A pipeline
             with an action target also needs the action:read scope.
         feature_flag: autoresearch
     autoresearch-training-runs-artifacts-delete-create:
@@ -526,9 +564,10 @@ tools:
             model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a
             future run should try next) — these are stored in the run summary and read back by the next run during
             orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded
-            iterations. Pass reader_summary (one or two plain sentences) and next_steps (at most 5 short items) for
-            people who read the run; keep column names, SQL and AUC numbers out of them. If you built a report notebook
-            for this run, pass its short_id as report_notebook_short_id.
+            iterations. Pass headline (a run title of at most 60 characters), reader_summary (one or two plain
+            sentences) and next_steps (at most 5 short items) for people who read the run; keep column names, SQL and
+            AUC numbers out of them. If you built a report notebook for this run, pass its short_id as
+            report_notebook_short_id.
         feature_flag: autoresearch
         response:
             include:
@@ -602,7 +641,8 @@ tools:
             completion time to choose the champion. If this iteration was spawned from a pending steering suggestion,
             pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution
             and marks the suggestion 'acted_on'. Pass summary, one plain sentence for people on what the experiment
-            tried and what happened; agent_description stays your own notes.
+            tried and what happened, and headline, a title of at most 60 characters in the same plain words;
+            agent_description stays your own notes.
         feature_flag: autoresearch
         response:
             include:
@@ -634,6 +674,7 @@ tools:
                 - id
                 - pipeline
                 - status
+                - kickoff_reason
                 - iteration_budget
                 - iteration_count
                 - best_holdout_score
