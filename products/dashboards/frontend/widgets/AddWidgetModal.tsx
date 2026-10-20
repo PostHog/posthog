@@ -97,9 +97,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
     const collapsedGroups = new Set(addWidgetCollapsedGroups)
     const filteredGroups = new Set(addWidgetFilteredGroups)
     const visibleGroups =
-        filteredGroups.size > 0
-            ? pickerGroups.filter((group) => filteredGroups.has(group.groupId))
-            : pickerGroups
+        filteredGroups.size > 0 ? pickerGroups.filter((group) => filteredGroups.has(group.groupId)) : pickerGroups
 
     const selectedCount = selectedTypes.size
 
