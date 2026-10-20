@@ -74,15 +74,25 @@ export const WithWarning: Story = {
     },
 }
 
-export const MarketingMetrics: Story = {
+export const AdPerformanceMetrics: Story = {
     args: {
         labelFromKey: (key) => key,
+        emptyMessage: '-',
+        className: 'grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]',
         items: [
             {
                 key: 'Cost',
                 value: 12450,
                 previous: 11800,
                 changeFromPreviousPct: 6,
+                kind: 'currency',
+                isIncreaseBad: true,
+            },
+            {
+                key: 'Cost per reported conversions',
+                value: 52,
+                previous: 66.67,
+                changeFromPreviousPct: -22,
                 kind: 'currency',
                 isIncreaseBad: true,
             },
@@ -93,8 +103,8 @@ export const MarketingMetrics: Story = {
     },
 }
 
-export const MarketingMetricsNarrow: Story = {
-    ...MarketingMetrics,
+export const AdPerformanceMetricsNarrow: Story = {
+    ...AdPerformanceMetrics,
     decorators: [
         (Story) => (
             <div className="w-[520px]">
@@ -102,10 +112,4 @@ export const MarketingMetricsNarrow: Story = {
             </div>
         ),
     ],
-}
-
-export const ActiveMetric: Story = {
-    args: {
-        items: overviewItems.map((item) => ({ ...item, selected: item.key === 'visitors', onClick: () => {} })),
-    },
 }

@@ -9,6 +9,7 @@ import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/Analytic
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils/arrays'
+import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { WebAnalyticsPreComputeStrategy } from '~/queries/schema/schema-general'
@@ -22,6 +23,8 @@ interface OverviewMetricCardGridProps {
     layout?: 'grid' | 'contents'
     loading: boolean
     numSkeletons: number
+    emptyMessage?: React.ReactNode
+    className?: string
     samplingRate?: SamplingRate
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     onDisablePrecompute?: () => void
@@ -33,6 +36,8 @@ export function OverviewMetricCardGrid({
     layout = 'grid',
     loading,
     numSkeletons,
+    emptyMessage,
+    className,
     samplingRate,
     preComputeStrategy,
     onDisablePrecompute,
@@ -41,9 +46,10 @@ export function OverviewMetricCardGrid({
     return (
         <>
             <div
-                className={
-                    layout === 'contents' ? 'contents' : 'grid gap-2 grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'
-                }
+                className={cn(
+                    layout === 'contents' ? 'contents' : 'grid gap-2 grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]',
+                    className
+                )}
             >
                 {loading
                     ? range(numSkeletons).map((i) => <AnalyticsMetricCard key={i} title={null} loading />)
@@ -51,6 +57,7 @@ export function OverviewMetricCardGrid({
                           <MetricCardCell
                               key={item.key}
                               item={item}
+                              emptyMessage={emptyMessage}
                               stretch={layout === 'contents'}
                               preComputeStrategy={preComputeStrategy}
                               onDisablePrecompute={onDisablePrecompute}
@@ -65,12 +72,14 @@ export function OverviewMetricCardGrid({
 
 function MetricCardCell({
     item,
+    emptyMessage,
     stretch,
     preComputeStrategy,
     onDisablePrecompute,
     labelFromKey,
 }: {
     item: OverviewMetricCardItem
+    emptyMessage?: React.ReactNode
     stretch?: boolean
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     onDisablePrecompute?: () => void
@@ -90,7 +99,7 @@ function MetricCardCell({
             onClick={item.onClick}
             selected={item.selected}
             value={numericValue}
-            emptyMessage="-"
+            emptyMessage={emptyMessage}
             change={metricChange(item)}
             goodDirection={item.isIncreaseBad ? 'down' : 'up'}
             formatValue={(value) =>

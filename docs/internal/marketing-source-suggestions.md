@@ -297,9 +297,7 @@ When the panel displays a connection, its duplicate status banner entry is hidde
 Configuration validation failures and issues for sources outside the panel remain in the banner.
 With source onboarding disabled, the existing banner remains available.
 
-## Metric summaries
+## Ad performance metric cards
 
-Campaign summaries and UTM audit summaries use the same metric cards as Web analytics.
-Campaign summaries retain period comparisons and currency formatting.
-UTM audit cards show warning icons for campaigns without links and unmapped sources.
-Cards wrap to the available scene width.
+The Ad performance summary uses the same metric cards as Web analytics.
+Cards preserve period comparisons, currency formatting, and missing-value labels, and wrap to the available scene width.

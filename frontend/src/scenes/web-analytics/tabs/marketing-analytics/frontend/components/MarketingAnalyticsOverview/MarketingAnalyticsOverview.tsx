@@ -88,11 +88,13 @@ export function MarketingAnalyticsOverview(props: {
         <>
             {allWarnings.length > 0 && <MarketingAnalyticsValidationWarningBanner warnings={allWarnings} />}
             <OverviewMetricCardGrid
+                className="grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
                 items={overviewItems.filter(filterEmptyMetrics)}
                 loading={responseLoading}
                 numSkeletons={numSkeletons}
+                emptyMessage="-"
                 samplingRate={samplingRate}
-                labelFromKey={labelFromKey}
+                labelFromKey={(key) => <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>}
             />
         </>
     )
