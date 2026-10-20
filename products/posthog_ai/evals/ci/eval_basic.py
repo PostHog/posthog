@@ -15,6 +15,7 @@ from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.cli_mcp.scorers import CalledTargetTool, SurfacedGeneratedAppUrl
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
 async def eval_bugfix(ctx: EvalContext) -> None:
@@ -37,6 +38,10 @@ async def eval_bugfix(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-bugfix-cli",
+        offline_suite=offline_suite(
+            "ci/eval_basic::eval_bugfix",
+            metrics=[],
+        ),
         cases=cases,
         scorers=[],
         ctx=ctx,
@@ -86,6 +91,10 @@ async def eval_app_link_generation(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-app-link-generation-cli",
+        offline_suite=offline_suite(
+            "ci/eval_basic::eval_app_link_generation",
+            metrics=["called_target_tool", "surfaced_generated_app_url"],
+        ),
         cases=cases,
         scorers=[CalledTargetTool(), SurfacedGeneratedAppUrl()],
         ctx=ctx,

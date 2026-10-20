@@ -104,7 +104,7 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Ahrefs",
             iconPath="/static/services/ahrefs.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Requires an Ahrefs Lite plan or higher. "
                 "Create an API key in [Account settings > API keys](https://app.ahrefs.com/account/api-keys). "

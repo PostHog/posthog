@@ -405,6 +405,33 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         )
 
     def _calculate(self):
+        if self.query.marketingAnalyticsCostFallback is not None:
+            from products.marketing_analytics.backend.facade.queries import (
+                resolve_marketing_cost_trend,  # noqa: PLC0415 - keeps marketing adapters off the startup path
+            )
+
+            date_ranges = [self.query_date_range]
+            if self.query.compareFilter and self.query.compareFilter.compare:
+                date_ranges.append(self.query_previous_date_range)
+            resolved_query = resolve_marketing_cost_trend(
+                query=self.query,
+                team=self.team,
+                date_ranges=date_ranges,
+                get_database=lambda: self.shared_database,
+            )
+            runner = TrendsQueryRunner(
+                query=resolved_query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                user=self.user,
+                workload=self.workload,
+                hogql_settings=self.hogql_settings,
+            )
+            runner._shared_database = self._shared_database
+            return runner.calculate()
+
         queries = self.to_queries()
 
         response_hogql = get_response_hogql(

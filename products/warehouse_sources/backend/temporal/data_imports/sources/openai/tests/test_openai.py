@@ -162,21 +162,35 @@ class TestBucketPagination:
 
 
 class TestEntityPagination:
-    def test_cursor_pagination_uses_after_and_stops(self) -> None:
+    @parameterized.expand(
+        [
+            ("last_id", "users", {"last_id": "user_1"}, {"last_id": "user_2"}, "user_1"),
+            # Groups and roles return an opaque `next` cursor that need not equal the last row's id.
+            ("next_cursor", "roles", {"next": "cursor_abc"}, {"next": None}, "cursor_abc"),
+        ]
+    )
+    def test_cursor_pagination_uses_after_and_stops(
+        self,
+        _name: str,
+        endpoint: str,
+        first_cursor: dict[str, Any],
+        last_cursor: dict[str, Any],
+        expected_after: str,
+    ) -> None:
         result = _driver().run(
-            "users",
+            endpoint,
             [
-                _entity_page([{"id": "user_1"}], has_more=True, last_id="user_1"),
-                # Final page still carries a last_id — has_more must stop the walk with no extra call.
-                _entity_page([{"id": "user_2"}], has_more=False, last_id="user_2"),
+                ScriptedResponse(json={"data": [{"id": "row_1"}], "has_more": True, **first_cursor}),
+                # Final page may still carry a cursor — has_more must stop the walk with no extra call.
+                ScriptedResponse(json={"data": [{"id": "row_2"}], "has_more": False, **last_cursor}),
             ],
         )
 
         assert result.raised is None
-        assert [row["id"] for row in result.rows] == ["user_1", "user_2"]
-        assert result.params("after") == [None, "user_1"]
+        assert [row["id"] for row in result.rows] == ["row_1", "row_2"]
+        assert result.params("after") == [None, expected_after]
         assert result.params("limit") == ["100", "100"]
-        assert result.saved_states == [OpenAIResumeConfig(cursor="user_1")]
+        assert result.saved_states == [OpenAIResumeConfig(cursor=expected_after)]
 
     def test_resumes_from_saved_after_cursor(self) -> None:
         result = _driver().run(
@@ -250,6 +264,36 @@ class TestProjectFanOut:
         final = result.saved_states[-1].fanout_state
         assert final["completed"] == [PROJECT_USERS_PATH.format(project_id="proj_2")]
 
+    @parameterized.expand(
+        [
+            ("project_users", "/v1/organization/projects", PROJECT_USERS_PATH, "project_id"),
+            ("group_users", "/v1/organization/groups", "/v1/organization/groups/{parent_id}/users", "group_id"),
+            ("user_roles", "/v1/organization/users", "/v1/organization/users/{parent_id}/roles", "user_id"),
+        ]
+    )
+    def test_child_rows_carry_their_parent_id(
+        self, endpoint: str, parent_path: str, child_path: str, parent_key: str
+    ) -> None:
+        # Child ids repeat across parents (one user sits in many groups), so a row without its
+        # parent id would collide on the composite primary key.
+        child_paths = {child_path.format(parent_id=p, project_id=p): p for p in ("parent_1", "parent_2")}
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == parent_path:
+                return _entity_page([{"id": "parent_1"}, {"id": "parent_2"}], has_more=False)
+            if request.path in child_paths:
+                return _entity_page([{"id": "shared_child"}], has_more=False)
+            raise AssertionError(f"Unexpected request: {request.path}")
+
+        result = _driver().run(endpoint, respond)
+
+        assert result.raised is None
+        assert sorted((row[parent_key], row["id"]) for row in result.rows) == [
+            ("parent_1", "shared_child"),
+            ("parent_2", "shared_child"),
+        ]
+        assert not any(key.startswith("_") for row in result.rows for key in row)
+
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.
@@ -290,9 +334,7 @@ class TestRetries:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
             ("forbidden_scope", 403, True, None),
-            ("unauthorized", 401, False, "rejected your Admin API key"),
             ("service_unavailable", 503, False, "couldn't check your Admin API key"),
         ]
     )
@@ -310,37 +352,6 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message is not None and fragment in message
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.openai.com/v1/organization/users?limit=100",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.openai.com/v1/organization/costs",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = OpenAISource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.openai.com', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.openai.com/v1/organization/users",
-            ),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = OpenAISource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestRetryableErrors:

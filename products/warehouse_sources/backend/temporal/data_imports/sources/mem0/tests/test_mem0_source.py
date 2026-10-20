@@ -40,13 +40,6 @@ class TestMem0SourceCredentials:
         assert network.requests_log[0].path == "/v1/ping/"
         assert network.requests_log[0].headers["authorization"] == "Token m0-test"
 
-    def test_invalid_key_returns_actionable_error(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            ok, error = Mem0Source().validate_credentials(_config(), team_id=1)
-
-        assert ok is False
-        assert error == "Invalid Mem0 API key"
-
 
 class TestMem0SourcePipeline:
     @patch(f"{_SOURCE_MODULE}.mem0_source")

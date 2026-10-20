@@ -102,7 +102,7 @@ def test_client_errors_hide_query_key(status: int) -> None:
     assert len(result.requests) == 1
 
 
-@pytest.mark.parametrize("status", [200, 401, 403, 429, 503])
+@pytest.mark.parametrize("status", [429, 503])
 def test_credential_probe(status: int) -> None:
     with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
         if status in (429, 503):

@@ -1,7 +1,7 @@
 """Attribute key/value autocomplete for the metrics filter bar.
 
 Keys for one metric count distinct attribute values from recent series metadata.
-Keys across all metrics and values use the `metric_attributes` aggregate table:
+Keys across all metrics and values (for one metric or all) use the `metric_attributes` aggregate table:
 scanning series metadata without a metric name reads every attribute map.
 Both queries merge metric attributes and resource attributes.
 """
@@ -161,13 +161,15 @@ class MetricAttributeKeysQueryRunner:
 class MetricAttributeValuesQueryRunner:
     """Observed values for one attribute key in a window, most frequent first.
     `service_name`/`service.name` read the first-class column instead of
-    attribute rows, matching how filters on it are executed."""
+    attribute rows, matching how filters on it are executed. A metric name
+    limits values to values seen on that metric."""
 
     def __init__(
         self,
         team: Team,
         *,
         key: str,
+        metric_name: str = "",
         search: str = "",
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
@@ -177,6 +179,7 @@ class MetricAttributeValuesQueryRunner:
             raise ValueError("key is required")
         self.team = team
         self.key = key
+        self.metric_name = metric_name.strip()
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
         self.limit = _validate_limit(limit)
@@ -191,6 +194,7 @@ class MetricAttributeValuesQueryRunner:
                     FROM posthog.metric_attributes
                     WHERE time_bucket >= {date_from}
                       AND time_bucket < {date_to}
+                      AND {metric_name_filter}
                       AND service_name ILIKE {search_pattern}
                     GROUP BY service_name
                     ORDER BY
@@ -210,6 +214,7 @@ class MetricAttributeValuesQueryRunner:
                     FROM posthog.metric_attributes
                     WHERE time_bucket >= {date_from}
                       AND time_bucket < {date_to}
+                      AND {metric_name_filter}
                       AND attribute_key = {key}
                       AND attribute_value ILIKE {search_pattern}
                     GROUP BY attribute_value
@@ -238,6 +243,15 @@ class MetricAttributeValuesQueryRunner:
             "date_from": ast.Constant(value=self.date_from),
             "date_to": ast.Constant(value=self.date_to),
             "key": ast.Constant(value=self.key),
+            "metric_name_filter": (
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["metric_name"]),
+                    right=ast.Constant(value=self.metric_name),
+                )
+                if self.metric_name
+                else ast.Constant(value=True)
+            ),
             "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
             "exact": ast.Constant(value=self.search),
             "limit": ast.Constant(value=self.limit),

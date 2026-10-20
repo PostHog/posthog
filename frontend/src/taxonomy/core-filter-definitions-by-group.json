@@ -1686,6 +1686,11 @@
             "examples": ["context_parameter", "inferred"],
             "label": "MCP intent source"
         },
+        "$mcp_interface": {
+            "description": "The interface that produced the event. Set by the @posthog/mcp analytics SDK on every capture and exception event it sends.",
+            "examples": ["mcp"],
+            "label": "MCP interface"
+        },
         "$mcp_is_error": {
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
             "label": "MCP is error"
@@ -3718,6 +3723,11 @@
             "description": "Where $mcp_intent came from. 'context_parameter' means the client supplied it directly on the call; 'inferred' means the MCP server derived it via its intentFallback.",
             "examples": ["context_parameter", "inferred"],
             "label": "MCP intent source"
+        },
+        "$mcp_interface": {
+            "description": "The interface that produced the event. Set by the @posthog/mcp analytics SDK on every capture and exception event it sends.",
+            "examples": ["mcp"],
+            "label": "MCP interface"
         },
         "$mcp_is_error": {
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
@@ -5858,6 +5868,11 @@
             "description": "Where $mcp_intent came from. 'context_parameter' means the client supplied it directly on the call; 'inferred' means the MCP server derived it via its intentFallback.",
             "examples": ["context_parameter", "inferred"],
             "label": "MCP intent source"
+        },
+        "$mcp_interface": {
+            "description": "The interface that produced the event. Set by the @posthog/mcp analytics SDK on every capture and exception event it sends.",
+            "examples": ["mcp"],
+            "label": "MCP interface"
         },
         "$mcp_is_error": {
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",

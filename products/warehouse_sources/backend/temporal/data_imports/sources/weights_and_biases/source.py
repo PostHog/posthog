@@ -58,7 +58,7 @@ class WeightsAndBiasesSource(ResumableSource[WeightsAndBiasesSourceConfig, Weigh
             name=ExternalDataSourceType.WEIGHTSANDBIASES,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Weights & Biases",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["wandb", "ml", "experiment tracking", "mlops"],
             caption="""Enter your Weights & Biases API key to pull your experiment tracking data into the PostHog Data warehouse.
 

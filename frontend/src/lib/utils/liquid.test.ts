@@ -20,6 +20,10 @@ describe('LiquidRenderer', () => {
         expect(LiquidRenderer.resolves(expression, context)).toBe(expected)
     })
 
+    it('formats money with the currency filter, like the worker does at send time', () => {
+        expect(LiquidRenderer.render('{{ amount | currency: "USD" }}', { amount: 1234.5 })).toBe('$1,234.50')
+    })
+
     it('treats an unparseable expression as unresolved rather than throwing', () => {
         expect(LiquidRenderer.resolves('person.properties[', context)).toBe(false)
     })

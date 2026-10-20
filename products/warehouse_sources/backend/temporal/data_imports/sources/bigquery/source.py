@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
     BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
+    BIGQUERY_VPC_SERVICE_CONTROLS_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
     classify_bigquery_validation_error,
@@ -315,6 +316,8 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             "iam.serviceAccounts.getAccessToken' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
             "iam.serviceAccounts.getAccessToken\\' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
             BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX: None,
+            # Matched on the stable wording, not the volatile vpcServiceControlsUniqueIdentifier.
+            "VPC Service Controls": BIGQUERY_VPC_SERVICE_CONTROLS_ERROR,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
             # row-filtered reads) needs write access on the dataset those tables live in. When the

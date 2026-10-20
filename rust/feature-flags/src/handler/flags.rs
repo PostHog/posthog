@@ -342,6 +342,7 @@ pub async fn evaluate_for_request(
     groups: Option<HashMap<String, Value>>,
     hash_key_override: Option<String>,
     request_id: Uuid,
+    request_entered_at: tokio::time::Instant,
     disable_flags: bool,
     flag_keys: Option<Vec<String>>,
     detailed_analysis: Option<bool>,
@@ -361,6 +362,13 @@ pub async fn evaluate_for_request(
     if filtered_flags.filtered_out_flag_ids.len() >= filtered_flags.flags.len() {
         return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
     }
+
+    let persons_db_deadline = state
+        .config
+        .persons_db_deadline(tokio::time::Instant::now(), Some(request_entered_at));
+    with_canonical_log(|log| {
+        log.persons_db_deadline_bound = persons_db_deadline.map(|deadline| deadline.bound)
+    });
 
     let ctx = FeatureFlagEvaluationContext {
         team_id,
@@ -397,7 +405,7 @@ pub async fn evaluate_for_request(
         membership_stamp_policy: state.config.realtime_cohort_membership_stamp_policy,
         detailed_analysis: detailed_analysis.unwrap_or(false),
         only_use_override_person_properties: only_use_override_person_properties.unwrap_or(false),
-        persons_db_deadline: state.config.persons_db_deadline(),
+        persons_db_deadline: persons_db_deadline.map(|deadline| deadline.at),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

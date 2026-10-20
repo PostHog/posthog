@@ -6346,7 +6346,13 @@ async fn it_degrades_person_flags_when_the_persons_db_stops_answering() -> Resul
     );
     // The deadline is shorter than the pool acquire timeout. Only the deadline can then produce
     // the reason code that the test asserts below.
-    config.persons_db_deadline_ms = 500;
+    config.persons_db_deadline_ms = 1000;
+    // With one permit, one request waits about 1s for the other to finish. The waiting request
+    // must stop its persons DB work by 1s after it arrived, which is the 1.5s request timeout
+    // minus the 500ms reserve. If its deadline counted 1s from when it got the permit, the
+    // request timeout would end it with a 503.
+    config.max_concurrency = 1;
+    config.request_timeout_ms = 1500;
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -6377,22 +6383,25 @@ async fn it_degrades_person_flags_when_the_persons_db_stops_answering() -> Resul
     insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
-    let payload = json!({"token": team.api_token, "distinct_id": "stalled_user"});
-    let res = server
-        .send_flags_request(payload.to_string(), Some("2"), None)
-        .await;
-
-    assert_eq!(res.status(), StatusCode::OK);
-    assert_json_include!(
-        actual: res.json::<Value>().await?,
-        expected: json!({
-            "errorsWhileComputingFlags": true,
-            "flags": {
-                "rollout-flag": {"enabled": true},
-                "person-flag": {"enabled": false, "reason": {"code": "timeout:persons_db_deadline"}}
-            }
-        })
+    let payload = json!({"token": team.api_token, "distinct_id": "stalled_user"}).to_string();
+    let (res_a, res_b) = tokio::join!(
+        server.send_flags_request(payload.clone(), Some("2"), None),
+        server.send_flags_request(payload, Some("2"), None),
     );
+
+    for res in [res_a, res_b] {
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_json_include!(
+            actual: res.json::<Value>().await?,
+            expected: json!({
+                "errorsWhileComputingFlags": true,
+                "flags": {
+                    "rollout-flag": {"enabled": true},
+                    "person-flag": {"enabled": false, "reason": {"code": "timeout:persons_db_deadline"}}
+                }
+            })
+        );
+    }
 
     Ok(())
 }

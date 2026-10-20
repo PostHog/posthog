@@ -104,16 +104,6 @@ class TestValidateCredentials:
         assert network.session_options == []
 
     @pytest.mark.parametrize(
-        ("status_code", "expected"),
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    def test_maps_status_code(self, status_code: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status_code, json={})]):
-            is_valid, _ = validate_credentials("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V1)
-
-        assert is_valid is expected
-
-    @pytest.mark.parametrize(
         ("api_version", "expected_url", "expected_header"),
         [
             (

@@ -5,6 +5,8 @@ import contextlib
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
+from django.conf import settings
+
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
@@ -34,6 +36,13 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+
+
+class DeltaliteFallbackRefusedError(Exception):
+    """Deltalite failed on a partition too large for the delta-rs MERGE fallback.
+
+    Retryable: the retry gives deltalite another attempt, and the MERGE would risk an OOM that kills the worker.
+    """
 
 
 def _write_deltalake(
@@ -229,6 +238,33 @@ class DeltaWriter:
             )
         return deduped
 
+    async def _fallback_partition_size(
+        self, existing_delta_table: deltalake.DeltaTable, data: pa.Table, use_partitioning: bool
+    ) -> tuple[int | None, int]:
+        """Largest at-rest partition the delta-rs MERGE would touch, and the budget it must fit.
+
+        Reads the in-memory Delta log only, and runs only when deltalite has already failed. The
+        size is None when it cannot be measured, and the caller then keeps the fallback.
+        """
+        # Lazy: the controller pulls in the Django models and the pipeline_v3 chain — circular.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+            measure_partition_bytes,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+            target_partition_bytes,
+        )
+
+        budget_bytes = target_partition_bytes()
+        try:
+            sizes = await asyncio.to_thread(measure_partition_bytes, existing_delta_table)
+            if use_partitioning and PARTITION_KEY in data.column_names:
+                touched = {str(v) for v in pc.unique(data[PARTITION_KEY]).to_pylist()}
+                sizes = {k: v for k, v in sizes.items() if k is not None and k in touched}
+            return max(sizes.values(), default=0), budget_bytes
+        except Exception as e:  # noqa: BLE001 - a failed measurement keeps the fallback
+            await self._logger.awarning(f"could not measure the merge partition size before the fallback: {e}")
+            return None, budget_bytes
+
     async def _write_via_deltalite(
         self,
         *,
@@ -299,6 +335,7 @@ class DeltaWriter:
                 if governor.config.mode != "off"
                 else None
             )
+            max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
             async with governor.admit(source_bytes=data.nbytes, n_partitions=n_partitions, rewrite=rewrite) as adm:
 
                 def _run_upsert(table: Any, upsert_kwargs: dict[str, int]) -> Any:
@@ -307,6 +344,7 @@ class DeltaWriter:
                         list(normalized_primary_keys),
                         partition_key,
                         commit_metadata=commit_metadata,
+                        max_row_group_bytes=max_row_group_bytes if max_row_group_bytes > 0 else None,
                         **upsert_kwargs,
                     )
 
@@ -323,6 +361,23 @@ class DeltaWriter:
                 stats = await asyncio.to_thread(_upsert)
                 duration_s = time.perf_counter() - started
         except Exception as e:  # noqa: BLE001 - pre-commit failure: nothing committed, fall back to MERGE
+            partition_bytes, budget_bytes = await self._fallback_partition_size(
+                existing_delta_table, data, use_partitioning
+            )
+            if partition_bytes is not None and partition_bytes > budget_bytes:
+                await self._logger.awarning(
+                    "deltalite write failed; refusing the delta-rs MERGE fallback above the merge budget",
+                    schema_id=str(self._table.job.schema_id),
+                    partition_bytes=partition_bytes,
+                    budget_bytes=budget_bytes,
+                    error=str(e),
+                )
+                with contextlib.suppress(Exception):
+                    DELTALITE_WRITE_TOTAL.labels(outcome="fallback_refused").inc()
+                raise DeltaliteFallbackRefusedError(
+                    f"deltalite write failed and the largest touched partition ({partition_bytes} bytes) "
+                    f"is above the delta-rs MERGE budget ({budget_bytes} bytes)"
+                ) from e
             await self._logger.awarning(
                 f"deltalite write failed; falling back to delta-rs MERGE (sync unaffected): {e}"
             )
@@ -373,6 +428,7 @@ class DeltaWriter:
                 governor_rss_samples=adm.rss.samples if adm.rss else None,
                 governor_concurrent_upserts=adm.concurrent_upserts,
                 governor_max_concurrent_upserts=adm.rss.max_concurrent if adm.rss else None,
+                row_group_cap_bytes=max_row_group_bytes,
                 **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
@@ -707,7 +763,8 @@ class DeltaWriter:
         delta_table = await self._table.get_delta_table(allow_stale=True)
         assert delta_table is not None
 
-        await ensure_table_properties(delta_table, self._logger)
+        merges = write_type == "incremental" and bool(primary_keys)
+        await ensure_table_properties(delta_table, self._logger, merge_batch=data if merges else None)
 
         return delta_table
 

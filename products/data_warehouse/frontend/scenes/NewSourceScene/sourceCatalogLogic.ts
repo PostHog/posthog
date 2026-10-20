@@ -124,7 +124,7 @@ const EVENT_SOURCE_CATALOG_ITEMS: CatalogItem[] = [
         category: 'Engineering & monitoring',
         keywords: ['webhook', 'webhooks', 'http', 'https', 'endpoint', 'events', 'incoming', 'custom', 'real time'],
         status: 'stable',
-        releaseStatus: 'alpha',
+        releaseStatus: 'beta',
         url: urls.hogFunctionNew('template-source-webhook'),
     },
     {
@@ -135,7 +135,7 @@ const EVENT_SOURCE_CATALOG_ITEMS: CatalogItem[] = [
         category: 'Engineering & monitoring',
         keywords: ['pixel', 'tracking pixel', 'image', 'gif', 'email', 'open tracking', 'beacon', 'events'],
         status: 'stable',
-        releaseStatus: 'alpha',
+        releaseStatus: 'beta',
         url: urls.hogFunctionNew('template-source-webhook-pixel'),
     },
 ]
@@ -373,7 +373,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
                         const featureFlagValue: boolean | undefined = featureFlagDefined ? !!featureFlagRaw : undefined
                         const { status } = getSourceDisplayStatus(!!connector.unreleasedSource, featureFlagValue)
-                        // Only surface alpha/beta while the source is actually connectable.
+                        // Only surface beta while the source is actually connectable.
                         const releaseStatus =
                             status === 'stable' && connector.releaseStatus && connector.releaseStatus !== 'ga'
                                 ? connector.releaseStatus

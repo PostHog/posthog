@@ -109,7 +109,7 @@ class KomodorSource(ResumableSource[KomodorSourceConfig, KomodorResumeConfig]):
             label="Komodor",
             iconPath="/static/services/komodor.png",
             caption="Create an API key in Komodor under User settings > API Keys. Select your account's region.",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

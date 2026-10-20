@@ -12,7 +12,6 @@ _FORWARD = "forward_posthog_code_followup_activity"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("parallel", [False, True])
 @pytest.mark.parametrize(
     "text,expected_after_billing",
     [
@@ -22,9 +21,7 @@ _FORWARD = "forward_posthog_code_followup_activity"
         ("nice weather today", [_CLASSIFY, _CONFIRM, _OVERRIDE, _FORWARD]),
     ],
 )
-async def test_untagged_followup_with_files_classifier_gating(
-    text: str, parallel: bool, expected_after_billing: list[str]
-) -> None:
+async def test_untagged_followup_with_files_classifier_gating(text: str, expected_after_billing: list[str]) -> None:
     workflow = slack_app_mention_processing.SlackAppMentionProcessingWorkflow()
     calls: list[str] = []
     inputs = PostHogCodeSlackMentionWorkflowInputs(
@@ -58,7 +55,7 @@ async def test_untagged_followup_with_files_classifier_gating(
 
     with (
         patch.object(slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
-        patch.object(slack_app_mention_processing.workflow, "patched", return_value=parallel),
+        patch.object(slack_app_mention_processing.workflow, "deprecate_patch"),
     ):
         await workflow.run(inputs)
 
@@ -66,8 +63,7 @@ async def test_untagged_followup_with_files_classifier_gating(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("parallel", [False, True])
-async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt(parallel: bool) -> None:
+async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt() -> None:
     """The click that re-dispatches carries the answer, so asking again would
     loop: prompt, confirm, classify, prompt."""
     workflow = slack_app_mention_processing.SlackAppMentionProcessingWorkflow()
@@ -93,7 +89,7 @@ async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt(p
 
     with (
         patch.object(slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
-        patch.object(slack_app_mention_processing.workflow, "patched", return_value=parallel),
+        patch.object(slack_app_mention_processing.workflow, "deprecate_patch"),
     ):
         await workflow.run(inputs)
 

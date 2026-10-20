@@ -286,6 +286,12 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                            ),
                         html: zod
                             .string()
                             .optional()
@@ -363,6 +369,12 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                                 .string()
                                 .optional()
                                 .describe("Plain-text fallback body for clients that can't render the email."),
+                            preheader: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                                ),
                             html: zod
                                 .string()
                                 .optional()
@@ -448,6 +460,12 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                            ),
                         html: zod
                             .string()
                             .optional()
@@ -525,6 +543,12 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                                 .string()
                                 .optional()
                                 .describe("Plain-text fallback body for clients that can't render the email."),
+                            preheader: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                                ),
                             html: zod
                                 .string()
                                 .optional()
@@ -611,6 +635,12 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                            ),
                         html: zod
                             .string()
                             .optional()
@@ -688,6 +718,12 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .string()
                                 .optional()
                                 .describe("Plain-text fallback body for clients that can't render the email."),
+                            preheader: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                                ),
                             html: zod
                                 .string()
                                 .optional()

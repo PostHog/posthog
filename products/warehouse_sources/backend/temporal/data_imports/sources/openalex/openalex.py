@@ -2,6 +2,8 @@ import datetime
 import dataclasses
 from typing import Any, Optional
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -12,6 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    unreachable_vendor_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.settings import (
     OPENALEX_ENDPOINTS,
@@ -199,6 +204,15 @@ def openalex_source(
     )
 
 
+def _probe(session: requests.Session, path: str, params: dict[str, str]) -> Optional[requests.Response]:
+    # The API key travels in the query string, and a `requests` error repeats the full URL in its
+    # message. Returning `None` keeps that message, and so the key, out of the caller's error report.
+    try:
+        return session.get(f"{OPENALEX_BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.RequestException:
+        return None
+
+
 def validate_credentials(api_key: str, filters: dict[str, Optional[str]]) -> tuple[bool, Optional[str]]:
     """Probe the API key, then each configured filter expression.
 
@@ -210,11 +224,9 @@ def validate_credentials(api_key: str, filters: dict[str, Optional[str]]) -> tup
 
     probe_params: dict[str, str] = {"per_page": "1", "api_key": api_key}
 
-    response = session.get(
-        f"{OPENALEX_BASE_URL}/domains",
-        params=probe_params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    response = _probe(session, "/domains", probe_params)
+    if response is None:
+        return False, unreachable_vendor_message("OpenAlex")
     if response.status_code in (401, 403):
         return False, "Invalid OpenAlex API key"
     if not response.ok:
@@ -224,11 +236,9 @@ def validate_credentials(api_key: str, filters: dict[str, Optional[str]]) -> tup
         if not entity_filter or not entity_filter.strip():
             continue
         endpoint_config = OPENALEX_ENDPOINTS[endpoint]
-        filter_response = session.get(
-            f"{OPENALEX_BASE_URL}{endpoint_config.path}",
-            params={**probe_params, "filter": entity_filter.strip()},
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
+        filter_response = _probe(session, endpoint_config.path, {**probe_params, "filter": entity_filter.strip()})
+        if filter_response is None:
+            return False, unreachable_vendor_message("OpenAlex")
         if filter_response.status_code == 400:
             return False, f"The {endpoint} filter is not a valid OpenAlex filter expression"
         if filter_response.status_code == 403:

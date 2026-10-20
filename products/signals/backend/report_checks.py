@@ -354,6 +354,18 @@ class CheckConfigValidationError(ValueError):
     """A check config that does not match its kind's schema."""
 
 
+def authored_monitoring_interval_minutes(soak_minutes: int, run_interval_minutes: int | None) -> int | None:
+    if run_interval_minutes is not None:
+        if not MIN_CHECK_INTERVAL_MINUTES <= run_interval_minutes < soak_minutes:
+            raise CheckConfigValidationError(
+                "A Monitoring interval must be at least six hours and shorter than the observation window."
+            )
+        return run_interval_minutes
+    if soak_minutes <= MIN_CHECK_INTERVAL_MINUTES:
+        return None
+    return min(24 * 60, max(MIN_CHECK_INTERVAL_MINUTES, soak_minutes // 4))
+
+
 def parse_check_config(kind: str, config: object) -> BaseModel:
     """Parse a raw config payload into its kind's model.
 
@@ -453,6 +465,17 @@ class CheckSpec(BaseModel):
             "for a new check; omission preserves an existing check’s wait."
         ),
     )
+    run_interval_minutes: int | None = Field(
+        default=None,
+        strict=True,
+        ge=MIN_CHECK_INTERVAL_MINUTES,
+        le=MAX_CHECK_INTERVAL_MINUTES,
+        description=(
+            "Minutes between interim Monitoring measurements. Must be shorter than soak_hours * 60. "
+            "Omission preserves an existing check's interval. New Monitoring metric checks default to a quarter "
+            "of the window, bounded to six hours through one day. Windows of six hours or less have no interim samples."
+        ),
+    )
 
     @field_validator("title")
     @classmethod
@@ -464,5 +487,8 @@ class CheckSpec(BaseModel):
 
     @model_validator(mode="after")
     def config_must_match_its_kind(self) -> CheckSpec:
-        parse_check_config(self.kind, self.config)
+        config = parse_check_config(self.kind, self.config)
+        if self.run_interval_minutes is not None:
+            if not isinstance(config, MetricThresholdConfig) or config.monitoring is None:
+                raise ValueError("Research can author an interval only for a Monitoring metric check.")
         return self

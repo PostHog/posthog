@@ -15,6 +15,15 @@ const DEFINITIONS_TAB_HREFS = new Set(DEFINITIONS_TABS.filter((tab) => tab.key !
 // Items in this category sit above Starred and All products, so they are never starred or grouped.
 export const PINNED_CATEGORY = 'Project'
 
+// Shown first, and only while the project is new on the simple onboarding arm (see `isWelcomeNavItemShown`).
+export const WELCOME_NAV_ITEM: FileSystemImport = {
+    path: 'Welcome',
+    category: PINNED_CATEGORY,
+    iconType: 'wizard',
+    href: urls.onboardingWelcome(),
+    visualOrder: -1,
+}
+
 export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImport[] {
     const items: FileSystemImport[] = [
         {

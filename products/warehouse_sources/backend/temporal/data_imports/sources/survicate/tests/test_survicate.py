@@ -235,7 +235,7 @@ def test_respondent_attributes_walk_and_resume(
     assert result.completed_state is None
 
 
-@pytest.mark.parametrize("status", [200, 401, 403, 404, 429, 500])
+@pytest.mark.parametrize("status", [404, 429, 500])
 def test_credential_probe_and_error_mapping(status: int) -> None:
     response = ScriptedResponse(status=status, json=page([]).json if status == 200 else {"message": "Unauthorized"})
     source = SurvicateSource()

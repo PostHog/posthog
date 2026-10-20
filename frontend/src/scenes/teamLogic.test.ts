@@ -56,6 +56,33 @@ describe('teamLogic', () => {
             expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
             expect(logic.values.currentTeam?.test_account_filters).toEqual(expectedFilters)
         })
+
+        it.each([
+            ['a rename', { name: 'Renamed project' }, 'Renamed project'],
+            ['a logo-only change', { logo_media_id: 'media-id' }, MOCK_DEFAULT_TEAM.name],
+        ])('syncs the team name after a project update with %s', async (_, payload, expectedTeamName) => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            useMocks({
+                patch: {
+                    '/api/projects/:id': async ({ request }) => [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_PROJECT,
+                            name: 'Name on the project row',
+                            ...((await request.json()) as Record<string, any>),
+                        },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                projectLogic.actions.updateCurrentProject(payload)
+            })
+                .toDispatchActions([projectLogic.actionTypes.updateCurrentProjectSuccess])
+                .toFinishAllListeners()
+
+            expect(logic.values.currentTeam?.name).toBe(expectedTeamName)
+        })
     })
 
     describe('updateCurrentTeam with a name-only payload', () => {

@@ -20,6 +20,8 @@ type SceneDescriptionProps = {
     renameDebounceMs?: number
     saveOnBlur?: boolean
     maxLength?: number
+    /** Shows at most two lines until the user clicks to edit. */
+    clamp?: boolean
     /** When true, description field is read-only (title AI control may be generating body copy too). */
     isGeneratingMetadata?: boolean
 }
@@ -34,6 +36,7 @@ export function SceneDescription({
     renameDebounceMs = 100,
     saveOnBlur = false,
     maxLength,
+    clamp = false,
     isGeneratingMetadata = false,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
@@ -146,7 +149,7 @@ export function SceneDescription({
                             autoHeight
                             size="base"
                         >
-                            <LemonMarkdown lowKeyHeadings>
+                            <LemonMarkdown lowKeyHeadings className={clamp ? 'line-clamp-2 min-w-0' : undefined}>
                                 {description || (canEdit ? 'Enter description (optional)' : 'No description')}
                             </LemonMarkdown>
                             {canEdit && !forceEdit && <IconPencil />}

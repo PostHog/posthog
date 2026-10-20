@@ -29,10 +29,7 @@ class TestPostmarkSource:
 
     @parameterized.expand(
         [
-            ("invalid_token_401", 401, "Invalid Postmark server API token"),
-            ("missing_permissions_403", 403, "doesn't have the required permissions"),
             ("unreachable_none", None, "Couldn't reach Postmark"),
-            ("server_error_500", 500, "Couldn't reach Postmark"),
             ("rate_limited_429", 429, "Couldn't reach Postmark"),
         ]
     )

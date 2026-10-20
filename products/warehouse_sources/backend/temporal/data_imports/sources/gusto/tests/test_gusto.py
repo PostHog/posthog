@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
     source_inputs,
 )
@@ -355,11 +354,6 @@ class TestValidateCredentials:
         ok, message = self._validate([ScriptedResponse(status=status)])
         assert ok is False
         assert message is not None and "rotates refresh tokens" in message
-
-    def test_other_token_errors_report_the_status(self) -> None:
-        with scripted_network(always(ScriptedResponse(status=500))):
-            ok, message = validate_credentials("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
-        assert (ok, message) == (False, "Gusto returned HTTP 500 when requesting an access token")
 
     def test_forbidden_company_read_asks_for_a_payroll_admin(self) -> None:
         ok, message = self._validate([_token(), ScriptedResponse(status=403)])

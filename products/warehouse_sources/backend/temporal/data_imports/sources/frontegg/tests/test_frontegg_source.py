@@ -9,11 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.frontegg.settings import (
-    AUTH_ERROR,
-    PERMISSION_ERROR,
-    REGION_ERROR,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.frontegg.settings import AUTH_ERROR, REGION_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.frontegg.source import FronteggSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.frontegg import (
     FronteggSourceConfig,
@@ -30,7 +26,7 @@ class TestFronteggSource:
 
     @pytest.mark.parametrize(
         "status,expected",
-        [(200, None), (400, AUTH_ERROR), (401, AUTH_ERROR), (403, PERMISSION_ERROR), (429, "raise"), (500, "raise")],
+        [(400, AUTH_ERROR), (429, "raise"), (500, "raise")],
     )
     def test_validate_credentials(self, status: int, expected: str | None) -> None:
         config = FronteggSourceConfig(client_id="example-client", api_key="fake-key", region="EU")

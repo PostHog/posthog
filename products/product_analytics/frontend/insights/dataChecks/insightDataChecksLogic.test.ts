@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -11,6 +12,8 @@ import type { InsightVizNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 import type { InsightShortId } from '~/types'
+
+import type { InsightDataCheckApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { insightDataChecksLogic } from './insightDataChecksLogic'
 
@@ -27,6 +30,7 @@ describe('insightDataChecksLogic', () => {
     const dataChecks = jest.fn()
     const cancelledQueryIds: string[] = []
     let sentSources: Record<string, unknown>[]
+    let savedFilters: unknown[]
 
     const answer =
         (response: [number, Record<string, unknown>], held?: Promise<void>, onSent?: () => void) =>
@@ -47,6 +51,7 @@ describe('insightDataChecksLogic', () => {
     beforeEach(() => {
         dataChecks.mockReset()
         sentSources = []
+        savedFilters = []
         cancelledQueryIds.length = 0
         useMocks({
             get: {
@@ -56,6 +61,13 @@ describe('insightDataChecksLogic', () => {
             post: {
                 '/api/environments/:team_id/query/:kind': { results: [] },
                 '/api/projects/:team_id/insights/data_checks/': dataChecks,
+            },
+            patch: {
+                '/api/projects/:team_id/': async ({ request }) => {
+                    const body = (await request.json()) as { test_account_filters: unknown[] }
+                    savedFilters.push(body.test_account_filters)
+                    return [200, { ...teamLogic.values.currentTeam, ...body }]
+                },
             },
             delete: {
                 '/api/projects/:team_id/query/:id/': ({ params }) => {
@@ -269,5 +281,43 @@ describe('insightDataChecksLogic', () => {
         expect(cancelledQueryIds).toEqual([clientQueryId])
         expect(dataChecks).toHaveBeenCalledTimes(2)
         expect(logic.values.status).toBe('passed')
+    })
+
+    it('turns the filter on for the insight from the checks, then checks the filtered chart', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, () =>
+            logic.actions.setFiltersTestAccounts(true, 'internal_users')
+        ).toFinishAllListeners()
+
+        expect(vizData.values.querySource?.filterTestAccounts).toBe(true)
+        expect(sentSources.map((source) => !!source.filterTestAccounts)).toEqual([false, true])
+    })
+
+    const rule = { key: 'email', type: 'person', operator: 'is_not', value: ['qa@example.com'] }
+    const addTheRule = (): void => {
+        logic.actions.addFilterRule({ key: 'internal_users', filter_to_add: rule } as InsightDataCheckApi)
+    }
+    it("adds the check's rule to the project's filter, then checks again", async () => {
+        const existing = teamLogic.values.currentTeam?.test_account_filters ?? []
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, addTheRule).toFinishAllListeners()
+
+        expect(savedFilters).toEqual([[...existing, rule]])
+        expect(dataChecks).toHaveBeenCalledTimes(2)
+    })
+
+    it('refreshes a chart that applies the filter once a rule is added, so it drops the excluded events', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        vizData.actions.updateQuerySource({ filterTestAccounts: true })
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, addTheRule).toDispatchActions(vizData, [
+            (action) =>
+                action.type === vizData.actionTypes.loadData && String(action.payload.refresh).startsWith('force'),
+        ])
     })
 })

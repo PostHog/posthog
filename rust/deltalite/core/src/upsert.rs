@@ -36,7 +36,7 @@ use arrow_select::filter::filter_record_batch;
 use arrow_select::take::{take, take_record_batch};
 use delta_kernel::expressions::Scalar;
 use deltalake::kernel::transaction::{CommitBuilder, CommitProperties};
-use deltalake::kernel::{Action, LogicalFileView, MetadataExt as _, Remove, StructType};
+use deltalake::kernel::{Action, Add, LogicalFileView, MetadataExt as _, Remove, StructType};
 use deltalake::protocol::checkpoints::{cleanup_metadata, create_checkpoint};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::table::config::TablePropertiesExt;
@@ -242,6 +242,23 @@ pub struct UpsertOptions {
     /// is the write-buffer flush threshold, so it is also a memory knob worth
     /// `max_parallel_partitions x target_file_size` of exposure.
     pub target_file_size: Option<usize>,
+    /// Write the source rows (updates and inserts) to their own output files instead of
+    /// appending them to the file that receives the survivors of the rewritten files.
+    ///
+    /// Off, a partition's output holds the copied survivors and the new rows together, so
+    /// the next batch that touches any of those new rows must copy every survivor again.
+    /// On, such a batch rewrites only the small file of new rows. The cost is up to one
+    /// more file per touched partition per upsert. Memory is unchanged: the survivors file
+    /// is closed before the first source row is written, as it is at `target_file_size`.
+    pub isolate_source_rows: bool,
+    /// Close an output row group once its encoded bytes reach this size (`None` closes
+    /// row groups only at the encoder's row cap).
+    ///
+    /// A reader fetches a whole compressed row group before it decodes any of it, so a
+    /// table written as one row group per file makes every later upsert hold whole files
+    /// per reader. The check runs between written batches, so a row group can pass the
+    /// cap by up to one batch.
+    pub max_row_group_bytes: Option<usize>,
     /// Ceiling for the source-size guard; `None` resolves from the environment,
     /// `Some(0)` disables. See [`crate::limits::resolve_max_source_bytes`].
     pub max_source_bytes: Option<usize>,
@@ -264,6 +281,8 @@ impl Default for UpsertOptions {
             commit_max_retries: 15,
             read_batch_size: 8192,
             target_file_size: None,
+            isolate_source_rows: false,
+            max_row_group_bytes: None,
             max_source_bytes: None,
             limits: ProcessLimits::global().clone(),
         }
@@ -2253,6 +2272,7 @@ async fn rewrite_partition(
     // in the sequential implementation. The channel is unbounded; memory is bounded by
     // the byte-budget permits attached to every message, not by message count.
     let (tx, mut rx) = mpsc::unbounded_channel::<(RecordBatch, BudgetPermit)>();
+    let max_row_group_bytes = opts.max_row_group_bytes;
     let writer_task = tokio::spawn(async move {
         let mut writer = writer;
         let mut adds = Vec::new();
@@ -2264,9 +2284,13 @@ async fn rewrite_partition(
             // Bound resident memory: the writer holds the open file until flushed, so
             // flush on a size threshold instead of once at the end. Each flush yields
             // Add actions and starts a new file.
-            if writer.buffer_len() >= target_file_size {
-                adds.extend(writer.flush().await?);
-            }
+            roll_writer(
+                &mut writer,
+                &mut adds,
+                target_file_size,
+                max_row_group_bytes,
+            )
+            .await?;
         }
         Ok::<_, Error>((writer, adds))
     });
@@ -2326,6 +2350,9 @@ async fn rewrite_partition(
     if let Some(e) = reader_err {
         return Err(e);
     }
+    if opts.isolate_source_rows {
+        adds.extend(writer.flush().await?);
+    }
 
     // Source rows are written LAST: an updated row therefore carries the source values,
     // which is exactly `when_matched_update_all`. The ordering is semantic, not
@@ -2345,14 +2372,19 @@ async fn rewrite_partition(
         // Flushing mid-source is order-safe: it closes the current file and opens
         // another, and every source row still lands after every survivor.
         let selected = sel.select_batch(b)?;
+        let slice_rows = source_slice_rows(&selected, opts.read_batch_size, max_row_group_bytes);
         let mut offset = 0usize;
         while offset < selected.num_rows() {
-            let n = (selected.num_rows() - offset).min(opts.read_batch_size.max(1));
+            let n = (selected.num_rows() - offset).min(slice_rows);
             writer.write(selected.slice(offset, n))?;
             offset += n;
-            if writer.buffer_len() >= target_file_size {
-                adds.extend(writer.flush().await?);
-            }
+            roll_writer(
+                &mut writer,
+                &mut adds,
+                target_file_size,
+                max_row_group_bytes,
+            )
+            .await?;
         }
     }
     adds.extend(writer.flush().await?);
@@ -2378,6 +2410,40 @@ async fn rewrite_partition(
         null_pk_rows,
         carried,
     })
+}
+
+/// Rows per source write. The row-group cap is checked between writes, so with a cap a
+/// source write holds about as many decoded bytes as a survivor batch, and a row group
+/// passes the cap by at most that much on either path. Otherwise one `read_batch_size`
+/// slice of wide rows goes in one write and closes as one row group, far past the cap.
+fn source_slice_rows(
+    batch: &RecordBatch,
+    read_batch_size: usize,
+    max_row_group_bytes: Option<usize>,
+) -> usize {
+    match max_row_group_bytes {
+        Some(cap) if batch.num_rows() > 0 => {
+            let bytes_per_row = batch.get_array_memory_size().div_ceil(batch.num_rows());
+            let slice_bytes = cap.min(INITIAL_DECODE_ESTIMATE_BYTES);
+            batch_rows_for_bytes_per_row(bytes_per_row, slice_bytes, read_batch_size)
+        }
+        _ => read_batch_size.max(1),
+    }
+}
+
+/// Close the open file at `target_file_size`, else its row group at `max_row_group_bytes`.
+async fn roll_writer(
+    writer: &mut StreamingWriter,
+    adds: &mut Vec<Add>,
+    target_file_size: usize,
+    max_row_group_bytes: Option<usize>,
+) -> Result<()> {
+    if writer.buffer_len() >= target_file_size {
+        adds.extend(writer.flush().await?);
+    } else if max_row_group_bytes.is_some_and(|cap| writer.in_progress_bytes() >= cap) {
+        writer.flush_row_groups()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

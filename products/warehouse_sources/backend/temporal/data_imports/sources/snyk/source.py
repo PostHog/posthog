@@ -55,7 +55,7 @@ class SnykSource(ResumableSource[SnykSourceConfig, SnykResumeConfig]):
             name=ExternalDataSourceType.SNYK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Snyk",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect your Snyk account to sync organizations, projects, targets, and vulnerability issues into the PostHog Data warehouse.
 
 Generate an API token from your [Snyk account settings](https://app.snyk.io/account) (or use a service account token from your organization or group settings). The token is sent as `Authorization: token <token>` and can read every organization it has access to.

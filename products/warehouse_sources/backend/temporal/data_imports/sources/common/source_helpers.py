@@ -11,6 +11,13 @@ import requests
 from requests.auth import AuthBase
 
 
+def unreachable_vendor_message(vendor: str) -> str:
+    """The `validate_credentials` message for a probe that got no usable answer from the vendor.
+
+    It must not say that the credentials are invalid, because nothing proved that."""
+    return f"Couldn't reach {vendor} to check your credentials. Try again in a few minutes."
+
+
 def validate_via_probe(
     session_factory: Callable[[], requests.Session],
     url: str,

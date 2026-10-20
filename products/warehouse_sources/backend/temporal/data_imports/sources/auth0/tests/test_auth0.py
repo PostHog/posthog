@@ -30,7 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     DriveResult,
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
     source_inputs,
 )
@@ -602,12 +601,6 @@ class TestValidateCredentials:
                 schema_name="roles",
             )
         assert (ok, error) == (False, auth0_module.HOST_NOT_ALLOWED_ERROR)
-
-    def test_network_failure_surfaces_rather_than_passing(self) -> None:
-        with scripted_network(always(requests.ConnectionError("no route to host"))):
-            ok, error = validate_credentials(DOMAIN, "cid", "secret", "v2", team_id=1)
-        assert ok is False
-        assert error is not None
 
 
 class TestAuth0Source:

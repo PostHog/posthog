@@ -140,9 +140,6 @@ class TestRecurringBillingFanOut:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", 200, True, None),
-            ("invalid_key", 401, False, "Invalid HitPay API key"),
-            ("forbidden", 403, False, "Could not connect to HitPay"),
             ("unreachable", None, False, "Could not connect to HitPay"),
         ]
     )

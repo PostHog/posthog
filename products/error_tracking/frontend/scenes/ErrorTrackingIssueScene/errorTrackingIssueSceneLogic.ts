@@ -1099,11 +1099,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     )
                 }
             },
-            [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName, issueId }) => {
-                if (mutationName === 'createIssueCohort' && issueId === props.id) {
-                    actions.loadIssue()
-                }
-            },
         }
     }),
 

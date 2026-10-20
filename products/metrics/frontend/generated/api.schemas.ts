@@ -1329,6 +1329,11 @@ export type MetricsAttributeValuesRetrieveParams = {
      */
     limit?: number
     /**
+     * Exact metric name to limit values to. Omit to list values across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string
+    /**
      * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
      * @maxLength 1024
      */

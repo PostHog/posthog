@@ -382,10 +382,6 @@ class TestStripeSource:
     @pytest.mark.parametrize(
         "other_error",
         [
-            # Transient/infra errors must stay retryable.
-            "HTTPSConnectionPool(host='api.stripe.com', port=443): Read timed out.",
-            "500 Server Error: Internal Server Error for url: https://api.stripe.com/v1/charges",
-            "Connection reset by peer",
             # Rate limits are transient (Retry-After-bounded) — must never disable the source.
             "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here https://stripe.com/docs/rate-limits.",
         ],

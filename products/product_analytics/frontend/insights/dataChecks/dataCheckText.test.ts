@@ -1,6 +1,7 @@
 import type { InsightDataCheckApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { dataCheckText } from './dataCheckText'
+import { dataCheckText, filterCheckParts, removesBotTraffic, repeatedEventsTextOf } from './dataCheckText'
+import type { FilterCheckParts } from './dataCheckText'
 
 const passed: InsightDataCheckApi = {
     key: 'bot_traffic',
@@ -13,54 +14,149 @@ const passed: InsightDataCheckApi = {
     action: null,
     top_events: [],
     top_hosts: [],
+    distinct_hosts: null,
     top_bots: [],
+    distinct_bots: null,
+    removed_by_filter: null,
+    missed_by_filter: null,
+    top_emails: [],
+    distinct_emails: null,
+    filter_to_add: null,
 }
 
+const BOT_RULE = { key: '$virt_traffic_type', type: 'event', operator: 'is_not', value: ['AI Agent', 'Bot'] }
+
 describe('dataCheckText', () => {
-    it.each<[string, Partial<InsightDataCheckApi>, boolean, string, string | null]>([
+    it.each<[string, Partial<InsightDataCheckApi>, boolean, string]>([
         [
             'a skipped check with its reason',
             { level: 'skipped', skip_reason: 'read_limit', events: null, share: null },
             false,
             'Not checked, because it would read more data than it is allowed',
-            null,
         ],
         [
             'a passed check that found a few events, from a sample',
             { events: 1234, share: 0.001, scaled: true },
             false,
-            'Almost no bots or crawlers found (about 1,234 events)',
-            null,
+            'Almost none (about 1,234 events)',
         ],
         [
             'internal users on an insight that filters them out',
             { key: 'internal_users', method: 'counted' },
             true,
-            'Internal and test users are filtered out',
-            null,
+            'Filtered out',
         ],
         [
-            'a finding from a sample, without the filter on',
-            { level: 'problem', events: 4000, share: 0.4, scaled: true, action: 'open_filter_settings' },
+            'a finding from a sample',
+            { level: 'problem', events: 4000, share: 0.4, scaled: true },
             false,
-            'About 40% of these events came from bots and crawlers',
-            'In the internal and test users filter, add "Traffic type is not Bot or AI Agent", and turn that filter on for this insight.',
+            'About 40% of these events',
         ],
         [
-            'a finding too small for a share, with the filter on',
-            { key: 'local_development', level: 'warning', events: 60, share: 0.002, action: 'open_filter_settings' },
+            'a finding too small for a share',
+            { key: 'local_development', level: 'warning', method: 'counted', events: 60, share: 0.001 },
+            false,
+            '60 of these events',
+        ],
+    ])('words the result of %s', (_name, check, filtersTestAccounts, expected) => {
+        expect(dataCheckText({ ...passed, ...check }, filtersTestAccounts).result).toEqual(expected)
+    })
+
+    it.each<[string, Partial<InsightDataCheckApi>, boolean, boolean, FilterCheckParts]>([
+        [
+            'internal users the filter catches while the insight leaves it off, and team emails it misses',
+            {
+                key: 'internal_users',
+                level: 'problem',
+                events: 810,
+                share: 0.81,
+                removed_by_filter: 620,
+                missed_by_filter: 190,
+                top_emails: ['sam@example.com', 'qa@example.com'],
+                distinct_emails: 14,
+                filter_to_add: { key: 'email', type: 'person', operator: 'is_not', value: ['qa@example.com'] },
+            },
+            false,
+            false,
+            {
+                caught: "Your filter catches 62% of these events, but it's off for this insight.",
+                missed: {
+                    count: 14,
+                    noun: 'user',
+                    examples: ['sam@example.com', 'qa@example.com'],
+                    fallback: "Your team's emails",
+                    excludeLabel: 'Exclude these users',
+                },
+            },
+        ],
+        [
+            'bots a traffic type rule catches while the insight leaves the filter off',
+            {
+                level: 'warning',
+                events: 150,
+                share: 0.14,
+                top_bots: ['Googlebot'],
+                distinct_bots: 1,
+                filter_to_add: BOT_RULE,
+            },
+            false,
             true,
-            '60 of these events came from local development',
-            'Send local traffic to a separate project, or exclude localhost in the internal and test users filter.',
+            { caught: "Your filter catches this bot traffic, but it's off for this insight.", missed: null },
         ],
         [
-            'internal users that turning the filter on removes',
-            { key: 'internal_users', level: 'warning', events: 80, share: 0.08, action: 'filter_internal_users' },
+            'bots that get past a filter with no traffic type rule',
+            {
+                level: 'warning',
+                events: 150,
+                share: 0.14,
+                top_bots: ['Googlebot', 'Ahrefs'],
+                distinct_bots: 5,
+                filter_to_add: BOT_RULE,
+            },
+            true,
             false,
-            '8% of these events came from internal and test users',
-            'Turn on the internal and test users filter for this insight.',
+            {
+                caught: null,
+                missed: {
+                    count: 5,
+                    noun: 'bot',
+                    examples: ['Googlebot', 'Ahrefs'],
+                    fallback: 'Bot events',
+                    excludeLabel: 'Exclude these bots',
+                },
+            },
         ],
-    ])('words %s', (_name, check, filtersTestAccounts, result, fix) => {
-        expect(dataCheckText({ ...passed, ...check }, filtersTestAccounts)).toMatchObject({ result, fix })
+        ['a check that found nothing', { key: 'local_development' }, true, false, { caught: null, missed: null }],
+    ])('splits %s', (_name, check, filtersTestAccounts, filterRemovesBots, expected) => {
+        expect(filterCheckParts({ ...passed, ...check }, filtersTestAccounts, filterRemovesBots)).toEqual(expected)
+    })
+
+    it.each<[string[], string]>([
+        [['$pageview', 'signed_up'], 'Pageview and signed_up events are sent twice'],
+        [[], 'Some events are sent twice'],
+    ])('names the repeated events %j by their labels', (events, expected) => {
+        expect(repeatedEventsTextOf({ ...passed, key: 'duplicate_events', top_events: events }).found).toContain(
+            expected
+        )
+    })
+
+    const trafficRule = (operator: string, value: string | string[]): Record<string, unknown> => ({
+        key: '$virt_traffic_type',
+        type: 'event',
+        operator,
+        value,
+    })
+
+    it.each<[string, Record<string, unknown>[], boolean]>([
+        ['one rule that excludes both types', [trafficRule('is_not', ['Bot', 'AI Agent'])], true],
+        [
+            'two rules that each exclude one type',
+            [trafficRule('is_not', 'Bot'), trafficRule('is_not', ['AI Agent'])],
+            true,
+        ],
+        ['a rule that excludes only AI agents', [trafficRule('is_not', ['AI Agent'])], false],
+        ['a rule that keeps only bots', [trafficRule('exact', ['Bot', 'AI Agent'])], false],
+    ])('knows whether the filter removes bot traffic with %s', (_name, rules, expected) => {
+        expect(removesBotTraffic(rules)).toBe(expected)
     })
 })

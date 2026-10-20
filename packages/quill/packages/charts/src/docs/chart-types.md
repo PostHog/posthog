@@ -56,6 +56,7 @@ One line per series from a left "before" to a right "after"; `data` is `[start, 
 Part of whole, one value per series (`data[0]`).
 
 - `innerRadiusRatio` makes a donut; `centerLabel` fills the hole.
+- A donut hides on-slice values by default, because `centerLabel` carries its number. Set `showValueOnSlice: true` to show them.
 - On-slice labels via `showLabelOnSlice` and `showValueOnSlice`, positioned with `labelRadiusRatio` (0 is the center, 1 the rim) and gated by `minSlicePercentForLabel`.
 - `sliceValueDisplay` picks what the numeric line holds: `'value'`, `'percent'`, or `'both'` for `352 (18.4%)`. Defaults to `'percent'` when `isPercent` is set, else `'value'`.
 - `config.legend` renders the built-in legend; a toggled-off slice is removed and the rest rescale to the full circle.
@@ -86,7 +87,7 @@ It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'hori
 - `config.valueDisplay` picks the value column: `'value'` (default), `'percent'`, or `'both'` for `share · value`. `valueFormatter` formats the value part and the tooltip.
   With `labelPosition: 'start'`, a list narrower than 28rem shows only the share for `'both'`, so the bar keeps its room. The root is a size container for this query, so it takes its width from its parent and not from its content.
 - `renderLabel(series)` replaces the label cell content, for example with an icon or a link. The labels and values are DOM, outside the canvas, so a link in a label needs no overlay attribute.
-- `config.labelPosition: 'start'` (default) puts the label left of the bar and the value right of it. The label column sizes to its content up to 40% of the width and truncates past that. The value column sizes to its content, and the bar column takes the rest.
+- `config.labelPosition: 'start'` (default) puts the label left of the bar and the value right of it. The label column sizes to its content up to 40% of the width or 12rem, whichever is smaller, and truncates past that. The value column sizes to its content, and the bar column takes the rest.
 - `config.labelPosition: 'top'` puts the label and the value on one line above the bar. Use it for long labels such as URL paths, or for narrow lists, because the bar and the label get the full width. The label line sits on top of the chart, so the tooltip shows only over the bar and its track.
 - Each row is `config.rowHeight` tall (default 28, or 40 for `'top'`) and each bar is `config.barHeight` thick (default 12, or 8 for `'top'`). The chart takes its height from the rows, so it does not need a parent with a fixed height.
 - The tooltip uses `hitArea: 'band'`, so a row reports its tooltip anywhere along its track. It shows the row label and the formatted value. A `tooltip` render prop replaces it, and `seriesData[0].series.meta` is the `meta` of the hovered row.
@@ -102,7 +103,8 @@ The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
 ## Heatmap
 
 A 2D density grid: `xLabels` by `yLabels` (row 0 at the bottom), `cells[row][col]` counts mapped to color intensity on one accent.
-Log ramp by default; `colorScale: 'linear'` to opt out.
+`colorScale: 'auto'` (default) uses a log ramp for a long-tailed grid such as latency, where the median non-empty cell is under a tenth of the largest, and a linear ramp otherwise, so an even grid such as activity by day and hour does not flatten into one shade.
+Pass `'log'` or `'linear'` to fix the ramp.
 A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex, yIndex, value }`, and `onBrush` reports row and column index ranges.
 `config.cellLabel` prints a number in each cell, for a grid read as values rather than only as density (a retention table).
 It runs for every cell, empty ones included; return null to leave one blank.

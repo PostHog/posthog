@@ -7,18 +7,18 @@ description: >
   failures, optimizing Dockerfile layer caching, using docker-bake.hcl or docker-compose builds,
   or migrating from `docker build` / `docker buildx build` to Depot. Also use when the user
   mentions depot build, depot bake, container builds, image builds, or asks about Depot's
-  build cache, build parallelism, or ephemeral registry.
+  build cache, build parallelism, build autoscaling, or ephemeral registry.
 ---
 
 # Depot Container Builds
+
+Depot runs Docker image builds on remote high-performance builders (16 CPU, 32 GB RAM, NVMe SSD cache). `depot build` is a drop-in replacement for `docker build` / `docker buildx build`. `depot bake` replaces `docker buildx bake`.
 
 <!-- PostHog-local section. Keep it when resyncing from upstream; see UPSTREAM.md. -->
 
 Before you propose a change to CI, check [things already tried](../../../docs/internal/ci-things-already-tried.md) for the idea. It records what was measured, and why some good-sounding changes were reverted or rejected.
 
 <!-- End PostHog-local section. -->
-
-Depot runs Docker image builds on remote high-performance builders (16 CPU, 32 GB RAM, NVMe SSD cache). `depot build` is a drop-in replacement for `docker build` / `docker buildx build`. `depot bake` replaces `docker buildx bake`.
 
 ## Project Selection for Multi-Org Users
 
@@ -107,11 +107,13 @@ Drop-in replacement for `docker buildx bake`. Builds multiple images in parallel
 depot bake                                    # Default file lookup
 depot bake -f docker-bake.hcl                 # Specific HCL file
 depot bake -f docker-compose.yml --load       # Build compose services + load locally
-depot bake --save --save-tag myrepo/app:v1    # Save to Depot Registry
+depot bake --save --save-tag v1               # Save as v1-<target-name> in Depot Registry
 depot bake --print                            # Print resolved config without building
 ```
 
 **Default file lookup order:** compose.yaml → compose.yml → docker-compose.yml → docker-compose.yaml → docker-bake.json → docker-bake.hcl → docker-bake.override.json → docker-bake.override.hcl
+
+Without target arguments, `depot bake` builds the `default` group. Saved tags use `<build-id>-<target-name>`; `--save-tag v1` adds `v1-<target-name>`. Use `--save --push` to save in Depot Registry and push the configured target tags. Set `project_id` in an HCL target to select its Depot project.
 
 ### HCL Bake File Example
 
@@ -211,6 +213,14 @@ docker build .  # Routes through Depot (look for [depot] prefix in logs)
 
 Billed per-second. Large and Extra Large builders consume your included build minutes faster (via the multiplier) in addition to costing more per minute.
 
+## Build Autoscaling
+
+Autoscaling is disabled by default, so Depot routes a project's builds for each architecture to one builder. Enable horizontal autoscaling in the project settings when concurrent builds need separate builders. The settings form preselects 16 builds per instance; Depot starts another builder when concurrent builds reach the configured limit.
+
+Each builder has an independent cache. Heavy autoscaling can reduce cache efficiency, so try a larger builder first when one build needs more CPU or memory. Autoscaling is available on all plans without an additional fee.
+
+One `depot bake` invocation counts as one build for autoscaling, regardless of its target count. Separate project IDs create separate build requests.
+
 ## Depot Registry
 
 An OCI-compliant registry that works both as a lightweight ephemeral store for build output and as a full primary registry for all your images (including ones not built with Depot). Each org gets its own subdomain `{orgId}.registry.depot.dev`, backed by a global CDN, and stores images and OCI artifacts (Helm charts, AI models) up to 50 GB. Browse repositories, tags, and attestations in the Registry Explorer in the dashboard.
@@ -222,27 +232,40 @@ depot build --save -t myapp .
 # Push any image to Depot Registry as a primary registry
 docker push {orgId}.registry.depot.dev/your/app:v1
 
-# Pull a saved image (by build ID or by tag)
+# Pull a saved project image (by build ID or by tag)
 depot pull --project <id> <build-id>
 depot pull --project <id> my-image:tag
 depot pull --project <id> --platform linux/arm64 <build-id>   # pull a specific platform
 
-# Generate a short-lived (1-hour) read-only token to pull from the Depot Registry
+# Generate a 1-hour read-only token for the project's registry paths
 depot pull-token --project <id>
 depot pull-token --project <id> <build-id>                    # scoped to a specific build
 
 # Push saved image to another registry
 depot push --project <id> -t registry/image:tag <build-id>
 
+# List saved images as JSON
+depot image list --project <id> --output json
+
+# Delete selected image tags only when requested
+depot image rm --project <id> app:old app:staging
+
 # Docker auth for Depot Registry (each org has its own subdomain)
-docker login {orgId}.registry.depot.dev -u x-token -p <depot-token>
+docker login {orgId}.registry.depot.dev -u x-token
+# Enter a scoped registry access token at the password prompt.
 # Registry URL: {orgId}.registry.depot.dev/your/app:tag
 # (the legacy registry.depot.dev/<project-id>:<build-id> form still works for existing usage)
 ```
 
 Image retention defaults to 7 days but is configurable per repository from the Registry Explorer, either by age (1, 7, 14, or 30 days) or by tag count (5, 10, 25, 50, or 100 tags).
 
+For custom image names, use a registry access token. Organization owners create tokens in Registry Settings → Registry access tokens. Select Pull or Push permission; Push includes pull access. Scope tokens to exact paths (`frontend`), one level (`team/*`), any depth (`team/**`), or all repositories (`**`). Exclude registry hostnames and image tags from scopes.
+
+Use `depot pull` for saved project builds and tags, and `docker pull` for custom or pull-through repositories. CLI pull tokens cover only `<project-id>` and its descendant paths. Use a registry access token with Pull permission for other names.
+
 **Pull-through cache:** Depot Registry can proxy an external registry and cache its layers on the CDN, so repeat pulls skip the upstream hop (faster CI pulls, global distribution, simpler auth for registries like Google Artifact Registry). Configure an upstream in Registry Settings; supported providers are Docker Hub, GitHub Container Registry, GitLab Container Registry, Quay.io, AWS ECR, Google Artifact Registry, Azure Container Registry, and custom registries. Pull-through must be set when the repository is created, it can't be added to an existing repository.
+
+Cached mutable tags such as `latest` are not refreshed from upstream on every pull. Use a new immutable tag or digest to select updated content. Missing or reclaimed content still requires the upstream registry, so caching does not guarantee availability during an upstream outage.
 
 ## Special Output Formats
 

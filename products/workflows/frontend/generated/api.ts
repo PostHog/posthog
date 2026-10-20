@@ -70,6 +70,7 @@ import type {
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
+    PatchedWorkflowSendingRulesApi,
     PeopleImportApi,
     PeopleImportCreateApi,
     SendCalendarFlowApi,
@@ -80,6 +81,7 @@ import type {
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
     WorkflowProposalRejectRequestApi,
+    WorkflowSendingRulesApi,
     WorkflowSetupStatusApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
@@ -1508,6 +1510,43 @@ export const workflowPeopleImportsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(peopleImportCreateApi),
+    })
+}
+
+export const getWorkflowSendingRulesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_sending_rules/current/`
+}
+
+/**
+ * The project-wide rules every workflow and broadcast follows when it sends a message.
+ */
+export const workflowSendingRulesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowSendingRulesApi> => {
+    return apiMutator<WorkflowSendingRulesApi>(getWorkflowSendingRulesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowSendingRulesPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_sending_rules/current/`
+}
+
+/**
+ * The project-wide rules every workflow and broadcast follows when it sends a message.
+ */
+export const workflowSendingRulesPartialUpdate = async (
+    projectId: string,
+    patchedWorkflowSendingRulesApi?: NonReadonly<PatchedWorkflowSendingRulesApi>,
+    options?: RequestInit
+): Promise<WorkflowSendingRulesApi> => {
+    return apiMutator<WorkflowSendingRulesApi>(getWorkflowSendingRulesPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedWorkflowSendingRulesApi),
     })
 }
 

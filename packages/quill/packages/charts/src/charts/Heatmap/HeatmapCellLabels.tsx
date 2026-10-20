@@ -4,7 +4,13 @@ import { useChartLayout } from '../../core/chart-context'
 import { mixColors, perceivedLuminance, toSrgbColor } from '../../core/color-utils'
 import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
 import type { HeatmapCellDatum } from './Heatmap'
-import { cellAlpha, cellRect, computeHeatmapLayout, normalizeCount, type HeatmapColorScale } from './heatmap-layout'
+import {
+    cellAlpha,
+    cellRect,
+    computeHeatmapLayout,
+    normalizeCount,
+    type ResolvedHeatmapColorScale,
+} from './heatmap-layout'
 
 /** Returning null or an empty string leaves the cell unlabelled. */
 export type HeatmapCellLabelFormatter = (cell: HeatmapCellDatum) => string | null
@@ -46,7 +52,7 @@ export interface HeatmapCellLabelsProps {
     cells: number[][]
     accent: string
     maxValue: number
-    colorScale: HeatmapColorScale
+    colorScale: ResolvedHeatmapColorScale
     formatter: HeatmapCellLabelFormatter
 }
 

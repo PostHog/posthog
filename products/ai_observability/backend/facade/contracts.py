@@ -66,3 +66,10 @@ class Trace(Contract):
     timeline: list[TraceTimelineRow]
     total_ms: float
     thread_node_ids: list[str]
+
+
+class EvaluationPassFilters(Contract):
+    """HogQL conditions over `$ai_evaluation` events, built from each evaluation's current output config."""
+
+    graded: str  # The run counts toward a pass rate.
+    passed: str  # The run passed. Implies `graded`.

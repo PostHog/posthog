@@ -4,6 +4,7 @@ import os
 import re
 import json
 import asyncio
+import logging
 from collections import Counter
 from collections.abc import Mapping
 from contextlib import suppress
@@ -30,6 +31,15 @@ from posthog.dataclasses import frozen
 
 from .engines.types import CaseResult, ExperimentResult, ScorerResult
 
+logger = logging.getLogger(__name__)
+TAG_TIMEOUT_SECONDS = 5.0
+
+
+@frozen
+class OfflineScorer:
+    kind: ScorerKind
+    version: UUID
+
 
 @frozen
 class OfflineEvalSuite:
@@ -37,7 +47,20 @@ class OfflineEvalSuite:
     project_id: int
     scorer_kinds: Mapping[str, ScorerKind]
     scorer_versions: Mapping[str, UUID]
+    tags: tuple[str, ...] = ()
     experiment_options: ExperimentOptions = field(default_factory=lambda: ExperimentOptions())
+
+    @classmethod
+    def from_scorers(
+        cls, *, key: str, project_id: int, scorers: Mapping[str, OfflineScorer], tags: tuple[str, ...]
+    ) -> OfflineEvalSuite:
+        return cls(
+            key=key,
+            project_id=project_id,
+            scorer_kinds={metric: scorer.kind for metric, scorer in scorers.items()},
+            scorer_versions={metric: scorer.version for metric, scorer in scorers.items()},
+            tags=tags,
+        )
 
 
 class OfflineUploadError(Exception):
@@ -163,6 +186,7 @@ class OfflineEvalUpload:
     experiment_name: str
     experiment: ExperimentOptions
     results: tuple[EvaluationResult, ...]
+    tags: tuple[str, ...] = ()
 
 
 class OfflineEvalPublisher:
@@ -176,6 +200,7 @@ class OfflineEvalPublisher:
         self.settings = settings
         self.suite = suite
         self.application_trace_ids_enabled = application_trace_ids_enabled
+        self._attempted_tag_updates: set[str] = set()
 
     def _item_payload(
         self,
@@ -377,19 +402,54 @@ class OfflineEvalPublisher:
             experiment_name=experiment_name,
             experiment=experiment,
             results=tuple(scores),
+            tags=self.suite.tags,
         )
+
+    def _client(self) -> AsyncOfflineEvaluations:
+        return AsyncOfflineEvaluations(
+            host=self.settings.host,
+            project_id=self.settings.project_id,
+            secret_key=self.settings.api_key.get_secret_value(),
+            timeout=self.settings.request_timeout,
+            max_retries=self.settings.max_retries,
+        )
+
+    async def tag(self, upload: OfflineEvalUpload) -> None:
+        if upload.host != self.settings.host or upload.project_id != self.settings.project_id:
+            raise OfflineUploadError("Upload destination differs from the configured host/project")
+        experiment_id = str(upload.experiment["id"])
+        if not upload.tags or experiment_id in self._attempted_tag_updates:
+            return
+        self._attempted_tag_updates.add(experiment_id)
+        try:
+            async with asyncio.timeout(TAG_TIMEOUT_SECONDS), self._client() as client:
+                await client.resume_experiment(experiment_id).set_tags(upload.tags)
+        except EvaluationAPIError as error:
+            logger.warning(
+                "PostHog offline results uploaded, but tagging failed for experiment %s (status=%s, code=%s). "
+                "Tagging requires a personal key with evaluation:write. Tag updates are not retried.",
+                experiment_id,
+                error.status,
+                OfflineUploadError._safe_token(error.code, path=False),
+            )
+        except TimeoutError:
+            logger.warning(
+                "PostHog offline results uploaded, but tagging timed out for experiment %s. "
+                "Tag updates are not retried.",
+                experiment_id,
+            )
+        except asyncio.CancelledError:
+            logger.warning(
+                "PostHog offline tag update interrupted for experiment %s; inspect its tags before retrying.",
+                experiment_id,
+            )
+            raise
 
     async def publish(self, upload: OfflineEvalUpload) -> str:
         if upload.host != self.settings.host or upload.project_id != self.settings.project_id:
             raise OfflineUploadError("Upload destination differs from the configured host/project")
         try:
-            async with AsyncOfflineEvaluations(
-                host=self.settings.host,
-                project_id=self.settings.project_id,
-                secret_key=self.settings.api_key.get_secret_value(),
-                timeout=self.settings.request_timeout,
-                max_retries=self.settings.max_retries,
-            ) as client:
+            async with self._client() as client:
                 experiment = await client.create_experiment(name=upload.experiment_name, **upload.experiment)
                 try:
                     await experiment.upload_results(upload.results)

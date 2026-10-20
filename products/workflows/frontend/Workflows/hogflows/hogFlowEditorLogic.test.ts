@@ -1,9 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
 import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import * as autolayout from './react_flow_utils/autolayout'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -175,6 +179,40 @@ describe('hogFlowEditorLogic', () => {
         logic = hogFlowEditorLogic()
         logic.mount()
     })
+
+    it.each([
+        { name: 'the tile canvas', flags: ['tile'], layout: 'advanced', id: 'flow-1', expected: true },
+        {
+            name: 'the list view of both flags',
+            flags: ['tile', 'linear'],
+            layout: 'simple',
+            id: 'flow-1',
+            expected: true,
+        },
+        {
+            name: 'the graph view of both flags',
+            flags: ['tile', 'linear'],
+            layout: 'advanced',
+            id: 'flow-1',
+            expected: true,
+        },
+        { name: 'the graph editor', flags: [], layout: 'advanced', id: 'flow-1', expected: false },
+        { name: 'the tile canvas of a new workflow', flags: ['tile'], layout: 'advanced', id: 'new', expected: true },
+    ] as const)(
+        'moves the workflow header into the workflow bar only for $name: $expected',
+        ({ flags, layout, id, expected }) => {
+            const flagKeys = { tile: FEATURE_FLAGS.WORKFLOWS_TILE_CANVAS, linear: FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW }
+            featureFlagLogic.actions.setFeatureFlags(
+                flags.map((flag) => flagKeys[flag]),
+                Object.fromEntries(flags.map((flag) => [flagKeys[flag], true]))
+            )
+            const editorLogic = hogFlowEditorLogic({ id })
+            editorLogic.mount()
+            editorLogic.actions.setEditorLayout(layout)
+
+            expect(editorLogic.values.showsHeaderInWorkflowBar).toBe(expected)
+        }
+    )
 
     it('resolves the selected action while React Flow nodes are still laying out', () => {
         const action = logic.values.workflow.actions[0]
@@ -580,6 +618,45 @@ describe('hogFlowEditorLogic', () => {
 
             expect(branchEdge0?.data?.label).toBe('If cohort #1 matches')
             expect(branchEdge1?.data?.label).toBe('If cohort #2 matches')
+        })
+    })
+
+    describe('legacy graph layout under the tile canvas', () => {
+        const delay: HogFlowAction = {
+            id: 'delay',
+            name: 'Delay',
+            description: '',
+            type: 'delay',
+            created_at: 0,
+            updated_at: 0,
+            config: { delay_duration: '1d' },
+        }
+
+        it.each([
+            {
+                name: 'skips the layout while the tile canvas shows',
+                flags: [FEATURE_FLAGS.WORKFLOWS_TILE_CANVAS],
+                laysOut: false,
+            },
+            { name: 'lays out the graph editor', flags: [], laysOut: true },
+        ])('$name, and keeps the steps the canvas reads', async ({ flags, laysOut }) => {
+            featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+            const editorLogic = hogFlowEditorLogic()
+            editorLogic.mount()
+            editorLogic.actions.setEditorLayout('advanced')
+            await expectLogic(editorLogic).toFinishAllListeners()
+            const layout = jest.spyOn(autolayout, 'getFormattedNodes')
+
+            await expectLogic(editorLogic, () =>
+                workflowLogic().actions.setWorkflowInfo({
+                    actions: [NEW_WORKFLOW.actions[0], delay, NEW_WORKFLOW.actions[1]],
+                    edges: [edge(TRIGGER_NODE_ID, delay.id, 'continue'), edge(delay.id, EXIT_NODE_ID, 'continue')],
+                })
+            ).toFinishAllListeners()
+
+            expect(layout.mock.calls.length > 0).toBe(laysOut)
+            expect(editorLogic.values.nodes.map((node) => node.id)).toEqual([TRIGGER_NODE_ID, delay.id, EXIT_NODE_ID])
+            layout.mockRestore()
         })
     })
 

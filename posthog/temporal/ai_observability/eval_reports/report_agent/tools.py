@@ -26,10 +26,6 @@ from posthog.hogql import ast
 
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
-from posthog.temporal.ai_observability.eval_reports.output_types import (
-    EvaluationReportOutcomeDefinition,
-    get_outcome_definition,
-)
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
@@ -57,6 +53,11 @@ from posthog.temporal.ai_observability.trace_summarization.constants import (
     MAX_TRACE_PROPERTIES_SIZE,
 )
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import _fetch_and_format_trace
+
+from products.ai_observability.backend.models.evaluation_outcomes import (
+    EvaluationReportOutcomeDefinition,
+    get_outcome_definition,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -403,7 +404,6 @@ def _fetch_period_summary(
             AND timestamp < {{ts_end}}
         """,
         placeholders={
-            **definition.query_placeholders,
             "evaluation_id": ast.Constant(value=evaluation_id),
             "ts_start": ast.Constant(value=ts_start),
             "ts_end": ast.Constant(value=ts_end),
@@ -508,7 +508,6 @@ def get_result_distribution_over_time(
         ORDER BY bucket
         """,
         placeholders={
-            **definition.query_placeholders,
             "evaluation_id": ast.Constant(value=evaluation_id),
             "ts_start": ast.Constant(value=ts_start),
             "ts_end": ast.Constant(value=ts_end),
@@ -564,7 +563,6 @@ def list_all_eval_results(
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     shared_placeholders = {
-        **definition.query_placeholders,
         "evaluation_id": ast.Constant(value=evaluation_id),
         "ts_start": ast.Constant(value=ts_start),
         "ts_end": ast.Constant(value=ts_end),
@@ -711,7 +709,6 @@ def sample_eval_results(
         LIMIT {{limit}}
         """,
         placeholders={
-            **definition.query_placeholders,
             "evaluation_id": ast.Constant(value=evaluation_id),
             "ts_start": ast.Constant(value=ts_start),
             "ts_end": ast.Constant(value=ts_end),
@@ -1547,7 +1544,6 @@ def get_top_outcome_reasons(
         LIMIT {{limit}}
         """,
         placeholders={
-            **definition.query_placeholders,
             "evaluation_id": ast.Constant(value=evaluation_id),
             "ts_start": ast.Constant(value=ts_start),
             "ts_end": ast.Constant(value=ts_end),

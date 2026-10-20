@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PassRateBucket,
     ReadyToMergeBucket,
     RepoOverview,
+    RevertShareBucket,
     TimeToGreenBucket,
 )
 from products.engineering_analytics.backend.logic.queries._buckets import (
@@ -83,7 +84,9 @@ _PR_SELECT = f"""
         __READY_MEDIAN_CUR__ AS ready_median_cur,
         __READY_MEDIAN_PREV__ AS ready_median_prev,
         countIf(__CUR_MERGED__) AS merged_cur,
-        countIf(__PREV_MERGED__) AS merged_prev
+        countIf(__PREV_MERGED__) AS merged_prev,
+        countIf(__CUR_MERGED__ AND is_revert) AS reverting_cur,
+        countIf(__PREV_MERGED__ AND is_revert) AS reverting_prev
     FROM __PR_SOURCE__ AS pr
     __READY_JOIN__
     WHERE merged_at IS NOT NULL AND merged_at >= {{prev_from}}
@@ -246,6 +249,60 @@ def query_ready_to_merge_series(
     ]
 
 
+def _share(part: int, whole: int) -> float | None:
+    return part / whole if whole else None
+
+
+# Reverts over all merges per bucket, the same all-authors population as the headline merge counts.
+_REVERT_SHARE_SERIES_SELECT = """
+    SELECT
+        __BUCKET_FN__ AS bucket_start,
+        count() AS merged,
+        countIf(is_revert) AS reverting
+    FROM __PR_SOURCE__ AS pr
+    WHERE merged_at IS NOT NULL AND merged_at >= {date_from} __DATE_TO_MERGED__
+    GROUP BY bucket_start
+    LIMIT 40000
+"""
+
+
+def query_revert_share_series(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    granularity: Granularity,
+) -> list[RevertShareBucket]:
+    """Reverting merges over all merges per bucket across the window, oldest first and zero-filled.
+    A bucket where nothing merged carries 0 merges and a None share."""
+    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
+    if date_to is not None:
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = (
+        _REVERT_SHARE_SERIES_SELECT.replace("__PR_SOURCE__", curated.pr_source())
+        .replace("__DATE_TO_MERGED__", date_to_clause)
+        .replace("__BUCKET_FN__", bucket_expr(granularity, "merged_at"))
+    )
+    response = curated.run(sql, query_type="engineering_analytics.revert_share_series", placeholders=placeholders)
+    counts_by_bucket = {
+        normalize_bucket(bucket_start, granularity): (int(merged or 0), int(reverting or 0))
+        for bucket_start, merged, reverting in response.results or []
+    }
+    buckets: list[RevertShareBucket] = []
+    for bucket in window_buckets(date_from, date_to, granularity):
+        merged, reverting = counts_by_bucket.get(bucket, (0, 0))
+        buckets.append(
+            RevertShareBucket(
+                bucket_start=bucket,
+                merged_pr_count=merged,
+                reverting_pr_count=reverting,
+                revert_share=_share(reverting, merged),
+            )
+        )
+    return buckets
+
+
 def query_open_to_merge_series(
     *,
     curated: CuratedGitHubSource,
@@ -286,6 +343,7 @@ class RepoSeries:
     success_rate: list[PassRateBucket]
     open_to_merge: list[OpenToMergeBucket]
     ready_to_merge: list[ReadyToMergeBucket]
+    revert_share: list[RevertShareBucket]
 
 
 def query_repo_series(
@@ -313,6 +371,9 @@ def query_repo_series(
         ready_to_merge=query_ready_to_merge_series(
             curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
         ),
+        revert_share=query_revert_share_series(
+            curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
+        ),
     )
 
 
@@ -326,6 +387,7 @@ def empty_repo_series(*, date_from: datetime, date_to: datetime | None) -> RepoS
         success_rate=[],
         open_to_merge=[],
         ready_to_merge=[],
+        revert_share=[],
     )
 
 
@@ -390,6 +452,8 @@ class _MergeHeadlines:
     median_ready_to_merge_seconds_prev: float | None
     merged_count: int
     merged_count_prev: int
+    reverting_count: int
+    reverting_count_prev: int
 
 
 def _query_merge_headlines(
@@ -416,8 +480,8 @@ def _query_merge_headlines(
         .replace("__PR_SOURCE__", curated.pr_source())
     )
     response = curated.run(sql, query_type="engineering_analytics.repo_overview_prs", placeholders=placeholders)
-    median_cur, median_prev, ready_cur, ready_prev, merged_cur, merged_prev = (
-        response.results[0] if response.results else (None, None, None, None, 0, 0)
+    median_cur, median_prev, ready_cur, ready_prev, merged_cur, merged_prev, reverting_cur, reverting_prev = (
+        response.results[0] if response.results else (None, None, None, None, 0, 0, 0, 0)
     )
     return _MergeHeadlines(
         median_open_to_merge_seconds=opt_float(median_cur),
@@ -426,6 +490,8 @@ def _query_merge_headlines(
         median_ready_to_merge_seconds_prev=opt_float(ready_prev),
         merged_count=int(merged_cur or 0),
         merged_count_prev=int(merged_prev or 0),
+        reverting_count=int(reverting_cur or 0),
+        reverting_count_prev=int(reverting_prev or 0),
     )
 
 
@@ -530,6 +596,10 @@ def query_repo_overview(
         rerun_cycles_prev=runs.rerun_cycles_prev,
         merged_pr_count=merges.merged_count,
         merged_pr_count_prev=merges.merged_count_prev,
+        reverting_pr_count=merges.reverting_count,
+        reverting_pr_count_prev=merges.reverting_count_prev,
+        revert_share=_share(merges.reverting_count, merges.merged_count),
+        revert_share_prev=_share(merges.reverting_count_prev, merges.merged_count_prev),
         median_open_to_merge_seconds=merges.median_open_to_merge_seconds,
         median_open_to_merge_seconds_prev=merges.median_open_to_merge_seconds_prev,
         median_ready_to_merge_seconds=merges.median_ready_to_merge_seconds,
@@ -579,5 +649,7 @@ def query_repo_overview(
         open_to_merge_series_granularity=series.granularity,
         ready_to_merge_series=series.ready_to_merge,
         ready_to_merge_series_granularity=series.granularity,
+        revert_share_series=series.revert_share,
+        revert_share_series_granularity=series.granularity,
         delivery_pipeline=pipeline,
     )

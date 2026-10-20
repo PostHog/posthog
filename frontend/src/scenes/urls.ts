@@ -35,6 +35,7 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
 
 /** The filters the analytics list reads from its URL. */
 export interface AnalyticsListUrlParams {
+    orderBy?: string
     type?: string
     createdBy?: string[]
     folder?: string
@@ -269,6 +270,8 @@ export const urls = {
         const queryString = params.toString()
         return `${base}${queryString ? `?${queryString}` : ''}`
     },
+    simpleOnboarding: (): string => '/onboarding/simple',
+    onboardingWelcome: (): string => '/welcome',
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,

@@ -473,6 +473,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
         incoming and existing inputs so a source can gate on context. Default: none."""
         return []
 
+    # Feature flag a team must have before the API lets it discover tables for or create a source of
+    # this type. `SourceConfig.featureFlag` only hides the source in the UI, so a source that must
+    # not be reachable through the API without the flag sets this as well.
+    requires_team_feature_flag: str | None = None
+
     # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
     # sources are capped; everything else is open. The API enforces this at create.
     max_instances_per_team: int | None = None

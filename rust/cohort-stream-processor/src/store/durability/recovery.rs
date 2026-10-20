@@ -42,11 +42,11 @@ use crate::observability::metrics::{
     CHECKPOINT_RESTORE_BLOCKED, CHECKPOINT_RESTORE_CANDIDATES_TOTAL,
     CHECKPOINT_RESTORE_DURATION_SECONDS, CHECKPOINT_RESTORE_TOTAL,
 };
-use crate::partitions::{InputGroups, InputTopic};
+use crate::partitions::{AdmittedSplit, InputGroups, InputTopic};
 use crate::store::{CohortStore, StoreError, STORE_SCHEMA_VERSION};
 
-const RETRY_START: Duration = Duration::from_secs(30);
-const RETRY_MAX: Duration = Duration::from_secs(300);
+pub(crate) const RETRY_START: Duration = Duration::from_secs(30);
+pub(crate) const RETRY_MAX: Duration = Duration::from_secs(300);
 
 /// Where the live store came from.
 #[derive(Debug)]
@@ -197,16 +197,18 @@ impl Search {
 /// reset. A restore comes back with it, for the events consumer to finish before anything folds.
 ///
 /// A restore that cannot finish blocks here, retrying with backoff, until the operator fixes the
-/// cause or turns checkpoints off. `lineage` is `None` when checkpoints are disabled.
+/// cause or turns checkpoints off. `lineage` is `None` when checkpoints are disabled. The store
+/// refuses to open when it was written under another split than the one `admitted`.
 pub async fn open_store(
     config: &Config,
+    admitted: &AdmittedSplit,
     lineage: Option<CheckpointLineage>,
     groups: Arc<InputGroups>,
 ) -> Result<(CohortStore, Option<PendingRestore>), StoreError> {
-    let boot = restore_until_ready(config.clone(), lineage, groups).await;
+    let boot = restore_until_ready(config.clone(), admitted.clone(), lineage, groups).await;
 
     // A published restore leaves a store at the path, so `effective_wipe_on_start` keeps it.
-    let store_config = config.store_config();
+    let store_config = config.store_config(admitted.ownership());
     info!(
         durable_restore_enabled = config.durable_restore_enabled,
         wipe_store_on_start = config.wipe_store_on_start,
@@ -226,14 +228,16 @@ pub async fn open_store(
     Ok((store, restore))
 }
 
-/// Retries [`prepare_store`] with backoff until the boot has a store, and positions the follower
-/// groups of a restore before returning it.
+/// Retries [`prepare_store`] with backoff until the boot has a store. For a restore, it waits until
+/// the fence admits `admitted`'s split again, then positions the follower groups on the partitions
+/// the split owns before returning it.
 ///
 /// The restore runs on a blocking thread: staging, validation and the Kafka position calls block,
 /// and the health server must keep answering meanwhile. A SIGTERM here kills the process; staging
 /// survives a kill.
 async fn restore_until_ready(
     config: Config,
+    admitted: AdmittedSplit,
     lineage: Option<CheckpointLineage>,
     groups: Arc<InputGroups>,
 ) -> BootStore {
@@ -257,10 +261,16 @@ async fn restore_until_ready(
                 )
                 .await
                 {
-                    Ok((BootStore::Restored(pending), source)) => pending
-                        .position_followers(&groups)
-                        .map(|()| (BootStore::Restored(pending), source))
-                        .map_err(RestoreBlocked::Positions),
+                    Ok((BootStore::Restored(pending), source)) => {
+                        // Another split can claim while the restore runs, so the boot's admission
+                        // no longer covers the follower commits.
+                        let admitted =
+                            AdmittedSplit::admit(admitted.ownership(), groups.clone()).await;
+                        pending
+                            .position_followers(&groups, &admitted)
+                            .map(|()| (BootStore::Restored(pending), source))
+                            .map_err(RestoreBlocked::Positions)
+                    }
                     other => other,
                 };
                 match attempt {

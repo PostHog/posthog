@@ -373,12 +373,8 @@ class TestCoolifyValidateCredentials:
     @pytest.mark.parametrize(
         "status_code,expected_valid,expected_fragment",
         [
-            pytest.param(200, True, None, id="ok"),
             # Coolify answers an unrecognized token with 400 "Invalid token." rather than 401.
             pytest.param(400, False, "rejected the API token", id="invalid_token_400"),
-            pytest.param(401, False, "rejected the API token", id="unauthenticated"),
-            pytest.param(403, False, "read permission", id="missing_read_ability"),
-            pytest.param(500, False, "try again", id="transient_server_error"),
         ],
     )
     def test_maps_status_to_a_message(

@@ -203,16 +203,6 @@ def _require_dashboard_access(
     required_level: AccessControlLevel,
 ) -> None:
     dashboard = cast(Dashboard, dashboard)
-    # Legacy check: remove once all users are on the new access control. It restricts editing only, so
-    # it must not gate a read.
-    if (
-        required_level == "editor"
-        and dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-    ):
-        if not view.user_permissions.dashboard(dashboard).can_edit:
-            raise PermissionDenied("You don't have edit permissions for this dashboard.")
-        return
-
     access_level = user_access_control.get_user_access_level(dashboard)
     if not access_level or not access_level_satisfied_for_resource("dashboard", access_level, required_level):
         raise PermissionDenied(_denied_message("dashboard", required_level))

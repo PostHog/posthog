@@ -650,7 +650,9 @@ class TestViewLinkValidation(APIBaseTest):
         data = response.json()
         self.assertEqual(data["attr"], None)
         self.assertEqual(data["code"], "QueryError")
-        self.assertEqual(data["detail"], "Unable to resolve field: nonexistent_field")
+        self.assertTrue(
+            data["detail"].startswith("Unable to resolve field: nonexistent_field. Available fields: "), data["detail"]
+        )
         self.assertEqual(data["type"], "query_error")
         self.assertEqual(
             data["hogql"],

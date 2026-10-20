@@ -193,6 +193,7 @@ class S3BatchWriter:
             byte_size=byte_size,
             batch_index=batch_index,
             timestamp_ns=timestamp_ns,
+            arrow_bytes=pa_table.nbytes,
         )
 
     def write_schema(self) -> str | None:

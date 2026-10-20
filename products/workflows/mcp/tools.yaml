@@ -12,6 +12,17 @@ ui_apps:
     workflow-list:
         type: list
         detail_tool: workflows-get
+    workflow-sending-rules:
+        type: custom
+        app_name: PostHog Sending Rules
+        description:
+            Sending rules for the project, with a button to apply the recommended frequency cap and a switch for
+            engagement events.
+        render_ui:
+            component_import: products/workflows/mcp/apps
+            view_component: WorkflowSendingRulesView
+            view_prop: data
+            data_type: WorkflowSendingRulesData
     workflow-setup-status:
         type: detail
         view_prop: data
@@ -450,6 +461,30 @@ tools:
             in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace
             it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their
             positions.
+    workflows-sending-rules-get:
+        operation: workflow_sending_rules_retrieve
+        enabled: true
+        title: Get sending rules
+        description: >
+            The project-wide rules every workflow and broadcast follows when it sends: the marketing frequency cap,
+            email tracking consent, and whether email engagement events are captured. Null cap fields mean no cap.
+        ui_app: workflow-sending-rules
+        feature_flag: workflows-mcp-onboarding
+    workflows-sending-rules-update:
+        operation: workflow_sending_rules_partial_update
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update sending rules
+        description: >
+            Change the project-wide sending rules. Only the fields you send change. When a project has no frequency cap
+            yet, recommend 1 marketing message every 2 days (max_messages 1, window_days 2) and turning on engagement
+            events; leave tracking consent as it is unless the user asks. Confirm the values with the user before
+            calling. Needs a project admin. Set both cap fields together, or both to null to turn the cap off.
+        ui_app: workflow-sending-rules
+        feature_flag: workflows-mcp-onboarding
     workflows-setup-status:
         operation: workflow_setup_status
         enabled: true

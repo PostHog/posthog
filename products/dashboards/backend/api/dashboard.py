@@ -143,8 +143,6 @@ from products.dashboards.backend.constants import (
     RUN_INSIGHTS_MIN_TILE_CHARS,
 )
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer, tile_ids_prefetch
-from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
@@ -314,11 +312,7 @@ DASHBOARD_SHARED_FIELDS = [
     "breakdown_colors",
     "data_color_theme_id",
     "tags",
-    "restriction_level",
-    "effective_restriction_level",
-    "effective_privilege_level",
     "user_access_level",
-    "access_control_version",
     "last_refresh",
     "persisted_filters",
     "persisted_variables",
@@ -948,7 +942,7 @@ class CanEditDashboard(BasePermission):
     def has_object_permission(self, request: Request, view, dashboard) -> bool:
         if request.method in SAFE_METHODS:
             return True
-        return view.user_permissions.dashboard(dashboard).can_edit
+        return bool(view.user_access_control.check_access_level_for_object(dashboard, "editor"))
 
 
 def _hide_extra_details(context: dict[str, Any], representation: dict[str, Any]) -> None:
@@ -1255,9 +1249,6 @@ class DashboardBasicSerializer(
     UserAccessControlSerializerMixin,
 ):
     created_by = UserBasicSerializer(read_only=True)
-    effective_privilege_level = serializers.SerializerMethodField()
-    effective_restriction_level = serializers.SerializerMethodField()
-    access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     last_viewed_at = serializers.DateTimeField(read_only=True, required=False, allow_null=True)
     folder = serializers.SerializerMethodField(
@@ -1300,11 +1291,7 @@ class DashboardBasicSerializer(
             "deleted",
             "creation_mode",
             "tags",
-            "restriction_level",
-            "effective_restriction_level",
-            "effective_privilege_level",
             "user_access_level",
-            "access_control_version",
             "last_refresh",
             "team_id",
             "search_match_type",
@@ -1314,31 +1301,7 @@ class DashboardBasicSerializer(
             "name": {"help_text": "Name of the dashboard."},
             "description": {"help_text": "Description of the dashboard."},
             "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},
-            "restriction_level": {
-                "help_text": (
-                    "Only restriction level 21 is accepted on create and update. "
-                    "Legacy value 37 is deprecated and rejected."
-                )
-            },
         }
-
-    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
-    def get_effective_restriction_level(self, dashboard: Dashboard) -> RestrictionLevel:
-        if self.context.get("is_shared"):
-            return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.user_permissions.dashboard(dashboard).effective_restriction_level
-
-    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
-    def get_effective_privilege_level(self, dashboard: Dashboard) -> PrivilegeLevel:
-        if self.context.get("is_shared"):
-            return PrivilegeLevel.CAN_VIEW
-        return self.user_permissions.dashboard(dashboard).effective_privilege_level
-
-    def get_access_control_version(self, dashboard: Dashboard) -> str:
-        # This effectively means that the dashboard they are using the old dashboard permissions
-        if dashboard.restriction_level > RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
-            return "v1"
-        return "v2"
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_folder(self, dashboard: Dashboard) -> str | None:
@@ -1415,16 +1378,6 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
-    effective_privilege_level = serializers.SerializerMethodField()
-    effective_restriction_level = serializers.SerializerMethodField()
-    access_control_version = serializers.SerializerMethodField()
-    restriction_level = serializers.ChoiceField(
-        choices=RestrictionLevel.choices,
-        required=False,
-        help_text=(
-            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
-        ),
-    )
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     breakdown_colors = BreakdownColorsField(
         child=BreakdownColorConfigSerializer(),
@@ -1475,18 +1428,10 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         fields = DASHBOARD_SHARED_FIELDS
         read_only_fields = [
             "creation_mode",
-            "effective_restriction_level",
             "is_shared",
             "user_access_level",
             "last_accessed_at",
         ]
-
-    def validate_restriction_level(self, value: int) -> int:
-        if value == RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
-            raise serializers.ValidationError(
-                "Collaborator-only dashboard access is no longer supported. Set the restriction level to 21."
-            )
-        return value
 
     def validate_group_titles(self, value: dict[str, str] | None) -> dict[str, str] | None:
         if value is None:
@@ -1828,7 +1773,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         ]
         read_only_fields = [
             "creation_mode",
-            "effective_restriction_level",
             "is_shared",
             "user_access_level",
             "last_accessed_at",
@@ -2150,11 +2094,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         previous_layout_compaction = _effective_layout_compaction(instance.customization)
-        can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
-        if "restriction_level" in validated_data and not can_user_restrict:
-            raise exceptions.PermissionDenied(
-                "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
-            )
         self._check_delivered_dashboard_filters_access(
             cast(User, self.context["request"].user), instance, self.initial_data
         )
@@ -2294,7 +2233,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     request=self.context["request"],
                 )
 
-        self.user_permissions.reset_insights_dashboard_cached_results()
         # A rename re-paths the entry in a post-save signal, so the annotation bound before the save now
         # points at the old path. Dropping it sends `filed_entry` back to the file system for the new one.
         instance.__dict__.pop("_folder_id", None)
@@ -2669,9 +2607,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             widget_json: dict = tile_data.get("widget", {})
             widget_data = DashboardSerializer._validated_patch_widget_payload(widget_json)
 
-            if not dashboard_widgets_enabled(team=instance.team, user=user):
-                raise serializers.ValidationError({"widget": "Dashboard widgets are not enabled for this project."})
-
             user_access_control = UserAccessControl(user=user, team=instance.team)
             existing_widget_id = widget_data.get("id")
 
@@ -2829,7 +2764,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         serialized_tiles: list[ReturnDict] = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(*tile_insight_prefetches())
-        self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
         team = self.context["get_team"]()
         chained_tile_refresh_enabled = posthoganalytics.feature_enabled(
@@ -2883,18 +2817,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             return {**validated_data, "creation_mode": "duplicate"}
 
         return {**validated_data, "creation_mode": "default"}
-
-
-class DashboardWriteOpenApiSerializer(DashboardSerializer):
-    # Existing dashboards may return 37, but write requests must not accept it.
-    restriction_level = serializers.IntegerField(  # type: ignore[assignment]
-        min_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
-        max_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
-        required=False,
-        help_text=(
-            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
-        ),
-    )
 
 
 class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
@@ -2962,15 +2884,9 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
     ),
     # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field
     # opt-in applies here too — on every action whose response uses DashboardSerializer.
-    create=extend_schema(
-        request=DashboardWriteOpenApiSerializer,
-        parameters=[INCLUDE_DASHBOARDS_PARAMETER],
-    ),
+    create=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
     retrieve=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
-    update=extend_schema(
-        request=DashboardWriteOpenApiSerializer,
-        parameters=[INCLUDE_DASHBOARDS_PARAMETER],
-    ),
+    update=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
     partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer, parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
 )
 class DashboardsViewSet(
@@ -3414,12 +3330,8 @@ class DashboardsViewSet(
         )
         to_dashboard_obj = get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
         self.check_object_permissions(request, to_dashboard_obj)
-        if not self.user_permissions.dashboard(to_dashboard_obj).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for the destination dashboard.")
         if tile.widget_id is not None:
             request_user = cast(User, request.user)
-            if not dashboard_widgets_enabled(team=self.team, user=request_user):
-                raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
             user_access_control = UserAccessControl(user=request_user, team=self.team)
             if tile.widget is None:
                 raise exceptions.ValidationError("Widget tile is missing its widget.")
@@ -3477,8 +3389,6 @@ class DashboardsViewSet(
         )
 
         if tile.widget_id is not None:
-            if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
-                raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
             if tile.widget is None:
                 raise exceptions.ValidationError("Widget tile is missing its widget.")
             DashboardSerializer._check_widget_tile_product_access(tile.widget, user_access_control)
@@ -3582,8 +3492,6 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
-        if not self.user_permissions.dashboard(dashboard).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
 
         serializer = CreateTextTileRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -3620,8 +3528,6 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
-        if not self.user_permissions.dashboard(dashboard).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
 
         serializer = UpdateTextTileRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -3679,8 +3585,6 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
-        if not self.user_permissions.dashboard(dashboard).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
 
         serializer = DeleteTileRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -3791,7 +3695,6 @@ class DashboardsViewSet(
                 to_attr="prefetched_tags",
             ),
         )
-        self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
         # Order over every tile first, so a tile_ids subset keeps the dashboard's own ordering.
         ordered_tiles = list(enumerate(DashboardTile.sort_tiles_by_layout(tiles, "sm")))
@@ -3854,9 +3757,6 @@ class DashboardsViewSet(
     )
     @action(methods=["GET"], detail=True, required_scopes=["dashboard:read"])
     def run_widgets(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
-            raise exceptions.PermissionDenied("Dashboard widgets are not enabled for this project.")
-
         tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
         if not tile_ids:
             raise exceptions.ValidationError("tile_ids is required.")
@@ -3984,9 +3884,6 @@ class DashboardsViewSet(
     @action(methods=["POST"], detail=True, url_path="widgets/batch", required_scopes=["dashboard:write"])
     def widgets_batch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Add multiple widget tiles to a dashboard in one atomic request."""
-        if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
-            raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
-
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
@@ -4068,14 +3965,9 @@ class DashboardsViewSet(
         that. All updates succeed or fail together. To add new widgets, use the widgets/batch POST endpoint; to
         remove one, use delete_tile.
         """
-        if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
-            raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
-
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
-        if not self.user_permissions.dashboard(dashboard).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
 
         serializer = UpdateDashboardWidgetsBatchRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

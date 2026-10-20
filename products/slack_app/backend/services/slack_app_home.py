@@ -33,7 +33,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled, is_slack_app_unprompted_answers_enabled
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -73,8 +73,11 @@ from products.slack_app.backend.services.slack_settings import (
     resolve_auto_model_choice,
     resolve_channel_welcome_mode,
     resolve_untagged_followup_mode,
+    resolve_untagged_question_mode,
     set_auto_model_choice,
     set_channel_welcome_mode,
+    set_untagged_followup_mode,
+    set_untagged_question_mode,
 )
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
@@ -101,6 +104,7 @@ ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
+ACTION_SET_UNTAGGED_QUESTION_MODE = "slack_app_home:set_untagged_question_mode"
 ACTION_SET_CHANNEL_WELCOME_MODE = "slack_app_home:set_channel_welcome_mode"
 ACTION_SET_AUTO_MODEL_CHOICE = "slack_app_home:set_auto_model_choice"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
@@ -128,6 +132,7 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_STATS_WINDOW,
         ACTION_STATS_REFRESH,
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        ACTION_SET_UNTAGGED_QUESTION_MODE,
         ACTION_SET_CHANNEL_WELCOME_MODE,
         ACTION_SET_AUTO_MODEL_CHOICE,
         ACTION_GITHUB_SETTINGS,
@@ -441,6 +446,7 @@ def render_home_view(
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
     untagged_followup_mode: UntaggedFollowupMode | None = None,
+    untagged_question_mode: UntaggedFollowupMode | None = None,
     channel_welcome_mode: ChannelWelcomeMode | None = None,
     auto_model_choice: bool | None = None,
     has_project_access: bool = True,
@@ -489,6 +495,11 @@ def render_home_view(
     if untagged_followup_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
+
+    # Section 4b — channel questions. `None` means the flag is off for this workspace.
+    if untagged_question_mode is not None:
+        blocks.append({"type": "divider"})
+        blocks.extend(_untagged_questions_section_blocks(untagged_question_mode))
 
     # Section 5 — channel welcome: a workspace setting, so only admins see it.
     if is_admin and channel_welcome_mode is not None:
@@ -951,34 +962,67 @@ UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
     UntaggedFollowupMode.NEVER: "Leave them alone",
 }
 
+UNTAGGED_QUESTION_MODE_LABELS: dict[str, str] = {
+    UntaggedFollowupMode.AUTO: "Answer automatically",
+    UntaggedFollowupMode.ASK: "Ask me first",
+    UntaggedFollowupMode.NEVER: "Never answer",
+}
 
-def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
-    """Picker for how untagged replies land in the threads you started.
 
-    Ask until picked. The choice covers every reply in those threads,
-    including the ones you write yourself.
+def _untagged_mode_section_blocks(
+    mode: UntaggedFollowupMode,
+    *,
+    action_id: str,
+    labels: dict[str, str],
+    title: str,
+    subtitle: str,
+    note: str,
+) -> list[dict]:
+    """One picker for what PostHog does with a kind of message nobody tagged it in.
+
+    Both pickers ask until the viewer picks, so nothing reaches the agent or the
+    channel on a default.
     """
     options = [
         {"text": {"type": "plain_text", "text": label, "emoji": True}, "value": value}
-        for value, label in UNTAGGED_FOLLOWUP_MODE_LABELS.items()
+        for value, label in labels.items()
     ]
     select: dict[str, Any] = {
         "type": "static_select",
-        "action_id": ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        "action_id": action_id,
         "options": options,
         "initial_option": next(o for o in options if o["value"] == mode.value),
     }
     return [
-        _section_title(
-            "💬 Thread follow-ups",
-            "What I do with replies in a thread you started, when nobody tags @PostHog.",
-        ),
+        _section_title(title, subtitle),
         {"type": "actions", "elements": [select]},
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "Applies to every reply in those threads, yours included."}],
-        },
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]},
     ]
+
+
+def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
+    return _untagged_mode_section_blocks(
+        mode,
+        action_id=ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        labels=UNTAGGED_FOLLOWUP_MODE_LABELS,
+        title="💬 Thread follow-ups",
+        subtitle="What I do with replies in a thread you started, when nobody tags @PostHog.",
+        note="Applies to every reply in those threads, yours included.",
+    )
+
+
+def _untagged_questions_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
+    return _untagged_mode_section_blocks(
+        mode,
+        action_id=ACTION_SET_UNTAGGED_QUESTION_MODE,
+        labels=UNTAGGED_QUESTION_MODE_LABELS,
+        title="❓ Questions in channels",
+        subtitle=(
+            "What I do when you post a question in a channel without tagging @PostHog, "
+            "and your PostHog data can answer it."
+        ),
+        note="Only your own questions. Thread follow-ups keep the setting above.",
+    )
 
 
 CHANNEL_WELCOME_MODE_LABELS: dict[str, str] = {
@@ -1696,7 +1740,14 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_UNTAGGED_FOLLOWUP_MODE:
-        _apply_untagged_followup_mode_pick(integration, slack_user_id, action)
+        if (mode := _picked_untagged_mode(action)) is not None:
+            set_untagged_followup_mode(integration.integration_id, slack_user_id, mode)
+        republish()
+        return HttpResponse(status=200)
+
+    if action_id == ACTION_SET_UNTAGGED_QUESTION_MODE:
+        if (mode := _picked_untagged_mode(action)) is not None and is_slack_app_unprompted_answers_enabled(integration):
+            set_untagged_question_mode(integration.integration_id, slack_user_id, mode)
         republish()
         return HttpResponse(status=200)
 
@@ -2070,17 +2121,11 @@ def _reset_personal_preferences(integration: Integration, slack_user_id: str) ->
     )
 
 
-def _apply_untagged_followup_mode_pick(integration: Integration, slack_user_id: str, action: dict) -> None:
-    """Persist the picked mode. An unrecognised value is ignored rather than stored."""
+def _picked_untagged_mode(action: dict) -> UntaggedFollowupMode | None:
+    """The mode a picker click carries. An unrecognised value is ignored rather than stored."""
 
     picked = (action.get("selected_option") or {}).get("value")
-    if picked not in UntaggedFollowupMode.values:
-        return
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
-        defaults={"untagged_followup_mode": picked},
-    )
+    return UntaggedFollowupMode(picked) if picked in UntaggedFollowupMode.values else None
 
 
 def _clear_project_personal(integration: Integration, slack_user_id: str) -> None:
@@ -2092,7 +2137,7 @@ def _clear_project_personal(integration: Integration, slack_user_id: str) -> Non
     ).first()
     if row is None:
         return
-    if not row.untagged_followup_mode and not row.auto_model_choice:
+    if not row.untagged_followup_mode and not row.untagged_question_mode and not row.auto_model_choice:
         row.delete()
         return
     row.default_integration = None
@@ -2153,6 +2198,11 @@ def _build_home_view(
         tasks_state=tasks_state,
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
+        untagged_question_mode=(
+            resolve_untagged_question_mode(integration.integration_id, slack_user_id)
+            if is_slack_app_unprompted_answers_enabled(integration)
+            else None
+        ),
         channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
         auto_model_choice=(
             resolve_auto_model_choice(integration.integration_id, slack_user_id)

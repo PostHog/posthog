@@ -21,10 +21,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ad
     MAX_STATS_BACKFILL_DAYS,
     MISSING_APP,
     MISSING_INTEGRATION,
+    PAGE_SIZES,
     PARTITION_KEYS,
     PLACEMENTS,
     PRIMARY_KEYS,
     STATS_TABLES,
+    UNSORTABLE_TABLES,
 )
 
 
@@ -118,9 +120,10 @@ class TwitterAdsClient:
         return response.json()
 
     def pages(self, path: str, cursor: str | None = None) -> Iterator[dict[str, Any]]:
+        table = path.rsplit("/", 1)[-1]
         while True:
-            params: dict[str, str | int] = {"count": 1000, "with_deleted": "true"}
-            if path.rsplit("/", 1)[-1] != "media_creatives":
+            params: dict[str, str | int] = {"count": PAGE_SIZES.get(table, 1000), "with_deleted": "true"}
+            if table not in UNSORTABLE_TABLES:
                 params["sort_by"] = "created_at-asc"
             if cursor:
                 params["cursor"] = cursor

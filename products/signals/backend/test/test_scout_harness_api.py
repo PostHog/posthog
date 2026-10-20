@@ -2329,6 +2329,17 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert SignalScratchpad.objects.filter(team=self.team, key="k1").count() == 1
         assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
 
+    def test_search_filters_by_creating_skill(self) -> None:
+        errors_run = _make_run(self.team, skill_name="signals-scout-errors")
+        flags_run = _make_run(self.team, skill_name="signals-scout-flags")
+        SignalScratchpad.objects.create(team=self.team, key="errors", content="v", created_by_run=errors_run)
+        SignalScratchpad.objects.create(team=self.team, key="flags", content="v", created_by_run=flags_run)
+
+        response = self.client.get(self._list_url(), {"skill_name": "signals-scout-errors"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in response.json()] == ["errors"]
+
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
         SignalScratchpad.objects.create(team=self.team, key="another", content="more memory")

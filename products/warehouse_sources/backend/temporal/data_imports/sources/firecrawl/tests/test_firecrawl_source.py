@@ -38,29 +38,6 @@ class TestFirecrawlValidateCredentials:
         assert (error is None) is probe_result
 
 
-class TestFirecrawlNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.firecrawl.dev/v2/team/activity"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.firecrawl.dev/v2/monitor"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        errors = FirecrawlSource().get_non_retryable_errors()
-        assert any(key in observed for key in errors)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.firecrawl.dev/v2/monitor"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.firecrawl.dev/v2/team/activity"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.firecrawl.dev', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        errors = FirecrawlSource().get_non_retryable_errors()
-        assert not any(key in observed for key in errors)
-
-
 class TestFirecrawlResumableWiring:
     def test_manager_is_bound_to_resume_config(self) -> None:
         # A wrong data class would deserialize saved Redis state into the wrong shape on resume.

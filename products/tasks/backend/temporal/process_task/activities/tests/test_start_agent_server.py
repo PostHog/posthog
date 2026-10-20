@@ -497,7 +497,6 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
-            event_ingest_keep_stream_open=False,
         ),
     )
     mocker.patch(
@@ -578,7 +577,6 @@ async def test_await_agent_server_ready_records_failed_relaunch(
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
-            event_ingest_keep_stream_open=False,
         ),
     )
     mocker.patch("products.tasks.backend.exceptions.capture_exception")
@@ -872,7 +870,6 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         task_run_session_token=None,
         codex_run_token=None,
         event_ingest_url=None,
-        event_ingest_keep_stream_open=False,
     )
     context = _context(claude_model_access=access)
     if access == "own-subscription" and exit_code != 0:

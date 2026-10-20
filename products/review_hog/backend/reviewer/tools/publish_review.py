@@ -21,7 +21,7 @@ from products.review_hog.backend.reviewer.constants import (
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
-from products.review_hog.backend.reviewer.finding_budget import budget_note
+from products.review_hog.backend.reviewer.finding_budget import ReviewRound, budget_note, round_note
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import (
@@ -131,6 +131,7 @@ def publish_persisted_review(
         )
         if dropped.disposition == "budget"
     )
+    review_round = ReviewRound.for_turn(report, run_index=run_index)
     outcome = publish_review(
         owner=owner,
         repo=repo,
@@ -149,6 +150,7 @@ def publish_persisted_review(
         findings_footer=draft_notice if snapshot is not None and snapshot.pr_metadata.draft else "",
         answers_request=answers_request,
         budget_note=budget_note(over_budget, comment_commands_on) if over_budget else "",
+        round_note=round_note(review_round) if review_round.asks_for_a_rethink else "",
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -253,6 +255,7 @@ def publish_review(
     footer: str = "",
     findings_footer: str = "",
     budget_note: str = "",
+    round_note: str = "",
     answers_request: bool = False,
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
@@ -275,6 +278,9 @@ def publish_review(
     `budget_note` says the finding budget left findings out. An automatic turn that keeps nothing stays silent: once
     the budget is spent an automatic review only looks for must-fix findings.
 
+    `round_note` tells the author which review round this is and to reconsider the approach. Like the budget note it
+    follows findings only, because a clean turn is not a round.
+
     `answers_request` is set when a person asked for the turn, with the label, a comment, or the UI. A clean
     Standard turn then posts a short review that says it found nothing. A Deep turn has its status comment for that.
     """
@@ -287,7 +293,7 @@ def publish_review(
     # `footer` closes the review whichever body posts, so the inline-only body keeps it too.
     footer_block = f"{footer}\n\n" if footer else ""
     note_block = f"{large_pr_note(large_pr_parts)}\n\n" if large_pr_parts is not None else ""
-    budget_block = f"{budget_note}\n\n" if budget_note else ""
+    budget_block = "".join(f"{note}\n\n" for note in (budget_note, round_note) if note)
     valid_findings = load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
 
     diff_lines = build_diff_line_map(pr_files)

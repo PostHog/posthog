@@ -140,7 +140,8 @@ class TestRetryBudget:
             with pytest.raises(RESTClientRetryableError):
                 _paginate(client)
 
-        assert clock.sleeps == [200.0] * 5
+        # A fifth wait would end exactly at the budget, with no time left for a try.
+        assert clock.sleeps == [200.0] * 4
 
     @parameterized.expand(
         [
@@ -266,5 +267,5 @@ class TestShutdownDuringARetryWait:
         outcome = self._run(covers_framework_checkpoints=False, with_signal=False)
 
         assert isinstance(outcome.error, RESTClientRetryableError)
-        assert outcome.clock.sleeps == [200.0, 200.0, 200.0]
+        assert outcome.clock.sleeps == [200.0, 200.0]
         assert outcome.host.starts[-1] <= BUDGET

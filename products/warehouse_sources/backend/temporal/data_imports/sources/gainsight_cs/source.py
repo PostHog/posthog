@@ -26,12 +26,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
     RESPONSE_TOO_LARGE_ERROR,
     RESPONSE_TOO_SLOW_ERROR,
     GainsightCsResumeConfig,
+    gainsight_cs_cta_configuration_source,
+    gainsight_cs_cta_task_source,
     gainsight_cs_source,
     parse_custom_objects,
     resolve_object_name,
     validate_credentials as validate_gainsight_cs_credentials,
+    validate_cta_configuration_access,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.settings import (
+    CTA_CONFIGURATION,
+    CTA_TASK,
     ENDPOINTS,
     GAINSIGHT_CS_OBJECTS,
     GSID,
@@ -97,6 +102,9 @@ class GainsightCsSource(ResumableSource[GainsightCsSourceConfig, GainsightCsResu
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        if schema_name == CTA_CONFIGURATION:
+            return validate_cta_configuration_access(config.domain, config.access_key, team_id)
+
         if schema_name is None:
             object_name = CREDENTIAL_PROBE_OBJECT
         else:
@@ -116,6 +124,19 @@ class GainsightCsSource(ResumableSource[GainsightCsSourceConfig, GainsightCsResu
         resumable_source_manager: ResumableSourceManager[GainsightCsResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        if inputs.schema_name == CTA_CONFIGURATION:
+            return gainsight_cs_cta_configuration_source(
+                domain=config.domain, access_key=config.access_key, team_id=inputs.team_id
+            )
+
+        if inputs.schema_name == CTA_TASK:
+            return gainsight_cs_cta_task_source(
+                domain=config.domain,
+                access_key=config.access_key,
+                team_id=inputs.team_id,
+                resumable_source_manager=resumable_source_manager,
+            )
+
         object_name = resolve_object_name(inputs.schema_name, config.custom_objects)
         known = GAINSIGHT_CS_OBJECTS.get(inputs.schema_name)
 
@@ -145,7 +166,7 @@ class GainsightCsSource(ResumableSource[GainsightCsSourceConfig, GainsightCsResu
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/gainsight-cs",
             iconPath="/static/services/gainsight_cs.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

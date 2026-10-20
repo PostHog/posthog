@@ -4,13 +4,15 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
+        "@floating-ui/react": "^0.27.19",
         "fast-equals": "catalog:",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "posthog-js": "catalog:",
-        "react-grid-layout": "^2.2.4"
+        "react-grid-layout": "^2.2.4",
+        "react-intersection-observer": "^9.5.3"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",

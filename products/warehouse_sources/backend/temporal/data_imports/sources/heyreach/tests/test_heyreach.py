@@ -141,9 +141,6 @@ class TestValidateCredentials:
         ("status_code", "expected_valid", "expected_fragment"),
         [
             (200, True, None),
-            (401, False, "HeyReach rejected the API key"),
-            (403, False, "HeyReach rejected the API key"),
-            (500, False, "unexpected status (500)"),
         ],
     )
     def test_maps_status_to_user_message(

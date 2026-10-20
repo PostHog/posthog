@@ -269,6 +269,19 @@ BIGQUERY_IMPERSONATION_PERMISSION_ERROR = (
 # the connecting organization. The rest of the message carries the organization ID the user must add.
 BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX = "Could not verify that service account"
 
+# Raised as a `Forbidden` (403) by every BigQuery REST/gRPC call when a VPC Service Controls
+# perimeter in the customer's Google Cloud organization blocks the request outright, e.g. "VPC
+# Service Controls: Request is prohibited by organization's policy. vpcServiceControlsUniqueIdentifier:
+# ...". This is an org-level network policy the customer's Google Cloud admin controls, not an IAM
+# role we can tell them to grant — retrying the same request only repeats the same denial. Shared
+# between onboarding credential validation and the sync-path classifier in
+# `BigQuerySource.get_non_retryable_errors`, so the two stay in lockstep.
+BIGQUERY_VPC_SERVICE_CONTROLS_ERROR = (
+    "A VPC Service Controls policy in your Google Cloud organization is blocking this request to "
+    "BigQuery. Add an access level for PostHog to the perimeter around this project (or the "
+    "dataset's project), or exempt BigQuery from the perimeter, then reconnect the source."
+)
+
 
 class BigQueryAuthResolutionError(Exception):
     """Carries a user-safe explanation of why a source's credentials could not be resolved."""
@@ -988,6 +1001,8 @@ def classify_bigquery_validation_error(e: Exception) -> str:
         return BIGQUERY_INVALID_IDENTIFIER_ERROR
     if "was not found in location" in message or "Not found: Dataset" in message:
         return BIGQUERY_DATASET_NOT_FOUND_ERROR
+    if "VPC Service Controls" in message:
+        return BIGQUERY_VPC_SERVICE_CONTROLS_ERROR
     if "Access Denied" in message or "PermissionDenied" in message or "permission denied" in message:
         return BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR
     # Genuinely unexpected — keep the signal, and fall back to a generic message so no raw
@@ -2062,4 +2077,6 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,
             has_duplicate_primary_keys=has_duplicate_keys,
+            # The ordered query writes a temporary table, and the read of a table has no order.
+            sort_mode=None,
         )

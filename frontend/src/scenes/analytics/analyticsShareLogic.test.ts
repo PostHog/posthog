@@ -4,13 +4,15 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { analyticsShareLogic } from './analyticsShareLogic'
-import { AnalyticsSpace } from './analyticsSpacesLogic'
+import { AnalyticsSpace, analyticsSpacesLogic } from './analyticsSpacesLogic'
 
 describe('analyticsShareLogic', () => {
     let moves: string[]
+    let folders: string[]
 
     beforeEach(() => {
         moves = []
+        folders = []
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system_shortcut/': { results: [] },
@@ -21,6 +23,17 @@ describe('analyticsShareLogic', () => {
                 }),
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const params = new URL(request.url).searchParams
+                    if (params.get('type') === 'folder') {
+                        const offset = Number(params.get('offset') ?? 0)
+                        const limit = Number(params.get('limit') ?? 200)
+                        return {
+                            results: folders
+                                .slice(offset, offset + limit)
+                                .map((path) => ({ id: `fs-${path}`, path, type: 'folder', meta: {} })),
+                            next: offset + limit < folders.length ? '/next-page' : null,
+                            count: folders.length,
+                        }
+                    }
                     const ref = params.get('ref')
                     return ref
                         ? {
@@ -65,6 +78,23 @@ describe('analyticsShareLogic', () => {
 
         expect(moves).toEqual([expected])
         expect(logic.values.itemSpaces[`${type}:${ref}`]).toBe(space?.name ?? null)
+    })
+
+    it('loads every sharing destination independently of browser search and refreshes them on each open', async () => {
+        folders = Array.from({ length: 22 }, (_, index) => `Collection ${String(index).padStart(2, '0')}`)
+        const logic = analyticsShareLogic()
+        logic.mount()
+        const browser = analyticsSpacesLogic()
+        browser.actions.setSearch('missing')
+        const target = { type: 'insight' as const, ref: 'i1', name: 'Weekly active' }
+        await expectLogic(logic, () => logic.actions.openShareToSpace(target)).toDispatchActions(['loadSpacesSuccess'])
+        expect(logic.values.spaces.map((space) => space.name)).toEqual(folders)
+        expect(browser.values.search).toBe('missing')
+
+        logic.actions.closeShareToSpace()
+        folders = [...folders.slice(1), 'New collection']
+        await expectLogic(logic, () => logic.actions.openShareToSpace(target)).toDispatchActions(['loadSpacesSuccess'])
+        expect(logic.values.spaces.map((space) => space.name)).toEqual(folders)
     })
 
     it('refuses to share a canvas from a private channel, since the space would not make it visible', async () => {

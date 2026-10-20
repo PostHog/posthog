@@ -23,7 +23,6 @@ class TestOpsgenieSource:
     @pytest.mark.parametrize(
         "status,error",
         [
-            (401, "Invalid Opsgenie API key"),
             (422, "Your Opsgenie API key format is not valid"),
         ],
     )

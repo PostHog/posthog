@@ -148,6 +148,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SQUARE = "Square", "Square"
     ZOOM = "Zoom", "Zoom"
     TRELLO = "Trello", "Trello"
+    TRAFFICSTARS = "TrafficStars", "TrafficStars"
     MONDAY = "Monday", "Monday"
     CLICKUP = "ClickUp", "ClickUp"
     CONFLUENCE = "Confluence", "Confluence"
@@ -1470,6 +1471,8 @@ class ExternalDataSourceType(LabeledStrEnum):
     LEANTIME = "Leantime", "Leantime"
     TESTOMATIO = "Testomatio", "Testomatio"
     GOOGLEADMOB = "GoogleAdMob", "GoogleAdMob"
+    KLAR = "Klar", "Klar"
+    CONECTOCRM = "ConectoCRM", "ConectoCRM"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

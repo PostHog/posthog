@@ -23,6 +23,7 @@ from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.seeders.insight import seed_insight_noise
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.retrieval.scorers import LookupIdInOutput, SkillLoaded
 
 SKILL_NAME = "querying-posthog-data"
@@ -72,6 +73,10 @@ async def eval_insight_retrieval(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-retrieval-cli",
+        offline_suite=offline_suite(
+            "retrieval/eval_insight_retrieval::eval_insight_retrieval",
+            metrics=["skill_loaded", "lookup_id_in_output"],
+        ),
         cases=cases,
         scorers=[
             SkillLoaded(skill_name=SKILL_NAME),

@@ -212,7 +212,7 @@ SELECT
     sumIf(read_count, read_alone),
     quantilesMergeIf(0.5, 0.9)(duration_ms_quantiles, read_alone)[{FIRST_QUANTILE}],
     quantilesMergeIf(0.5, 0.9)(read_bytes_quantiles, read_alone)[{FIRST_QUANTILE}],
-    max(max_event_time)
+    toTimeZone(max(max_event_time), 'UTC')
 FROM (
     SELECT *, {{human}} AS is_human
     FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}

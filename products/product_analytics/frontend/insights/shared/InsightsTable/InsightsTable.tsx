@@ -12,7 +12,6 @@ import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFi
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getResultSeries, getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
-import { getResultSeriesName } from 'scenes/insights/utils/resultSeriesName'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -21,6 +20,7 @@ import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
+import { getResultSeriesName } from 'products/product_analytics/frontend/insights/shared/resultSeriesName'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 

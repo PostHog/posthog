@@ -9,10 +9,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
     CohortApi,
     CohortPersonsResponseApi,
     CohortUsedInResponseApi,
     CohortUsedInWorkflowsBlockApi,
+    CohortsActivityRetrieveParams,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
     CohortsStaffListParams,
@@ -235,12 +237,33 @@ export const cohortsDestroy = async (projectId: string, id: number, options?: Re
     })
 }
 
-export const getCohortsActivityRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/cohorts/${id}/activity/`
+export const getCohortsActivityRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: CohortsActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/cohorts/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/cohorts/${id}/activity/`
 }
 
-export const cohortsActivityRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCohortsActivityRetrieveUrl(projectId, id), {
+export const cohortsActivityRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: CohortsActivityRetrieveParams,
+    options?: RequestInit
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getCohortsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

@@ -86,7 +86,7 @@ New connections use ShipStation API v2, which needs only the API key from your [
 API access requires a ShipStation plan tier that includes it.""",
             iconPath="/static/services/shipstation.png",
             docsUrl="https://posthog.com/docs/cdp/sources/shipstation",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 # The two versions take different credentials: v2 needs only the API key, v1 an

@@ -51,7 +51,7 @@ from posthog.models.deletion_targets import (
     surviving_rows_sql,
     sweep_clusters,
 )
-from posthog.models.events_retention_config import effective_events_retention
+from posthog.models.events_retention_config import effective_events_retention, whole_month_cutoff
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_TABLE,
@@ -143,11 +143,6 @@ class PartitionCleanup:
 @frozen
 class OldEventsCleanupPlan:
     partitions: list[PartitionCleanup]
-
-
-def whole_month_cutoff(now: datetime, retention_months: int) -> datetime:
-    """Start of the month that holds the instant ``retention_months`` before ``now``."""
-    return (now - relativedelta(months=retention_months)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
 def _yyyymm(moment: datetime) -> int:

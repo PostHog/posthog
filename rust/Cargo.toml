@@ -66,6 +66,7 @@ members = [
   "personhog-coordination",
   "personhog-identity",
   "personhog-leader",
+  "personhog-parity-monitor",
   "personhog-writer",
   "personhog-proto",
   "prometheus-rw-proto",

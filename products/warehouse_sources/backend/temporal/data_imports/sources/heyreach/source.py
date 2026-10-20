@@ -115,7 +115,7 @@ class HeyReachSource(ResumableSource[HeyReachSourceConfig, HeyReachResumeConfig]
             docsUrl="https://posthog.com/docs/cdp/sources/heyreach",
             iconPath="/static/services/heyreach.png",
             keywords=["linkedin outreach", "sales engagement", "heyreach"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

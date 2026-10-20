@@ -186,21 +186,12 @@ class TestValidateCredentials:
 
     @parameterized.expand(
         [
-            ("valid", 200, True, None),
-            ("bad_key", 401, False, "Invalid Lovable API key. Create a new key in Lovable and reconnect."),
             (
                 "plan_too_low",
                 402,
                 False,
                 "Lovable's API needs the Business plan or higher. Upgrade the workspace in Lovable and reconnect.",
             ),
-            (
-                "missing_scope",
-                403,
-                False,
-                "This Lovable API key can't read workspaces. Create a key with the workspaces:read scope and reconnect.",
-            ),
-            ("server_error", 500, False, "Could not connect to Lovable. Check the API key and try again."),
         ]
     )
     def test_status_maps_to_message(

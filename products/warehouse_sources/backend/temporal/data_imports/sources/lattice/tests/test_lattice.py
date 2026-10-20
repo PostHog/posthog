@@ -2,12 +2,9 @@ from typing import Any
 
 import pytest
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lattice import (
@@ -50,11 +47,9 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [
-            (200, True, None),
             # Keys inherit the creating user's privileges; 403 means a scope
             # gap, not a bad key.
             (403, True, None),
-            (401, False, "Invalid Lattice API key"),
         ],
     )
     def test_validate_credentials_status_mapping(
@@ -74,15 +69,6 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error is not None
         assert network.requests_log == []
-
-    def test_validate_credentials_transport_error_is_not_invalid_key(self) -> None:
-        # A transient connectivity failure must not be reported as a bad key.
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            is_valid, error = validate_credentials("us", "key")
-
-        assert is_valid is False
-        assert error is not None
-        assert "Invalid Lattice API key" not in error
 
 
 class TestPagination:

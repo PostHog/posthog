@@ -161,24 +161,23 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("unresolved", {}, True, True),
-            ("null", {"use_dedicated_stream": None}, True, True),
-            ("pinned_true", {"use_dedicated_stream": True}, True, False),
-            ("pinned_false", {"use_dedicated_stream": False}, False, False),
+            ("unresolved_with_dedicated_url", {}, True, True),
+            ("unresolved_without_dedicated_url", {}, False, False),
+            ("null_with_dedicated_url", {"use_dedicated_stream": None}, True, True),
+            ("pinned_true_without_dedicated_url", {"use_dedicated_stream": True}, False, True),
+            ("pinned_false_with_dedicated_url", {"use_dedicated_stream": False}, True, False),
         ]
     )
-    def test_create_and_run_resolves_stream_routing_before_saving(
-        self, _name: str, extra_state: dict[str, bool | None], expected_routing: bool, evaluate: bool
+    def test_create_and_run_pins_stream_routing(
+        self,
+        _name: str,
+        extra_state: dict[str, bool | None],
+        dedicated_url_set: bool,
+        expected_routing: bool,
     ) -> None:
         user = User.objects.create(email="stream-routing@example.com", distinct_id="synthetic-stream-routing-user")
 
-        def evaluate_flag(*, organization_id: str, distinct_id: str) -> bool:
-            self.assertEqual(organization_id, str(self.organization.id))
-            self.assertEqual(distinct_id, user.distinct_id)
-            self.assertFalse(Task.objects.filter(team=self.team, title="Stream routing task").exists())
-            return True
-
-        with patch("products.tasks.backend.models.evaluate_dedicated_stream_flag", side_effect=evaluate_flag) as flag:
+        with self.settings(TASKS_REDIS_URL=settings.REDIS_URL if dedicated_url_set else None):
             task = Task.create_and_run(
                 team=self.team,
                 title="Stream routing task",
@@ -189,7 +188,6 @@ class TestTask(TestCase):
                 extra_run_state=extra_state,
             )
 
-        self.assertEqual(flag.call_count, int(evaluate))
         self.assertIs(TaskRun.objects.get(task=task).state["use_dedicated_stream"], expected_routing)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

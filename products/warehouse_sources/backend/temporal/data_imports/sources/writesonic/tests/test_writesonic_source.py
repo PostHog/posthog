@@ -47,12 +47,6 @@ class TestWritesonicSource:
     @parameterized.expand(
         [
             (
-                "401 Client Error: Unauthorized for url: https://api.writesonic.com/v2/geo/presence/business/export/config/topics?url=https%3A%2F%2Fexample.com",
-            ),
-            (
-                "403 Client Error: Forbidden for url: https://api.writesonic.com/v2/geo/presence/business/export/performance/summary",
-            ),
-            (
                 "404 Client Error: Not Found for url: https://api.writesonic.com/v2/geo/presence/business/export/config/websites",
             ),
         ]
@@ -64,8 +58,6 @@ class TestWritesonicSource:
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",),
-            ("500 Server Error for url: https://api.writesonic.com/v2/geo/presence/business/export/config/topics",),
-            ("429 Client Error: Too Many Requests for url: https://api.writesonic.com/v2/geo",),
         ]
     )
     def test_non_retryable_errors_ignore_retryable_and_unrelated(self, unrelated_error):

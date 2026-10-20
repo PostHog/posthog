@@ -8,8 +8,21 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
-from django.db import transaction
-from django.db.models import Case, CharField, Exists, F, Func, IntegerField, Q, QuerySet, Value, When
+from django.db import connection, transaction
+from django.db.models import (
+    Case,
+    CharField,
+    Exists,
+    F,
+    Func,
+    IntegerField,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.functions import Concat, Lower
 
 from drf_spectacular.utils import extend_schema
@@ -50,7 +63,11 @@ from posthog.models.file_system.file_system import (
 from posthog.models.file_system.file_system_home_folder import FileSystemHomeFolder
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
-from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
+from posthog.models.file_system.file_system_view_log import (
+    FileSystemViewLog,
+    get_recent_file_system_items,
+    recent_view_logs,
+)
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.tagged_item_registry import object_column_for
@@ -566,12 +583,21 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         queryset = self._filter_by_access_control(queryset)
 
+        if type_param or type__startswith_param:
+            views = FileSystemViewLog.objects.filter(
+                team_id=OuterRef("team_id"),
+                user_id=cast(User, self.request.user).id,
+                type=OuterRef("type"),
+                ref=OuterRef("ref"),
+            )
+            queryset = queryset.annotate(last_viewed_at=Subquery(views.values("viewed_at")[:1]))
+
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
             queryset = queryset.order_by("shortcut")  # override order
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
-                queryset = queryset.order_by(order_by_param)
+                queryset = queryset.order_by(order_by_param, "id")
             else:
                 # `last_viewed_at` ordering (Recents, with or without a search term) is served
                 # view-log-first in `_list_recents`, so it never reaches this queryset path.
@@ -718,6 +744,60 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 metadata["content_type"] = content_types.get((str(item["type"]), team_id, ref), "application/json")
             item["meta"] = metadata
 
+    def _list_typed_by_views(self, request: Request, *, descending: bool) -> Response:
+        queryset = self.filter_queryset(self.get_queryset()).order_by()
+        paginator = cast(FileSystemsLimitOffsetPagination, self.paginator)
+        paginator.request = request
+        paginator.limit = paginator.get_limit(request)
+        paginator.offset = paginator.get_offset(request)
+        paginator.count = queryset.count()
+        if paginator.offset >= paginator.count:
+            response = paginator.get_paginated_response([])
+            response.data["users"] = []
+            return response
+        limit = paginator.limit or paginator.default_limit
+
+        views = FileSystemViewLog.objects.filter(
+            team_id__in=Team.objects.filter(project_id=self.team.project_id).values("id"),
+            user_id=cast(User, request.user).id,
+        )
+        files_sql, files_params = queryset.values("id", "team_id", "type", "ref", "created_at").query.sql_with_params()
+        views_sql, views_params = views.order_by().values("team_id", "type", "ref", "viewed_at").query.sql_with_params()
+        direction = "DESC" if descending else "ASC"
+        # ORM-compiled SQL retains access filters; OFFSET 0 keeps the lateral join view-log-first.
+        page_sql = f"""
+            SELECT files.id
+            FROM ({views_sql}) AS views
+            CROSS JOIN LATERAL (
+                SELECT eligible.id, eligible.created_at
+                FROM ({files_sql}) AS eligible
+                WHERE eligible.team_id = views.team_id AND eligible.type = views.type AND eligible.ref = views.ref
+                ORDER BY eligible.created_at DESC, eligible.id
+                OFFSET 0
+            ) AS files
+            ORDER BY views.viewed_at {direction}, files.created_at DESC, files.id
+            LIMIT %s OFFSET %s
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(page_sql, [*views_params, *files_params, limit, paginator.offset])
+            page_ids = [row[0] for row in cursor.fetchall()]
+        if len(page_ids) < limit:
+            own_view = views.filter(team_id=OuterRef("team_id"), type=OuterRef("type"), ref=OuterRef("ref"))
+            unseen_offset = 0
+            if not page_ids and paginator.offset:
+                viewed_count = queryset.filter(Exists(own_view)).count()
+                unseen_offset = max(0, paginator.offset - viewed_count)
+            page_ids.extend(
+                queryset.filter(~Exists(own_view))
+                .order_by("-created_at", "id")
+                .values_list("id", flat=True)[unseen_offset : unseen_offset + limit - len(page_ids)]
+            )
+        rows = {row.id: row for row in queryset.filter(id__in=page_ids)}
+        results = self.get_serializer([rows[row_id] for row_id in page_ids if row_id in rows], many=True).data
+        response = paginator.get_paginated_response(results)
+        response.data["users"] = self._created_by_users(results)
+        return response
+
     @extend_schema(parameters=[FileSystemListQuerySerializer])
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query_serializer = FileSystemListQuerySerializer(data=request.query_params)
@@ -725,8 +805,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         order_by_param = request.query_params.get("order_by")
         # Recents (the high-volume, timeout-prone path) is served view-log-first, with or without a
         # search term — one query function, no join, no COUNT(*).
+        typed_list = request.query_params.get("type") or request.query_params.get("type__startswith")
         if order_by_param in ("-last_viewed_at", "last_viewed_at") and request.user.is_authenticated:
-            response = self._list_recents(request, descending=order_by_param == "-last_viewed_at")
+            if typed_list:
+                response = self._list_typed_by_views(request, descending=order_by_param == "-last_viewed_at")
+            else:
+                response = self._list_recents(request, descending=order_by_param == "-last_viewed_at")
         else:
             response = super().list(request, *args, **kwargs)
             response.data["users"] = self._created_by_users(response.data.get("results", []))

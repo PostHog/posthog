@@ -62,6 +62,16 @@ class SavedInsightDefinition:
 
 
 @dataclass(frozen=True)
+class InsightDataCheckFilter:
+    """A rule in the shape the project's internal and test users filter stores it."""
+
+    key: str
+    type: str
+    operator: str
+    value: list[str]
+
+
+@dataclass(frozen=True)
 class InsightDataCheck:
     key: InsightDataCheckKey
     level: InsightDataCheckLevel
@@ -75,7 +85,15 @@ class InsightDataCheck:
     # The most affected values first, so a finding says what is affected as well as how much.
     top_events: list[str] = field(default_factory=list)
     top_hosts: list[str] = field(default_factory=list)
+    distinct_hosts: int | None = None
     top_bots: list[str] = field(default_factory=list)
+    distinct_bots: int | None = None
+    # The internal users check's `events`, split into what the project's filter removes and what it keeps.
+    removed_by_filter: int | None = None
+    missed_by_filter: int | None = None
+    top_emails: list[str] = field(default_factory=list)
+    distinct_emails: int | None = None
+    filter_to_add: InsightDataCheckFilter | None = None
 
 
 @dataclass(frozen=True)
@@ -113,6 +131,8 @@ class TeamEmailAccess:
     # A match reveals that an email belongs to the team, so each source needs the caller to be allowed to read it.
     member_emails: bool
     verified_domains: bool
+    # The emails a check finds are person data, so the check names them only for a caller who may read persons.
+    person_emails: bool
 
 
 @dataclass(frozen=True)

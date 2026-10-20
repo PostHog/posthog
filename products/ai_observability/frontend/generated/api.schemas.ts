@@ -4609,19 +4609,6 @@ export interface TaggerModelConfigurationWriteApi {
     provider_key_id?: string | null
 }
 
-export interface TaggerCreateApi {
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
-}
-
 export interface TaggerUpdateApi {
     /** @maxLength 400 */
     name: string

@@ -5,11 +5,14 @@ import threading
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.test import override_settings
 
 import pyarrow as pa
 import deltalake
@@ -61,6 +64,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
+    SortMode,
     SourceInputs,
     SourceResponse,
 )
@@ -1223,7 +1227,7 @@ class TestDescWatermarkAcrossResumedAttempts:
             },
         )
 
-    def _attempt(self, schema: ExternalDataSchema, attempt: int) -> PipelineV3:
+    def _attempt(self, schema: ExternalDataSchema, attempt: int, sort_mode: str | None = "desc") -> PipelineV3:
         resource = MagicMock(
             name="events",
             primary_keys=["id"],
@@ -1235,7 +1239,7 @@ class TestDescWatermarkAcrossResumedAttempts:
             cdc_write_mode=None,
             lanes=None,
             webhook_only=False,
-            sort_mode="desc",
+            sort_mode=sort_mode,
         )
         manager = MagicMock(can_resume=MagicMock(return_value=attempt > 1))
         with (
@@ -1262,8 +1266,10 @@ class TestDescWatermarkAcrossResumedAttempts:
                 ),
             )
 
-    async def _extract(self, schema: ExternalDataSchema, attempt: int, *, final: bool) -> str:
-        pipeline = self._attempt(schema, attempt)
+    async def _extract(
+        self, schema: ExternalDataSchema, attempt: int, *, final: bool, sort_mode: str | None = "desc"
+    ) -> str:
+        pipeline = self._attempt(schema, attempt, sort_mode)
         run_uuid = cast(str, pipeline._run_uuid)
         # Each attempt resumes on an older page than the attempt before it read.
         newest_row = self._NEWEST - timedelta(hours=10 * (attempt - 1))
@@ -1313,6 +1319,22 @@ class TestDescWatermarkAcrossResumedAttempts:
         oldest_row = self._NEWEST - timedelta(hours=10 * (attempts - 1) + 5)
         assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
         assert schema.sync_type_config["incremental_field_earliest_value"] == oldest_row.isoformat()
+
+    @pytest.mark.asyncio
+    async def test_an_unordered_resumed_attempt_keeps_the_largest_value_of_the_run(self) -> None:
+        # Attempt 2 resumes past the part of the source that held the largest value. It must start from the
+        # value attempt 1 staged, or the run promotes the smaller maximum and the next run reads old rows again.
+        schema = self._schema()
+
+        with (
+            patch.object(schema_models, "update_sync_type_config_keys", side_effect=_in_memory_config_update(schema)),
+            patch.object(ExternalDataSchema, "refresh_from_db"),
+        ):
+            await self._extract(schema, 1, final=False, sort_mode=None)
+            run_uuid = await self._extract(schema, 2, final=True, sort_mode=None)
+            assert schema.promote_staged_incremental_values(run_uuid)
+
+        assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
 
 
 class TestZeroBatchRunStampsTheFullRunMarker:
@@ -2053,6 +2075,208 @@ def _passthrough_pool(fn):
     return call
 
 
+class TestLoadedPrefixCursor:
+    @staticmethod
+    def _pipeline(
+        *,
+        enabled: bool = True,
+        sort_mode: str | None = "asc",
+        sync_type: str = "incremental",
+        reset_pipeline: bool = False,
+        checkpoints_allowed: bool = True,
+        can_resume: bool = False,
+        own_cursor: bool = False,
+        lanes: list[Any] | None = None,
+        cdc_write_mode: str | None = None,
+        primary_keys: list[str] | None = None,
+        table_exists: bool = True,
+        resumed_value: Any = None,
+        external_destination_ids: list[str] | None = None,
+    ) -> PipelineV3:
+        schema = ExternalDataSchema(
+            name="users",
+            team_id=1,
+            sync_type=sync_type,
+            sync_type_config={"incremental_field": "n", "incremental_field_type": IncrementalFieldType.Integer},
+        )
+        resource = MagicMock(
+            name="users",
+            primary_keys=["id"] if primary_keys is None else primary_keys,
+            partition_count=None,
+            partition_size=None,
+            partition_keys=["id"],
+            partition_format=None,
+            partition_mode=None,
+            cdc_write_mode=cdc_write_mode,
+            lanes=lanes,
+            sort_mode=sort_mode,
+            webhook_only=False,
+            chunk_size=None,
+            chunk_size_bytes=None,
+        )
+        manager = MagicMock(can_resume=MagicMock(return_value=True)) if can_resume else None
+        with (
+            override_settings(DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED=enabled),
+            patch.object(ExternalDataSchema, "table", MagicMock() if table_exists else None),
+            patch(f"{_PIPELINE}.current_import_attempt", return_value=1),
+            patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
+            patch(f"{_PIPELINE}.current_workflow_run_id", return_value="wfrun-abc"),
+            patch(f"{_PIPELINE}.S3BatchWriter"),
+            patch(f"{_PIPELINE}.PostgresProducer"),
+            patch(f"{_PIPELINE}.DeltaTableRef"),
+            patch(f"{_PIPELINE}.resolve_resume_manager", return_value=manager),
+            patch(
+                f"{_PIPELINE}.resolve_primary_keys", return_value=primary_keys if primary_keys is not None else ["id"]
+            ),
+        ):
+            return PipelineV3(
+                source_response=resource,
+                logger=_make_logger(),
+                job_id="job-1",
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=MagicMock(),
+                resumable_source_manager=manager,
+                models=ImportJobModels(
+                    job=MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1"),
+                    schema=schema,
+                    source=MagicMock(source_type="Postgres"),
+                    table=None,
+                    external_destination_ids=external_destination_ids or [],
+                ),
+                source_cursor_manager=MagicMock() if own_cursor else None,
+                incremental_checkpoints_allowed=checkpoints_allowed,
+                resumed_incremental_value=resumed_value,
+            )
+
+    @staticmethod
+    async def _held_cursors(pipeline: PipelineV3, batches: list[list[int]]) -> list[Any]:
+        row_count = 0
+        for index, values in enumerate(batches):
+            row_count += len(values)
+            await pipeline._stage_batch(pa.table({"id": values, "n": values}), index, row_count)
+        return [
+            call.kwargs["loaded_prefix_cursor"]
+            for call in cast(MagicMock, pipeline._pg_producer.hold_batch).call_args_list
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "batches,expected_values",
+        [
+            ([[1, 2, 3], [4, 5, 6]], [2, 5]),
+            # Rows that hold 3 continue into batch 1, so batch 0 covers only the rows below 3.
+            ([[1, 2, 3], [3, 3, 4], [4, 5, 6]], [2, 3, 5]),
+            # A batch that holds only the newest value adds nothing new below it.
+            ([[1, 2, 3], [3, 3], [3, 4]], [2, 2, 3]),
+            ([[7, 7]], [None]),
+            # A row below a value already seen proves the read is not in order, so no later batch
+            # covers anything.
+            ([[1, 2, 3], [2, 9], [10, 11]], [2, None, None]),
+            ([[3, 1]], [None]),
+        ],
+    )
+    async def test_each_batch_records_what_the_prefix_through_it_covers(
+        self, batches: list[list[int]], expected_values: list[Any]
+    ) -> None:
+        cursors = await self._held_cursors(self._pipeline(), batches)
+
+        assert [cursor and cursor["value"] for cursor in cursors] == expected_values
+        assert [cursor["field"] for cursor in cursors if cursor] == ["n"] * sum(v is not None for v in expected_values)
+
+    @pytest.mark.asyncio
+    async def test_the_cursor_carries_the_rows_the_job_synced_through_the_batch(self) -> None:
+        pipeline = self._pipeline()
+        pipeline._job_rows_synced_through_batch = 100
+
+        cursors = await self._held_cursors(pipeline, [[1, 2, 3], [4, 5]])
+
+        assert [cursor["job_rows_synced"] for cursor in cursors] == [103, 105]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "values,expected",
+        [
+            # Storing -1.4 as -1 would skip the unread rows between them.
+            ([Decimal("-1.5"), Decimal("-1.4")], None),
+            ([Decimal("1.5"), Decimal("2.5")], 1),
+        ],
+    )
+    async def test_a_decimal_value_that_rounds_above_the_loaded_rows_records_nothing(
+        self, values: list[Decimal], expected: Any
+    ) -> None:
+        pipeline = self._pipeline()
+        pipeline._schema.sync_type_config["incremental_field_type"] = IncrementalFieldType.Numeric
+
+        await pipeline._stage_batch(pa.table({"id": [1, 2], "n": pa.array(values, pa.decimal128(5, 1))}), 0, 2)
+
+        cursor = cast(MagicMock, pipeline._pg_producer.hold_batch).call_args.kwargs["loaded_prefix_cursor"]
+        assert (cursor and cursor["value"]) == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("sink_gates,expected_values", [([False, False], [2, 5]), ([False, True], [None, None])])
+    async def test_a_table_with_an_active_chunk_sink_records_nothing(
+        self, sink_gates: list[bool], expected_values: list[Any]
+    ) -> None:
+        # A retry after a promotion skips rows whose staged sink files the next attempt deletes.
+        pipeline = self._pipeline()
+        pipeline._sinks = MagicMock(all=[MagicMock(should_run=AsyncMock(return_value=gate)) for gate in sink_gates])
+
+        await pipeline._drop_prefix_checkpoint_for_active_sinks()
+        cursors = await self._held_cursors(pipeline, [[1, 2, 3], [4, 5, 6]])
+
+        assert [cursor and cursor["value"] for cursor in cursors] == expected_values
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "run",
+        [
+            {"enabled": False},
+            {"sort_mode": "desc"},
+            {"sort_mode": None},
+            {"sync_type": "append"},
+            {"sync_type": "full_refresh"},
+            {"cdc_write_mode": "scd2_append"},
+            {"reset_pipeline": True},
+            {"checkpoints_allowed": False},
+            {"can_resume": True},
+            {"own_cursor": True},
+            {"lanes": [MagicMock()]},
+            {"primary_keys": []},
+            {"table_exists": False},
+            {"resumed_value": 2},
+            {"external_destination_ids": ["destination-1"]},
+        ],
+        ids=[
+            "setting_off",
+            "descending",
+            "unordered",
+            "append",
+            "full_refresh",
+            "cdc",
+            "reset",
+            "stored_cursors_ignored",
+            "resumable_source",
+            "source_reads_its_own_cursor",
+            "laned_source",
+            "no_primary_key",
+            "first_ever_sync",
+            "continues_an_earlier_attempt",
+            "external_destination",
+        ],
+    )
+    async def test_a_run_that_cannot_promote_a_prefix_records_no_cursor(self, run: dict[str, Any]) -> None:
+        cursors = await self._held_cursors(self._pipeline(**run), [[1, 2, 3], [4, 5, 6]])
+
+        assert cursors == [None, None]
+
+    @pytest.mark.asyncio
+    async def test_a_run_that_rebuilds_the_table_records_no_cursor(self) -> None:
+        pipeline = self._pipeline()
+        pipeline._mark_first_ever_sync()
+
+        assert await self._held_cursors(pipeline, [[1, 2, 3], [4, 5, 6]]) == [None, None]
+
+
 class TestIncrementalHandoffCheckpoint:
     def _pipeline(self, items, events: list[Any], *, resumed_from: int | None = None) -> PipelineV3:
         pipeline = _make_pipeline()
@@ -2284,6 +2508,36 @@ class TestIncrementalHandoffCheckpoint:
     def test_an_attempt_that_continues_keeps_the_queue_rows_of_earlier_attempts(
         self, resumed_incremental_value: int | None, expected_is_resume: bool
     ) -> None:
+        pipeline, producer_cls = self._built_pipeline(
+            SourceResponse(
+                name="orders",
+                items=lambda: iter(()),
+                primary_keys=["id"],
+                sort_mode="asc",
+            ),
+            resumed_incremental_value,
+        )
+
+        # A fresh run replaces the queue rows of earlier attempts and overwrites on batch 0. A run that
+        # reads after their rows must not, or the rows it skipped are never loaded.
+        assert producer_cls.call_args.kwargs["is_resume"] is expected_is_resume
+        assert pipeline._handoff_checkpoint is not None
+        assert pipeline._handoff_checkpoint.resume_value == resumed_incremental_value
+
+    @pytest.mark.parametrize("sort_mode", [pytest.param(None, id="unordered"), pytest.param("desc", id="descending")])
+    def test_a_source_that_does_not_promise_ascending_order_gets_no_checkpoint(
+        self, sort_mode: SortMode | None
+    ) -> None:
+        pipeline, _ = self._built_pipeline(
+            SourceResponse(name="orders", items=lambda: iter(()), primary_keys=["id"], sort_mode=sort_mode), None
+        )
+
+        assert pipeline._handoff_checkpoint is None
+
+    @staticmethod
+    def _built_pipeline(
+        resource: SourceResponse, resumed_incremental_value: int | None
+    ) -> tuple[PipelineV3, MagicMock]:
         schema = MagicMock(
             id="schema-1",
             source_id="source-1",
@@ -2296,8 +2550,6 @@ class TestIncrementalHandoffCheckpoint:
             incremental_field_type=IncrementalFieldType.Integer,
             incremental_field_earliest_value=None,
         )
-        resource = SourceResponse(name="orders", items=lambda: iter(()), primary_keys=["id"])
-
         with (
             patch(f"{_PIPELINE}.current_import_attempt", return_value=2),
             patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
@@ -2323,12 +2575,7 @@ class TestIncrementalHandoffCheckpoint:
                 incremental_checkpoints_allowed=True,
                 resumed_incremental_value=resumed_incremental_value,
             )
-
-        # A fresh run replaces the queue rows of earlier attempts and overwrites on batch 0. A run that
-        # reads after their rows must not, or the rows it skipped are never loaded.
-        assert producer_cls.call_args.kwargs["is_resume"] is expected_is_resume
-        assert pipeline._handoff_checkpoint is not None
-        assert pipeline._handoff_checkpoint.resume_value == resumed_incremental_value
+        return pipeline, producer_cls
 
 
 class _ShutdownSwitch:

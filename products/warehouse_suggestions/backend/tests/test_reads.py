@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -101,6 +101,7 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         assert (view_reads.human_requests, view_reads.human_users, view_reads.human_days) == (2, 2, 2)
         assert (view_reads.human_reads, view_reads.human_duration_ms, view_reads.alone_reads) == (3, 1300, 2)
         assert 100 <= view_reads.alone_duration_ms_median <= 300
+        assert view_reads.last_read_at == datetime.combine(YESTERDAY, time(hour=12), tzinfo=UTC)
 
 
 def _classification(subjects: Mapping[Subject, SubjectReads], subject_id: UUID) -> tuple[bool, Surface | None]:

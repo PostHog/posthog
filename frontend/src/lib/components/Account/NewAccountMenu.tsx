@@ -27,6 +27,7 @@ import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -43,6 +44,7 @@ import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { OrgModal } from './OrgModal'
 import { OrgSwitcher } from './OrgSwitcher'
 import { pendingInvitesLogic } from './pendingInvitesLogic'
+import { ProjectLogo } from './ProjectLogo'
 import { PendingInviteDot } from './ProjectMenu'
 import { ProjectModal } from './ProjectModal'
 import { ProjectSwitcher } from './ProjectSwitcher'
@@ -68,6 +70,7 @@ export function NewAccountMenu({
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { currentProject } = useValues(projectLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
@@ -189,11 +192,12 @@ export function NewAccountMenu({
                                                     menuItem
                                                     data-attr="new-account-menu-all-projects-button"
                                                 >
-                                                    <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-4 dark:text-tertiary text-[8px]">
-                                                        {String.fromCodePoint(
-                                                            currentTeam.name.codePointAt(0)!
-                                                        ).toLocaleUpperCase()}
-                                                    </div>
+                                                    <ProjectLogo
+                                                        name={currentTeam.name}
+                                                        projectId={currentTeam.project_id}
+                                                        mediaId={currentProject?.logo_media_id}
+                                                        size="xsmall"
+                                                    />
                                                     <span className="truncate font-semibold">
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>

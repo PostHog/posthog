@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
 
 const SCANNERS = Array.from({ length: 10 }, (_, index) => ({
@@ -44,6 +45,48 @@ describe('AgentsRoster', () => {
     })
     afterEach(cleanup)
 
+    it('renders a window of external sources and finds an unmounted source through search', async () => {
+        render(<AgentsRoster />)
+
+        expect(await screen.findByText('GitHub issues')).toBeInTheDocument()
+        await userEvent.click(screen.getAllByLabelText('Expand GitHub issues')[0])
+        expect(screen.getByText('Reads the GitHub issues data you sync to Data warehouse.')).toBeInTheDocument()
+        expect(screen.queryByText('GitLab')).not.toBeInTheDocument()
+
+        await userEvent.type(screen.getByLabelText('Search external sources'), 'GitLab')
+
+        expect(await screen.findByText('GitLab')).toBeInTheDocument()
+        expect(screen.getByLabelText('Arm Support')).toBeInTheDocument()
+    })
+
+    it('lets a connection retry finish before another retry can start', async () => {
+        let resolveRequest!: () => void
+        const pendingRequest = new Promise<void>((resolve) => {
+            resolveRequest = resolve
+        })
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/': async () => {
+                    requests++
+                    if (requests === 1) {
+                        return [500, { detail: 'Server error' }]
+                    }
+                    await pendingRequest
+                    return [200, EMPTY_LIST]
+                },
+            },
+        })
+        render(<AgentsRoster />)
+        signalSourcesLogic.actions.loadSources()
+        const retry = (await screen.findAllByText('Retry'))[0].closest('button')!
+        await userEvent.click(retry)
+        expect(retry).toHaveAttribute('aria-disabled', 'true')
+        resolveRequest()
+        await waitFor(() => expect(screen.queryByText(/Couldn't load your connections/)).not.toBeInTheDocument())
+        expect(requests).toBe(2)
+    })
+
     // The cap keeps a long user-created list from burying the sources below it, but a filter that
     // could not reach past it would make a scanner unfindable by name.
     it('caps the scanner list, and lets both the filter and Show more reach past the cap', async () => {
@@ -70,10 +113,15 @@ describe('AgentsRoster', () => {
             },
         })
         render(<AgentsRoster />)
+        signalSourcesLogic.actions.loadSources()
 
         expect(await screen.findByText(/Couldn't load your signal sources/)).toBeInTheDocument()
         expect(screen.getByLabelText('Arm Support')).toBeDisabled()
-        expect(screen.getByLabelText('Arm GitHub issues')).toBeDisabled()
+        await userEvent.type(screen.getByLabelText('Search external sources'), 'GitHub issues')
+        const githubButton = await screen.findByLabelText('Turn on GitHub issues')
+        expect(githubButton).toHaveAttribute('aria-disabled', 'true')
+        await userEvent.click(githubButton)
+        expect(signalSourcesLogic.values.dataSourceSetupSource).toBeNull()
         expect(screen.queryByText('Connect')).not.toBeInTheDocument()
     })
 })

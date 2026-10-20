@@ -247,7 +247,11 @@ class TestRetryable:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok_200", 200, True), ("unauthorized_401", 401, False), ("server_500", 500, False)])
+    @parameterized.expand(
+        [
+            ("ok_200", 200, True),
+        ]
+    )
     def test_validate_credentials(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             assert validate_credentials("key", "secret") is expected

@@ -20,6 +20,44 @@ import {
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
     `{project.url}/error-tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
 
+const errorTrackingTicketCode = (value: string): string =>
+    `concat('\`', replaceAll(replaceAll(replaceAll(${value}, '\`', '\\''), '\\n', ' '), '\\r', ' '), '\`')`
+
+const errorTrackingTicketLine = (
+    label: string,
+    value: string,
+    condition = `notEmpty(${value})`,
+    formatted = errorTrackingTicketCode(value)
+): string => `{${condition} ? concat('\\n- ${label}: ', ${formatted}) : ''}`
+
+const errorTrackingTicketMessage = (message: string): string =>
+    `{notEmpty(${message}) ? concat('\`\`\`\\n', replaceAll(${message}, '\`', '\\''), '\\n\`\`\`') : ''}\n`
+const ERROR_TRACKING_SESSION_REPLAY_URL =
+    "concat(project.url, '/replay/', encodeURLComponent(event.properties.$session_id))"
+
+// Same shape as the Linear, GitHub and GitLab template defaults in nodejs/src/cdp/templates/error-tracking-ticket.ts,
+// but built from the issue name and description. When the event is too large for Kafka, the producer drops
+// exception_props (products/error_tracking/backend/temporal/lifecycle/side_effects.py), so $exception_types
+// and $exception_values are missing. The name and description still arrive, so the title still renders.
+const ERROR_TRACKING_TICKET_TITLE =
+    "{substring(replaceAll(notEmpty(event.properties.description) ? concat(event.properties.name, ': ', event.properties.description) : event.properties.name, '\\n', ' '), 1, 120)}"
+
+const ERROR_TRACKING_TICKET_DESCRIPTION = [
+    errorTrackingTicketMessage('event.properties.description'),
+    errorTrackingTicketLine(
+        'Browser',
+        "trim(concat(event.properties.$browser, ' ', event.properties.$browser_version))"
+    ),
+    errorTrackingTicketLine('OS', "trim(concat(event.properties.$os, ' ', event.properties.$os_version))"),
+    errorTrackingTicketLine('Release', 'event.properties.$exception_release.version'),
+    errorTrackingTicketLine(
+        'Session replay',
+        ERROR_TRACKING_SESSION_REPLAY_URL,
+        "notEmpty(event.properties.$session_id) and (empty(event.properties.$recording_status) or has(['active', 'sampled', 'buffering'], event.properties.$recording_status))",
+        ERROR_TRACKING_SESSION_REPLAY_URL
+    ),
+].join('')
+
 // PagerDuty has no high, medium or low severity, so the issue severity maps onto its scale.
 // The template sends error for an issue without a severity.
 const ERROR_TRACKING_PAGERDUTY_SEVERITY =
@@ -1221,10 +1259,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Create an issue in Linear when an issue is created.',
             inputs: {
                 title: {
-                    value: '{event.properties.name}',
+                    value: ERROR_TRACKING_TICKET_TITLE,
                 },
                 description: {
-                    value: '{event.properties.description}',
+                    value: ERROR_TRACKING_TICKET_DESCRIPTION,
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
@@ -1241,10 +1279,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Create an issue in GitHub when an issue is created.',
             inputs: {
                 title: {
-                    value: '{event.properties.name}',
+                    value: ERROR_TRACKING_TICKET_TITLE,
                 },
                 description: {
-                    value: '{event.properties.description}',
+                    value: ERROR_TRACKING_TICKET_DESCRIPTION,
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
@@ -1261,10 +1299,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Create an issue in GitLab when an issue is created.',
             inputs: {
                 title: {
-                    value: '{event.properties.name}',
+                    value: ERROR_TRACKING_TICKET_TITLE,
                 },
                 description: {
-                    value: '{event.properties.description}',
+                    value: ERROR_TRACKING_TICKET_DESCRIPTION,
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',

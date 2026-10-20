@@ -46,6 +46,7 @@ from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.taxonomic_filter.scorers import (
     SEARCH_INTENT_KEY,
     NoWrongSwitch,
@@ -357,6 +358,11 @@ async def eval_search_intent(ctx: EvalContext) -> None:
 
     await OneShotPublicEval(
         experiment_name="ml-inference-search-intent",
+        offline_suite=offline_suite(
+            "taxonomic_filter/eval_search_intent::eval_search_intent",
+            metrics=["search_intent_match", "switch_when_needed", "no_wrong_switch"],
+            suite_kind=SUITE_KIND,
+        ),
         cases=[*WRONG_TAB_CASES, *RIGHT_TAB_CASES, *PARTIAL_CASES, *CONTEXT_CASES],
         scorers=[SearchIntentMatch(), SwitchWhenNeeded(), NoWrongSwitch()],
         task=task,

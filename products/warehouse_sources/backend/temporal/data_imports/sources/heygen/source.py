@@ -75,7 +75,7 @@ class HeyGenSource(ResumableSource[HeyGenSourceConfig, HeyGenResumeConfig]):
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_schemas(

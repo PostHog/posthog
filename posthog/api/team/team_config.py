@@ -176,6 +176,7 @@ TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_M
     "is_demo",
     "app_urls",
     "access_control",
+    "logo_media",
     # Renaming a project/environment is admin-only (the settings UI gates TeamDisplayName behind
     # useRestrictedArea(Admin)). Excluded from the create-time gate below so members allowed to
     # create projects can still name them.

@@ -53,7 +53,10 @@ export const agentSetupModalLogic = kea<agentSetupModalLogicType>([
             )
         },
         closeSetupModal: () => {
-            if (router.values.searchParams.setup !== 'github') {
+            if (
+                router.values.searchParams.setup !== 'github' &&
+                router.values.searchParams.setup !== 'signal-sources'
+            ) {
                 return
             }
             const {
@@ -63,22 +66,28 @@ export const agentSetupModalLogic = kea<agentSetupModalLogicType>([
                 github_setup_error: _githubSetupError,
                 error_message: _errorMessage,
                 github_install_pending: _githubInstallPending,
+                signal_source: _signalSource,
+                integration_error: _integrationError,
                 ...searchParams
             } = router.values.searchParams
             router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
         },
     }),
 
-    urlToAction(({ actions, values }) => ({
-        [urls.inbox()]: (_, searchParams) => {
-            if (searchParams.setup === 'github' && values.openModal !== 'github') {
-                actions.openSetupModal('github')
+    urlToAction(({ actions, values }) => {
+        function restoreSetupModal(searchParams: Record<string, unknown>): void {
+            const key = searchParams.setup
+            if ((key === 'github' || key === 'signal-sources') && values.openModal !== key) {
+                actions.openSetupModal(key)
             }
-        },
-        [urls.inbox(':tab')]: ({ tab }, searchParams) => {
-            if (tab !== 'scout-trials' && searchParams.setup === 'github' && values.openModal !== 'github') {
-                actions.openSetupModal('github')
-            }
-        },
-    })),
+        }
+        return {
+            [urls.inbox()]: (_, searchParams) => restoreSetupModal(searchParams),
+            [urls.inbox(':tab')]: ({ tab }, searchParams) => {
+                if (tab !== 'scout-trials') {
+                    restoreSetupModal(searchParams)
+                }
+            },
+        }
+    }),
 ])

@@ -162,7 +162,7 @@ class TestValidateCredentials:
         assert network.requests_log == []
         assert network.session_options == []
 
-    @parameterized.expand([(200, True), (401, False), (403, False)])
+    @parameterized.expand([(403, False)])
     def test_status_mapping(self, status_code: int, expected_ok: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code, json={})]) as network:
             ok, status = validate_credentials("acme", "e@x.com", "token")

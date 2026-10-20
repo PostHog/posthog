@@ -15,7 +15,9 @@ from products.workflows.backend.services.batch_jobs import resume_batch_jobs_wai
     autoretry_for=(Exception,),
     retry_backoff=True,
     # The ready signal fires once, so the retries span the run's 24-hour wait at up to 10 minutes apart,
-    # and a CDP API outage that ends before the deadline still wakes the run.
+    # and a CDP API outage that ends before the deadline still wakes the run. Jitter would cut each wait
+    # to a random fraction and end the retries after about 12 hours.
+    retry_jitter=False,
     retry_backoff_max=600,
     max_retries=150,
 )

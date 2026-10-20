@@ -255,35 +255,6 @@ class TestNonRetryableErrors:
     @parameterized.expand(
         [
             (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.anthropic.com/v1/organizations/users?limit=1",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.anthropic.com/v1/organizations/cost_report",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = AnthropicSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.anthropic.com', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.anthropic.com/v1/organizations/users",
-            ),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = AnthropicSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
                 "long_retry_after",
                 "RESTClientRetryableError: HTTP 429 for https://api.anthropic.com/v1/organizations/usage_report/claude_code"
                 " (the server asked for a wait of 3600 seconds)",

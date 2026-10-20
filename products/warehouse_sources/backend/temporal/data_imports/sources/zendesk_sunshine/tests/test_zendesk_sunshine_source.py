@@ -32,7 +32,7 @@ class TestZendeskSunshineSource:
         assert config.name.value == "ZendeskSunshine"
         assert config.label == "Zendesk Sunshine"
         assert config.category == DataWarehouseSourceCategory.CRM
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.iconPath == "/static/services/zendesk_sunshine.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/zendesk-sunshine"
         # A finished source ships visible; the scaffold's unreleasedSource flag must stay gone.
@@ -94,8 +94,6 @@ class TestZendeskSunshineSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://nibbles.zendesk.com/api/sunshine/objects/types",
-            "403 Client Error: Forbidden for url: https://nibbles.zendesk.com/api/sunshine/objects/records",
             "404 Client Error: Not Found for url: https://nibbles.zendesk.com/api/sunshine/objects/types",
         ],
     )

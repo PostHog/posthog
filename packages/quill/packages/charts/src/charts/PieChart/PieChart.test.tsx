@@ -81,11 +81,13 @@ describe('PieChart', () => {
         expect(sliceLabels(chart.element).join('|')).toContain('50 (50%)')
     })
 
-    it('suppresses on-slice value labels when showValueOnSlice is false', () => {
-        const { chart } = renderHogChart(
-            <PieChart series={SERIES} theme={THEME} config={{ showValueOnSlice: false }} />
-        )
-        expect(sliceLabels(chart.element)).toHaveLength(0)
+    it.each([
+        ['hidden when showValueOnSlice is false', { showValueOnSlice: false }, false],
+        ['hidden on a donut by default', { innerRadiusRatio: 0.5 }, false],
+        ['shown on a donut that sets showValueOnSlice', { innerRadiusRatio: 0.5, showValueOnSlice: true }, true],
+    ])('on-slice value labels are %s', (_name, config, shown) => {
+        const { chart } = renderHogChart(<PieChart series={SERIES} theme={THEME} config={config} />)
+        expect(sliceLabels(chart.element).length > 0).toBe(shown)
     })
 
     it('renders a center label for a donut', () => {

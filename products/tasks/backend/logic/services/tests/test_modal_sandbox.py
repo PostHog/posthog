@@ -983,15 +983,16 @@ class TestModalSandboxAgentServer:
         assert (" --claudeSubscription" in command) is subscription_flag
 
     @pytest.mark.parametrize(
-        "keep_stream_open, debug, expected_env_value",
+        "event_ingest_url, debug, expected_env_value",
         [
-            (True, False, "true"),
-            (False, False, None),
-            (False, True, "false"),
+            (None, False, "true"),
+            ("https://agent-proxy.example.com", False, "true"),
+            (None, True, "false"),
+            ("http://localhost:8003", True, "true"),
         ],
     )
     def test_start_agent_server_keep_stream_open_env(
-        self, mock_sandbox: Any, keep_stream_open, debug, expected_env_value, settings
+        self, mock_sandbox: Any, event_ingest_url, debug, expected_env_value, settings
     ):
         settings.DEBUG = debug
         mock_sandbox.execute = MagicMock(
@@ -1003,14 +1004,11 @@ class TestModalSandboxAgentServer:
             task_id="task-123",
             run_id="run-456",
             mode="background",
-            event_ingest_keep_stream_open=keep_stream_open,
+            event_ingest_url=event_ingest_url,
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
-        if expected_env_value is not None:
-            assert f"POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN={expected_env_value}" in command
-        else:
-            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN" not in command
+        assert f"POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN={expected_env_value}" in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0

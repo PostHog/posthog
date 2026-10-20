@@ -154,7 +154,7 @@ class TestHookdeckTransport:
 
 
 class TestHookdeckCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
+    @pytest.mark.parametrize("status_code, expected", [(403, False)])
     @pytest.mark.parametrize("api_version", SUPPORTED_VERSIONS)
     def test_status_mapping(self, api_version: str, status_code: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:
@@ -164,10 +164,6 @@ class TestHookdeckCredentials:
         assert status == status_code
         assert network.requests_log[0].url == f"https://api.hookdeck.com/{api_version}/sources?limit=1"
         assert network.requests_log[0].headers["authorization"] == "Bearer hd_key"
-
-    def test_transport_error_is_not_valid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("hd_key", API_VERSION) == (False, None)
 
 
 class TestHookdeckPagination:

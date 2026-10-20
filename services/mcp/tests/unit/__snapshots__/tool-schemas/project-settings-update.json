@@ -501,6 +501,17 @@
                 }
             ]
         },
+        "logo_media_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead."
+        },
         "logs_settings": {},
         "marketing_analytics_config": {
             "properties": {

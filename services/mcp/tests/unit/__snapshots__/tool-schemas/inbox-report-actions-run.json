@@ -2,8 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "action": {
-            "description": "The action to run. Use a value from the actions list.\n\n* `get_it_merged` - Get it merged\n* `suggested_prompt` - Suggested prompt",
-            "enum": ["get_it_merged", "suggested_prompt"],
+            "description": "The action to run. Use a value from the actions list.\n\n* `get_it_merged` - Get it merged\n* `make_it_green` - Make it green\n* `suggested_prompt` - Suggested prompt",
+            "enum": ["get_it_merged", "make_it_green", "suggested_prompt"],
             "type": "string"
         },
         "id": {

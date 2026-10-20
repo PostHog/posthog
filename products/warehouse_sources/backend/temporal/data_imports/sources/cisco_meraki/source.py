@@ -132,7 +132,7 @@ class CiscoMerakiSource(ResumableSource[CiscoMerakiSourceConfig, CiscoMerakiResu
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cisco Meraki",
             iconPath="/static/services/cisco_meraki.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "In Meraki Dashboard, open **Organization > API & Webhooks > API keys and access**. Create an API key. "
                 "Enable API access for your organization. Use an administrator account with read access to the selected tables. "

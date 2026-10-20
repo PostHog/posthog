@@ -20,13 +20,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 const DashboardCreateSchema = () => {
     const DashboardsCreateBody = orvalSchemas.DashboardsCreateBody()
     const DashboardsCreateQueryParams = orvalSchemas.DashboardsCreateQueryParams()
-    return DashboardsCreateQueryParams.omit({ format: true })
-        .extend(DashboardsCreateBody.shape)
-        .extend({
-            restriction_level: DashboardsCreateBody.shape['restriction_level'].describe(
-                'Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.'
-            ),
-        })
+    return DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
 }
 
 const dashboardCreate = (): ToolBase<
@@ -55,9 +49,6 @@ const dashboardCreate = (): ToolBase<
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
-        }
-        if (params.restriction_level !== undefined) {
-            body['restriction_level'] = params.restriction_level
         }
         if (params.quick_filter_ids !== undefined) {
             body['quick_filter_ids'] = params.quick_filter_ids
@@ -90,11 +81,7 @@ const dashboardCreate = (): ToolBase<
         })
         const filtered = stripNullFields(
             omitResponseFields(result, [
-                'effective_restriction_level',
-                'effective_privilege_level',
                 'user_access_level',
-                'access_control_version',
-                'restriction_level',
                 'creation_mode',
                 'deleted',
                 'breakdown_colors',
@@ -115,8 +102,6 @@ const dashboardCreate = (): ToolBase<
                 'tiles.*.insight.filters_hash',
                 'tiles.*.insight.dashboards',
                 'tiles.*.insight.dashboard_tiles',
-                'tiles.*.insight.effective_restriction_level',
-                'tiles.*.insight.effective_privilege_level',
                 'tiles.*.insight.user_access_level',
                 'tiles.*.insight.filters',
                 'tiles.*.insight.is_sample',
@@ -277,11 +262,7 @@ const dashboardGet = (): ToolBase<
         })
         const filtered = stripNullFields(
             omitResponseFields(result, [
-                'effective_restriction_level',
-                'effective_privilege_level',
                 'user_access_level',
-                'access_control_version',
-                'restriction_level',
                 'creation_mode',
                 'deleted',
                 'breakdown_colors',
@@ -302,8 +283,6 @@ const dashboardGet = (): ToolBase<
                 'tiles.*.insight.filters_hash',
                 'tiles.*.insight.dashboards',
                 'tiles.*.insight.dashboard_tiles',
-                'tiles.*.insight.effective_restriction_level',
-                'tiles.*.insight.effective_privilege_level',
                 'tiles.*.insight.user_access_level',
                 'tiles.*.insight.filters',
                 'tiles.*.insight.is_sample',
@@ -574,12 +553,7 @@ const DashboardUpdateSchema = () => {
     return DashboardsPartialUpdateParams.omit({ project_id: true })
         .extend(DashboardsPartialUpdateQueryParams.omit({ format: true }).shape)
         .extend(DashboardsPartialUpdateBody.shape)
-        .extend({
-            id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']),
-            restriction_level: DashboardsPartialUpdateBody.shape['restriction_level'].describe(
-                'Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.'
-            ),
-        })
+        .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
 }
 
 const dashboardUpdate = (): ToolBase<
@@ -611,9 +585,6 @@ const dashboardUpdate = (): ToolBase<
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
-        }
-        if (params.restriction_level !== undefined) {
-            body['restriction_level'] = params.restriction_level
         }
         if (params.quick_filter_ids !== undefined) {
             body['quick_filter_ids'] = params.quick_filter_ids
@@ -649,11 +620,7 @@ const dashboardUpdate = (): ToolBase<
         })
         const filtered = stripNullFields(
             omitResponseFields(result, [
-                'effective_restriction_level',
-                'effective_privilege_level',
                 'user_access_level',
-                'access_control_version',
-                'restriction_level',
                 'creation_mode',
                 'deleted',
                 'breakdown_colors',
@@ -674,8 +641,6 @@ const dashboardUpdate = (): ToolBase<
                 'tiles.*.insight.filters_hash',
                 'tiles.*.insight.dashboards',
                 'tiles.*.insight.dashboard_tiles',
-                'tiles.*.insight.effective_restriction_level',
-                'tiles.*.insight.effective_privilege_level',
                 'tiles.*.insight.user_access_level',
                 'tiles.*.insight.filters',
                 'tiles.*.insight.is_sample',

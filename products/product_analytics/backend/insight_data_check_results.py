@@ -2,7 +2,7 @@
 
 from posthog.dataclasses import frozen
 
-from products.product_analytics.backend.facade.contracts import InsightDataCheck
+from products.product_analytics.backend.facade.contracts import InsightDataCheck, InsightDataCheckFilter
 from products.product_analytics.backend.facade.enums import (
     InsightDataCheckAction,
     InsightDataCheckKey,
@@ -20,6 +20,11 @@ MIN_DUPLICATE_EVENTS = 100
 MIN_DUPLICATE_SHARE = 0.05
 PROBLEM_SHARE = 0.2
 
+# An event with no user agent has the type "Automation", and server-side SDKs send those, so it is not a crawler.
+CRAWLER_TRAFFIC_TYPES = ("Bot", "AI Agent")
+
+LOCAL_HOST_PATTERN = r"(?i)^(localhost|[a-z0-9.-]+\.localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:[0-9]+)?$"
+
 
 @frozen
 class Skipped:
@@ -28,9 +33,13 @@ class Skipped:
 
 @frozen
 class LocalEvents:
+    # The events from a local host that the project's internal and test users filter keeps.
     count: int
+    distinct_hosts: int
     top_hosts: list[str]
     top_events: list[str]
+    # Every host the check found, up to a limit, so the rule to add names only what the person saw.
+    hosts: list[str]
 
 
 @frozen
@@ -40,6 +49,9 @@ class InternalEvents:
     # Events from the team's own emails or test accounts that the filter keeps.
     missed_by_filter: int
     top_events: list[str]
+    distinct_missed_emails: int
+    top_missed_emails: list[str]
+    missed_emails: list[str]
 
     @property
     def count(self) -> int:
@@ -50,7 +62,6 @@ class InternalEvents:
 class CountedEvents:
     # Every event the insight reads on the days checked, so a counted check needs no sample for its share.
     events: int
-    local: LocalEvents
     internal: InternalEvents | Skipped
 
 
@@ -60,6 +71,7 @@ class SampledEvents:
     events: int
     distinct_ids: int
     bot_events: int
+    distinct_bots: int
     top_bots: list[str]
     top_bot_events: list[str]
     repeated_events: int
@@ -73,8 +85,22 @@ class SampledEvents:
 @frozen
 class CheckedEvents:
     counted: CountedEvents | Skipped
+    local: LocalEvents | Skipped
     sample: SampledEvents | Skipped
     insight_filters_traffic_type: bool = False
+
+
+def events_on_checked_days(checked: CheckedEvents) -> int | None:
+    if isinstance(checked.counted, CountedEvents):
+        return checked.counted.events
+    if isinstance(checked.sample, SampledEvents):
+        return round(checked.sample.events / checked.sample.rate)
+    return None
+
+
+def _excluding(key: str, property_type: str, values: list[str]) -> InsightDataCheckFilter:
+    # Names only the values the check found, because a broader rule could remove real users the person never saw.
+    return InsightDataCheckFilter(key=key, type=property_type, operator="is_not", value=sorted(values))
 
 
 def not_checked(key: InsightDataCheckKey, reason: InsightDataCheckSkipReason | None = None) -> InsightDataCheck:
@@ -126,28 +152,37 @@ def _internal_users_check(checked: CheckedEvents) -> InsightDataCheck:
         share=share,
         action=action if is_finding else None,
         top_events=internal.top_events,
+        removed_by_filter=internal.removed_by_filter,
+        missed_by_filter=internal.missed_by_filter,
+        top_emails=internal.top_missed_emails,
+        distinct_emails=internal.distinct_missed_emails,
+        filter_to_add=_excluding("email", "person", internal.missed_emails) if internal.missed_emails else None,
     )
 
 
 def _local_development_check(checked: CheckedEvents) -> InsightDataCheck:
     key = InsightDataCheckKey.LOCAL_DEVELOPMENT
-    counted = checked.counted
-    if isinstance(counted, Skipped):
-        return not_checked(key, counted.reason)
+    local = checked.local
+    if isinstance(local, Skipped):
+        return not_checked(key, local.reason)
 
-    local = counted.local
-    share = _share(local.count, counted.events)
+    events = events_on_checked_days(checked)
+    share = _share(local.count, events) if events is not None else None
     # No minimum share: a local session also creates test persons and flag exposures, whatever its share.
     is_finding = local.count >= MIN_FINDING_EVENTS
     return InsightDataCheck(
         key=key,
-        level=_finding_level(share) if is_finding else InsightDataCheckLevel.PASSED,
+        # Never a problem: a project can serve real users from a local host, such as an app in a native wrapper,
+        # so the person who owns the project decides whether to keep these events.
+        level=InsightDataCheckLevel.WARNING if is_finding else InsightDataCheckLevel.PASSED,
         method=InsightDataCheckMethod.COUNTED,
         events=local.count,
         share=share,
         action=InsightDataCheckAction.OPEN_FILTER_SETTINGS if is_finding else None,
         top_events=local.top_events,
         top_hosts=local.top_hosts,
+        distinct_hosts=local.distinct_hosts,
+        filter_to_add=_excluding("$host", "event", local.hosts) if is_finding else None,
     )
 
 
@@ -174,6 +209,8 @@ def _bot_traffic_check(checked: CheckedEvents) -> InsightDataCheck:
         action=InsightDataCheckAction.OPEN_FILTER_SETTINGS if is_finding else None,
         top_events=sample.top_bot_events,
         top_bots=sample.top_bots,
+        distinct_bots=sample.distinct_bots,
+        filter_to_add=_excluding("$virt_traffic_type", "event", list(CRAWLER_TRAFFIC_TYPES)) if is_finding else None,
     )
 
 

@@ -237,7 +237,14 @@ class TestMessageTemplatesAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/messaging_templates/",
             data={
                 "name": "Editor-saved template",
-                "content": {"email": {"subject": "Hi", "html": "<p>Editor export</p>", "design": MINIMAL_DESIGN}},
+                "content": {
+                    "email": {
+                        "subject": "Hi",
+                        "preheader": "A quick heads-up",
+                        "html": "<p>Editor export</p>",
+                        "design": MINIMAL_DESIGN,
+                    }
+                },
                 "type": "email",
             },
             format="json",
@@ -245,7 +252,9 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         mock_render.assert_not_called()
-        assert response.json()["content"]["email"]["html"] == "<p>Editor export</p>"
+        email = MessageTemplate.objects.get(id=response.json()["id"]).content["email"]
+        assert email["html"] == "<p>Editor export</p>"
+        assert email["preheader"] == "A quick heads-up"
 
     @parameterized.expand(
         [

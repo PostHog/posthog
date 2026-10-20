@@ -4,6 +4,7 @@ import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../c
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { getHogChart, getHogChartTooltip, renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
+import { measureLabelWidth } from '../../utils/text-measure'
 import { BarChart } from './BarChart'
 
 const THEME: ChartTheme = {
@@ -179,6 +180,23 @@ describe('BarChart', () => {
             )
             expect(chart.xAxisLabel()).toBe('Total events')
             expect(chart.yAxisLabel()).toBe('Series')
+        })
+
+        it.each<[Orientation, boolean]>([
+            ['horizontal', true],
+            ['vertical', false],
+        ])('%s: a wide chart raises the category label cap (shows full label: %s)', (axisOrientation, showsFull) => {
+            const label = 'filesystem::play_open_in_app'
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={[{ key: 'a', label: 'A', data: [10] }]}
+                    labels={[label]}
+                    theme={THEME}
+                    config={{ axisOrientation, maxCategoryLabelWidth: measureLabelWidth(label) / 2 }}
+                />
+            )
+            const [tick] = axisOrientation === 'horizontal' ? chart.yTicks() : chart.xTicks()
+            expect(tick === label).toBe(showsFull)
         })
 
         it('renders without crashing in yScaleType log with positive data', () => {

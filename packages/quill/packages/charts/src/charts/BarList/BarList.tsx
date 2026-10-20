@@ -167,7 +167,7 @@ function BarListInner<Meta = unknown>({
                 isTop
                     ? { height: plotTop + rows.length * rowHeight }
                     : {
-                          gridTemplateColumns: 'fit-content(40%) minmax(0, 1fr) auto',
+                          gridTemplateColumns: 'fit-content(min(40%, 12rem)) minmax(0, 1fr) auto',
                           gridTemplateRows: `repeat(${rows.length}, ${rowHeight}px)`,
                       }
             }
@@ -201,7 +201,7 @@ function BarListInner<Meta = unknown>({
                     <div className="flex min-w-0 items-center gap-1.5" title={row.series.label}>
                         {renderLabel ? renderLabel(row.series) : <span className="truncate">{row.series.label}</span>}
                     </div>
-                    <div className="shrink-0 whitespace-nowrap text-right text-muted tabular-nums">
+                    <div className="shrink-0 whitespace-nowrap text-right text-(--color-graph-axis-label) tabular-nums">
                         {valueDisplay === 'value'
                             ? valueFormatter(row.value)
                             : formatShare(whole > 0 ? row.value / whole : 0)}

@@ -383,6 +383,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # "no error details available" suffix is the signal — libpq only omits the message in this local,
     # pre-handshake case, so it never matches a genuine (and permanent) server-reported rejection.
     "connection is bad: no error details available",
+    # A TCP proxy/load balancer fronting the actual Postgres backend (common on providers that put
+    # a public endpoint in front of a private-network database) reports a failed connect to its own
+    # upstream as a bare FATAL error: "FATAL:  failed to connect to upstream <ip>:<port>". The proxy
+    # itself answered fine; the backend behind it was momentarily unreachable (a restart, failover,
+    # or scaling event on the provider's private network) — the same transient class as Supavisor's
+    # "{:error, :econnrefused}"/"{:error, :etimedout}" above, just worded by a different proxy. A
+    # fresh reconnect recovers once the backend is reachable again. Match the stable phrase and
+    # exclude the volatile upstream ip:port.
+    "failed to connect to upstream",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -2844,6 +2853,15 @@ def _has_duplicate_primary_keys(
         # follows fails on the same denial — already surfaced as non-retryable with an actionable
         # message via `get_non_retryable_errors`. Propagate rather than capture it as noise.
         raise
+    except psycopg.errors.RaiseException:
+        # SQLSTATE P0001, raised only by a plain `RAISE EXCEPTION` inside a PL/pgSQL function —
+        # never by Postgres itself. Since this source only reads, it's almost always a row-level
+        # security policy or computed-column function blocking the SELECT, and the extraction
+        # that follows hits the same raise. Swallowing it as "no duplicate keys" would be a false
+        # negative and double the error-tracking noise. Propagate so it surfaces once, through
+        # the same non-retryable classification (where the message names an access denial) as the
+        # extraction failure; a transient custom raise stays retryable either way.
+        raise
     except psycopg.OperationalError:
         # A connection-level failure here (e.g. a foreign-data-wrapper server refusing a new
         # connection with "too many connections") means the probe never ran — swallowing it as
@@ -2888,7 +2906,8 @@ def resolve_postgres_keyset(
 ) -> PostgresKeyset:
     """Decide how far this run can go: no seek, seek only, or seek plus a durable checkpoint."""
     if should_use_incremental_field:
-        # Already resumable from its persisted watermark, and seeking would double the work.
+        # v3 moves the watermark only when the run's load completes, so a cut-off attempt restarts from the old
+        # watermark unless the handoff checkpoint applies. A keyset seek on top of that would double the work.
         return PostgresKeyset(reason="incremental_sync")
     if is_xmin:
         # An xmin read appends deltas, so restarting it from key 0 would duplicate what it wrote.
@@ -4772,6 +4791,17 @@ def postgres_source(
             )
         )
 
+    # One statement with `ORDER BY <incremental field>` proves the order for the whole run. A read
+    # per partition, per window or per LIMIT/OFFSET page issues several statements, so it does not.
+    reads_one_ordered_statement = (
+        should_use_incremental_field
+        and incremental_field is not None
+        and xmin_bounds is None
+        and not is_duckdb
+        and not use_window_chunking
+        and not use_per_partition_chunking
+    )
+
     return SourceResponse(
         name=name,
         items=lambda: get_rows(chunk_size),
@@ -4784,6 +4814,7 @@ def postgres_source(
         # position to another pod, and one that could checkpoint but reads through a server cursor
         # has no position to hand over. `supports_resume` defaults to True, so this must be explicit.
         supports_resume=can_checkpoint and takes_keyset_path,
+        sort_mode="asc" if reads_one_ordered_statement else None,
     )
 
 

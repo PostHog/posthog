@@ -59,9 +59,10 @@ class OpenAIResumeConfig:
 
 
 class _EntityPaginator(BasePaginator):
-    """Entity list pagination: an `after` object-id cursor.
+    """Entity list pagination: an `after` cursor.
 
-    `last_id` drives the next page, falling back to the last item's id (`last_id` isn't documented on
+    The groups and roles lists return an opaque `next` cursor; the other lists return `last_id`.
+    Either drives the next page, falling back to the last item's id (`last_id` isn't documented on
     every list response) so pagination keeps moving. `has_more` is the authoritative stop signal —
     the API returns a `last_id` on the final page too, so a missing token alone can't be trusted.
     """
@@ -89,9 +90,13 @@ class _EntityPaginator(BasePaginator):
             self._has_next_page = False
             return
         items = data or []
-        last_id = body.get("last_id") or (items[-1].get("id") if items and isinstance(items[-1], dict) else None)
-        if body.get("has_more") and last_id:
-            self._after = last_id
+        cursor = (
+            body.get("next")
+            or body.get("last_id")
+            or (items[-1].get("id") if items and isinstance(items[-1], dict) else None)
+        )
+        if body.get("has_more") and cursor:
+            self._after = cursor
             self._has_next_page = True
         else:
             self._has_next_page = False
@@ -313,13 +318,13 @@ def _make_bucket_data_map(config: OpenAIEndpointConfig) -> Callable[[dict[str, A
     return _explode
 
 
-def _make_fanout_data_map(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    # Project-scoped resource ids are only unique within a project, so the composite key carries the
-    # project id (injected by the fan-out as `_projects_id`).
+def _make_fanout_data_map(endpoint: str, parent: str, parent_key: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # Parent-scoped resource ids are only unique within their parent, so the composite key carries
+    # the parent id (injected by the fan-out as `_<parent>_id`).
     def _stamp(row: dict[str, Any]) -> dict[str, Any]:
-        project_id = row.pop("_projects_id", None)
+        parent_id = row.pop(f"_{parent}_id", None)
         row = _normalize_entity(endpoint, row)
-        row["project_id"] = project_id
+        row[parent_key] = parent_id
         return row
 
     return _stamp
@@ -411,21 +416,22 @@ def openai_source(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     items: Optional[Callable[[], Iterable[Any]]] = None
 
-    if config.fan_out_over_projects:
-        # Project-scoped resources have no org-wide list endpoint; enumerate the projects and fetch
-        # the resource per project. Archived ones are left out: OpenAI rejects every project-scoped
-        # read under an archived project, which would fail the whole schema on the first one. The
-        # `projects` table keeps them (see its `extra_params`) so historical usage/cost rows still
-        # resolve their project.
-        projects_config = OPENAI_ENDPOINTS["projects"]
+    if config.fan_out_parent is not None and config.fan_out_parent_key is not None:
+        # Parent-scoped resources have no org-wide list endpoint; enumerate the parent and fetch
+        # the resource per parent row. Archived projects are left out: OpenAI rejects every
+        # project-scoped read under an archived project, which would fail the whole schema on the
+        # first one. The `projects` table keeps them (see its `extra_params`) so historical
+        # usage/cost rows still resolve their project.
+        parent = config.fan_out_parent
+        parent_config = OPENAI_ENDPOINTS[parent]
         rest_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": None,
             "resources": [
                 {
-                    "name": "projects",
+                    "name": parent,
                     "endpoint": {
-                        "path": projects_config.path,
+                        "path": parent_config.path,
                         "params": {"limit": ENTITY_PAGE_SIZE},
                         "data_selector": "data",
                         "paginator": _EntityPaginator(),
@@ -437,13 +443,13 @@ def openai_source(
                         "path": config.path,
                         "params": {
                             "limit": ENTITY_PAGE_SIZE,
-                            "project_id": {"type": "resolve", "resource": "projects", "field": "id"},
+                            config.fan_out_parent_key: {"type": "resolve", "resource": parent, "field": "id"},
                         },
                         "data_selector": "data",
                         "paginator": _EntityPaginator(),
                     },
                     "include_from_parent": ["id"],
-                    "data_map": _make_fanout_data_map(endpoint),
+                    "data_map": _make_fanout_data_map(endpoint, parent, config.fan_out_parent_key),
                 },
             ],
         }
@@ -456,14 +462,15 @@ def openai_source(
             if state:
                 resumable_source_manager.save_state(OpenAIResumeConfig(fanout_state=state))
 
-        def skip_failing_project(path: str, exc: Exception) -> None:
-            # A single project whose resource keeps returning a transient 5xx (after the client
+        def skip_failing_parent(path: str, exc: Exception) -> None:
+            # A single parent whose resource keeps returning a transient 5xx (after the client
             # exhausts its retries) would otherwise fail the whole schema, with no workaround for the
-            # user. Skip that project, record it, and let every other project's rows land; the next
+            # user. Skip that parent, record it, and let every other parent's rows land; the next
             # sync re-attempts the skipped one once OpenAI recovers.
             logger.warning(
-                "openai_source.skipped_failing_project",
+                "openai_source.skipped_failing_parent",
                 endpoint=endpoint,
+                parent=parent,
                 path=path,
                 error=str(exc),
             )
@@ -475,7 +482,7 @@ def openai_source(
             db_incremental_field_last_value,
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=initial_fanout_state,
-            on_parent_error=skip_failing_project,
+            on_parent_error=skip_failing_parent,
         )
         resource = next(r for r in resources if r.name == endpoint)
     else:

@@ -33,6 +33,8 @@ if is_inbox_ranking_registered():
             inbox_ranking_training.inbox_ranking_unseen_graded,
             activity_summary.activity_summary_inputs,
             activity_summary.activity_summary_cost_projection,
+            activity_summary.activity_summaries,
+            activity_summary.activity_summary_embeddings,
         ],
         jobs=[
             inbox_ranking_dataset.inbox_ranking_dataset_job,

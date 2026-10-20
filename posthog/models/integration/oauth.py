@@ -120,6 +120,9 @@ class OauthConfig:
     pkce: bool = False
     # When set, disconnecting the integration also revokes the grant at the provider
     token_revoke_url: str | None = None
+    # When true, authorize_url hex-encodes the state for a provider that does not return it verbatim.
+    # The frontend callback decodes it before it reads the token.
+    opaque_state: bool = False
 
 
 # Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
@@ -672,6 +675,9 @@ class OauthIntegration:
                 id_path="id",
                 name_path="email",
                 token_info_config_fields=["id", "email"],
+                # Help Scout decodes the state one extra time and drops everything after the first `&`, so the
+                # token and team_id never come back. A hex string has no characters that it can change.
+                opaque_state=True,
             )
         elif kind == "linear":
             if not settings.LINEAR_APP_CLIENT_ID or not settings.LINEAR_APP_CLIENT_SECRET:
@@ -930,12 +936,16 @@ class OauthIntegration:
             requested = list(scopes) if scopes else list(POSTHOG_CONNECT_DEFAULT_SCOPES)
             scope = " ".join(dict.fromkeys([*requested, *POSTHOG_CONNECT_IDENTITY_SCOPES]))
 
+        state = urlencode(state_payload)
+        if oauth_config.opaque_state:
+            state = state.encode().hex()
+
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
             query_params = {
                 "app_id": oauth_config.client_id,
                 "redirect_uri": cls.redirect_uri(kind),
-                "state": urlencode(state_payload),
+                "state": state,
             }
         else:
             query_params = {
@@ -943,7 +953,7 @@ class OauthIntegration:
                 "scope": scope,
                 "redirect_uri": cls.redirect_uri(kind),
                 "response_type": "code",
-                "state": urlencode(state_payload),
+                "state": state,
                 **(oauth_config.additional_authorize_params or {}),
             }
 

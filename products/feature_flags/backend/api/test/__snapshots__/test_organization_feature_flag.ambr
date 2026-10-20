@@ -810,7 +810,6 @@
          "posthog_dashboard"."breakdown_colors",
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."customization",
          "posthog_dashboard"."deprecated_tags",

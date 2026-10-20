@@ -645,6 +645,13 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
         max_length=255,
         help_text="Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.",
     )
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit values to. Omit to list values across all metrics.",
+    )
     value = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -1101,7 +1108,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def attribute_values(self, request: Request, *args, **kwargs) -> Response:
         """Observed values for one metric attribute key, most frequent first.
-        Backs the filter bar's value autocomplete."""
+        Backs the filter bar's value autocomplete. `metricName` limits choices
+        to one metric."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricAttributeValuesParamsSerializer(data=request.query_params)
@@ -1111,6 +1119,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = list_metric_attribute_values(
                 team=self.team,
                 key=params.validated_data["key"],
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["value"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],

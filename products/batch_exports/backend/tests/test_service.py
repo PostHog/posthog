@@ -19,11 +19,13 @@ from products.batch_exports.backend.service import (
     BatchExportEventsCustomModel,
     BatchExportEventsModel,
     BatchExportHogQLModel,
+    BatchExportInsertInputs,
     BatchExportModel,
     BatchExportPersonsModel,
     BatchExportSessionsModel,
     BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
+    FileDownloadBatchExportInputs,
     PostgresBatchExportInputs,
     RedshiftBatchExportInputs,
     RedshiftCopyInputs,
@@ -33,9 +35,14 @@ from products.batch_exports.backend.service import (
     align_timestamp_to_interval,
     migrate_batch_export_model,
 )
+from products.batch_exports.backend.temporal.pipeline.internal_stage import BatchExportInsertIntoInternalStageInputs
 
 
 class TestBatchExportModelMigration:
+    @pytest.mark.parametrize("model_specific", [False, True])
+    @pytest.mark.parametrize(
+        "input_type", [FileDownloadBatchExportInputs, BatchExportInsertInputs, BatchExportInsertIntoInternalStageInputs]
+    )
     @pytest.mark.parametrize(
         "legacy,expected",
         [
@@ -72,14 +79,26 @@ class TestBatchExportModelMigration:
         ],
     )
     def test_migration_preserves_legacy_payload(
-        self, legacy: BatchExportModel | None, expected: AnyBatchExportModel
+        self,
+        legacy: BatchExportModel | None,
+        expected: AnyBatchExportModel,
+        input_type: type[
+            FileDownloadBatchExportInputs | BatchExportInsertInputs | BatchExportInsertIntoInternalStageInputs
+        ],
+        model_specific: bool,
     ) -> None:
         converter = JSONPlainPayloadConverter()
-        if legacy is not None:
-            payload = converter.to_payload(legacy)
-            assert payload is not None
-            legacy = converter.from_payload(payload, BatchExportModel)
-        migrated = migrate_batch_export_model(legacy)
+        inputs = input_type(
+            team_id=1,
+            batch_export_id="test",
+            data_interval_start=None,
+            data_interval_end=None,
+            batch_export_model=expected if model_specific else legacy,
+        )
+        payload = converter.to_payload(inputs)
+        assert payload is not None
+        decoded = converter.from_payload(payload, input_type)
+        migrated = migrate_batch_export_model(decoded.batch_export_model)
         assert migrated == expected
         assert migrate_batch_export_model(migrated) is migrated
 

@@ -7,9 +7,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-import posthoganalytics
-
-from posthog.event_usage import groups
+from posthog.event_usage import report_user_action
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -224,21 +222,23 @@ class InboxOnboarding:
             if status in ("pending", "failed"):
                 launch_inbox_onboarding_job.delay(self.team_id, job)
 
-    def _capture(self, user: User, event: str, properties: dict[str, object]) -> None:
-        posthoganalytics.capture(
-            distinct_id=str(user.distinct_id),
-            event=event,
-            groups=groups(team=self.team),
-            properties=properties,
-        )
-
     def _report_completion(self, user: User, config: SignalTeamConfig) -> None:
-        self._capture(
-            user, "self-driving onboarding completed", InboxOnboardingAnalytics.completion_properties(config, user)
+        report_user_action(
+            user,
+            "self-driving onboarding completed",
+            InboxOnboardingAnalytics.completion_properties(config, user),
+            team=self.team,
+            organization=self.team.organization,
         )
 
     def _report_exposure(self, user: User, config: SignalTeamConfig) -> None:
-        self._capture(user, "self-driving onboarding exposed", InboxOnboardingAnalytics.properties(config, user))
+        report_user_action(
+            user,
+            "self-driving onboarding exposed",
+            InboxOnboardingAnalytics.properties(config, user),
+            team=self.team,
+            organization=self.team.organization,
+        )
         if (config.onboarding or {}).get("variant") == "control":
             from products.signals.backend.tasks import (
                 reconcile_inbox_onboarding,  # noqa: PLC0415 - avoid task imports during API initialization

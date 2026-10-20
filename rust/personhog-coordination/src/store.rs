@@ -7,9 +7,9 @@ use etcd_client::{Compare, CompareOp, DeleteOptions, PutOptions, Txn, TxnOp, Wat
 
 use crate::error::{Error, Result};
 use crate::types::{
-    AssignmentPrecondition, AssignmentStatus, HandoffReplacement, HandoffState, LeaderInfo,
-    PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck, RegisteredPod, RegisteredRouter,
-    RouterFreezeAck,
+    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, HandoffReplacement, HandoffState,
+    LeaderInfo, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck, RegisteredPod,
+    RegisteredRouter, RouterFreezeAck,
 };
 
 /// All etcd key patterns used by the PersonHog store.
@@ -40,6 +40,7 @@ enum StoreKey<'a> {
     Leader,
     Generation,
     TotalPartitions,
+    ChangelogConfig,
 }
 
 impl StoreKey<'_> {
@@ -73,6 +74,7 @@ impl StoreKey<'_> {
             StoreKey::Leader => format!("{prefix}coordinator/leader"),
             StoreKey::Generation => format!("{prefix}generation"),
             StoreKey::TotalPartitions => format!("{prefix}config/total_partitions"),
+            StoreKey::ChangelogConfig => format!("{prefix}config/changelog"),
         }
     }
 }
@@ -1203,6 +1205,36 @@ impl PersonhogStore {
     pub async fn set_total_partitions(&self, count: u32) -> Result<()> {
         let key = self.key(StoreKey::TotalPartitions);
         Ok(self.inner.put_raw(&key, count.to_string()).await?)
+    }
+
+    pub async fn get_changelog_config(&self) -> Result<Option<ChangelogConfig>> {
+        count_call("get_changelog_config");
+        let key = self.key(StoreKey::ChangelogConfig);
+        Ok(self.inner.get(&key).await?)
+    }
+
+    /// Create-if-absent at epoch 1; only a flip may move a live config.
+    pub async fn seed_changelog_config(
+        &self,
+        topic: &str,
+        partitions: u32,
+        writer_group: &str,
+    ) -> Result<bool> {
+        count_call("seed_changelog_config");
+        let key = self.key(StoreKey::ChangelogConfig);
+        let config = ChangelogConfig {
+            writer_group: writer_group.to_string(),
+            ..ChangelogConfig::new(topic, partitions)
+        };
+        let txn = Txn::new()
+            .when(vec![Compare::create_revision(
+                key.clone(),
+                CompareOp::Equal,
+                0,
+            )])
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(&config)?, None)]);
+        let resp = self.inner.txn(txn).await?;
+        Ok(resp.succeeded())
     }
 
     pub async fn get_generation(&self) -> Result<String> {

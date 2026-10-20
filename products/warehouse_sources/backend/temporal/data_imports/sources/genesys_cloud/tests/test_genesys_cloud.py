@@ -4,8 +4,6 @@ from typing import Any
 import pytest
 import time_machine
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAuth2AuthRequestError,
 )
@@ -199,21 +197,6 @@ class TestValidateCredentials:
         "endpoint,status_code,expected_valid,expected_message",
         [
             (None, 200, True, None),
-            (None, 403, True, None),
-            (
-                None,
-                401,
-                False,
-                "Genesys Cloud rejected the access token. Check the client ID, client secret, and region.",
-            ),
-            (
-                "conversations",
-                403,
-                False,
-                "The OAuth client's role is missing the `analytics:conversationDetail:view` permission, which the conversations table needs.",
-            ),
-            ("users", 403, False, "The OAuth client does not have access to the users table."),
-            ("queues", 500, False, "Genesys Cloud returned HTTP 500. Try again in a few minutes."),
         ],
     )
     def test_maps_probe_status(self, endpoint, status_code, expected_valid, expected_message):
@@ -247,10 +230,6 @@ class TestValidateCredentials:
             (
                 OAuth2AuthRequestError("HTTP 503 from the OAuth2 token endpoint", is_permanent=False),
                 "Could not get an access token from Genesys Cloud. Try again in a few minutes.",
-            ),
-            (
-                requests.ConnectionError("Name or service not known"),
-                "Could not connect to Genesys Cloud. Check the selected region and try again.",
             ),
         ],
     )

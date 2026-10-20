@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { getNewInsightUrlFactory } from 'scenes/web-analytics/insightsUtils'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -582,6 +583,28 @@ describe('marketingAnalyticsLogic', () => {
                     table_name: precomputed ? 'marketing_costs_precomputed' : 'campaign_overview_stats',
                     math_hogql: expect.stringContaining(precomputed ? 'reported_conversions' : 'metrics_conversions'),
                 })
+                expect(chartAfter.marketingAnalyticsCostFallback).toEqual(
+                    precomputed
+                        ? { series: logic.values.createMarketingDataWarehouseNodes, sourceIds: ['google-source'] }
+                        : undefined
+                )
+                const tile = tiles.values.marketingChartTile
+                expect(getNewInsightUrlFactory([tile])(tile.tileId)).toEqual(
+                    urls.insightNew({
+                        query: {
+                            ...(tile.query as InsightVizNode),
+                            source: {
+                                ...chartAfter,
+                                series: logic.values.createMarketingDataWarehouseNodes,
+                                breakdownFilter: undefined,
+                                marketingAnalyticsCostFallback: undefined,
+                            },
+                            embedded: undefined,
+                            hidePersonsModal: undefined,
+                        } as InsightVizNode,
+                        sceneSource: 'web-analytics',
+                    })
+                )
                 expect(logic.values.tileColumnSelection).toBe('reported_conversion')
             }
             logic.actions.setAdPerformanceConversionGoals(false)
@@ -1009,6 +1032,18 @@ describe('marketingAnalyticsLogic', () => {
             expect.objectContaining({ id: sourceId, status: ExternalDataSchemaStatus.Completed }),
         ])
         expect(logic.values.hasSyncedMarketingSources).toBe(true)
+        expect(logic.values.marketingChartSourceIds).toEqual([sourceId])
+        expect(logic.values.createMarketingDataWarehouseNodes).toEqual([
+            expect.objectContaining({ id: tableId, table_name: table.name }),
+        ])
+        logic.actions.setIntegrationFilter({ integrationSourceIds: ['organic'] })
+        expect(logic.values.marketingChartSourceIds).toEqual([])
+        expect(logic.values.createMarketingDataWarehouseNodes).toEqual([])
+        logic.actions.setIntegrationFilter({ integrationSourceIds: [sourceId] })
+        expect(logic.values.marketingChartSourceIds).toEqual([sourceId])
+        expect(logic.values.createMarketingDataWarehouseNodes).toEqual([
+            expect.objectContaining({ id: tableId, table_name: table.name }),
+        ])
         if (type === 'managed') {
             for (const status of [ExternalDataSchemaStatus.Running, ExternalDataSchemaStatus.Failed, undefined]) {
                 databaseTableListLogic.actions.loadDatabaseSuccess({

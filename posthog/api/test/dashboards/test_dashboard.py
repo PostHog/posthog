@@ -43,7 +43,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.user_permissions import UserDashboardPermissions, UserPermissions
+from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -672,14 +672,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["created_by"]["first_name"], self.user.first_name)
         self.assertEqual(response_data["creation_mode"], "default")
-        self.assertEqual(
-            response_data["restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
 
     def test_create_basic_dashboard(self):
         # the front end sends an empty description even if not allowed to add one
@@ -689,43 +681,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["tags"], [])
         self.assertEqual(response_data["creation_mode"], "default")
-        self.assertEqual(
-            response_data["restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
 
         instance = Dashboard.objects.get(id=response_data["id"])
         self.assertEqual(instance.name, "My new dashboard")
-
-    @parameterized.expand([("create",), ("update",)])
-    def test_reject_legacy_collaborator_restriction_on_write(self, operation: str) -> None:
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        if operation == "create":
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/dashboards/",
-                {
-                    "name": "legacy dashboard",
-                    "restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-                },
-            )
-            self.assertFalse(Dashboard.objects.filter(name="legacy dashboard").exists())
-        else:
-            dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-                {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT},
-            )
-            dashboard.refresh_from_db()
-            self.assertEqual(dashboard.restriction_level, Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "restriction_level")
 
     def test_update_dashboard(self):
         dashboard = Dashboard.objects.create(
@@ -741,14 +699,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["name"], "dashboard new name")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["creation_mode"], "template")
-        self.assertEqual(
-            response_data["restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
@@ -1091,18 +1041,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 10 + 7 once at least one insight materializes. Three of the 7 read the
+            # baseline + 10 + 6 once at least one insight materializes. Three of the 6 read the
             # revenue, marketing and customer analytics configs that go into the query cache key.
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 7):
+            with self.assertNumQueries(baseline + 10 + 6):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 7):
+            with self.assertNumQueries(baseline + 10 + 6):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 10 + 7):
+        with self.assertNumQueries(baseline + 10 + 6):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
@@ -1408,26 +1358,33 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 400
 
-    def test_bulk_delete_checks_each_dashboard_permission(self) -> None:
-        first_id, _ = self.dashboard_api.create_dashboard({"name": "Editable board"})
-        second_id, _ = self.dashboard_api.create_dashboard({"name": "Restricted board"})
-        original_can_edit = UserPermissions.dashboard
-
-        def dashboard_permissions(permissions: UserPermissions, dashboard: Dashboard) -> UserDashboardPermissions:
-            if dashboard.id == second_id:
-                return MagicMock(can_edit=False)
-            return original_can_edit(permissions, dashboard)
-
-        with patch.object(UserPermissions, "dashboard", dashboard_permissions):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/dashboards/bulk_delete/",
-                {"ids": [first_id, second_id]},
-                format="json",
+    def test_bulk_delete_skips_dashboards_without_edit_access(self) -> None:
+        editable_id, _ = self.dashboard_api.create_dashboard({"name": "Editable board"})
+        viewer_id, _ = self.dashboard_api.create_dashboard({"name": "View-only board"})
+        user = self._create_user("dashboard-viewer@example.com", level=OrganizationMembership.Level.MEMBER)
+        membership = user.organization_memberships.get(organization=self.organization)
+        for dashboard_id, access_level in ((editable_id, "editor"), (viewer_id, "viewer")):
+            AccessControl.objects.create(
+                team=self.team,
+                resource="dashboard",
+                resource_id=str(dashboard_id),
+                access_level=access_level,
+                organization_member=membership,
             )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/bulk_delete/",
+            {"ids": [editable_id, viewer_id]},
+            format="json",
+        )
+
         assert response.status_code == 200
-        assert response.json()["deleted"] == [first_id]
-        assert response.json()["skipped"][0]["id"] == second_id
-        assert Dashboard.objects.filter(team=self.team, id=second_id).exists()
+        assert response.json() == {
+            "deleted": [editable_id],
+            "skipped": [{"id": viewer_id, "reason": "You do not have permission to edit this dashboard"}],
+        }
+        assert Dashboard.objects.filter(team=self.team, id=viewer_id).exists()
 
     def test_delete_dashboard_can_delete_tiles(self):
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
@@ -3772,8 +3729,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "deleted": False,
                     "derived_name": None,
                     "description": None,
-                    "effective_privilege_level": 37,
-                    "effective_restriction_level": 21,
                     "favorited": False,
                     "filter_override_context": None,
                     "filters_hash": ANY,

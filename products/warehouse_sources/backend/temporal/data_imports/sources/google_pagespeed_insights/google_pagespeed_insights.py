@@ -303,8 +303,6 @@ def google_pagespeed_insights_source(
         partition_mode="datetime",
         partition_format="week",
         partition_keys=[config.partition_key],
-        # One row per URL, each stamped with an analysis timestamp of ~now; rows arrive in config order.
-        sort_mode="asc",
         # PageSpeed responses are large, deeply-nested JSON documents (~0.5-1 MiB each, larger for
         # complex pages). We emit one row per URL, so keep the per-chunk byte budget below a single
         # report: the batcher then flushes after roughly every report instead of accumulating the whole

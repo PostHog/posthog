@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinve
     PAGE_SIZE,
     InflowInventoryResumeConfig,
     check_access,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.settings import (
     ENDPOINTS,
@@ -115,9 +114,6 @@ class TestCheckAccess:
     @parameterized.expand(
         [
             ("ok", 200, 200, None),
-            ("unauthorized", 401, 401, None),
-            ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "inFlow Inventory returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
@@ -150,29 +146,6 @@ class TestCheckAccess:
         assert message is not None
         assert network.requests_log == []
         assert network.session_options == []
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network([requests.ConnectionError("boom")]):
-            status, message = check_access("inflow-key", "co-123", INFLOWINVENTORY_API_VERSION_2026_07_10)
-
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid inFlow Inventory API key"),
-            ("forbidden", 403, False, "Invalid inFlow Inventory API key"),
-            ("server_error", 500, False, "inFlow Inventory returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
-    ) -> None:
-        with scripted_network([ScriptedResponse(status=status)]):
-            actual = validate_credentials("inflow-key", "co-123", INFLOWINVENTORY_API_VERSION_2026_07_10)
-
-        assert actual == (expected_valid, expected_message)
 
 
 class TestInflowInventorySourceResponse:

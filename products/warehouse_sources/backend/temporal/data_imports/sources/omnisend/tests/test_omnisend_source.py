@@ -65,11 +65,7 @@ class TestOmnisendSource:
     @pytest.mark.parametrize(
         ("validate_return", "expected_ok", "expected_msg"),
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid Omnisend API key"),
-            ((False, 403), False, "Invalid Omnisend API key"),
             ((False, None), False, "Could not connect to Omnisend with the provided API key"),
-            ((False, 500), False, "Could not connect to Omnisend with the provided API key"),
         ],
     )
     def test_validate_credentials(

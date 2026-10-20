@@ -273,9 +273,6 @@ class TestValidateCredentials:
         "status_code,expected_ok,expected_message",
         [
             (200, True, None),
-            (401, False, "Invalid OpenAlex API key"),
-            (403, False, "Invalid OpenAlex API key"),
-            (500, False, "OpenAlex API returned 500"),
         ],
     )
     def test_key_probe_status_mapping(

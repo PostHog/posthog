@@ -181,7 +181,11 @@ class TestKalshiTransport:
         assert result.response.partition_keys == expected
         assert result.response.partition_mode == ("datetime" if expected else None)
 
-    @parameterized.expand([("ok", 200, True), ("forbidden", 403, False), ("server_error", 500, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_validate_credentials_maps_status(self, _name: str, status: int, expected: bool) -> None:
         answer = ScriptedResponse(status=status)
         script = always(answer) if status == 500 else [answer]

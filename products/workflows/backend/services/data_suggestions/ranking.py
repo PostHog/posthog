@@ -30,7 +30,7 @@ _STAGE_REGEXES: tuple[tuple[LifecycleStage, str], ...] = (
     ("signup", r"sign.?up|signed.?up|regist|(account|user|workspace|organi[sz]ation|team).?created"),
     ("onboarding", r"onboard|activat|welcome|invite"),
     ("trial", r"trial"),
-    ("churn_risk", r"cancel|churn|downgrad|unsubscri|(account|user|workspace|organi[sz]ation).?delet"),
+    ("churn_risk", r"cancel|churn|downgrad|unsubscri|paus|(account|user|workspace|organi[sz]ation).?delet"),
     ("failure", r"fail|error"),
     ("purchase", r"subscri|upgrad|purchas|order|checkout|payment|paid|plan"),
     ("support", r"ticket|survey|feedback"),

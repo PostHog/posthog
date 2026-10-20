@@ -111,7 +111,7 @@ class OmniSource(ResumableSource[OmniSourceConfig, OmniResumeConfig]):
             name=ExternalDataSourceType.OMNI,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Omni Analytics",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Sync documents, folders, connections, schedules, users, and user groups from your Omni instance.\n\nUse an **Organization API key** for full coverage (**Settings > API access**) — Personal Access Tokens only see content the token owner can access, and can't read the Users or User groups tables at all.",
             docsUrl="https://posthog.com/docs/cdp/sources/omni",
             iconPath="/static/services/omni.png",

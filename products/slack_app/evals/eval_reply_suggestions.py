@@ -17,6 +17,7 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
 from products.slack_app.backend.logic import reply_suggestions
+from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import REPLY_OFFER_KEY, NoUnaskedButtons, ReplyOfferMatch, SuggestedRepliesFit
 
 SUITE_KIND = SuiteKind.ONE_SHOT
@@ -206,6 +207,11 @@ async def eval_reply_suggestions(ctx: EvalContext) -> None:
 
     await OneShotPublicEval(
         experiment_name="slack-app-reply-suggestions",
+        offline_suite=offline_suite(
+            "slack_app/eval_reply_suggestions::eval_reply_suggestions",
+            metrics=["reply_offer", "no_unasked_buttons", "suggested_replies_fit"],
+            suite_kind=SUITE_KIND,
+        ),
         cases=[*WAITING_CASES, *BARE_CASES],
         scorers=[ReplyOfferMatch(), NoUnaskedButtons(), SuggestedRepliesFit()],
         task=task,

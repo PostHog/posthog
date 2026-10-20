@@ -645,6 +645,18 @@ describe('server-minted scope matching', () => {
         expect(hasScope(['signal_scout_report:write'], 'signal_scout_internal:read')).toBe(false)
     })
 
+    // Keys and tokens issued before the inbox got its own scope carry only `task:*`.
+    it.each([
+        { held: ['task:read'], required: 'inbox:read', allowed: true },
+        { held: ['task:write'], required: 'inbox:read', allowed: true },
+        { held: ['task:write'], required: 'inbox:write', allowed: true },
+        { held: ['task:read'], required: 'inbox:write', allowed: false },
+        { held: ['inbox:read'], required: 'inbox:read', allowed: true },
+        { held: ['task:write'], required: 'insight:read', allowed: false },
+    ])('lets a legacy task scope satisfy an inbox scope: $held -> $required', ({ held, required, allowed }) => {
+        expect(hasScope(held, required)).toBe(allowed)
+    })
+
     it('leaves wildcard and write-implies-read intact for user-grantable scopes', () => {
         expect(hasScope(['*'], 'insight:read')).toBe(true)
         expect(hasScope(['*'], 'insight:write')).toBe(true)
@@ -1083,6 +1095,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
+            'insight-data-checks',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1102,7 +1115,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'revamped-py-notebooks',
                 'tasks',
                 'tasks-mcp-agent-run-start',
-                'dashboard-widgets',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
@@ -1131,7 +1143,8 @@ describe('Tool Filtering - Feature Flags', () => {
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(38)
+        expect(allFlags).not.toContain('dashboard-widgets')
+        expect(flags).toHaveLength(37)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

@@ -1,3 +1,4 @@
+import re
 import json
 import shlex
 import asyncio
@@ -669,13 +670,13 @@ def _build_sandbox_tags(
     Tag values must be strings; None values are dropped so we don't emit empty tags.
     Hogland also caps each tag at 64 characters and truncates on its side.
     """
+    workflow_prefix = (activity.info().workflow_id or "").removesuffix(f"-{ctx.task_id}-{ctx.run_id}")
     tags: dict[str, str | int | None] = {
         "task_id": ctx.task_id,
         "task_run_id": ctx.run_id,
         "origin_product": ctx.origin_product,
         "team_id": ctx.team_id,
-        # The running workflow's real id — a re-derived default would mislabel prefixed dispatches.
-        "workflow_id": activity.info().workflow_id,
+        "workflow_label": re.sub(r"[^A-Za-z0-9_.-]", "-", workflow_prefix)[:63] if workflow_prefix else None,
         "image_source": prepared.image_source,
         "sandbox_runtime": "vm" if use_vm_sandbox else "gvisor",
     }
