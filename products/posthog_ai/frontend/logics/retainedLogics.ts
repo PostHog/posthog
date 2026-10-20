@@ -55,3 +55,15 @@ export function findRetainedLogicKey(group: string, matches: (logic: BuiltLogic)
     }
     return null
 }
+
+export function resolveRunStreamKey(runId: string, streamKey: string | undefined): string | undefined {
+    if (streamKey && streamKey !== runId) {
+        return streamKey
+    }
+    return (
+        findRetainedLogicKey(
+            RETAINED_RUN_STREAMS,
+            (logic) => (logic.values as { bootstrappedRunId?: string | null }).bootstrappedRunId === runId
+        ) ?? streamKey
+    )
+}

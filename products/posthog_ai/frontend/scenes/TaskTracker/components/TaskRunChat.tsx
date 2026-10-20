@@ -13,7 +13,7 @@ import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
-import { findRetainedLogicKey, RETAINED_RUN_STREAMS } from '../../../logics/retainedLogics'
+import { resolveRunStreamKey } from '../../../logics/retainedLogics'
 import { runCancellationLogic } from '../../../logics/runCancellationLogic'
 import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
 import type { AttachedContextItem } from '../../../types/contextTypes'
@@ -72,20 +72,11 @@ export function TaskRunChat({
     // the run's setup only when the two agree; a mismatch would launch the successor on another run's config.
     const runConfig = selectedRun?.id === runId ? selectedRun : undefined
     const pendingInteraction = interactionKey ? runInteractionLogic.findMounted(interactionKey) : undefined
-    const retainedStreamKey = useMemo(
-        () =>
-            streamKey
-                ? null
-                : findRetainedLogicKey(
-                      RETAINED_RUN_STREAMS,
-                      (logic) => (logic.values as { bootstrappedRunId?: string | null }).bootstrappedRunId === runId
-                  ),
-        [streamKey, runId]
-    )
+    const resolvedStreamKey = useMemo(() => resolveRunStreamKey(runId, streamKey), [runId, streamKey])
     const logicProps: RunInteractionLogicProps = {
         taskId,
         runId,
-        streamKey: streamKey ?? retainedStreamKey ?? undefined,
+        streamKey: resolvedStreamKey,
         interactionKey,
         initialDraft,
         onDraftAdopted,
