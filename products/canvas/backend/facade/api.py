@@ -52,6 +52,10 @@ from products.canvas.backend.logic.canvases import (
     provision_home_canvas as provision_home_canvas,
     update_canvas as update_canvas,
 )
+from products.canvas.backend.logic.data_dependencies import (
+    data_check_record as data_check_record,
+    run_data_dependency_checks as run_data_dependency_checks,
+)
 from products.canvas.backend.logic.operations import (
     find_operation as find_operation,
     list_operations as list_operations,
