@@ -196,6 +196,7 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     id: MOCK_TEAM_ID,
     name: 'MockHog App + Marketing',
     organization_id: MOCK_ORGANIZATION_ID,
+    logo_media_id: null,
     created_at: '2020-06-30T09:53:35.932534Z',
     is_pending_deletion: false,
     deletion_scheduled_at: null,

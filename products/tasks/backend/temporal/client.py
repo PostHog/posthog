@@ -41,7 +41,11 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TASK_RUN_STREAM_INITIAL_GENERATION,
     get_task_run_stream_generation,
 )
-from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
+from products.tasks.backend.metrics import (
+    AGENT_OTEL_TELEMETRY_STAMPED_TOTAL,
+    observe_task_run_terminal,
+    observe_task_run_workflow_start,
+)
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.bake_dev_stack_image.workflow import BakeDevStackImageInput
@@ -125,6 +129,7 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
         logger.warning("task_processing_start_failure_task_run_missing", extra={"run_id": run_id})
         return False
 
+    observe_task_run_terminal(task_run, error_type="workflow_start_failed", termination_reason=None)
     task_run.publish_stream_state_event()
     task_run.capture_event(
         "task_run_failed",
