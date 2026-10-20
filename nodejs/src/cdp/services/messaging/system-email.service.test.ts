@@ -288,6 +288,10 @@ describe('SystemEmailService', () => {
             false,
         ],
         ['another project', (id: number) => `${SITE_URL}/project/${id + 1}/functions/abc`, 'Open alert', false],
+        ['a relative path in this project', (id: number) => `/project/${id}/data-warehouse`, 'Open alert', true],
+        ['the project root without a trailing slash', (id: number) => `${SITE_URL}/project/${id}`, 'Open alert', true],
+        ['a relative path outside this project', () => '/login', 'Open alert', false],
+        ['a protocol-relative URL to another host', (id: number) => `//example.org/project/${id}/x`, 'Open alert', false],
         [
             'a project id that only shares a prefix',
             (id: number) => `${SITE_URL}/project/${id}0/functions`,

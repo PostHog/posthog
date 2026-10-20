@@ -429,11 +429,13 @@ export class SystemEmailService {
         try {
             // Compare the parsed form. A raw prefix check would accept `/project/1/../../login`,
             // which a mail client resolves to a page outside the project.
-            normalized = new URL(value.trim()).href
+            // Resolving against the site URL lets a caller pass a relative path as well as a full URL.
+            normalized = new URL(value.trim(), this.siteUrl).href
         } catch {
             return null
         }
-        return normalized.startsWith(`${this.siteUrl}/project/${teamId}/`) ? normalized : null
+        const projectUrl = `${this.siteUrl}/project/${teamId}`
+        return normalized === projectUrl || normalized.startsWith(`${projectUrl}/`) ? normalized : null
     }
 
     private async resolveRecipients(organizationId: string, userIds: number[]): Promise<string[]> {
