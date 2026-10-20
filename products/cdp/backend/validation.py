@@ -1363,10 +1363,24 @@ def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team) -> None:
                 f"Cohort {cohort_id} is a static cohort. Workflows can only use realtime cohorts."
             )
         if not cohort.is_flag_compatible:
+            if _only_references_other_cohorts(cohort):
+                # Nothing computes membership for a cohort made only of cohort references, so it never
+                # finishes calculating. Saying so stops people waiting for it.
+                raise serializers.ValidationError(
+                    f"Cohort {cohort_id} combines other cohorts, which workflows can't use yet. "
+                    f"Copy their conditions into a single cohort and use that one instead."
+                )
             raise serializers.ValidationError(
                 f"Cohort {cohort_id} isn't ready for realtime evaluation. "
                 f"Workflows can only use realtime cohorts that have finished calculating."
             )
+
+
+def _only_references_other_cohorts(cohort: Cohort) -> bool:
+    condition_type = Cohort.compute_condition_type(cohort.filters) or {}
+    return bool(condition_type.get("cohorts")) and not any(
+        condition_type.get(kind) for kind in ("person_properties", "behavioral", "lifecycle")
+    )
 
 
 class FunctionInputsSerializer(serializers.Serializer):
