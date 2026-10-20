@@ -66,13 +66,6 @@ export interface workflowEditorVisitLogicActions {
     saveWorkflowPartial: (workflow: Partial<HogFlow>) => {
         workflow: Partial<HogFlow>
     } // workflowLogic
-    saveWorkflowSuccess: (
-        originalWorkflow: HogFlow,
-        payload?: HogFlow | undefined
-    ) => {
-        originalWorkflow: HogFlow
-        payload?: HogFlow
-    } // workflowLogic
     setWorkflowValue: (
         key: import('node_modules/kea-forms/lib').FieldName,
         value: any
@@ -82,6 +75,9 @@ export interface workflowEditorVisitLogicActions {
     } // workflowLogic
     setWorkflowValues: (values: import('node_modules/kea-forms/lib').DeepPartial<HogFlow>) => {
         values: import('node_modules/kea-forms/lib').DeepPartial<HogFlow>
+    } // workflowLogic
+    workflowCreated: (workflowId: string) => {
+        workflowId: string
     } // workflowLogic
 }
 
@@ -115,7 +111,7 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
         ],
         actions: [
             workflowLogic(props),
-            ['setWorkflowValue', 'setWorkflowValues', 'saveWorkflowPartial', 'saveWorkflowSuccess', 'enableBlocked'],
+            ['setWorkflowValue', 'setWorkflowValues', 'saveWorkflowPartial', 'workflowCreated', 'enableBlocked'],
             hogFlowEditorLogic(props),
             ['switchEditorLayout', 'setEditorLayout'],
         ],
@@ -184,10 +180,8 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
                     invalid_step_types,
                 })
             },
-            saveWorkflowSuccess: ({ originalWorkflow }) => {
-                if (workflowStartPath(props) !== 'existing') {
-                    cache.createdWorkflowId = originalWorkflow.id
-                }
+            workflowCreated: ({ workflowId }) => {
+                cache.createdWorkflowId = workflowId
             },
         }
     }),

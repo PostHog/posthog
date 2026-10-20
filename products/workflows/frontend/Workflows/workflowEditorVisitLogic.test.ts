@@ -9,10 +9,16 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { confirmCreateAsBroadcast } from '../Broadcasts/broadcastLifecycle'
 import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
 import { workflowEditorVisitLogic } from './workflowEditorVisitLogic'
 import { NEW_WORKFLOW, TriggerAction, WorkflowLogicProps, workflowLogic } from './workflowLogic'
+
+jest.mock('../Broadcasts/broadcastLifecycle', () => ({
+    ...jest.requireActual('../Broadcasts/broadcastLifecycle'),
+    confirmCreateAsBroadcast: jest.fn(),
+}))
 
 const delayStep = (id: string, config: Record<string, unknown>): HogFlowAction =>
     ({
@@ -46,6 +52,18 @@ const slackStep = (id: string): HogFlowAction =>
         updated_at: 0,
         config: { template_id: 'template-slack', inputs: {} },
     }) as HogFlowAction
+
+const batchEmailSteps = (): Pick<HogFlow, 'actions' | 'edges'> => ({
+    actions: [
+        { ...delayStep('trigger_node', { type: 'batch', filters: {} }), type: 'trigger' },
+        { ...delayStep('email_node', { template_id: 'template-email', inputs: {} }), type: 'function_email' },
+        { ...delayStep('exit_node', { reason: 'Default exit' }), type: 'exit' },
+    ] as HogFlowAction[],
+    edges: [
+        { from: 'trigger_node', to: 'email_node', type: 'continue' },
+        { from: 'email_node', to: 'exit_node', type: 'continue' },
+    ],
+})
 
 const SAVED_ID = 'wf-visit-1'
 
@@ -162,6 +180,52 @@ describe('workflowEditorVisitLogic', () => {
                 workflow_id: SAVED_ID,
                 ever_saved: true,
             }),
+        ])
+    })
+
+    it('counts a new broadcast as saved while the other workflows still move to broadcasts', async () => {
+        let releaseMove = (): void => {}
+        const moveHeld = new Promise<void>((resolve) => {
+            releaseMove = resolve
+        })
+        let markMoveRequested = (): void => {}
+        const moveRequested = new Promise<void>((resolve) => {
+            markMoveRequested = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/broadcast_conversion_candidates/': {
+                    has_more: false,
+                    results: [{ id: 'wf-other', name: 'Other', status: 'draft' }],
+                },
+            },
+            post: {
+                '/api/projects/:team_id/hog_flows/': { ...NEW_WORKFLOW, id: SAVED_ID, origin_product: 'broadcasts' },
+                '/api/projects/:team_id/hog_flows/:id/convert_to_broadcast/': async () => {
+                    markMoveRequested()
+                    await moveHeld
+                    return [200, { origin_product: 'broadcasts' }]
+                },
+            },
+        })
+        jest.mocked(confirmCreateAsBroadcast).mockResolvedValue('broadcast_and_move')
+        const props = { id: 'new' }
+        const visit = await openEditor(props)
+        workflowLogic(props).actions.setWorkflowValues({
+            name: 'Monthly update',
+            exit_condition: 'exit_only_at_end',
+            ...batchEmailSteps(),
+        })
+
+        await expectLogic(workflowLogic(props), async () => {
+            workflowLogic(props).actions.submitWorkflow()
+            await moveRequested
+            visit.unmount()
+            releaseMove()
+        }).toDispatchActions(['saveWorkflowSuccess'])
+
+        expect(captured('workflow editor left')).toEqual([
+            expect.objectContaining({ start_path: 'blank', workflow_id: SAVED_ID, ever_saved: true }),
         ])
     })
 
