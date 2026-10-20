@@ -9079,10 +9079,10 @@ Today (9): `escalation_policies`, `incidents`, `log_entries`, `priorities`, `sch
 
 Diffed against: <https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json>
 
-- [ ] `/oncalls` — who was on call for which escalation policy and when - PagerDuty's headline operational dataset (high)
-- [ ] `/incidents/{id}/alerts` — alert-level rows under each incident; the actual monitoring events, and where dedup/noise analysis happens (high)
-- [ ] `/teams/{id}/members` — membership lookup joining users to the teams we already sync (high)
-- [ ] `/change_events` — deploy/change events, the standard correlate-incidents-to-deploys join (high)
+- [x] `/oncalls` — who was on call for which escalation policy and when - PagerDuty's headline operational dataset (high)
+- [x] `/incidents/{id}/alerts` — alert-level rows under each incident; the actual monitoring events, and where dedup/noise analysis happens (high)
+- [x] `/teams/{id}/members` — membership lookup joining users to the teams we already sync (high)
+- [x] `/change_events` — deploy/change events, the standard correlate-incidents-to-deploys join (high)
 - [ ] `/analytics/raw/incidents (POST)` — precomputed per-incident MTTA/MTTR, engaged seconds, and escalation counts (high)
 - [ ] `/incidents/{id}/notes` — responder notes attached to incidents, for postmortem/context analysis (medium)
 - [ ] `/schedules/{id}/users` — membership lookup resolving which users belong to each schedule we already sync (medium)
@@ -11373,10 +11373,10 @@ Today (12): `catalog_items`, `changes`, `departments`, `groups`, `hardwares`, `i
 
 Diffed against: <https://apidoc.samanage.com/redoc/schema/resolved_schema.json>
 
-- [ ] `categories` — lookup table resolving the category/subcategory IDs carried on incidents, changes and problems we already sync (high)
-- [ ] `{object_type}/{id}/audits (and /audits)` — per-ticket state/field transition history - the only way to compute time-in-state, reassignment and SLA breach analytics (high)
-- [ ] `{object_type}/{id}/time_tracks` — time logged per incident/change/problem; core effort and cost-per-ticket metric (high)
-- [ ] `configuration_items` — CMDB configuration items that incidents and changes reference; joins tickets to affected infrastructure (high)
+- [x] `categories` — lookup table resolving the category/subcategory IDs carried on incidents, changes and problems we already sync (high)
+- [x] `{object_type}/{id}/audits (and /audits)` — per-ticket state/field transition history - the only way to compute time-in-state, reassignment and SLA breach analytics (high)
+- [x] `{object_type}/{id}/time_tracks` — time logged per incident/change/problem; core effort and cost-per-ticket metric (high)
+- [x] `configuration_items` — CMDB configuration items that incidents and changes reference; joins tickets to affected infrastructure (high)
 - [ ] `roles` — lookup resolving the role IDs on users we already sync (medium)
 - [ ] `vendors` — lookup for the vendor IDs on hardwares, other_assets, contracts and purchase_orders (medium)
 - [ ] `contracts` — asset contracts with cost and renewal dates; underpins spend and renewal reporting (medium)
@@ -12562,10 +12562,10 @@ Today (3): `business_unit`, `product_reviews`, `service_reviews`
 
 Diffed against: <https://developers.trustpilot.com/product-reviews-api/>
 
-- [ ] `Catalog products (GET /v1/private/business-units/{businessUnitId}/catalog/products)` — join review product IDs to complete catalog records, variants, prices, and products with no reviews (high)
-- [ ] `Conversations (GET /v1/private/conversations/{conversationId})` — resolve conversation IDs on product reviews into customer and business comments for response analysis (high)
-- [ ] `Locations (GET /v1/private/business-units/{businessUnitId}/locations)` — resolve review location IDs into complete branch records and addresses for geographic comparisons (high)
-- [ ] `Product reviews summaries list (GET /v1/private/product-reviews/business-units/{businessUnitId}/summaries)` — compare official rating averages, distributions, and review counts across products (medium)
+- [x] `Catalog products (GET /v1/private/business-units/{businessUnitId}/catalog/products)` — join review product IDs to complete catalog records, variants, prices, and products with no reviews (high)
+- [x] `Conversations (GET /v1/private/conversations/{conversationId})` — resolve conversation IDs on product reviews into customer and business comments for response analysis (high)
+- [x] `Locations (GET /v1/private/business-units/{businessUnitId}/locations)` — resolve review location IDs into complete branch records and addresses for geographic comparisons (high)
+- [x] `Product reviews summaries list (GET /v1/private/product-reviews/business-units/{businessUnitId}/summaries)` — compare official rating averages, distributions, and review counts across products (medium)
 - [ ] `Imported product reviews (GET /v1/product-reviews/business-units/{businessUnitId}/imported-reviews)` — include externally imported feedback in product satisfaction and review volume analysis (medium)
 - [ ] `Categories for business unit (GET /v1/business-units/{businessUnitId}/categories)` — compare ratings across business categories and identify each category assignment (medium)
 - [ ] `Review likes (GET /v1/reviews/{reviewId}/likes)` — identify which consumers engage with service reviews beyond the embedded like count (low)
@@ -13457,9 +13457,9 @@ Today (9): `accounts`, `categories`, `category_groups`, `months`, `payee_locatio
 
 Diffed against: <https://api.ynab.com/papi/open_api_spec.yaml>
 
-- [ ] `Plan month category details (GET /v1/plans/{plan_id}/months/{month})` — compare historical category budgets, spending, and available balances; month summaries lack category details (high)
-- [ ] `Money movements (GET /v1/plans/{plan_id}/money_movements)` — track when money moved between budget categories, including amounts, notes, and the responsible user (high)
-- [ ] `Money movement groups (GET /v1/plans/{plan_id}/money_movement_groups)` — group related budget adjustments by action, month, author, and note (medium)
+- [x] `Plan month category details (GET /v1/plans/{plan_id}/months/{month})` — compare historical category budgets, spending, and available balances; month summaries lack category details (high)
+- [x] `Money movements (GET /v1/plans/{plan_id}/money_movements)` — track when money moved between budget categories, including amounts, notes, and the responsible user (high)
+- [x] `Money movement groups (GET /v1/plans/{plan_id}/money_movement_groups)` — group related budget adjustments by action, month, author, and note (medium)
 
 Note: Parsed every GET operation and the month and money movement schemas in the official OpenAPI specification. The existing months table contains summaries; month detail returns a category collection for each plan and month. Money movement collections need reads for each plan, while monthly variants repeat the same records. Excluded settings, user identity, transaction subsets, and write operations.
 

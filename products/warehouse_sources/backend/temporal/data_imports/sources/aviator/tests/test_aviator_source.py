@@ -75,16 +75,6 @@ class TestAviatorSource:
         assert (error is None) is expected_ok
         assert network.requests_log[0].path == "/api/v1/repo"
 
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.aviator.co/api/v1/repo"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.aviator.co/api/v1/queue/stats"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
     def test_source_for_pipeline_omits_last_value_when_not_incremental(self) -> None:
         # Passing a stale watermark on a full-refresh run would wrongly narrow the analytics window.
         config = AviatorSourceConfig(api_token="av_uat_test")

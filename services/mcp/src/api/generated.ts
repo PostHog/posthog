@@ -30007,6 +30007,8 @@ export namespace Schemas {
       stage: DataSuggestionStageEnum;
       /** The main planned step kinds after the trigger, in order. */
       step_outline: DataSuggestionStepKindEnum[];
+      /** Whether PostHog prepared this suggestion ahead of time with its workflow already built. Build it with save_draft to save the draft and stop offering the suggestion. */
+      premade: boolean;
     }
 
     export interface DataSuggestionBuildRequest {
@@ -39472,6 +39474,8 @@ export namespace Schemas {
       subject?: string;
       /** Plain-text fallback body for clients that can't render the email. */
       text?: string;
+      /** Preview text that most inboxes show after the subject. Supports Liquid templating. */
+      preheader?: string;
       /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
       html?: string;
       /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
@@ -56313,6 +56317,7 @@ export namespace Schemas {
      * * `running` - Running
      * * `paused_by_user` - Paused By User
      * * `paused_by_system` - Paused By System
+     * * `dry_run` - Dry Run
      * * `not_running` - Not Running
      */
     export type SuggestionsScoutStatusEnum = typeof SuggestionsScoutStatusEnum[keyof typeof SuggestionsScoutStatusEnum];
@@ -56322,19 +56327,34 @@ export namespace Schemas {
       Running: 'running',
       PausedByUser: 'paused_by_user',
       PausedBySystem: 'paused_by_system',
+      DryRun: 'dry_run',
       NotRunning: 'not_running',
     } as const;
+
+    export interface SuggestionsSample {
+      /** Whether an email step of the live version has enough tracked sends, over enough time, for PostHog to judge it. */
+      readonly reached: boolean;
+      /** Tracked sends (sends with open tracking on) from the live version's busiest email step in the last 7 days. */
+      readonly tracked_sends: number;
+      /** Tracked sends an email step needs before PostHog judges it. */
+      readonly required_sends: number;
+      /** When the live version was published. PostHog waits 48 hours before judging it. */
+      readonly version_live_since: string;
+    }
 
     export interface HogFlowOptimization {
       /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
-      /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+      /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on. A scout in dry run runs but files nothing until someone turns on writing to the inbox in its scout settings.
        *
        * * `running` - Running
        * * `paused_by_user` - Paused By User
        * * `paused_by_system` - Paused By System
+       * * `dry_run` - Dry Run
        * * `not_running` - Not Running */
       readonly scout_status: SuggestionsScoutStatusEnum;
+      /** How close the live version is to the sample PostHog needs before it suggests anything. Null while suggestions are on but the scout is not running, or when the workflow has no email step. */
+      readonly sample: SuggestionsSample | null;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -96734,6 +96754,20 @@ export namespace Schemas {
       p50_seconds: number | null;
     }
 
+    export interface RevertShareBucket {
+      /** Bucket start, aligned to revert_share_series_granularity (top of hour, midnight, or Monday). Keyed on the revert's own merge time. */
+      bucket_start: string;
+      /** PRs merged in this bucket, all authors and bots included. */
+      merged_pr_count: number;
+      /** Of those, PRs whose title names a revert: GitHub's 'Revert "..."' or a conventional-commit 'revert: ...' / 'revert(scope): ...' title. */
+      reverting_pr_count: number;
+      /**
+         * reverting_pr_count divided by merged_pr_count. Null when nothing merged in the bucket.
+         * @nullable
+         */
+      revert_share: number | null;
+    }
+
     export interface RepoOverview {
       /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
       cost_series: CostPerMergeBucket[];
@@ -96747,6 +96781,8 @@ export namespace Schemas {
       delivery_pipeline: DeliveryPipeline;
       /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
       ready_to_merge_series: ReadyToMergeBucket[];
+      /** Reverting merges over all merges (all authors, bots included) per bucket across the window, oldest first, zero-filled, bucketed by revert_share_series_granularity. Empty buckets carry a null share; the whole series is empty when include_series=false. */
+      revert_share_series: RevertShareBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
       run_count: number;
       /** Same count over the equal-length window immediately before date_from: the delta baseline. */
@@ -96769,6 +96805,20 @@ export namespace Schemas {
       merged_pr_count: number;
       /** Merged-PR count over the previous window. */
       merged_pr_count_prev: number;
+      /** PRs merged in the window whose title names a revert: GitHub's 'Revert "..."' or a conventional-commit 'revert: ...' / 'revert(scope): ...' title. Counts the revert when it merges, not the change it undid, which may have merged in an earlier window. Same population as merged_pr_count. */
+      reverting_pr_count: number;
+      /** Reverting-PR count over the previous window. */
+      reverting_pr_count_prev: number;
+      /**
+         * reverting_pr_count divided by merged_pr_count: the share of merges that undid an earlier merge. The guardrail to watch when review requirements are loosened. Null when nothing merged.
+         * @nullable
+         */
+      revert_share: number | null;
+      /**
+         * The same share over the previous window. Null when nothing merged.
+         * @nullable
+         */
+      revert_share_prev: number | null;
       /**
          * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
          * @nullable
@@ -96959,6 +97009,8 @@ export namespace Schemas {
       open_to_merge_series_granularity: string;
       /** Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'. */
       ready_to_merge_series_granularity: string;
+      /** Bucket width of the revert_share_series trend: 'hour', 'day', or 'week'. */
+      revert_share_series_granularity: string;
     }
 
     export interface RepoRoutingRule {
@@ -110705,19 +110757,6 @@ export namespace Schemas {
     export interface SurveySummarizeRequest {
       /** When true, bypass cached summaries and regenerate. Defaults to false. */
       force_refresh?: boolean;
-    }
-
-    export interface TaggerCreate {
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfigurationWrite | null;
     }
 
     export interface TaggerUpdate {
