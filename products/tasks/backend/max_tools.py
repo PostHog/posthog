@@ -88,6 +88,7 @@ By default, the task will be created and immediately executed. Set run=false to 
                 title=title,
                 description=description,
                 origin_product=Task.OriginProduct.USER_CREATED,
+                profile="user",
                 repository=repository,
                 github_integration=github_integration,
             )

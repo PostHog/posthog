@@ -13,12 +13,7 @@ from django.conf import settings
 
 from products.tasks.backend.prompts import SHELL_EFFICIENCY_INSTRUCTION
 
-# Per-task inactivity timeout defaults (production). User-driven runs — explicitly
-# user-created, or with no origin product — get a longer idle grace window since a
-# human may still be in the loop; automated/background runs reclaim the sandbox
-# worker sooner. Under test we drop to 2 minutes so orphaned runs don't pin a
-# worker for long.
-INACTIVITY_TIMEOUT_USER_SECONDS = 60 * 60  # 1 hour
+# Under test we drop to 2 minutes so orphaned runs don't pin a worker for long.
 INACTIVITY_TIMEOUT_DEFAULT_SECONDS = 30 * 60  # 30 minutes
 INACTIVITY_TIMEOUT_TEST_SECONDS = 2 * 60  # 2 minutes
 # Upper bound for a per-task inactivity override, so a bad or hostile value can't
@@ -34,22 +29,9 @@ WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS = 2 * 60  # 2 minutes
 # so a short idle window only applies once the agent's turn has ended.
 IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS = 10 * 60  # 10 minutes
 
-# PostHog AI runs are chat-shaped: a human sends a message, reads the reply, and either
-# follows up within a couple of minutes or walks away. Holding the sandbox for the full
-# background window bills idle compute for the walk-away case, and a follow-up that lands
-# after the window is cheap now that a fresh sandbox rebuilds the prior session from the
-# run log (`@posthog/agent` hydrates it and resumes natively) rather than replaying a
-# summary of the conversation.
-POSTHOG_AI_IDLE_TIMEOUT_SECONDS = 10 * 60  # 10 minutes
-
-# `Task.OriginProduct.POSTHOG_AI.value`, inlined: this module is imported at module scope by
-# the Temporal workflow definitions, which must not pull in Django models. Kept honest by
-# `test_posthog_ai_origin_constant_matches_model_enum`.
-POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai"
-
 
 def resolve_inactivity_timeout(
-    *, is_user_origin: bool = False, origin_product: str | None = None, state: dict | None = None
+    *, idle_minutes: int = INACTIVITY_TIMEOUT_DEFAULT_SECONDS // 60, state: dict | None = None
 ) -> timedelta:
     """Effective inactivity timeout for a task run, in priority order.
 
@@ -59,11 +41,11 @@ def resolve_inactivity_timeout(
     2. The `TASKS_INACTIVITY_TIMEOUT_SECONDS` env var (global fallback, e.g.
        `=30` to force a fast shutdown for local resume-flow testing).
     3. The test default (short, so orphaned runs don't pin a worker).
-    4. The origin-aware production default (longer for user-driven runs, shorter for
-       PostHog AI's chat-shaped ones).
+    4. The task profile's production default, `idle_minutes` (longer for user-driven runs,
+       shorter for PostHog AI's chat-shaped ones).
 
-    `origin_product` narrows step 4 only. It stays a plain string so callers can pass
-    `task.origin_product` straight through without this module importing Django models.
+    `idle_minutes` is a plain int so callers can pass `profile.idle_minutes` straight through
+    without this module importing Django models.
     """
     per_task = (state or {}).get("inactivity_timeout_seconds")
     if isinstance(per_task, int | float) and not isinstance(per_task, bool) and per_task > 0:
@@ -72,12 +54,10 @@ def resolve_inactivity_timeout(
         return timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS)
     if settings.TEST:
         return timedelta(seconds=INACTIVITY_TIMEOUT_TEST_SECONDS)
-    if origin_product == POSTHOG_AI_ORIGIN_PRODUCT:
-        return timedelta(seconds=POSTHOG_AI_IDLE_TIMEOUT_SECONDS)
-    return timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS if is_user_origin else INACTIVITY_TIMEOUT_DEFAULT_SECONDS)
+    return timedelta(minutes=idle_minutes)
 
 
-# Module-level default (non-user origin, no per-task override) for callers that
+# Module-level default (default profile idle window, no per-task override) for callers that
 # don't have task context. The CI follow-up timing lives in `task_management`.
 INACTIVITY_TIMEOUT = resolve_inactivity_timeout()
 

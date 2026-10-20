@@ -16,8 +16,9 @@ from posthog.models.user_integration import UserIntegration
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.task_profiles import CLEANUP
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import Repository
 
 
 class TestExperimentCleanupPr(APIBaseTest):
@@ -90,8 +91,8 @@ class TestExperimentCleanupPr(APIBaseTest):
         if expect_task_created:
             mock_create_task.assert_called_once()
             kwargs = mock_create_task.call_args.kwargs
-            self.assertEqual(kwargs["origin_product"], tasks_facade.TaskOriginProduct.EXPERIMENTS)
-            self.assertEqual(kwargs["repository"], "posthog/posthog")
+            self.assertEqual(kwargs["profile"], CLEANUP)
+            self.assertEqual(kwargs["options"].repositories, (Repository(name="posthog/posthog"),))
             self.assertTrue(kwargs["create_pr"])
             self.assertEqual(experiment.flag_cleanup_task_id, task_id)
         else:
@@ -211,7 +212,9 @@ class TestExperimentCleanupPr(APIBaseTest):
             mock_create_task.assert_not_called()
             self.assertIsNone(experiment.flag_cleanup_task_id)
         else:
-            self.assertEqual(mock_create_task.call_args.kwargs["repository"], expected_repository)
+            self.assertEqual(
+                mock_create_task.call_args.kwargs["options"].repositories, (Repository(name=expected_repository),)
+            )
             self.assertIsNotNone(experiment.flag_cleanup_task_id)
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
@@ -241,7 +244,7 @@ class TestExperimentCleanupPr(APIBaseTest):
             )
 
         experiment.refresh_from_db()
-        self.assertEqual(mock_create_task.call_args.kwargs["repository"], "acme/api")
+        self.assertEqual(mock_create_task.call_args.kwargs["options"].repositories, (Repository(name="acme/api"),))
         self.assertEqual(experiment.repository, "acme/api")
 
     @patch("products.experiments.backend.experiment_service.report_user_action")

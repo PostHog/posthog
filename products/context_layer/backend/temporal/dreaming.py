@@ -37,6 +37,7 @@ from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, MCP_READ_SCOPES
 from products.context_layer.backend.dreams import DREAM_AI_STAGE
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.context_layer.backend.models import ContextLayerConfig
+from products.context_layer.backend.task_profiles import DREAM
 
 logger = structlog.get_logger(__name__)
 
@@ -203,9 +204,9 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
                 reasoning_effort="high",
                 initial_permission_mode="full-access",
             ),
+            profile=DREAM,
             step_name="context-layer-dream",
             ai_stage=DREAM_AI_STAGE,
-            internal=True,
             workflow_id_prefix="context-layer-dream",
         )
     except Exception:

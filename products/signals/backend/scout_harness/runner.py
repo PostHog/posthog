@@ -78,6 +78,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 )
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
+from products.signals.backend.task_profiles import SCOUT
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -1105,8 +1106,7 @@ async def _spawn_and_run(
         model=SignalScoutRunSummary,
         step_name=_step_name(skill),
         verbose=verbose,
-        origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
-        mcp_builtin_agent_key="scout",
+        profile=SCOUT,
         # No credential owner on purpose: a scout is a team resource, so its runs mount only
         # connections members shared to the whole team, never anyone's personal grants. That
         # keeps runs identical no matter who created or edits the scout, and covers ownerless

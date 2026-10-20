@@ -18,6 +18,7 @@ from products.tasks.backend.constants import (
     InitialPermissionMode,
     get_required_model_flag,
 )
+from products.tasks.backend.facade.profiles import task_profiles
 from products.tasks.backend.feature_flags import get_model_access_error
 
 # TaskArtifact's choice enums live on the model as Django ``TextChoices``; re-exported here
@@ -50,15 +51,8 @@ TaskArtifactType = _TaskArtifact.ArtifactType
 TaskArtifactAdapter = _TaskArtifact.Adapter
 TaskArtifactStatus = _TaskArtifact.Status
 
-# Origin products a client may request a warm sandbox for. Deliberately an explicit list rather than
-# `SandboxWarmer.ORIGIN_PRODUCT_QUOTA.keys()`: registering an origin in the warm service is an internal
-# capability decision, and deriving the public API from it would silently widen this endpoint the day
-# someone adds a registry entry. `test_warmable_origin_products_are_registered` pins it as a subset.
-WARMABLE_ORIGIN_PRODUCTS: list[str] = [
-    _Task.OriginProduct.USER_CREATED,
-    _Task.OriginProduct.POSTHOG_AI,
-    _Task.OriginProduct.SIGNAL_REPORT,
-]
+_warmable_origins = {profile.origin_product for profile in task_profiles() if profile.warm is not None}
+WARMABLE_ORIGIN_PRODUCTS: list[str] = [origin for origin in _Task.OriginProduct.values if origin in _warmable_origins]
 
 __all__ = [
     "ALL_INITIAL_PERMISSION_MODE_CHOICES",

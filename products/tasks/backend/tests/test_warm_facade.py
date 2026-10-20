@@ -23,6 +23,7 @@ from products.tasks.backend.facade import (
     cancellation as cancellation_facade,
     contracts,
 )
+from products.tasks.backend.facade.profiles import profile_for_origin
 from products.tasks.backend.logic.services.staged_artifacts import (
     build_task_artifact_entry,
     build_task_staged_artifact_cache_key,
@@ -422,7 +423,12 @@ class TestWarmTaskSandbox(APIBaseTest):
             return WarmResult(run=run, just_created=True)
 
         with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm):
-            result = self._warm(repository=None, github_integration_id=None, branch=None, origin_product=origin_product)
+            result = self._warm(
+                repository=None,
+                github_integration_id=None,
+                branch=None,
+                profile=profile_for_origin(origin_product),
+            )
 
         assert result is not None
         task = Task.objects.get(id=result.task_id)
@@ -451,7 +457,7 @@ class TestWarmTaskSandbox(APIBaseTest):
             "repository": None,
             "github_integration_id": None,
             "branch": None,
-            "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+            "profile": profile_for_origin(Task.OriginProduct.SIGNAL_REPORT),
             "signal_report_id": report.id,
             "code_access_allowed": entitled,
         }

@@ -19,10 +19,12 @@ from products.posthog_ai.backend.message_routing import (
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
+from products.posthog_ai.backend.task_profiles import POSTHOG_AI
 from products.tasks.backend.facade import (
     api as tasks_facade,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.profiles import Repository
 from products.tasks.backend.models import Task, TaskRun
 
 ROUTING = "products.posthog_ai.backend.message_routing"
@@ -80,8 +82,8 @@ class TestOpenSandboxMessage(APIBaseTest):
 
         # Task.create_and_run called with the PostHog AI origin and no repo / no PR.
         _, kwargs = m_car.call_args
-        assert kwargs["origin_product"] == Task.OriginProduct.POSTHOG_AI
-        assert kwargs["repository"] is None
+        assert kwargs["profile"] == POSTHOG_AI
+        assert kwargs["options"].repositories == ()
         assert kwargs["create_pr"] is False
         assert kwargs["mode"] == "interactive"
         assert kwargs["start_workflow"] is False
@@ -150,7 +152,7 @@ class TestOpenSandboxMessage(APIBaseTest):
             self._service().open({"content": "fix the SDK", "trace_id": "t"}, repository="posthog/posthog-js")
 
         _, kwargs = m_car.call_args
-        assert kwargs["repository"] == "posthog/posthog-js"
+        assert kwargs["options"].repositories == (Repository(name="posthog/posthog-js"),)
 
     def test_first_message_honors_initial_permission_mode(self):
         task, run = self._stub_task()
@@ -611,7 +613,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
 
     def _fill_warm_pool(self, *, created_by=None) -> None:
         for _ in range(100):
-            if warm_facade.warm_pool_at_capacity(Task.OriginProduct.POSTHOG_AI, self.team.id, self.user.id):
+            if warm_facade.warm_pool_at_capacity(POSTHOG_AI, self.team.id, self.user.id):
                 return
             self._warm_run(created_by=created_by)
         self.fail("Warm pool did not reach capacity")

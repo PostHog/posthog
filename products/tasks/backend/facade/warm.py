@@ -14,6 +14,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.tasks.backend.facade import contracts
+from products.tasks.backend.facade.profiles import TaskProfile
 from products.tasks.backend.logic.services.warm import SandboxWarmer, WarmResult
 from products.tasks.backend.models import Task
 
@@ -37,16 +38,16 @@ def _warm_result_to_dto(result: WarmResult) -> contracts.WarmRunDTO:
     )
 
 
-def enforce_warm_quota(origin_product: str, team_id: int, user_id: int) -> None:
-    """Raise if the team may not warm a sandbox run for the origin product."""
+def enforce_warm_quota(profile: TaskProfile, team_id: int, user_id: int) -> None:
+    """Raise if the team may not warm a sandbox run for the task profile."""
     team, user = _team_and_user(team_id, user_id)
-    SandboxWarmer.enforce_quota(origin_product, team, user)
+    SandboxWarmer.enforce_quota(profile, team, user)
 
 
-def warm_pool_at_capacity(origin_product: str, team_id: int, user_id: int) -> bool:
+def warm_pool_at_capacity(profile: TaskProfile, team_id: int, user_id: int) -> bool:
     """Whether the user or organization already holds the max concurrent warm runs."""
     team, user = _team_and_user(team_id, user_id)
-    return SandboxWarmer.at_capacity(origin_product, team, user)
+    return SandboxWarmer.at_capacity(profile, team, user)
 
 
 def warm_task_run(

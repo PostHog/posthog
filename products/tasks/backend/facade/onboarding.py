@@ -36,8 +36,10 @@ from products.tasks.backend.facade.onboarding_prompt import (
     missing_onboarding_prompt_placeholders,
     render_onboarding_prompt,
 )
+from products.tasks.backend.facade.profiles import RunOptions
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort, runtime_adapter_for
 from products.tasks.backend.models import Task, TaskClientProvenance
+from products.tasks.backend.task_profiles import USER
 
 from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
 
@@ -252,20 +254,22 @@ def start_onboarding_session(
                 title=ONBOARDING_SESSION_TITLE,
                 title_manually_set=True,
                 description=description,
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=USER,
                 user_id=user.id,
                 channel_id=channel_id,
                 origin_key=origin_key,
                 client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
                 create_pr=False,
                 mode="interactive",
-                runtime_adapter=session_runtime_adapter,
-                model=session_model,
-                reasoning_effort=filter_unsupported_effort(
-                    session_runtime_adapter, session_model, ONBOARDING_SESSION_EFFORT
+                options=RunOptions(
+                    adapter=session_runtime_adapter,
+                    model=session_model,
+                    reasoning_effort=filter_unsupported_effort(
+                        session_runtime_adapter, session_model, ONBOARDING_SESSION_EFFORT
+                    ),
+                    mcp_scopes=ONBOARDING_SESSION_SCOPES,
+                    permission_mode="auto",
                 ),
-                posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
-                initial_permission_mode="auto",
             )
     except IntegrityError:
         started = _started_session_id(team.id, user.id)

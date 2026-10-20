@@ -36,11 +36,13 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
 from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
+from products.posthog_ai.backend.task_profiles import POSTHOG_AI
 from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message_params, parse_log_entry
 from products.tasks.backend.facade import (
     api as tasks_facade,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.profiles import Repository, RunOptions
 from products.tasks.backend.facade.run_config import INITIAL_PERMISSION_MODE_CHOICES, InitialPermissionMode
 from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow, signal_task_followup_message
 
@@ -197,8 +199,8 @@ class SandboxSession(BaseSandboxService):
         """
         # Gate before creating the Task: an over-quota or over-cap warm must not leave the conversation
         # with a runless Task that the next message can't continue. The facade re-checks both.
-        warm_facade.enforce_warm_quota(tasks_facade.TaskOriginProduct.POSTHOG_AI, self.team.pk, self.user.pk)
-        if warm_facade.warm_pool_at_capacity(tasks_facade.TaskOriginProduct.POSTHOG_AI, self.team.pk, self.user.pk):
+        warm_facade.enforce_warm_quota(POSTHOG_AI, self.team.pk, self.user.pk)
+        if warm_facade.warm_pool_at_capacity(POSTHOG_AI, self.team.pk, self.user.pk):
             logger.info(
                 "sandbox_warm_capacity_reached",
                 conversation_id=str(self.conversation.id),
@@ -214,8 +216,7 @@ class SandboxSession(BaseSandboxService):
                 task_id = tasks_facade.create_task_without_run(
                     team=self.team,
                     user_id=self.user.pk,
-                    origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
-                    repository=None,
+                    profile=POSTHOG_AI,
                 )
                 locked.task_id = task_id
                 locked.save(update_fields=["task", "updated_at"])
@@ -272,9 +273,9 @@ class SandboxSession(BaseSandboxService):
             team=self.team,
             title=content[:80],
             description=content,
-            origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
+            profile=POSTHOG_AI,
             user_id=self.user.pk,
-            repository=repository,
+            options=RunOptions(repositories=(Repository(name=repository),) if repository else ()),
             create_pr=False,
             mode="interactive",
             interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN,
