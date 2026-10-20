@@ -16,7 +16,14 @@ from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
+from products.data_modeling.backend.logic.saved_query_dag_sync import promote_view_nodes_to_matview
+from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import Node
+
+
+class SwitchedOffAgainError(Exception):
+    pass
 
 
 class Command(BaseCommand):
@@ -47,25 +54,34 @@ class Command(BaseCommand):
         reenabled = 0
         failed = 0
         for saved_query in candidates:
-            saved_query.is_materialized = True
-            saved_query.save(update_fields=["is_materialized"])
             try:
-                saved_query.schedule_materialization()
+                self._reenable(saved_query)
             except Exception as e:
-                # A rejected frequency or another outage raises without touching the flag.
                 saved_query.is_materialized = False
                 saved_query.save(update_fields=["is_materialized"])
                 self.stdout.write(f"failed saved_query={saved_query.id}: {e}")
                 failed += 1
-                continue
-            saved_query.refresh_from_db(fields=["is_materialized"])
-            if saved_query.is_materialized:
-                reenabled += 1
             else:
-                self.stdout.write(f"failed saved_query={saved_query.id}: scheduling switched it off again")
-                failed += 1
+                reenabled += 1
 
         self.stdout.write(f"Re-enabled {reenabled}, failed {failed}.")
+
+    def _reenable(self, saved_query: DataWarehouseSavedQuery) -> None:
+        saved_query.is_materialized = True
+        saved_query.save(update_fields=["is_materialized"])
+        # The default reconcile logs a failure and does not raise it, so a query that no tier runs
+        # counts as re-enabled. Reconcile below instead, where a failure raises.
+        saved_query.schedule_materialization(reconcile=False)
+        saved_query.refresh_from_db(fields=["is_materialized"])
+        if not saved_query.is_materialized:
+            raise SwitchedOffAgainError("scheduling switched it off again")
+        nodes = Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query).select_related(
+            "dag", "dag__team"
+        )
+        for dag in {node.dag for node in nodes}:
+            reconcile_dag_schedules(dag)
+        # A failed first enable leaves the node a VIEW, and a DAG run skips a VIEW node as ephemeral.
+        promote_view_nodes_to_matview(saved_query)
 
     def _parse_ids(self, raw: str, ids_file: Path | None) -> set[UUID]:
         tokens = [token.strip() for token in raw.split(",")]
