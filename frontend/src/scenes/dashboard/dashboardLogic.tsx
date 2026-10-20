@@ -1706,7 +1706,6 @@ export interface dashboardLogicMeta {
             layouts: Partial<Record<DashboardLayoutSize, Layout>>,
             sizeKey: DashboardLayoutSize | undefined
         ) => Layout | undefined
-        layoutForItem: (layout: Layout | undefined) => Record<string, TileLayout>
         tileGroupSections: (
             tileGroupSectionsEnabled: boolean,
             tiles: DashboardTile[],
@@ -1719,6 +1718,7 @@ export interface dashboardLogicMeta {
             tileGroupSections: DashboardSection[],
             canEditDashboard: boolean
         ) => Record<number, TileGroupMoveOptions>
+        layoutForItem: (layout: Layout | undefined) => Record<string, TileLayout>
         refreshMetrics: (
             refreshStatus: Record<string, RefreshStatus>,
             refreshTilesTotal: number | null
