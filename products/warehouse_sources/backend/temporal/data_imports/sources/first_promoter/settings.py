@@ -73,7 +73,7 @@ def base_url(api_version: str) -> str:
     return f"{FIRST_PROMOTER_HOST}/api/{api_version}/company"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FirstPromoterReportConfig:
     columns: tuple[str, ...]
     # Top-level response field each row is grouped by (e.g. `campaign`), or None for the
@@ -81,7 +81,7 @@ class FirstPromoterReportConfig:
     dimension: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class FirstPromoterEndpointConfig:
     name: str
     path: str

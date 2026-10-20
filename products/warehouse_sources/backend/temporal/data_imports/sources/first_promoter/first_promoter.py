@@ -43,7 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.first_prom
 logger = logging.getLogger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FirstPromoterResumeConfig:
     page: int
 
@@ -257,6 +257,7 @@ def get_resource(
 def _make_source_response(
     endpoint_config: FirstPromoterEndpointConfig,
     items_fn: Callable[[], Iterable[Any]],
+    supports_resume: bool = True,
 ) -> SourceResponse:
     return SourceResponse(
         name=endpoint_config.name,
@@ -269,6 +270,7 @@ def _make_source_response(
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="month" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        supports_resume=supports_resume,
     )
 
 
@@ -303,7 +305,7 @@ def _dependent_source_response(
         parent_endpoint_extra=parent_endpoint_extra,
         child_endpoint_extra={"paginator": SinglePagePaginator()},
     )
-    return _make_source_response(endpoint_config, lambda: resource)
+    return _make_source_response(endpoint_config, lambda: resource, supports_resume=False)
 
 
 def first_promoter_source(
