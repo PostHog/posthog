@@ -241,5 +241,5 @@ Create an API token in the Trunk app under Settings > Organization > General > A
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

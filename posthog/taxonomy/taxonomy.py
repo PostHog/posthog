@@ -3096,6 +3096,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The transport the MCP client used to connect to the server.",
             "examples": ["stdio", "sse", "streamable-http"],
         },
+        "$mcp_interface": {
+            "label": "MCP interface",
+            "description": "The interface that produced the event. Set by the @posthog/mcp analytics SDK on every capture and exception event it sends.",
+            "examples": ["mcp"],
+        },
         "$mcp_consumer": {
             "label": "MCP consumer",
             "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
@@ -3382,6 +3387,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Bot operator",
             "description": "Company or organization operating the bot.",
             "examples": ["Google", "OpenAI", "Anthropic", "Microsoft"],
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_mcp_harness": {
+            "label": "MCP harness",
+            "description": "MCP client label resolved from the event's client identity signals. Empty on non-MCP events.",
             "type": "String",
             "virtual": True,
         },

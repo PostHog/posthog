@@ -11,7 +11,6 @@ from products.dashboards.backend.constants import (
     MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
 )
-from products.dashboards.backend.facade.enums import RestrictionLevel
 from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
 from products.dashboards.backend.models.dashboard_tile import DashboardTileBadge
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
@@ -267,7 +266,7 @@ WidgetCatalogEntryOpenApi = PolymorphicProxySerializer(
 class WidgetCatalogResponseSerializer(serializers.Serializer):
     results = serializers.ListField(
         child=WidgetCatalogEntryOpenApi,
-        help_text="Registered dashboard widget types available when dashboard-widgets is enabled.",
+        help_text="Registered dashboard widget types.",
     )
 
 
@@ -436,14 +435,6 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text="ID of the color theme used for chart visualizations.",
     )
     tags = serializers.ListField(child=serializers.CharField(), required=False)
-    restriction_level = serializers.IntegerField(
-        min_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
-        max_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
-        required=False,
-        help_text=(
-            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
-        ),
-    )
     quick_filter_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,

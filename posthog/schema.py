@@ -28477,6 +28477,10 @@ class HogQLQueryResponse(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -29175,6 +29179,14 @@ class MarketingAnalyticsConfig(BaseModel):
     sources_map: dict[str, SourceMap] | None = None
 
 
+class MarketingAnalyticsCostFallback(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    series: list[DataWarehouseNode] = Field(..., max_length=200, min_length=1)
+    sourceIds: list[str] = Field(..., max_length=200, min_length=1)
+
+
 class MarketingAnalyticsRetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -29605,6 +29617,10 @@ class QueryResponseAlternative8(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -29709,6 +29725,10 @@ class QueryResponseAlternative40(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -30475,6 +30495,10 @@ class CachedHogQLQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -30569,6 +30593,10 @@ class Response3(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -32152,6 +32180,10 @@ class TrendsQuery(BaseModel):
         description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
+    marketingAnalyticsCostFallback: MarketingAnalyticsCostFallback | None = Field(
+        default=None,
+        description=("Live series for a Marketing cost trend when materialization coverage is incomplete."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[AnyPropertyFilterDiscriminated] | PropertyGroupFilter | None = Field(
         default=[], description="Property filters for all series"
@@ -33860,7 +33892,6 @@ class MaxUIContext(BaseModel):
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
     notebooks: list[MaxNotebookContext] | None = None
-    voice_mode: bool | None = None
 
 
 class QueryRequest(BaseModel):
