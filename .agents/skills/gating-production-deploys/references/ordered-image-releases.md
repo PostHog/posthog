@@ -4,7 +4,7 @@ Use this reference when reusing the common ordered alias helper or the shared-im
 
 ## Current capability
 
-The source foundation supplies `.github/scripts/ordered-image-release.sh`, the canonical `.github/shared-image-releases.yaml` loader, a legacy projection, the vendored matcher adapter and one fingerprint serializer. The common alias uses the helper. Channels must stay empty; selective worker publication is not implemented. A manifest entry does not create a publisher.
+The common alias uses `.github/scripts/ordered-image-release.sh`. `.github/actions/paths-filter` owns canonical manifest schema loading in `src/shared-image-policy.ts` and legacy projection. `.github/actions/shared-image-releases` owns `inspect`, approved publication bindings, the interval adapter and fingerprint APIs. Channels must stay empty; selective worker publication is not implemented. A manifest entry does not create a publisher.
 
 ## Common ordered alias
 
@@ -39,13 +39,15 @@ Version 1 has `version`, `filters` and `images`; images contain `channels`. Each
 
 `bindChannels(policy, approved)` validates a caller-supplied approved map. The caller builds that map from existing workflow and infrastructure configuration, never from the manifest. It returns approved destination bindings keyed by image and channel, including owner, repository, registry and replicas. Reuse those resolved bindings instead of selecting destinations again. Manifest entries cannot authorize destinations or redirect credentials; source/destination equality and regional collisions fail.
 
+Run `.github/actions/shared-image-releases` with `shared-image-operation: inspect`. Supply `shared-image-repository`, `shared-image-registry` and `shared-image-destination-registry` from approved workflow configuration, and `shared-image-destinations` as the infrastructure-approved JSON array. `shared-image-policy` defaults to `.github/shared-image-releases.yaml`; `working-directory` selects the executing checkout. Inspect validates and resolves the bindings before emitting the `channels` presence flag and the `publication-results` JSON binding map. It performs no publication. The action imports the loader and matcher from paths-filter by relative source path; do not copy either module.
+
 The publisher validates the source policy and approved publication destinations. The Charts migration helper owns consumer binding for new-service onboarding and existing-service migration. Hand source identity, policy and destination coordinates to Charts. The helper checks owner, lane, image group, repositories, regional replicas and inherited Git filters against the resolved Charts consumer. Obtain that check before treating the consumer setup as ready.
 
 Temporal worker release repositories use descriptive provisioned paths under `posthog-temporal-workers/`, such as `posthog-temporal-workers/data-warehouse-metadata`; `posthog-temporal-workers/batch-exports-sync` is the reserved sibling example. Preserve domain words and omit redundant `temporal-worker-` prefixes. Other workload classes choose their own namespace; the publisher does not infer workload identity from that prefix. Preserve bare tags, full revision/digest identity and source annotations. Changing repositories changes workload image strings and causes a rollout even at an equal digest.
 
 ## Interval and fingerprint APIs
 
-The internal `.github/actions/paths-filter/src/shared-image.ts` entry point exports `intervalFiles`, `Filter` and the policy/binding APIs. Supply `timeoutMs` and `maxBuffer` to bind measured budgets before dispatch. The interval adapter validates the executing checkout and complete history, bounds first-parent membership to the interval, includes merge deltas, treats renames as add/delete and maps Git typechanges to modified. Missing history, invalid frontiers and exhausted bounds fail explicitly. Match the returned files with `Filter.match`; legacy dispatch still compares endpoints. Newline filenames remain intact, although the pinned engine does not match them with `worker/**`.
+The internal `.github/actions/shared-image-releases/src/shared-image.ts` entry point exports `intervalFiles`, `Filter` and the policy/binding APIs. Supply `timeoutMs` and `maxBuffer` to bind measured budgets before dispatch. The interval adapter validates the executing checkout and complete history, bounds first-parent membership to the interval, includes merge deltas, treats renames as add/delete and maps Git typechanges to modified. Missing history, invalid frontiers and exhausted bounds fail explicitly. Match the returned files with `Filter.match`; legacy dispatch still compares endpoints. Newline filenames remain intact, although the pinned engine does not match them with `worker/**`.
 
 Use `serializePolicy` and `policyDigest` for one fingerprint format. Canonical UTF-8 JSON retains authored array order, status objects, vetoes, Unicode and literal `<>&`, with sorted object keys and no trailing newline. Reordering a list changes its fingerprint. A digest does not authorize a destination binding.
 

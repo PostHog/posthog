@@ -1,6 +1,6 @@
 import {execFileSync} from 'child_process'
-import {File} from './file'
-import {parseGitDiffOutput} from './git'
+import {File} from '../../paths-filter/src/file'
+import {parseGitDiffOutput} from '../../paths-filter/src/git'
 
 export interface IntervalOptions {
   cwd: string

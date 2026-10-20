@@ -42691,7 +42691,7 @@ const fs = __importStar(__nccwpck_require__(9896));
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
 const filter_1 = __nccwpck_require__(9037);
-const shared_image_releases_1 = __nccwpck_require__(5945);
+const shared_image_policy_1 = __nccwpck_require__(9229);
 const file_1 = __nccwpck_require__(3765);
 const git = __importStar(__nccwpck_require__(1243));
 const shadow = __importStar(__nccwpck_require__(5763));
@@ -42710,8 +42710,8 @@ async function run() {
         let filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput;
         const policyPath = core.getInput('shared-image-policy', { required: false });
         if (policyPath) {
-            const policy = (0, shared_image_releases_1.loadPolicy)(getConfigFileContent(policyPath));
-            filtersYaml = (0, shared_image_releases_1.projectLegacyFilters)(policy, filtersYaml);
+            const policy = (0, shared_image_policy_1.loadPolicy)(getConfigFileContent(policyPath));
+            filtersYaml = (0, shared_image_policy_1.projectLegacyFilters)(policy, filtersYaml);
         }
         const listFiles = core.getInput('list-files', { required: false }).toLowerCase() || 'none';
         const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', { required: false })) || 10;
@@ -43253,7 +43253,7 @@ async function report(input) {
 
 /***/ }),
 
-/***/ 5945:
+/***/ 9229:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -43292,17 +43292,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.CANONICAL_SOURCE_REPOSITORY = void 0;
 exports.loadPolicy = loadPolicy;
-exports.bindChannels = bindChannels;
 exports.projectLegacyFilters = projectLegacyFilters;
-exports.serializePolicy = serializePolicy;
-exports.policyDigest = policyDigest;
-const crypto_1 = __nccwpck_require__(6982);
 const yaml = __importStar(__nccwpck_require__(4281));
 const filter_1 = __nccwpck_require__(9037);
 const file_1 = __nccwpck_require__(3765);
-exports.CANONICAL_SOURCE_REPOSITORY = 'PostHog/posthog';
 function object(value, location) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new Error(`${location}: expected a mapping`);
@@ -43408,39 +43402,6 @@ function loadPolicy(text) {
     }
     return { version: 1, filters, images };
 }
-function bindChannels(policy, approved) {
-    const destinations = new Set();
-    const resolved = Object.create(null);
-    for (const [image, definition] of Object.entries(policy.images)) {
-        if (!Object.prototype.hasOwnProperty.call(approved, image))
-            throw new Error(`images.${image}: unknown build input`);
-        const source = approved[image];
-        resolved[image] = Object.create(null);
-        for (const [name, channel] of Object.entries(definition.channels)) {
-            const location = `images.${image}.channels.${name}`;
-            if (!source.registry || !source.repository || source.sourceRepository !== exports.CANONICAL_SOURCE_REPOSITORY) {
-                throw new Error(`${location}: source build has no approved canonical identity and coordinates`);
-            }
-            const bindings = source.destinations.filter(destination => destination.repository === channel.repository);
-            if (bindings.length !== 1)
-                throw new Error(`${location}.repository: expected one approved destination binding`);
-            const binding = bindings[0];
-            if (!binding || !binding.registry || !binding.owner) {
-                throw new Error(`${location}.repository: destination has no approved owner, registry and replicas`);
-            }
-            for (const coordinate of [binding.registry, ...binding.replicas]) {
-                const key = `${coordinate}/${channel.repository}`;
-                if (key === `${source.registry}/${source.repository}`)
-                    throw new Error(`${location}: destination conflicts with source build repository`);
-                if (destinations.has(key))
-                    throw new Error(`${location}: conflicting destination ${key}`);
-                destinations.add(key);
-            }
-            resolved[image][name] = binding;
-        }
-    }
-    return resolved;
-}
 function projectLegacyFilters(policy, inlineYaml) {
     const inline = object(yaml.load(inlineYaml), 'legacy filters');
     const merged = Object.assign(Object.create(null), inline);
@@ -43453,20 +43414,6 @@ function projectLegacyFilters(policy, inlineYaml) {
     if (Object.values(merged).some(value => value === null))
         throw new Error('legacy filters: unresolved policy reference');
     return validatedMatcherYaml(merged);
-}
-function canonical(value) {
-    if (Array.isArray(value))
-        return value.map(canonical);
-    if (value !== null && typeof value === 'object') {
-        return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
-    }
-    return value;
-}
-function serializePolicy(entries) {
-    return JSON.stringify(canonical({ paths: entries, version: 1 }));
-}
-function policyDigest(entries) {
-    return (0, crypto_1.createHash)('sha256').update(serializePolicy(entries), 'utf8').digest('hex');
 }
 
 

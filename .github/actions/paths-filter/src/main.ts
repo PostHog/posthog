@@ -5,7 +5,7 @@ import {GetResponseDataTypeFromEndpointMethod} from '@octokit/types'
 import {PullRequest, PushEvent} from '@octokit/webhooks-types'
 
 import {Filter, FilterResults, firedKeys} from './filter'
-import {loadPolicy, projectLegacyFilters} from './shared-image-releases'
+import {loadPolicy, projectLegacyFilters} from './shared-image-policy'
 import {File, ChangeStatus} from './file'
 import * as git from './git'
 import * as shadow from './shadow'

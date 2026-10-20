@@ -3,7 +3,7 @@ import {mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, u
 import {tmpdir} from 'os'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
-import {parseGitDiffOutput} from '../src/git'
+import {parseGitDiffOutput} from '../../paths-filter/src/git'
 import {ChangeStatus, Filter, intervalFiles} from '../src/shared-image'
 
 let repo: string
