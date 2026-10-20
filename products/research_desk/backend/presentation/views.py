@@ -80,6 +80,7 @@ class ResearchSourceViewSet(_ResearchDeskViewSet):
         data = request.validated_data
         try:
             source = api.update_source(
+                self.team_id,
                 UUID(pk),
                 contracts.UpdateResearchSourceInput(
                     label=data.get("label"),

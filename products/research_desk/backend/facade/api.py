@@ -58,8 +58,10 @@ def create_source(data: contracts.CreateResearchSourceInput) -> contracts.Resear
     return _source_to_dto(sources.create_source(data))
 
 
-def update_source(source_id: UUID, data: contracts.UpdateResearchSourceInput) -> contracts.ResearchSourceDTO:
-    return _source_to_dto(sources.update_source(source_id, data))
+def update_source(
+    team_id: int, source_id: UUID, data: contracts.UpdateResearchSourceInput
+) -> contracts.ResearchSourceDTO:
+    return _source_to_dto(sources.update_source(team_id, source_id, data))
 
 
 def list_sessions(

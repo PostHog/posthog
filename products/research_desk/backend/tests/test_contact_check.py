@@ -94,7 +94,7 @@ class TestContactCheck(ClickhouseTestMixin, APIBaseTest):
     def test_inactive_source_is_ignored(self) -> None:
         self._send_email("ada", "ada@example.com", RESEARCH_WORKFLOW_ID, 5)
         with team_scope(self.team.id):
-            api.update_source(self.workflow_source.id, contracts.UpdateResearchSourceInput(active=False))
+            api.update_source(self.team.id, self.workflow_source.id, contracts.UpdateResearchSourceInput(active=False))
 
         assert self._check(emails=("ada@example.com",)).touches == []
 

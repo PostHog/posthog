@@ -29,9 +29,9 @@ def create_source(data: contracts.CreateResearchSourceInput) -> ResearchSource:
         raise ResearchSourceAlreadyExistsError(f"A {data.kind} source with ID {data.external_id} exists.") from e
 
 
-def update_source(source_id: UUID, data: contracts.UpdateResearchSourceInput) -> ResearchSource:
+def update_source(team_id: int, source_id: UUID, data: contracts.UpdateResearchSourceInput) -> ResearchSource:
     try:
-        source = ResearchSource.objects.get(id=source_id)
+        source = ResearchSource.objects.get(team_id=team_id, id=source_id)
     except ResearchSource.DoesNotExist as e:
         raise ResearchSourceNotFoundError(str(source_id)) from e
 
