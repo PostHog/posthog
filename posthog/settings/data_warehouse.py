@@ -53,10 +53,13 @@ DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS = get_from_env(
     "DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS", 300.0, type_cast=float
 )
 
-# Longest time in seconds that one source request may spend on retries, from its first failure. No
-# new try starts after it. A client can pass its own value when a vendor's rate limit window is longer.
+# Longest time in seconds that one source request may take, from the start of its first try to the
+# end of its last, with all retries and waits. Each try gets only the time that is left, so a stalled
+# vendor holds a worker for this long at most. Keep it at or below
+# DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS, the time a source gets to hand off at a worker
+# shutdown. A client can pass its own value when a vendor's rate limit window is longer.
 DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS = get_from_env(
-    "DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS", 600.0, type_cast=float
+    "DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS", 300.0, type_cast=float
 )
 
 # Longest server-provided retry delay (`Retry-After` or a rate limit reset header) in seconds that
@@ -227,12 +230,19 @@ WAREHOUSE_SOURCES_DATABASE_URL: str = (
 # so a set must stay inside the memory slice the deltalite governor sizes per concurrent upsert
 # (memory_governor.py): with a 29 GiB pod, 16 groups in flight and a 2 GiB reserve, that slice is
 # about 1.3 GiB, of which 750 MiB goes to four partition workers. The row cap equals one extraction
-# chunk, the largest single batch the loader already takes, and the byte cap counts parquet on disk,
-# which decodes to Arrow several times its size. The count cap is only a backstop.
+# chunk, the largest single batch the loader already takes. The count cap is only a backstop.
+# When each batch records its decoded Arrow size and the pod limit is known, the copies of a set the
+# loader holds may use SLOT_SHARE of that slice, and the set's Arrow size never exceeds
+# MAX_ARROW_BYTES. Otherwise MAX_BYTES caps the parquet on disk, which decodes to Arrow several
+# times its size.
 DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES", 128, type_cast=int)
 DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS", 500_000, type_cast=int)
 DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
     "DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES", 64 * 1024 * 1024, type_cast=int
+)
+DATA_WAREHOUSE_V3_COALESCE_SLOT_SHARE = get_from_env("DATA_WAREHOUSE_V3_COALESCE_SLOT_SHARE", 0.4, type_cast=float)
+DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES = get_from_env(
+    "DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES", 512 * 1024 * 1024, type_cast=int
 )
 
 # Consecutive configuration errors (bad credentials, unknown database, unreachable host) after which

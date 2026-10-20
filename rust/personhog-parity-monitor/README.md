@@ -21,7 +21,7 @@ Per merged person only the survivor at the end of its merge chain counts.
 
 ## Metrics
 
-All names start with `personhog_parity_`. Labels carry outcomes only, never a team or an id; `/debug/mismatches` holds the last `PARITY_SAMPLE_RING_SIZE` disagreements with both sides' rows.
+All names start with `personhog_parity_`. Labels carry outcomes only, never a team or an id; `/debug/mismatches` holds the last `PARITY_SAMPLE_RING_SIZE` disagreements with both sides' rows and `last_update_ms`, the newest message timestamp behind each verdict.
 
 | Metric | Labels | Meaning |
 | --- | --- | --- |
