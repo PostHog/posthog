@@ -3,6 +3,7 @@ Adyen fail:safe-point
 Airbrake fail:rate-limit-budget,stall-budget
 AlphaVantage fail:rate-limit-budget,stall-budget
 AmazonAds fail:rate-limit-budget,stall-budget
+AmazonS3 not-checkable:schemas
 Amplitude fail:rate-limit-budget,stall-budget
 Anthropic fail:safe-point
 Apollo fail:rate-limit-budget,stall-budget
