@@ -1,70 +1,62 @@
-from typing import Any
-
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.settings import (
+    FLUTTERWAVE_API_V3,
+    FLUTTERWAVE_API_V4,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.source import FlutterwaveSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-SOURCE_MODULE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.source.flutterwave_source"
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flutterwave import (
+    FlutterwaveSourceConfig,
 )
 
 
-def _source_inputs(**overrides: Any) -> MagicMock:
-    inputs = MagicMock()
-    inputs.schema_name = overrides.get("schema_name", "transactions")
-    inputs.team_id = overrides.get("team_id", 1)
-    inputs.job_id = overrides.get("job_id", "job-1")
-    inputs.api_version = overrides.get("api_version", None)
-    inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", True)
-    inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", "2024-01-15 00:00:00")
-    return inputs
-
-
-class TestSourceConfig:
-    def test_config_identity_and_release_contract(self) -> None:
-        config = FlutterwaveSource().get_source_config
-        assert config.name == ExternalDataSourceType.FLUTTERWAVE
-        # Alpha but released: the finished source must be reachable, so unreleasedSource stays off.
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        # The doc slug is derived from this URL; a mismatch 404s the docs page.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/flutterwave"
-
-    def test_pins_the_generally_available_api_version(self) -> None:
-        # The request layer builds its base URL from this pin, so a drift here silently retargets
-        # every customer's sync at a different API surface.
-        source = FlutterwaveSource()
-        assert source.supported_versions == ("v3",)
-        assert source.default_version == "v3"
-        assert source.resolve_api_version(None) == "v3"
-
-
 class TestGetSchemas:
+    @parameterized.expand([(FLUTTERWAVE_API_V3,), (FLUTTERWAVE_API_V4,)])
+    def test_every_endpoint_is_full_refresh(self, api_version: str) -> None:
+        # Flutterwave has no update cursor on either version and its records mutate after creation, so
+        # no endpoint may advertise incremental sync (a created_at watermark would strand later status
+        # changes).
+        for schema in FlutterwaveSource().get_schemas(MagicMock(), team_id=1, api_version=api_version):
+            assert schema.supports_incremental is False
+            assert schema.supports_append is False
+            assert schema.incremental_fields == []
+
     @parameterized.expand(
         [
-            ("transactions",),
-            ("settlements",),
-            ("refunds",),
-            ("transfers",),
-            ("chargebacks",),
-            ("payment_plans",),
-            ("subscriptions",),
-            ("subaccounts",),
-            ("beneficiaries",),
+            (
+                "v3",
+                FLUTTERWAVE_API_V3,
+                {
+                    "transactions",
+                    "settlements",
+                    "refunds",
+                    "transfers",
+                    "chargebacks",
+                    "payment_plans",
+                    "subscriptions",
+                    "subaccounts",
+                    "beneficiaries",
+                },
+            ),
+            (
+                "v4",
+                FLUTTERWAVE_API_V4,
+                {"transactions", "settlements", "refunds", "transfers", "chargebacks", "beneficiaries"},
+            ),
+            # An unpinned call (the creation wizard) discovers the default version's tables.
+            ("unpinned", None, {"transactions", "settlements", "refunds", "transfers", "chargebacks", "beneficiaries"}),
         ]
     )
-    def test_every_endpoint_is_full_refresh(self, endpoint: str) -> None:
-        # Flutterwave v3 has no update cursor and its records mutate after creation, so no endpoint
-        # may advertise incremental sync (a created_at watermark would strand later status changes).
-        schemas = {s.name: s for s in FlutterwaveSource().get_schemas(MagicMock(), team_id=1)}
-        assert schemas[endpoint].supports_incremental is False
-        assert schemas[endpoint].supports_append is False
-        assert schemas[endpoint].incremental_fields == []
+    def test_table_set_follows_the_pin(self, _name: str, api_version: str | None, expected: set[str]) -> None:
+        schemas = FlutterwaveSource().get_schemas(MagicMock(), team_id=1, api_version=api_version)
+        assert {s.name for s in schemas} == expected
 
 
 class TestNonRetryableErrors:
@@ -75,6 +67,15 @@ class TestNonRetryableErrors:
                 "401 Client Error: Unauthorized for url: https://api.flutterwave.com/v3/transactions?page=1",
             ),
             ("forbidden", "403 Client Error: Forbidden for url: https://api.flutterwave.com/v3/settlements"),
+            (
+                "v4_unauthorized",
+                "401 Client Error: Unauthorized for url: https://f4bexperience.flutterwave.com/charges?page=1",
+            ),
+            ("v4_forbidden", "403 Client Error: Forbidden for url: https://f4bexperience.flutterwave.com/settlements"),
+            (
+                "v4_token_rejected",
+                "HTTP 401 from the OAuth2 token endpoint: invalid_client [oauth2_token_config_error]",
+            ),
         ]
     )
     def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
@@ -95,34 +96,30 @@ class TestNonRetryableErrors:
 
 
 class TestSourceForPipeline:
-    def test_threads_credentials_endpoint_and_api_version(self) -> None:
-        with patch(SOURCE_MODULE_PATCH) as mock_source:
-            FlutterwaveSource().source_for_pipeline(
-                config=MagicMock(secret_key="FLWSECK-test"),
-                resumable_source_manager=MagicMock(),
-                inputs=_source_inputs(schema_name="transactions", should_use_incremental_field=False),
-            )
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["secret_key"] == "FLWSECK-test"
-        assert kwargs["endpoint"] == "transactions"
-        # An unset pin must resolve to default_version, not fall through as None and break the URL.
-        assert kwargs["api_version"] == "v3"
+    @parameterized.expand(
+        [
+            ("v3_pin", FLUTTERWAVE_API_V3, "https://api.flutterwave.com/v3/transactions", "Bearer FLWSECK-test"),
+            # An unset pin must resolve to default_version (v4), not fall through as None and break the URL.
+            ("unpinned", None, "https://f4bexperience.flutterwave.com/charges", "Bearer minted-token"),
+            ("v4_pin", FLUTTERWAVE_API_V4, "https://f4bexperience.flutterwave.com/charges", "Bearer minted-token"),
+        ]
+    )
+    def test_threads_credentials_endpoint_and_api_version(
+        self, _name: str, api_version: str | None, url: str, authorization: str
+    ) -> None:
+        empty = ScriptedResponse(json={"status": "success", "meta": {"page_info": {"total_pages": 1}}, "data": []})
+        token = ScriptedResponse(json={"access_token": "minted-token", "expires_in": 600})
+        config = FlutterwaveSourceConfig(
+            secret_key="FLWSECK-test", client_id="client-test", client_secret="secret-test"
+        )
+        result = SourceDriver(FlutterwaveSource(), config).run(
+            "transactions",
+            route({"/openid-connect/token": [token], "/transactions": [empty], "/charges": [empty]}),
+            should_use_incremental_field=False,
+            api_version=api_version,
+        )
 
-    def test_watermark_dropped_on_full_refresh(self) -> None:
-        # Every endpoint is full-refresh, so a stored watermark must never leak into the query, or an
-        # unwanted `from` filter would silently truncate the pull.
-        with patch(SOURCE_MODULE_PATCH) as mock_source:
-            FlutterwaveSource().source_for_pipeline(
-                config=MagicMock(secret_key="FLWSECK-test"),
-                resumable_source_manager=MagicMock(),
-                inputs=_source_inputs(schema_name="subaccounts", should_use_incremental_field=False),
-            )
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestDocumentedTables:
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O), so the public docs Supported tables section renders.
-        source = FlutterwaveSource()
-        assert source.lists_tables_without_credentials is True
-        assert {t["name"] for t in source.get_documented_tables()} == set(ENDPOINTS)
+        assert result.raised is None
+        data_request = result.requests[-1]
+        assert data_request.url.startswith(url)
+        assert data_request.headers["authorization"] == authorization

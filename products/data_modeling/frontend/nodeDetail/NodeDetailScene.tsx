@@ -6,6 +6,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -20,7 +21,11 @@ import { NodeDetailLineage } from './NodeDetailLineage'
 import { NodeDetailMaterialization } from './NodeDetailMaterialization'
 import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailQuery } from './NodeDetailQuery'
-import type { NodeDetailSceneLogicProps, NodeDetailSceneTab } from './nodeDetailSceneLogic'
+import type {
+    NodeDetailDataQualitySubject,
+    NodeDetailSceneLogicProps,
+    NodeDetailSceneTab,
+} from './nodeDetailSceneLogic'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { NodeDetailTests } from './NodeDetailTests'
 import { NodeDetailTestsTabLabel } from './NodeDetailTestsTabLabel'
@@ -36,21 +41,34 @@ const TAB_LABELS: Record<NodeDetailSceneTab, string> = {
     query: 'Query',
     lineage: 'Lineage',
     materialization: 'Materialization',
-    tests: 'Data quality',
+    'data-quality': 'Data quality',
     history: 'History',
 }
 
-function tabLabel(tab: NodeDetailSceneTab, savedQueryId: string | null | undefined): JSX.Element | string {
-    if (tab === 'tests' && savedQueryId) {
-        return <NodeDetailTestsTabLabel subjectId={savedQueryId} />
+function tabLabel(
+    tab: NodeDetailSceneTab,
+    dataQualitySubject: NodeDetailDataQualitySubject | null
+): JSX.Element | string {
+    if (tab === 'data-quality' && dataQualitySubject) {
+        return <NodeDetailTestsTabLabel {...dataQualitySubject} />
     }
     return TAB_LABELS[tab]
 }
 
 export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element {
-    const { node, savedQuery, savedQueryLoading, nodeLoading, availableTabs, effectiveTab, visitedTabs } = useValues(
-        nodeDetailSceneLogic({ id })
-    )
+    const {
+        node,
+        savedQuery,
+        savedQueryDeleted,
+        savedQueryLoading,
+        nodeLoading,
+        availableTabs,
+        effectiveTab,
+        visitedTabs,
+        dataQualitySubject,
+        tableDetails,
+        tableDetailsLoading,
+    } = useValues(nodeDetailSceneLogic({ id }))
 
     if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
         return (
@@ -71,6 +89,19 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
         return <NotFound object="model" />
     }
 
+    if (savedQueryDeleted) {
+        return (
+            <NotFound
+                object="model"
+                caption={
+                    <>
+                        This model was deleted. Go back to <Link to={urls.models()}>Models</Link>.
+                    </>
+                }
+            />
+        )
+    }
+
     const savedQueryId = node.saved_query_id
 
     const tabPanel = (tab: NodeDetailSceneTab): JSX.Element => {
@@ -88,14 +119,14 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                         id={savedQueryId ?? ''}
                     />
                 )
-            case 'tests':
-                return <NodeDetailTests id={id} subjectId={savedQueryId ?? ''} />
+            case 'data-quality':
+                return <NodeDetailTests id={id} />
         }
     }
 
     const tabs: LemonTab<NodeDetailSceneTab>[] = availableTabs.map((tab) => ({
         key: tab,
-        label: tabLabel(tab, savedQueryId),
+        label: tabLabel(tab, dataQualitySubject),
         link: urls.nodeDetail(id, tab),
         'data-attr': `node-detail-${tab}-tab`,
     }))
@@ -103,18 +134,35 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
     return (
         <SceneContent>
             <NodeDetailHeader id={id} />
-            {/* A node row's timestamps describe the node, not the model: editing the
-                description here patches the node and bumps its updated_at while the saved
-                query stays untouched. So they stand in only for a node that has no saved
-                query, and a failed load says nothing rather than the node's dates. */}
+            {/* A node row's timestamps describe the node, not the table: the DAG sync bumps
+                updated_at when it stamps identity onto the node. So they stand in only for a
+                node with no table of its own, and a failed table load says nothing rather than
+                the node's dates. */}
             <NodeDetailOverview
                 id={id}
                 metadata={
                     <ModelMetadata
-                        createdBy={savedQuery?.created_by}
-                        createdAt={node.saved_query_id ? savedQuery?.created_at : node.created_at}
-                        updatedAt={node.saved_query_id ? undefined : node.updated_at}
-                        loading={!!node.saved_query_id && savedQueryLoading && !savedQuery}
+                        createdBy={
+                            node.saved_query_id
+                                ? savedQuery?.created_by
+                                : tableDetails?.source
+                                  ? undefined
+                                  : tableDetails?.table.created_by
+                        }
+                        createdByEmail={node.saved_query_id ? undefined : tableDetails?.source?.created_by}
+                        createdByLabel={node.origin === 'posthog' ? 'PostHog' : undefined}
+                        createdAt={
+                            node.saved_query_id
+                                ? savedQuery?.created_at
+                                : node.warehouse_table_id
+                                  ? (tableDetails?.source?.created_at ?? tableDetails?.table.created_at)
+                                  : node.created_at
+                        }
+                        updatedAt={node.saved_query_id || node.warehouse_table_id ? undefined : node.updated_at}
+                        loading={
+                            (!!node.saved_query_id && savedQueryLoading && !savedQuery) ||
+                            (!!node.warehouse_table_id && tableDetailsLoading && !tableDetails)
+                        }
                     />
                 }
             />

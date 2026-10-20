@@ -25,14 +25,23 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_END_PLACEHOLDER,
     UnsupportedHogQLQueryError,
+    apply_hogql_batch_export_modifier_defaults,
     create_hogql_context_for_batch_export,
     find_interval_placeholders,
+    load_hogql_modifiers,
     parse_hogql_select_for_batch_export,
     replace_interval_placeholders,
     serialize_batch_export_query,
     validate_hogql_batch_export_user,
 )
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportHogQLModel,
+    BatchExportModelInput,
+    BatchExportSessionsModel,
+    migrate_batch_export_model,
+)
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.sql.common import (
@@ -372,23 +381,37 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
     """
 
     def __init__(
-        self, team_id: int, hogql_query: str, batch_export_id: str | None = None, user_id: int | None = None
+        self,
+        team_id: int,
+        hogql_query: str,
+        batch_export_id: str | None = None,
+        user_id: int | None = None,
+        hogql_modifiers: dict[str, typing.Any] | None = None,
     ) -> None:
         super().__init__(team_id=team_id, batch_export_id=batch_export_id)
         self.user_id = user_id
         self.hogql_query = hogql_query
+        self.hogql_modifiers = load_hogql_modifiers(hogql_modifiers)
         self.parsed_hogql_query = parse_hogql_select_for_batch_export(hogql_query)
         self.wait_for_data_interval_end = DATA_INTERVAL_END_PLACEHOLDER in find_interval_placeholders(
             self.parsed_hogql_query
         )
+        self._use_new_events_schema = False
 
     async def get_hogql_context(self) -> HogQLContext:
         team = await Team.objects.aget(id=self.team_id)
         user = await User.objects.filter(pk=self.user_id).afirst()
         await database_sync_to_async(validate_hogql_batch_export_user)(team, user)
-        return await database_sync_to_async(create_hogql_context_for_batch_export)(
-            team, user=user, values={"log_comment": self.get_log_comment()}
+        context = await database_sync_to_async(create_hogql_context_for_batch_export)(
+            team,
+            user=user,
+            values={"log_comment": self.get_log_comment()},
+            modifiers=apply_hogql_batch_export_modifier_defaults(team, self.hogql_modifiers),
         )
+        # Pinned here rather than resolved in `get_clickhouse_request_settings`, which is sync and runs on
+        # the event loop where a database read is not allowed.
+        self._use_new_events_schema = await database_sync_to_async(context.uses_new_events_schema)()
+        return context
 
     async def _print_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None, output_format: str | None
@@ -417,13 +440,16 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         # Sent with the request instead of set on the query AST, because the user query may
         # not parse to a simple `ast.SelectQuery` (e.g. a UNION parses to an
         # `ast.SelectSetQuery`, which has no `settings` field to attach these to).
-        return _as_clickhouse_request_settings(get_user_hogql_batch_export_query_settings())
+        query_settings = get_user_hogql_batch_export_query_settings()
+        if self._use_new_events_schema:
+            # The query prints without settings, so the printer cannot attach the native read setting itself.
+            query_settings.json_type_escape_dots_in_keys = True
+        return _as_clickhouse_request_settings(query_settings)
 
 
 def resolve_batch_exports_model(
     team_id: int,
-    batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
+    batch_export_model: BatchExportModelInput | None = None,
     batch_export_id: str | None = None,
     is_backfill: bool = False,
 ):
@@ -433,42 +459,27 @@ def resolve_batch_exports_model(
     and new parameters. Eventually, once everything is a `RecordBatchModel`, this could
     be removed.
     """
-    model: BatchExportModel | BatchExportSchema | None = None
+    model = migrate_batch_export_model(batch_export_model)
+    model_name = model.name
     record_batch_model: RecordBatchModel | None = None
-    if batch_export_schema is None:
-        model = batch_export_model
-        if model is not None:
-            model_name = model.name
-            extra_query_parameters = model.schema["values"] if model.schema is not None else None
-            fields = model.schema["fields"] if model.schema is not None else None
-            filters = model.filters
+    schema = model.schema if isinstance(model, BatchExportEventsCustomModel) else None
+    extra_query_parameters = schema["values"] if schema is not None else None
+    fields = schema["fields"] if schema is not None else None
+    filters = model.filters if isinstance(model, BatchExportEventsModel | BatchExportEventsCustomModel) else None
+    match model:
+        case BatchExportSessionsModel():
+            record_batch_model = SessionsRecordBatchModel(
+                team_id=team_id, batch_export_id=batch_export_id, is_backfill=is_backfill
+            )
+        case BatchExportHogQLModel():
+            record_batch_model = HogQLQueryRecordBatchModel(
+                team_id=team_id,
+                hogql_query=model.query,
+                batch_export_id=batch_export_id,
+                user_id=model.user_id,
+                hogql_modifiers=model.modifiers,
+            )
 
-            if model_name == "sessions":
-                record_batch_model = SessionsRecordBatchModel(
-                    team_id=team_id, batch_export_id=batch_export_id, is_backfill=is_backfill
-                )
-            elif model_name == "hogql":
-                if model.hogql_query is None:
-                    raise UnsupportedHogQLQueryError("Batch export model is 'hogql' but no HogQL query was provided")
-                record_batch_model = HogQLQueryRecordBatchModel(
-                    team_id=team_id,
-                    hogql_query=model.hogql_query,
-                    batch_export_id=batch_export_id,
-                    user_id=model.user_id,
-                )
-        else:
-            model_name = "events"
-            extra_query_parameters = None
-            fields = None
-            filters = None
-    else:
-        model = batch_export_schema
-        model_name = "custom"
-        extra_query_parameters = model["values"] if model is not None else {}
-        fields = model["fields"] if model is not None else None
-        filters = None
-
-    schema = batch_export_schema or (batch_export_model.schema if batch_export_model is not None else None)
     if schema is not None and (query := schema.get("hogql_query")) and use_new_events_schema(team_id):
         context = HogQLContext(
             team_id=team_id,

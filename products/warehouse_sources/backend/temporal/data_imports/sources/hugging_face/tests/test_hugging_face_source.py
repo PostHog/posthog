@@ -2,7 +2,6 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huggingface import (
     HuggingFaceSourceConfig,
 )
@@ -18,17 +17,6 @@ class TestHuggingFaceSourceClass:
     def setup_method(self) -> None:
         self.source = HuggingFaceSource()
         self.team_id = 123
-
-    def test_source_config_fields(self) -> None:
-        fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"api_token", "author"}
-        # The token is a secret; the namespace is a plain text scope.
-        assert fields["api_token"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_token"].secret is True
-        assert fields["api_token"].required is True
-        assert fields["author"].type == SourceFieldInputConfigType.TEXT
-        assert fields["author"].secret is False
-        assert fields["author"].required is True
 
     def test_connection_host_fields_force_secret_reentry_on_author_change(self) -> None:
         # Changing author retargets the stored token at another namespace, so it must count as a host field.

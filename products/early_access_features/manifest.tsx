@@ -39,6 +39,7 @@ export const manifest: ProductManifest = {
             name: 'Early access feature',
             iconType: 'early_access_feature' as FileSystemIconType,
             href: (ref: string) => urls.earlyAccessFeature(ref),
+            listHref: () => urls.earlyAccessFeatures(),
             iconColor: [
                 'var(--color-product-early-access-features-light)',
                 'var(--color-product-early-access-features-dark)',
@@ -62,9 +63,10 @@ export const manifest: ProductManifest = {
         {
             path: 'Early access features',
             intents: [ProductKey.EARLY_ACCESS_FEATURES],
-            category: ProductItemCategory.FEATURES,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'early_access_feature',
             href: urls.earlyAccessFeatures(),
+            searchKeywords: ['beta', 'waitlist', 'opt-in'],
             iconType: 'early_access_feature' as FileSystemIconType,
             iconColor: [
                 'var(--color-product-early-access-features-light)',

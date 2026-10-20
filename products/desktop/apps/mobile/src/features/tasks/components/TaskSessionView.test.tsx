@@ -12,6 +12,7 @@ vi.mock("phosphor-react-native", () => ({
   CloudArrowDown: (props: Record<string, unknown>) =>
     createElement("CloudArrowDown", props),
   Robot: (props: Record<string, unknown>) => createElement("Robot", props),
+  Warning: (props: Record<string, unknown>) => createElement("Warning", props),
 }));
 
 vi.mock("@/features/chat", () => ({
@@ -32,7 +33,7 @@ vi.mock("@/lib/theme", () => ({
   useThemeColors: () => ({
     gray: { 8: "#888", 9: "#777", 11: "#555" },
     accent: { 9: "#f60" },
-    status: { error: "#d00" },
+    status: { error: "#d00", warning: "#d97706" },
   }),
 }));
 
@@ -144,6 +145,58 @@ describe("TaskSessionView", () => {
     const humans = findHumanMessages(renderer);
     expect(humans).toHaveLength(1);
     expect(humans[0].props.content).toBe("Ship it");
+  });
+
+  it.each([
+    {
+      name: "full-params kill → warning row",
+      params: {
+        pid: 4242,
+        comm: "vitest",
+        treeRssBytes: 13.46 * 1024 ** 3,
+        memoryCurrentBytes: 15 * 1024 ** 3,
+        memoryLimitBytes: 16 * 1024 ** 3,
+        signal: "SIGTERM",
+        at: "2026-01-01T00:00:00.000Z",
+      },
+      expectedContent:
+        "The sandbox stopped vitest because it was using 13.5 GiB of the 16.0 GiB available. The agent is still running.",
+    },
+    {
+      name: "missing sizes → nothing",
+      params: { comm: "vitest" },
+      expectedContent: null,
+    },
+  ])("process_killed acp_message: $name", ({ params, expectedContent }) => {
+    const renderer = renderTaskSessionView({
+      events: [
+        {
+          type: "acp_message" as const,
+          direction: "agent" as const,
+          ts: 2,
+          message: {
+            jsonrpc: "2.0",
+            method: "_posthog/process_killed",
+            params,
+          },
+        },
+      ],
+    });
+
+    const warnings = renderer.root.findAll(
+      (node) => (node.type as unknown as string) === "Warning",
+    );
+
+    if (expectedContent === null) {
+      expect(warnings).toHaveLength(0);
+      return;
+    }
+
+    expect(warnings).toHaveLength(1);
+    const matches = renderer.root.findAll(
+      (node) => node.props?.children === expectedContent,
+    );
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it("keeps question tools pending after the run goes idle", () => {

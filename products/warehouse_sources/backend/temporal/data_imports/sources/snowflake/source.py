@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from snowflake.connector.errors import DatabaseError, ForbiddenError, HttpError, ProgrammingError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -107,6 +109,61 @@ SnowflakeErrors = {
 
 @SourceRegistry.register
 class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[SnowflakeSourceConfig, SnowflakeResumeState]):
+    codebase_detection = detect(
+        env=("^SNOWFLAKE_", "^SNOWSQL_", "^AIRFLOW_CONN_SNOWFLAKE_DEFAULT$"),
+        npm=("snowflake-sdk",),
+        pypi=(
+            "snowflake-connector-python",
+            "snowflake-sqlalchemy",
+            "snowflake-snowpark-python",
+            "snowflake",
+            "snowflake-core",
+            "snowflake-ml-python",
+            "snowflake-cli",
+            "snowflake-cli-labs",
+            "snowflake-ingest",
+            "snowpipe-streaming",
+            "snowflake-telemetry-python",
+            "snowpark-connect",
+            "snowpark-submit",
+            "snowpark-checkpoints",
+            "snowpark-checkpoints-collectors",
+            "snowpark-checkpoints-validators",
+            "snowpark-checkpoints-configuration",
+            "snowpark-checkpoints-hypothesis",
+            "dbt-snowflake",
+            "apache-airflow-providers-snowflake",
+        ),
+        cargo=("snowflake-connector-rs",),
+        go=("github.com/snowflakedb/gosnowflake",),
+        maven=(
+            "net.snowflake:snowflake-jdbc",
+            "net.snowflake:snowflake-jdbc-fips",
+            "net.snowflake:snowflake-jdbc-thin",
+            "net.snowflake:snowflake-jdbc-native",
+            "net.snowflake:snowflake-jdbc-native-all",
+            "net.snowflake:snowflake-ingest-sdk",
+            "net.snowflake:spark-snowflake_2.10",
+            "net.snowflake:spark-snowflake_2.11",
+            "net.snowflake:spark-snowflake_2.12",
+            "net.snowflake:spark-snowflake_2.13",
+            "com.snowflake:snowpark",
+            "com.snowflake:snowpark_2.12",
+            "com.snowflake:snowpark_2.13",
+            "com.snowflake:snowpark-fips",
+            "com.snowflake:snowpark-fips_2.12",
+            "com.snowflake:snowpark-fips_2.13",
+            "com.snowflake:snowpipe-streaming",
+            "com.snowflake:telemetry",
+            "com.snowflake:connectors-native-sdk",
+            "com.snowflake:snowflake-kafka-connector",
+            "com.snowflake:snowflake-maven-plugin",
+            "com.snowflake:snowpark-connect-java-client_2.12",
+            "com.snowflake:snowpark-connect-java-client_2.13",
+        ),
+        rubygems=("rb_snowflake_client", "sequel-snowflake"),
+    )
+
     @property
     def get_implementation(self) -> SnowflakeImplementation:
         return _SNOWFLAKE_IMPLEMENTATION
@@ -405,6 +462,22 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # cleanly, so this is a self-recovering network blip rather than a bug. The errno and OS-
             # specific wrapping vary, so we match the stable requests-library wrapper phrase.
             "Connection broken: ConnectionResetError",
+            # Snowflake connector error 290503 (ER_HTTP_GENERAL_ERROR + 503): Snowflake's own backend
+            # briefly returned HTTP 503 while the connector was already retrying internally (it
+            # re-raises only after exhausting its own `RetryRequest` budget). A fresh Temporal-level
+            # retry opens a new connection and re-executes the query from scratch, which recovers
+            # cleanly once the backend blip clears, so this is self-recovering rather than a bug.
+            # The errno prefix is volatile, so we match the stable status text.
+            "HTTP 503: Service Unavailable",
+            # Snowflake error 000604 (57014): the connector arms a client-side "timebomb" on
+            # `cursor.execute()` using `network_timeout` (see `_SNOWFLAKE_QUERY_TIMEOUT_SECONDS`) and
+            # cancels the query once it elapses. The metadata/listing queries (column discovery,
+            # primary-key and clustering-key lookups) don't pass the long explicit per-query timeout,
+            # so they inherit the shorter connection-level one — usually plenty, but a cold warehouse
+            # resume or a transient backend slowdown can push a catalog scan past it. A fresh attempt
+            # opens a new connection and re-executes from scratch, so this is self-recovering rather
+            # than a bug. The query id in the message is volatile, so we match the stable phrase.
+            "SQL execution was cancelled by the client due to a timeout",
         }
 
     def reconcile_schema_metadata(

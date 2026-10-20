@@ -10,724 +10,6 @@
 import * as zod from 'zod'
 
 /**
- * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
- * @summary Create a loop
- */
-export const loopsCreateBodyNameMax = 400
-
-export const loopsCreateBodyDescriptionDefault = ``
-export const loopsCreateBodyTakeOwnershipDefault = false
-export const loopsCreateBodyVisibilityDefault = `personal`
-export const loopsCreateBodyModelDefault = ``
-export const loopsCreateBodyRepositoriesItemFullNameMax = 255
-
-export const loopsCreateBodyRepositoriesMax = 1
-
-export const loopsCreateBodyEnabledDefault = true
-export const loopsCreateBodyOverlapPolicyDefault = `skip`
-export const loopsCreateBodyBehaviorsOneCreatePrsDefault = false
-export const loopsCreateBodyBehaviorsOneWatchCiDefault = false
-export const loopsCreateBodyBehaviorsOneFixReviewCommentsDefault = false
-export const loopsCreateBodyBehaviorsOneMaxFixIterationsDefault = 3
-export const loopsCreateBodyBehaviorsOneMaxFixIterationsMin = 0
-export const loopsCreateBodyBehaviorsOneMaxFixIterationsMax = 10
-
-export const loopsCreateBodyConnectorsOnePosthogMcpScopesDefault = `read_only`
-export const loopsCreateBodyNotificationsOnePushOneEnabledDefault = false
-export const loopsCreateBodyNotificationsOneEmailOneEnabledDefault = false
-export const loopsCreateBodyNotificationsOneSlackOneEnabledDefault = false
-export const loopsCreateBodyContextTargetOneNameMax = 128
-
-export const loopsCreateBodyContextTargetOneOutputsOnePostToFeedDefault = false
-export const loopsCreateBodyContextTargetOneOutputsOneUpdateContextDefault = false
-export const loopsCreateBodyTriggersItemEnabledDefault = true
-
-export const LoopsCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().max(loopsCreateBodyNameMax).describe('Display name for the loop.'),
-        description: zod
-            .string()
-            .default(loopsCreateBodyDescriptionDefault)
-            .describe('Free-form description of what this loop does.'),
-        take_ownership: zod
-            .boolean()
-            .default(loopsCreateBodyTakeOwnershipDefault)
-            .describe(
-                'On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.'
-            ),
-        visibility: zod
-            .enum(['personal', 'team'])
-            .describe('\* `personal` - personal\n\* `team` - team')
-            .default(loopsCreateBodyVisibilityDefault)
-            .describe(
-                '`personal` (owner-only) or `team` (visible and fireable by any team member).\n\n\* `personal` - personal\n\* `team` - team'
-            ),
-        instructions: zod.string().describe('The prompt delivered to the agent on every run.'),
-        runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
-            .describe("Runtime adapter: 'claude' or 'codex'.\n\n\* `claude` - claude\n\* `codex` - codex"),
-        model: zod
-            .string()
-            .default(loopsCreateBodyModelDefault)
-            .describe(
-                "LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time."
-            ),
-        reasoning_effort: zod
-            .union([
-                zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
-                    .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "Reasoning effort, validated against `runtime_adapter`\/`model`'s supported set.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
-            ),
-        repositories: zod
-            .array(
-                zod.object({
-                    github_integration_id: zod
-                        .number()
-                        .describe('GitHub integration id this repository is accessed through.'),
-                    full_name: zod
-                        .string()
-                        .max(loopsCreateBodyRepositoriesItemFullNameMax)
-                        .describe('Repository in `organization\/repo` format, e.g. `posthog\/posthog`.'),
-                })
-            )
-            .max(loopsCreateBodyRepositoriesMax)
-            .optional()
-            .describe(
-                'Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.'
-            ),
-        sandbox_environment: zod
-            .uuid()
-            .nullish()
-            .describe('Sandbox environment carrying encrypted env vars and the network allowlist into every run.'),
-        enabled: zod
-            .boolean()
-            .default(loopsCreateBodyEnabledDefault)
-            .describe("Whether the loop's triggers are active. Pausing disables all triggers."),
-        overlap_policy: zod
-            .enum(['skip', 'allow', 'cancel_previous'])
-            .describe('\* `skip` - skip\n\* `allow` - allow\n\* `cancel_previous` - cancel_previous')
-            .default(loopsCreateBodyOverlapPolicyDefault)
-            .describe(
-                "What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.\n\n\* `skip` - skip\n\* `allow` - allow\n\* `cancel_previous` - cancel_previous"
-            ),
-        behaviors: zod
-            .object({
-                create_prs: zod
-                    .boolean()
-                    .default(loopsCreateBodyBehaviorsOneCreatePrsDefault)
-                    .describe('Whether the agent may push branches and open PRs. False makes this a report-only loop.'),
-                watch_ci: zod
-                    .boolean()
-                    .default(loopsCreateBodyBehaviorsOneWatchCiDefault)
-                    .describe('Whether to watch CI on loop-created PRs and report status.'),
-                fix_review_comments: zod
-                    .boolean()
-                    .default(loopsCreateBodyBehaviorsOneFixReviewCommentsDefault)
-                    .describe('Whether to automatically address review comments on loop-created PRs.'),
-                max_fix_iterations: zod
-                    .number()
-                    .min(loopsCreateBodyBehaviorsOneMaxFixIterationsMin)
-                    .max(loopsCreateBodyBehaviorsOneMaxFixIterationsMax)
-                    .default(loopsCreateBodyBehaviorsOneMaxFixIterationsDefault)
-                    .describe('Ceiling on automatic CI\/review-comment fix iterations, capped at 10.'),
-            })
-            .optional()
-            .describe('PR \/ CI-follow-up behavior configuration.'),
-        connectors: zod
-            .object({
-                mcp_installation_ids: zod
-                    .array(zod.string())
-                    .optional()
-                    .describe("MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs."),
-                posthog_mcp_scopes: zod
-                    .enum(['read_only', 'full'])
-                    .describe('\* `read_only` - read_only\n\* `full` - full')
-                    .default(loopsCreateBodyConnectorsOnePosthogMcpScopesDefault)
-                    .describe(
-                        "Scope of the PostHog MCP access injected into this loop's runs.\n\n\* `read_only` - read_only\n\* `full` - full"
-                    ),
-            })
-            .optional()
-            .describe("MCP connector configuration for this loop's runs."),
-        notifications: zod
-            .object({
-                push: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsCreateBodyNotificationsOnePushOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum([
-                                        'run_completed',
-                                        'run_failed',
-                                        'pr_created',
-                                        'pr_merged',
-                                        'pr_closed',
-                                        'needs_attention',
-                                    ])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Push notification settings.'),
-                email: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsCreateBodyNotificationsOneEmailOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum([
-                                        'run_completed',
-                                        'run_failed',
-                                        'pr_created',
-                                        'pr_merged',
-                                        'pr_closed',
-                                        'needs_attention',
-                                    ])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Email notification settings.'),
-                slack: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsCreateBodyNotificationsOneSlackOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum([
-                                        'run_completed',
-                                        'run_failed',
-                                        'pr_created',
-                                        'pr_merged',
-                                        'pr_closed',
-                                        'needs_attention',
-                                    ])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Slack notification settings.'),
-            })
-            .optional()
-            .describe('Per-channel notification configuration.'),
-        context_target: zod
-            .union([
-                zod.object({
-                    channel_id: zod.string().describe('Id of the channel (context) this loop is attached to.'),
-                    name: zod
-                        .string()
-                        .max(loopsCreateBodyContextTargetOneNameMax)
-                        .describe("Display name of the context, shown in the loop's publish prompt."),
-                    outputs: zod
-                        .object({
-                            post_to_feed: zod
-                                .boolean()
-                                .default(loopsCreateBodyContextTargetOneOutputsOnePostToFeedDefault)
-                                .describe(
-                                    "Whether each run is filed into the context's feed as a card (sets the run's channel)."
-                                ),
-                            update_context: zod
-                                .boolean()
-                                .default(loopsCreateBodyContextTargetOneOutputsOneUpdateContextDefault)
-                                .describe(
-                                    "Whether each run reads and republishes the context's context.md to reflect the latest state."
-                                ),
-                            canvas_id: zod
-                                .string()
-                                .nullish()
-                                .describe(
-                                    'Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.'
-                                ),
-                        })
-                        .optional()
-                        .describe('What the loop maintains in this context each run.'),
-                }),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md \/ canvas it keeps up to date.'
-            ),
-        triggers: zod
-            .array(
-                zod.object({
-                    id: zod
-                        .uuid()
-                        .optional()
-                        .describe('Existing trigger id to update in place. Omit to create a new trigger.'),
-                    type: zod
-                        .enum(['schedule', 'github', 'api'])
-                        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `api` - api')
-                        .describe(
-                            'Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger\/`).\n\n\* `schedule` - schedule\n\* `github` - github\n\* `api` - api'
-                        ),
-                    enabled: zod
-                        .boolean()
-                        .default(loopsCreateBodyTriggersItemEnabledDefault)
-                        .describe('Whether this trigger is active. Disabling pauses only this trigger.'),
-                    config: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
-                        ),
-                })
-            )
-            .optional()
-            .describe(
-                'Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop.'
-            ),
-    })
-    .describe(
-        'Request body for creating or updating a loop. Field required\/default semantics match\nthe `Loop` model; partial updates only touch keys present in the payload.'
-    )
-
-/**
- * Partial update. Identity-bearing fields (instructions, repositories, connectors, behaviors, model config, triggers) are owner-only on team loops; name, description, notifications and enable/pause are editable by any team member.
- * @summary Update a loop
- */
-export const loopsPartialUpdateBodyNameMax = 400
-
-export const loopsPartialUpdateBodyDescriptionDefault = ``
-export const loopsPartialUpdateBodyTakeOwnershipDefault = false
-export const loopsPartialUpdateBodyVisibilityDefault = `personal`
-export const loopsPartialUpdateBodyModelDefault = ``
-export const loopsPartialUpdateBodyRepositoriesItemFullNameMax = 255
-
-export const loopsPartialUpdateBodyRepositoriesMax = 1
-
-export const loopsPartialUpdateBodyEnabledDefault = true
-export const loopsPartialUpdateBodyOverlapPolicyDefault = `skip`
-export const loopsPartialUpdateBodyBehaviorsOneCreatePrsDefault = false
-export const loopsPartialUpdateBodyBehaviorsOneWatchCiDefault = false
-export const loopsPartialUpdateBodyBehaviorsOneFixReviewCommentsDefault = false
-export const loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsDefault = 3
-export const loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsMin = 0
-export const loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsMax = 10
-
-export const loopsPartialUpdateBodyConnectorsOnePosthogMcpScopesDefault = `read_only`
-export const loopsPartialUpdateBodyNotificationsOnePushOneEnabledDefault = false
-export const loopsPartialUpdateBodyNotificationsOneEmailOneEnabledDefault = false
-export const loopsPartialUpdateBodyNotificationsOneSlackOneEnabledDefault = false
-export const loopsPartialUpdateBodyContextTargetOneNameMax = 128
-
-export const loopsPartialUpdateBodyContextTargetOneOutputsOnePostToFeedDefault = false
-export const loopsPartialUpdateBodyContextTargetOneOutputsOneUpdateContextDefault = false
-export const loopsPartialUpdateBodyTriggersItemEnabledDefault = true
-
-export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().max(loopsPartialUpdateBodyNameMax).optional().describe('Display name for the loop.'),
-        description: zod
-            .string()
-            .default(loopsPartialUpdateBodyDescriptionDefault)
-            .describe('Free-form description of what this loop does.'),
-        take_ownership: zod
-            .boolean()
-            .default(loopsPartialUpdateBodyTakeOwnershipDefault)
-            .describe(
-                'On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.'
-            ),
-        visibility: zod
-            .enum(['personal', 'team'])
-            .describe('\* `personal` - personal\n\* `team` - team')
-            .default(loopsPartialUpdateBodyVisibilityDefault)
-            .describe(
-                '`personal` (owner-only) or `team` (visible and fireable by any team member).\n\n\* `personal` - personal\n\* `team` - team'
-            ),
-        instructions: zod.string().optional().describe('The prompt delivered to the agent on every run.'),
-        runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
-            .optional()
-            .describe("Runtime adapter: 'claude' or 'codex'.\n\n\* `claude` - claude\n\* `codex` - codex"),
-        model: zod
-            .string()
-            .default(loopsPartialUpdateBodyModelDefault)
-            .describe(
-                "LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time."
-            ),
-        reasoning_effort: zod
-            .union([
-                zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
-                    .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "Reasoning effort, validated against `runtime_adapter`\/`model`'s supported set.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
-            ),
-        repositories: zod
-            .array(
-                zod.object({
-                    github_integration_id: zod
-                        .number()
-                        .describe('GitHub integration id this repository is accessed through.'),
-                    full_name: zod
-                        .string()
-                        .max(loopsPartialUpdateBodyRepositoriesItemFullNameMax)
-                        .describe('Repository in `organization\/repo` format, e.g. `posthog\/posthog`.'),
-                })
-            )
-            .max(loopsPartialUpdateBodyRepositoriesMax)
-            .optional()
-            .describe(
-                'Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.'
-            ),
-        sandbox_environment: zod
-            .uuid()
-            .nullish()
-            .describe('Sandbox environment carrying encrypted env vars and the network allowlist into every run.'),
-        enabled: zod
-            .boolean()
-            .default(loopsPartialUpdateBodyEnabledDefault)
-            .describe("Whether the loop's triggers are active. Pausing disables all triggers."),
-        overlap_policy: zod
-            .enum(['skip', 'allow', 'cancel_previous'])
-            .describe('\* `skip` - skip\n\* `allow` - allow\n\* `cancel_previous` - cancel_previous')
-            .default(loopsPartialUpdateBodyOverlapPolicyDefault)
-            .describe(
-                "What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.\n\n\* `skip` - skip\n\* `allow` - allow\n\* `cancel_previous` - cancel_previous"
-            ),
-        behaviors: zod
-            .object({
-                create_prs: zod
-                    .boolean()
-                    .default(loopsPartialUpdateBodyBehaviorsOneCreatePrsDefault)
-                    .describe('Whether the agent may push branches and open PRs. False makes this a report-only loop.'),
-                watch_ci: zod
-                    .boolean()
-                    .default(loopsPartialUpdateBodyBehaviorsOneWatchCiDefault)
-                    .describe('Whether to watch CI on loop-created PRs and report status.'),
-                fix_review_comments: zod
-                    .boolean()
-                    .default(loopsPartialUpdateBodyBehaviorsOneFixReviewCommentsDefault)
-                    .describe('Whether to automatically address review comments on loop-created PRs.'),
-                max_fix_iterations: zod
-                    .number()
-                    .min(loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsMin)
-                    .max(loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsMax)
-                    .default(loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsDefault)
-                    .describe('Ceiling on automatic CI\/review-comment fix iterations, capped at 10.'),
-            })
-            .optional()
-            .describe('PR \/ CI-follow-up behavior configuration.'),
-        connectors: zod
-            .object({
-                mcp_installation_ids: zod
-                    .array(zod.string())
-                    .optional()
-                    .describe("MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs."),
-                posthog_mcp_scopes: zod
-                    .enum(['read_only', 'full'])
-                    .describe('\* `read_only` - read_only\n\* `full` - full')
-                    .default(loopsPartialUpdateBodyConnectorsOnePosthogMcpScopesDefault)
-                    .describe(
-                        "Scope of the PostHog MCP access injected into this loop's runs.\n\n\* `read_only` - read_only\n\* `full` - full"
-                    ),
-            })
-            .optional()
-            .describe("MCP connector configuration for this loop's runs."),
-        notifications: zod
-            .object({
-                push: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsPartialUpdateBodyNotificationsOnePushOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum([
-                                        'run_completed',
-                                        'run_failed',
-                                        'pr_created',
-                                        'pr_merged',
-                                        'pr_closed',
-                                        'needs_attention',
-                                    ])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Push notification settings.'),
-                email: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsPartialUpdateBodyNotificationsOneEmailOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum([
-                                        'run_completed',
-                                        'run_failed',
-                                        'pr_created',
-                                        'pr_merged',
-                                        'pr_closed',
-                                        'needs_attention',
-                                    ])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Email notification settings.'),
-                slack: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsPartialUpdateBodyNotificationsOneSlackOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum([
-                                        'run_completed',
-                                        'run_failed',
-                                        'pr_created',
-                                        'pr_merged',
-                                        'pr_closed',
-                                        'needs_attention',
-                                    ])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Slack notification settings.'),
-            })
-            .optional()
-            .describe('Per-channel notification configuration.'),
-        context_target: zod
-            .union([
-                zod.object({
-                    channel_id: zod.string().describe('Id of the channel (context) this loop is attached to.'),
-                    name: zod
-                        .string()
-                        .max(loopsPartialUpdateBodyContextTargetOneNameMax)
-                        .describe("Display name of the context, shown in the loop's publish prompt."),
-                    outputs: zod
-                        .object({
-                            post_to_feed: zod
-                                .boolean()
-                                .default(loopsPartialUpdateBodyContextTargetOneOutputsOnePostToFeedDefault)
-                                .describe(
-                                    "Whether each run is filed into the context's feed as a card (sets the run's channel)."
-                                ),
-                            update_context: zod
-                                .boolean()
-                                .default(loopsPartialUpdateBodyContextTargetOneOutputsOneUpdateContextDefault)
-                                .describe(
-                                    "Whether each run reads and republishes the context's context.md to reflect the latest state."
-                                ),
-                            canvas_id: zod
-                                .string()
-                                .nullish()
-                                .describe(
-                                    'Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.'
-                                ),
-                        })
-                        .optional()
-                        .describe('What the loop maintains in this context each run.'),
-                }),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md \/ canvas it keeps up to date.'
-            ),
-        triggers: zod
-            .array(
-                zod.object({
-                    id: zod
-                        .uuid()
-                        .optional()
-                        .describe('Existing trigger id to update in place. Omit to create a new trigger.'),
-                    type: zod
-                        .enum(['schedule', 'github', 'api'])
-                        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `api` - api')
-                        .describe(
-                            'Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger\/`).\n\n\* `schedule` - schedule\n\* `github` - github\n\* `api` - api'
-                        ),
-                    enabled: zod
-                        .boolean()
-                        .default(loopsPartialUpdateBodyTriggersItemEnabledDefault)
-                        .describe('Whether this trigger is active. Disabling pauses only this trigger.'),
-                    config: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
-                        ),
-                })
-            )
-            .optional()
-            .describe(
-                'Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop.'
-            ),
-    })
-    .describe(
-        'Request body for creating or updating a loop. Field required\/default semantics match\nthe `Loop` model; partial updates only touch keys present in the payload.'
-    )
-
-/**
- * Dry run: renders the assembled instructions and trigger context for a supplied sample payload (or a synthetic schedule fire when omitted), without creating a task, run, or any other side effect.
- * @summary Preview a loop fire
- */
-export const loopsPreviewCreateBodyTriggerTypeDefault = `schedule`
-
-export const LoopsPreviewCreateBody = /* @__PURE__ */ zod.object({
-    trigger_type: zod
-        .enum(['schedule', 'github', 'api'])
-        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `api` - api')
-        .default(loopsPreviewCreateBodyTriggerTypeDefault)
-        .describe(
-            'Trigger type to simulate. Defaults to a synthetic schedule fire.\n\n\* `schedule` - schedule\n\* `github` - github\n\* `api` - api'
-        ),
-    payload: zod
-        .unknown()
-        .optional()
-        .describe('Sample trigger payload, e.g. a GitHub webhook body or an API trigger body, to render into context.'),
-})
-
-/**
- * Replaces the loop's attached skill bundles wholesale: zipped local skills whose contents are seeded into every fired run's sandbox. Send an empty list to detach every skill. Owner-only on team loops, like other identity-bearing configuration.
- * @summary Replace a loop's skill bundles
- */
-export const loopsSkillBundlesUpdateBodyBundlesItemFileNameMax = 255
-
-export const loopsSkillBundlesUpdateBodyBundlesItemSkillNameMax = 255
-
-export const loopsSkillBundlesUpdateBodyBundlesItemContentSha256RegExp = new RegExp('^[a-f0-9]{64}$')
-
-export const LoopsSkillBundlesUpdateBody = /* @__PURE__ */ zod
-    .object({
-        bundles: zod.array(
-            zod
-                .object({
-                    file_name: zod
-                        .string()
-                        .max(loopsSkillBundlesUpdateBodyBundlesItemFileNameMax)
-                        .describe('File name for the stored bundle, e.g. `my-skill.zip`.'),
-                    skill_name: zod
-                        .string()
-                        .max(loopsSkillBundlesUpdateBodyBundlesItemSkillNameMax)
-                        .describe('Name of the skill inside the bundle.'),
-                    skill_source: zod
-                        .enum(['user', 'repo', 'marketplace', 'codex'])
-                        .describe(
-                            '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
-                        )
-                        .describe(
-                            'Local source the bundle was built from, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
-                        ),
-                    content_sha256: zod
-                        .string()
-                        .regex(loopsSkillBundlesUpdateBodyBundlesItemContentSha256RegExp)
-                        .describe('SHA-256 hex digest of the bundle bytes.'),
-                    bundle_format: zod
-                        .enum(['zip'])
-                        .describe('\* `zip` - zip')
-                        .describe('Archive format used for the bundle.\n\n\* `zip` - zip'),
-                    content_base64: zod.string().describe('Base64-encoded bundle bytes.'),
-                })
-                .describe('One zipped local skill in a skill-bundle replace request.')
-        ),
-    })
-    .describe(
-        "Request body for replacing a loop's attached skill bundles wholesale. Send an empty\nlist to detach every skill."
-    )
-
-/**
- * Authenticated POST trigger for `type=api` triggers. Project secret API key auth (`loop:write` scope), project-wide. Request body (JSON, capped at 64 KB) becomes run context. Send an `Idempotency-Key` header to dedupe retries.
- * @summary Fire a loop externally
- */
-export const LoopsTriggerCreateBody = /* @__PURE__ */ zod.record(zod.string(), zod.unknown())
-
-/**
  * Create a draft custom image and start its interactive image-builder agent task. The returned builder_task_id points at the conversation.
  */
 export const sandboxCustomImagesCreateBodyNameMax = 255
@@ -917,7 +199,12 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
         activities: zod
             .array(
                 zod.object({
-                    task_id: zod.uuid().describe('Task whose displayed activity should be marked read.'),
+                    task_id: zod
+                        .uuid()
+                        .nullish()
+                        .describe(
+                            'Task whose displayed activity should be marked read. Optional when activity_id is set.'
+                        ),
                     activity_id: zod
                         .uuid()
                         .nullish()
@@ -1322,6 +609,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
     origin_product: zod
         .enum([
             'onboarding',
+            'account_audit',
             'error_tracking',
             'eval_clusters',
             'user_created',
@@ -1344,13 +632,15 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'task_analysis',
             'workflow',
             'space_setup',
+            'business_knowledge',
+            'metrics_import',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
+            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
         ),
     repository: zod
         .string()
@@ -1518,6 +808,7 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
     origin_product: zod
         .enum([
             'onboarding',
+            'account_audit',
             'error_tracking',
             'eval_clusters',
             'user_created',
@@ -1540,13 +831,15 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             'task_analysis',
             'workflow',
             'space_setup',
+            'business_knowledge',
+            'metrics_import',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
+            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
         ),
     repository: zod
         .string()
@@ -1672,6 +965,7 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
     origin_product: zod
         .enum([
             'onboarding',
+            'account_audit',
             'error_tracking',
             'eval_clusters',
             'user_created',
@@ -1694,13 +988,15 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'task_analysis',
             'workflow',
             'space_setup',
+            'business_knowledge',
+            'metrics_import',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
+            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
         ),
     repository: zod
         .string()
@@ -1832,7 +1128,7 @@ export const TasksPresenceCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Create a new task run and kick off the workflow.
+ * Create a new task run and kick off the workflow. The response is the refreshed task with the created run under the top-level `run` key: read `run.id` for anything run-scoped, such as the run's stream and command endpoints. The top-level `id` is the task's, and `latest_run` mirrors `run` only as long as nothing newer starts — reading either of those as the created run is deprecated.
  * @summary Run task
  */
 export const tasksRunCreateBodyOneImportedMcpServersItemNameMax = 64
@@ -2741,6 +2037,36 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.'
         ),
     error_message: zod.string().nullish().describe('Error message if execution failed'),
+    error_type: zod
+        .union([
+            zod
+                .enum([
+                    'agent_reported',
+                    'agent_server_crash',
+                    'agent_declined',
+                    'output_parse_failed',
+                    'poll_timeout',
+                    'pi_runtime_error',
+                    'upstream_stream_terminated',
+                    'upstream_connection_error',
+                    'upstream_timeout',
+                    'upstream_provider_failure',
+                    'upstream_request_rejected',
+                    'content_block_rejection',
+                    'turn_ended_without_response',
+                    'subscription_usage_limit',
+                    'task_spend_limit',
+                    'agent_error',
+                ])
+                .describe(
+                    '\* `agent_reported` - agent_reported\n\* `agent_server_crash` - agent_server_crash\n\* `agent_declined` - agent_declined\n\* `output_parse_failed` - output_parse_failed\n\* `poll_timeout` - poll_timeout\n\* `pi_runtime_error` - pi_runtime_error\n\* `upstream_stream_terminated` - upstream_stream_terminated\n\* `upstream_connection_error` - upstream_connection_error\n\* `upstream_timeout` - upstream_timeout\n\* `upstream_provider_failure` - upstream_provider_failure\n\* `upstream_request_rejected` - upstream_request_rejected\n\* `content_block_rejection` - content_block_rejection\n\* `turn_ended_without_response` - turn_ended_without_response\n\* `subscription_usage_limit` - subscription_usage_limit\n\* `task_spend_limit` - task_spend_limit\n\* `agent_error` - agent_error'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Why the run failed, set by the caller that marked it failed.\n\n\* `agent_reported` - agent_reported\n\* `agent_server_crash` - agent_server_crash\n\* `agent_declined` - agent_declined\n\* `output_parse_failed` - output_parse_failed\n\* `poll_timeout` - poll_timeout\n\* `pi_runtime_error` - pi_runtime_error\n\* `upstream_stream_terminated` - upstream_stream_terminated\n\* `upstream_connection_error` - upstream_connection_error\n\* `upstream_timeout` - upstream_timeout\n\* `upstream_provider_failure` - upstream_provider_failure\n\* `upstream_request_rejected` - upstream_request_rejected\n\* `content_block_rejection` - content_block_rejection\n\* `turn_ended_without_response` - turn_ended_without_response\n\* `subscription_usage_limit` - subscription_usage_limit\n\* `task_spend_limit` - task_spend_limit\n\* `agent_error` - agent_error'
+        ),
 })
 
 /**
@@ -3043,6 +2369,8 @@ export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneC
     '^[a-f0-9]{64}$'
 )
 
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemBaseArtifactIdMax = 255
+
 export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -3114,6 +2442,13 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                     })
                     .optional()
                     .describe('Skill bundle metadata, required when the artifact type is skill_bundle.'),
+                base_artifact_id: zod
+                    .string()
+                    .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemBaseArtifactIdMax)
+                    .optional()
+                    .describe(
+                        'ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when its base artifact can.'
+                    ),
             })
         )
         .describe('Array of uploaded artifacts to finalize'),
@@ -3307,7 +2642,7 @@ export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. Permission responses return 503 agent_session_not_ready only when rejected before execution; clients may retry that code within a bounded startup wait. HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. Retry loop: a 503 is transient (sandbox_not_ready means the command arrived before the live run's command channel came up; agent_session_not_ready means an approval was rejected before execution while the agent starts) — retry it until the request you are answering expires. A 502 (agent server unreachable) or 504 (agent server timed out) means delivery is unknown; retry only when the command method is safe to retry. A 409 run_ended is final: the run is over and its sandbox is gone. HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.
  * @summary Send command to task run
  */
 export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
@@ -3409,10 +2744,15 @@ export const TasksRunsSetOutputPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Replace the running summary for a task run.
+ * Replace the running summary for a task run, and optionally its slug tags.
  * @summary Set task run summary
  */
 export const tasksRunsSetSummaryPartialUpdateBodySummaryMax = 1500
+
+export const tasksRunsSetSummaryPartialUpdateBodyTagsItemMax = 50
+
+export const tasksRunsSetSummaryPartialUpdateBodyTagsItemRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)\*$(?!\\n)')
+export const tasksRunsSetSummaryPartialUpdateBodyTagsMax = 10
 
 export const TasksRunsSetSummaryPartialUpdateBody = /* @__PURE__ */ zod.object({
     summary: zod
@@ -3420,6 +2760,19 @@ export const TasksRunsSetSummaryPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(tasksRunsSetSummaryPartialUpdateBodySummaryMax)
         .optional()
         .describe('Complete running summary that replaces the prior summary.'),
+    tags: zod
+        .array(
+            zod
+                .string()
+                .max(tasksRunsSetSummaryPartialUpdateBodyTagsItemMax)
+                .regex(tasksRunsSetSummaryPartialUpdateBodyTagsItemRegExp)
+                .describe('A lowercase kebab-case slug, for example `feature-flags` or `bug-fix`.')
+        )
+        .max(tasksRunsSetSummaryPartialUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            'Complete set of slug tags that replaces the prior tags. The agent chooses the tags. Omit the field to keep the current tags. Send an empty list to remove them.'
+        ),
 })
 
 /**
@@ -3704,6 +3057,42 @@ export const TasksMeConfigCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the project instructions. Autonomous runs never get them. Anyone who continues a task you started can see them, so leave out anything private. Send an empty string to clear.
+ */
+export const tasksMeConfigAgentInstructionsCreateBodyAgentInstructionsMax = 20000
+
+export const TasksMeConfigAgentInstructionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        agent_instructions: zod
+            .string()
+            .max(tasksMeConfigAgentInstructionsCreateBodyAgentInstructionsMax)
+            .describe(
+                'Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.'
+            ),
+    })
+    .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
+
+/**
+ * Update your per-project defaults for new tasks. Fields you leave out keep their stored value.
+ */
+export const TasksMeConfigTaskDefaultsCreateBody = /* @__PURE__ */ zod
+    .object({
+        start_in_plan_mode: zod
+            .boolean()
+            .optional()
+            .describe(
+                'When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.'
+            ),
+        auto_publish_cloud_runs: zod
+            .boolean()
+            .optional()
+            .describe(
+                'When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.'
+            ),
+    })
+    .describe("A partial update of the requesting user's task defaults. Fields left out keep their stored value.")
+
+/**
  * Set the project-wide default AI run preferences applied to task runs created without an explicit runtime selection. Send all fields as null to clear.
  */
 export const TasksConfigCreateBody = /* @__PURE__ */ zod
@@ -3743,6 +3132,35 @@ export const TasksConfigCreateBody = /* @__PURE__ */ zod
     .describe(
         'The default AI run selection stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. What a complete selection is depends on the harness: an ACP default\nsets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send\nevery field as null to clear a stored preference.'
     )
+
+/**
+ * Set the project instructions that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run, including autonomous runs. Send an empty string to clear.
+ */
+export const tasksConfigAgentInstructionsCreateBodyAgentInstructionsMax = 20000
+
+export const TasksConfigAgentInstructionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        agent_instructions: zod
+            .string()
+            .max(tasksConfigAgentInstructionsCreateBodyAgentInstructionsMax)
+            .describe(
+                'Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.'
+            ),
+    })
+    .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
+
+/**
+ * Returns the GitHub titles of the pull requests that the latest run of each task opened.
+ * @summary Fetch pull request titles for tasks
+ */
+export const tasksPullRequestTitlesCreateBodyIdsMax = 30
+
+export const TasksPullRequestTitlesCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(tasksPullRequestTitlesCreateBodyIdsMax)
+        .describe("Task IDs whose latest run's pull request titles to fetch (max 30)."),
+})
 
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).

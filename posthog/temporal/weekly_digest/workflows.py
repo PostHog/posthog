@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from temporalio import common, workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.weekly_digest.activities import (
@@ -49,6 +50,19 @@ MAX_CONCURRENT_GENERATION_ACTIVITIES = 100
 _PATCH_BOUNDED_GENERATION_ACTIVITIES = "weekly-digest-bounded-generation-activities"
 
 
+def resolve_redis_host() -> str:
+    # redis-py connects to localhost when the URL host is empty, so an empty value counts as missing.
+    host = os.getenv("WEEKLY_DIGEST_REDIS_HOST")
+    if host:
+        return host
+    if settings.DEBUG or settings.TEST:
+        return "localhost"
+    raise ApplicationError(
+        "WEEKLY_DIGEST_REDIS_HOST is not set. Set it on the weekly digest worker to the digest Redis host.",
+        non_retryable=True,
+    )
+
+
 @workflow.defn(name="weekly-digest")
 class WeeklyDigestWorkflow(PostHogWorkflow):
     @staticmethod
@@ -59,7 +73,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, input: WeeklyDigestInput) -> None:
         if input.common.redis_host is None:
-            input.common.redis_host = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
+            input.common.redis_host = resolve_redis_host()
 
         if input.common.redis_port is None:
             input.common.redis_port = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))

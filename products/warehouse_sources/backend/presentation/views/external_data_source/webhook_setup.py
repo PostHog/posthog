@@ -13,10 +13,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
-from posthog.cdp.validation import InputsSerializer
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.presentation.serializers import InputsSerializer
 from products.data_warehouse.backend.facade.api import (
     create_and_register_webhook,
     delete_webhook_and_hog_function,
@@ -130,6 +130,11 @@ class WebhookInfoResponseSerializer(serializers.Serializer):
         required=False,
         child=serializers.CharField(),
         help_text="Desired provider events not yet on the webhook (manual setup, or created before a new table).",
+    )
+    missing_inputs = serializers.ListField(
+        required=False,
+        child=serializers.CharField(),
+        help_text="Required webhook field names with no value yet. Deliveries are dropped while any is missing.",
     )
 
 
@@ -412,6 +417,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                     "inputs": webhook_inputs,
                     "external_status": dataclasses.asdict(external_status) if external_status else None,
                     "missing_events": missing_events,
+                    "missing_inputs": source.missing_webhook_inputs(all_inputs),
                 }
             ).data,
         )

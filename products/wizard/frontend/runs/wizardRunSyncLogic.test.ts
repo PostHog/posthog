@@ -17,14 +17,9 @@ jest.mock('../generated/api', () => ({
 
 const mockWizardRunsList = wizardRunsList as jest.Mock
 
-function mockRunPages(
-    activePage: { count: number; results: WizardRunApi[] },
-    completedRuns: WizardRunApi[] = []
-): void {
+function mockRunPages(activePage: { count: number; results: WizardRunApi[] }, recentRuns: WizardRunApi[] = []): void {
     mockWizardRunsList.mockImplementation((_projectId, { status }) =>
-        Promise.resolve(
-            status.includes('completed') ? { count: completedRuns.length, results: completedRuns } : activePage
-        )
+        Promise.resolve(status ? activePage : { count: recentRuns.length, results: recentRuns })
     )
 }
 
@@ -56,7 +51,15 @@ describe('wizardRunSyncLogic', () => {
     it('streams only the newest active run and switches when it changes', async () => {
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockWizardRunsList).toHaveBeenCalledWith('1', { status: ['created', 'running'], limit: 5 })
+        expect(mockWizardRunsList).toHaveBeenCalledWith('1', {
+            status: ['created', 'running'],
+            created_after: '2026-09-28T00:00:00Z',
+            limit: 5,
+        })
+        expect(mockWizardRunsList).toHaveBeenCalledWith('1', {
+            created_after: '2026-09-28T00:00:00Z',
+            limit: 5,
+        })
         expect(logic.values.activeCount).toBe(2)
         expect(logic.values.run?.id).toBe('newer')
         expect(MockEventSource.instances).toHaveLength(1)
@@ -115,42 +118,54 @@ describe('wizardRunSyncLogic', () => {
         expect(MockEventSource.instances).toHaveLength(3)
     })
 
-    it('loads completed runs after reloading, keeps them selectable, and respects dismissal', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        const stream = MockEventSource.last()
-        const completed = { ...run('newer'), status: 'completed' as const, stage: null }
-        mockRunPages({ count: 0, results: [] }, [completed])
+    it.each(['completed', 'failed', 'cancelled'] as const)(
+        'loads %s runs after reloading, keeps them selectable, and respects dismissal',
+        async (status) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const stream = MockEventSource.last()
+            const terminal = { ...run('newer'), status, stage: null }
+            mockRunPages({ count: 0, results: [] }, [terminal])
 
-        stream.emitMessage(JSON.stringify({ status: 'completed', stage: null, tasks: [] }))
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.run?.status).toBe('completed')
-        expect(stream.readyState).toBe(MockEventSource.CLOSED)
+            stream.emitMessage(JSON.stringify({ status, stage: null, tasks: [] }))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.run?.status).toBe(status)
+            expect(stream.readyState).toBe(MockEventSource.CLOSED)
 
-        logic.unmount()
-        logic = wizardRunSyncLogic({ projectId: '1' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(mockWizardRunsList).toHaveBeenCalledWith('1', { status: ['completed'], limit: 5 })
-        expect(logic.values.run).toEqual(completed)
-        expect(MockEventSource.instances).toHaveLength(1)
+            logic.unmount()
+            logic = wizardRunSyncLogic({ projectId: '1' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(mockWizardRunsList).toHaveBeenCalledWith('1', {
+                created_after: '2026-09-28T00:00:00Z',
+                limit: 5,
+            })
+            expect(logic.values.run).toEqual(terminal)
+            expect(MockEventSource.instances).toHaveLength(1)
 
-        mockRunPages({ count: 1, results: [run('next')] }, [completed])
-        logic.actions.checkRuns()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.run?.id).toBe('next')
-        logic.actions.selectRun(completed)
-        expect(MockEventSource.last().readyState).toBe(MockEventSource.CLOSED)
-        expect(MockEventSource.instances).toHaveLength(2)
+            mockRunPages({ count: 1, results: [run('next')] }, [terminal])
+            logic.actions.checkRuns()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.run?.id).toBe('next')
+            logic.actions.selectRun(terminal)
+            expect(MockEventSource.last().readyState).toBe(MockEventSource.CLOSED)
+            expect(MockEventSource.instances).toHaveLength(2)
 
-        logic.actions.dismissRun('newer')
-        expect(logic.values.run?.id).toBe('next')
-        logic.actions.checkRuns()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.visibleRuns.map((run) => run.id)).toEqual(['next'])
-    })
+            logic.actions.dismissRun('newer')
+            expect(logic.values.run?.id).toBe('next')
+            logic.actions.checkRuns()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.visibleRuns.map((run) => run.id)).toEqual(['next'])
+        }
+    )
 
     it('handles a run completing between the active and completed responses', async () => {
         await expectLogic(logic).toFinishAllListeners()
+        mockRunPages({ count: 1, results: [run('newer')] }, [run('newer')])
+        logic.actions.checkRuns()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.visibleRuns.map((run) => run.id)).toEqual(['newer'])
+        expect(logic.values.activeCount).toBe(1)
+
         const completed = { ...run('newer'), status: 'completed' as const, stage: null }
         mockRunPages({ count: 1, results: [run('newer')] }, [completed])
         logic.actions.checkRuns()

@@ -44,6 +44,7 @@ const createMockRun = (id: string, status: TaskRunStatus): TaskRun => ({
     error_message: null,
     output: null,
     task_summary: null,
+    task_tags: [],
     state: {},
     artifacts: [],
     created_at: '2024-01-01T00:00:00Z',

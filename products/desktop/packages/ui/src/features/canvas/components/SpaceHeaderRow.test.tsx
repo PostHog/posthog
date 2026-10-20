@@ -13,6 +13,9 @@ const activityMocks = vi.hoisted(() => ({
   } | null,
 }));
 
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => false,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
   useWorkLayout: () => false,
 }));

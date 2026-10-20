@@ -1,6 +1,7 @@
 import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlencode, urljoin, urlparse
 
 from requests import Response
@@ -10,22 +11,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.settings import K6_CLOUD_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.settings import (
+    K6_CLOUD_ENDPOINTS,
+    PAGE_SIZE,
+    K6CloudEndpointConfig,
+)
 
 # Grafana Cloud k6 pins the current REST API under a single global host + version path.
 K6_CLOUD_HOST = "api.k6.io"
 K6_CLOUD_BASE_URL = f"https://{K6_CLOUD_HOST}/cloud/v6"
 
-# $top caps at 1000 rows per page (the documented maximum).
-PAGE_SIZE = 1000
 REQUEST_TIMEOUT_SECONDS = 60
 
 
@@ -119,6 +129,74 @@ class K6NextLinkPaginator(BaseNextUrlPaginator):
             self._has_next_page = True
 
 
+def _client_config(api_token: str, stack_id: str) -> ClientConfig:
+    return {
+        "base_url": K6_CLOUD_BASE_URL,
+        # Auth (Bearer) goes through the framework auth config so its value is redacted from
+        # errors/logs; only the non-secret stack id + accept headers are set here.
+        "headers": {"X-Stack-Id": stack_id, "Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_token},
+        "request_timeout": (10, REQUEST_TIMEOUT_SECONDS),
+    }
+
+
+def _explode_distribution(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Turn one `{"distribution": {<load_zone>: {...}}}` body into one row per load zone."""
+    # The spec marks `distribution` as required, so a 200 without it is a shape change. Fail
+    # loudly instead of dropping the run's rows from a full refresh.
+    if "distribution" not in row:
+        raise ValueError(f"k6 Cloud: distribution response for test run {row['test_run_id']} has no `distribution`")
+    zones = row["distribution"] or {}
+    return [
+        {
+            "test_run_id": row["test_run_id"],
+            "test_run_created": row["test_run_created"],
+            "load_zone": load_zone,
+            "percentage": zone.get("percentage"),
+            "nodes": zone.get("nodes"),
+        }
+        for load_zone, zone in zones.items()
+    ]
+
+
+def _source_response(endpoint: str, config: K6CloudEndpointConfig, resource: Iterable[Any]) -> SourceResponse:
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
+
+
+def _distribution_source(
+    api_token: str, stack_id: str, endpoint: str, config: K6CloudEndpointConfig, team_id: int, job_id: str
+) -> SourceResponse:
+    assert config.fanout is not None
+    resource = build_dependent_resource(
+        endpoint_configs=K6_CLOUD_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=config.fanout,
+        client_config=_client_config(api_token, stack_id),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={
+            "data_selector": "value",
+            "data_selector_required": True,
+            "paginator": K6NextLinkPaginator(),
+        },
+        # The body is one object keyed by load zone, so no selector: the whole body is the row.
+        child_endpoint_extra={"paginator": SinglePagePaginator()},
+        page_size_param=None,
+    )
+    return _source_response(endpoint, config, cast(Resource, resource).add_map(_explode_distribution))
+
+
 def k6_cloud_source(
     api_token: str,
     stack_id: str,
@@ -129,6 +207,8 @@ def k6_cloud_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = K6_CLOUD_ENDPOINTS[endpoint]
+    if config.fanout is not None:
+        return _distribution_source(api_token, stack_id, endpoint, config, team_id, job_id)
 
     params: dict[str, Any] = {}
     if config.paginated:
@@ -154,13 +234,7 @@ def k6_cloud_source(
         }
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": K6_CLOUD_BASE_URL,
-            # Auth (Bearer) goes through the framework auth config so its value is redacted from
-            # errors/logs; only the non-secret stack id + accept headers are set here.
-            "headers": {"X-Stack-Id": stack_id, "Accept": "application/json"},
-            "auth": {"type": "bearer", "token": api_token},
-        },
+        "client": _client_config(api_token, stack_id),
         "resources": [{"name": endpoint, "endpoint": endpoint_config}],
     }
 
@@ -186,16 +260,7 @@ def k6_cloud_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-    )
+    return _source_response(endpoint, config, resource)
 
 
 def validate_credentials(api_token: str, stack_id: str, schema_name: Optional[str] = None) -> tuple[bool, bool]:
@@ -206,6 +271,9 @@ def validate_credentials(api_token: str, stack_id: str, schema_name: Optional[st
     accept access gaps at source-create time but reject them for a specific schema.
     """
     config = K6_CLOUD_ENDPOINTS.get(schema_name) if schema_name else None
+    if config is not None and config.fanout is not None:
+        # A fan-out path needs a test run id, so probe the parent listing it reads instead.
+        config = K6_CLOUD_ENDPOINTS[config.fanout.parent_name]
 
     if config is not None:
         # For a specific schema, probe that endpoint so the check reflects real access.

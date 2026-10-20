@@ -1,5 +1,12 @@
 import { ApiClient } from '@/api/client'
+import {
+    EDGE_CLIENT_IP_HEADERS,
+    MCP_CLIENT_IP_HEADERS,
+    parseSigningKeys,
+    signedClientIpHeaders,
+} from '@/lib/client-ip-signature'
 import { env } from '@/lib/env'
+import { findPostHogPermissionError } from '@/lib/errors'
 import type { CloudRegion } from '@/tools/types'
 
 const MCP_HONO_US_URL = 'https://mcp.us.posthog.com'
@@ -7,20 +14,19 @@ const MCP_HONO_EU_URL = 'https://mcp.eu.posthog.com'
 
 const KV_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days
 
-type ResolvedUser = { distinctId: string; region: CloudRegion }
-
-async function resolveUser(
+async function resolveRegion(
     token: string,
     userHash: string,
     kv: KVNamespace | undefined
-): Promise<ResolvedUser | undefined> {
+): Promise<CloudRegion | undefined> {
     if (kv) {
-        const [distinctId, region] = await Promise.all([
-            kv.get(`${userHash}:distinct_id`),
-            kv.get(`${userHash}:region`),
-        ])
-        if (distinctId && region) {
-            return { distinctId, region: region as CloudRegion }
+        try {
+            const region = await kv.get(`${userHash}:region`)
+            if (region) {
+                return region as CloudRegion
+            }
+        } catch (err) {
+            console.error('[MCP proxy] error reading cached region:', err)
         }
     }
 
@@ -36,21 +42,29 @@ async function resolveUser(
         new ApiClient({ apiToken: token, baseUrl: euBase }).users().me(),
     ])
 
-    let resolved: ResolvedUser | undefined
+    // Only the home region answers 403 (token known, `user:read` missing). The other region answers
+    // 401, which would make the client refresh a valid token forever.
+    let region: CloudRegion | undefined
     if (usResult.success) {
-        resolved = { distinctId: usResult.data.distinct_id, region: 'us' }
+        region = 'us'
     } else if (euResult.success) {
-        resolved = { distinctId: euResult.data.distinct_id, region: 'eu' }
+        region = 'eu'
+    } else if (findPostHogPermissionError(usResult.error)) {
+        region = 'us'
+    } else if (findPostHogPermissionError(euResult.error)) {
+        region = 'eu'
     }
 
-    if (resolved && kv) {
-        await Promise.all([
-            kv.put(`${userHash}:distinct_id`, resolved.distinctId, { expirationTtl: KV_TTL_SECONDS }),
-            kv.put(`${userHash}:region`, resolved.region, { expirationTtl: KV_TTL_SECONDS }),
-        ])
+    if (region && kv) {
+        // A failed cache write must not discard the region the probes resolved.
+        try {
+            await kv.put(`${userHash}:region`, region, { expirationTtl: KV_TTL_SECONDS })
+        } catch (err) {
+            console.error('[MCP proxy] error caching region:', err)
+        }
     }
 
-    return resolved
+    return region
 }
 
 function getHonoTargetUrl(region: CloudRegion): string {
@@ -66,9 +80,9 @@ export async function resolveProxyRegion(
     kv: KVNamespace | undefined
 ): Promise<CloudRegion> {
     try {
-        const user = await resolveUser(token, userHash, kv)
-        if (user) {
-            return user.region
+        const region = await resolveRegion(token, userHash, kv)
+        if (region) {
+            return region
         }
         console.info('[MCP proxy] could not resolve user region, defaulting to us')
     } catch (err) {
@@ -77,7 +91,28 @@ export async function resolveProxyRegion(
     return 'us'
 }
 
-export function proxyToHono(request: Request, region: CloudRegion): Promise<Response> {
+export async function honoRequestHeaders(incoming: Headers, region: CloudRegion): Promise<Headers> {
+    const headers = new Headers(incoming)
+    for (const name of [...Object.values(EDGE_CLIENT_IP_HEADERS), ...Object.values(MCP_CLIENT_IP_HEADERS)]) {
+        headers.delete(name)
+    }
+    // Cloudflare sets CF-Connecting-IP on every request that reaches the Worker, and replaces any
+    // value the client sent.
+    const clientIp = incoming.get('cf-connecting-ip')
+    const keys = parseSigningKeys(
+        region === 'eu' ? env.MCP_EDGE_CLIENT_IP_SIGNING_KEYS_EU : env.MCP_EDGE_CLIENT_IP_SIGNING_KEYS_US
+    )
+    if (clientIp) {
+        for (const [name, value] of Object.entries(
+            await signedClientIpHeaders(EDGE_CLIENT_IP_HEADERS, keys, clientIp)
+        )) {
+            headers.set(name, value)
+        }
+    }
+    return headers
+}
+
+export async function proxyToHono(request: Request, region: CloudRegion): Promise<Response> {
     const targetBase = getHonoTargetUrl(region)
     const targetUrl = new URL(request.url)
     const target = new URL(targetBase)
@@ -87,7 +122,7 @@ export function proxyToHono(request: Request, region: CloudRegion): Promise<Resp
 
     return fetch(targetUrl.toString(), {
         method: request.method,
-        headers: request.headers,
+        headers: await honoRequestHeaders(request.headers, region),
         body: request.body,
     })
 }

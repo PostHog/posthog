@@ -1,3 +1,5 @@
+import { MOCK_USER_UUID } from 'lib/api.mock'
+
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
@@ -244,9 +246,16 @@ describe('reportListLogic', () => {
                 after: [],
                 dropped: false,
             },
-        ] as { name: string; scope: InboxScope; after: string[]; dropped: boolean }[])(
+            {
+                name: 'marks the row as yours once you are added',
+                scope: INBOX_SCOPE_ENTIRE_PROJECT,
+                after: [MOCK_USER_UUID],
+                dropped: false,
+                suggestedToMe: true,
+            },
+        ] as { name: string; scope: InboxScope; after: string[]; dropped: boolean; suggestedToMe?: boolean }[])(
             '$name',
-            async ({ scope, after, dropped }) => {
+            async ({ scope, after, dropped, suggestedToMe = false }) => {
                 const bulkLogic = inboxBulkActionsLogic()
                 bulkLogic.mount()
                 logic.actions.setScope(scope)
@@ -261,10 +270,124 @@ describe('reportListLogic', () => {
                 const loadedCount = FIRST_PAGE.length + SECOND_PAGE.length
                 expect(logic.values.reports.map((r) => r.id).includes(FIRST_PAGE[3].id)).toBe(!dropped)
                 expect(logic.values.reports).toHaveLength(dropped ? loadedCount - 1 : loadedCount)
+                expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[3].id)?.is_suggested_reviewer).toBe(
+                    dropped ? undefined : suggestedToMe
+                )
                 expect(requestedOffsets).toEqual([])
                 bulkLogic.unmount()
             }
         )
+
+        it.each([
+            { scope: INBOX_SCOPE_FOR_YOU, dropped: true },
+            { scope: `teammate:${MOCK_USER_UUID}`, dropped: true },
+            { scope: 'teammate:t-1', dropped: false },
+            { scope: INBOX_SCOPE_ENTIRE_PROJECT, dropped: false },
+        ] as { scope: InboxScope; dropped: boolean }[])(
+            'unassigning me under $scope drops the row: $dropped',
+            async ({ scope, dropped }) => {
+                const mine = FIRST_PAGE.map((r, i) => (i === 3 ? { ...r, is_suggested_reviewer: true } : r))
+                useMocks({
+                    get: { [REPORTS_URL]: { count: mine.length, next: null, previous: null, results: mine } },
+                })
+                const bulkLogic = inboxBulkActionsLogic()
+                bulkLogic.mount()
+                logic.actions.setScope(scope)
+                await expectLogic(logic).toFinishAllListeners()
+
+                bulkLogic.actions.unassignedMe([mine[3].id])
+                await expectLogic(logic).toFinishAllListeners()
+
+                const row = logic.values.reports.find((r) => r.id === mine[3].id)
+                expect(row ? row.is_suggested_reviewer : 'dropped').toEqual(dropped ? 'dropped' : false)
+                bulkLogic.unmount()
+            }
+        )
+    })
+
+    // The list skips the ClickHouse source lookup so it renders from Postgres alone. The source line
+    // must then fill in from one follow-up request, and a refresh must ask again so new sources show.
+    describe('lazy source line', () => {
+        let logic: ReturnType<typeof reportListLogic.build>
+        let includeSourceMetadata: (string | null)[]
+        let queriedReportIds: string[][]
+        let scoutName: string
+
+        beforeEach(async () => {
+            includeSourceMetadata = []
+            queriedReportIds = []
+            scoutName = 'signals-scout-support'
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: ({ request }) => {
+                        const { searchParams } = new URL(request.url)
+                        if (searchParams.get('count_only') !== 'true') {
+                            includeSourceMetadata.push(searchParams.get('include_source_metadata'))
+                        }
+                        return [
+                            200,
+                            {
+                                count: 2,
+                                next: null,
+                                previous: null,
+                                results: ['scouted', 'no-signals'].map((id) => ({
+                                    ...makeReport(id),
+                                    source_products: [],
+                                    scout_name: null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+                post: {
+                    '/api/projects/:team_id/signals/reports/source_metadata/': async ({ request }) => {
+                        const { report_ids } = (await request.json()) as { report_ids: string[] }
+                        queriedReportIds.push(report_ids)
+                        return [
+                            200,
+                            {
+                                reports: report_ids.map((id) =>
+                                    id === 'scouted'
+                                        ? { id, source_products: ['signals_scout'], scout_name: scoutName }
+                                        : { id, source_products: [], scout_name: null }
+                                ),
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('fills the source line after the rows load and refreshes it with the rows', async () => {
+            expect(includeSourceMetadata).toEqual(['false'])
+            expect(queriedReportIds).toEqual([['scouted', 'no-signals']])
+            expect(
+                logic.values.reports.map(({ id, source_products, scout_name }) => ({ id, source_products, scout_name }))
+            ).toEqual([
+                { id: 'scouted', source_products: ['signals_scout'], scout_name: 'signals-scout-support' },
+                { id: 'no-signals', source_products: [], scout_name: null },
+            ])
+
+            scoutName = 'signals-scout-billing'
+            logic.actions.refresh()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(queriedReportIds).toEqual([
+                ['scouted', 'no-signals'],
+                ['scouted', 'no-signals'],
+            ])
+            expect(logic.values.reports[0].scout_name).toEqual('signals-scout-billing')
+        })
     })
 
     // Which rows get a CI glyph, and which pull requests the batch endpoint is asked about. A landed

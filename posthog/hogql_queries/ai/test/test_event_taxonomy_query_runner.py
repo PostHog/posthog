@@ -493,7 +493,12 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event="event1",
             distinct_id="person2",
-            properties={"prop": "3", "$feature/dashboard": "0", "$feature_flags": {"another_flag": "true"}},
+            properties={
+                "prop": "3",
+                "$feature/dashboard": "0",
+                "$feature_flags": {"another_flag": "true"},
+                "$active_feature_flags": ["another_flag"],
+            },
             team=self.team,
         )
 

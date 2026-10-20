@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Literal, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
@@ -19,6 +20,12 @@ CAL_COM_HOSTS: dict[str, str] = {
 
 # Cal.com's organization endpoints page with `skip`/`take`, and document 250 as the largest page.
 ORG_PAGE_SIZE = 250
+
+# On a large account, one unfiltered bookings cursor walk times out at Cal.com's edge (HTTP 524)
+# after a few pages. A sync with no watermark therefore walks bounded `createdAt` windows, so that
+# each cursor query reads a small slice of the account's bookings.
+BOOKINGS_WINDOW_DAYS = 30
+BOOKINGS_WINDOW_ORIGIN = datetime(2021, 1, 1, tzinfo=UTC)
 
 _BOOKING_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -70,6 +77,7 @@ class CalComEndpointConfig:
     # Max items per page. Cal.com caps this per endpoint and rejects larger values with 400: the
     # bookings `limit` maxes at 100, while the webhooks `take` allows up to 250.
     page_size: int = 100
+    windowed_backfill: bool = False
     fanout: Optional[DependentEndpointConfig] = None
 
     @property
@@ -96,6 +104,8 @@ CAL_COM_ENDPOINTS: dict[str, CalComEndpointConfig] = {
         default_incremental_field="updatedAt",
         # Bookings walk `Booking.uuid DESC`, and the cursor ignores sortUpdatedAt/sortCreated.
         sort_mode="desc",
+        page_size=50,
+        windowed_backfill=True,
     ),
     "event_types": CalComEndpointConfig(
         name="event_types",

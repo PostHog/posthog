@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EcbDataPortalSource(ResumableSource[EcbDataPortalSourceConfig, ECBResumeConfig]):
+    codebase_detection = detect(env=("^(ECB_DATA_PORTAL|ECBDATAPORTAL)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # SDMX 2.1 is the wire protocol, not a pinnable vendor API version — there's no version
     # path segment, header, or dated release to declare, so the framework's unversioned
@@ -106,6 +109,7 @@ class EcbDataPortalSource(ResumableSource[EcbDataPortalSourceConfig, ECBResumeCo
             label="European Central Bank (ECB Data Portal)",
             caption="Import euro-area statistics from the ECB Data Portal's free, keyless public API: reference exchange rates, key interest rates, and HICP inflation. No API key or account is required.",
             iconPath="/static/services/ecb_data_portal.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/ecb-data-portal",
             keywords=["ecb", "exchange rates", "eur fx", "interest rates", "inflation", "hicp"],
             fields=cast(list[FieldType], []),
             releaseStatus=ReleaseStatus.ALPHA,

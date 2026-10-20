@@ -112,6 +112,12 @@ RUN apt-get update && \
     "libssl3=3.0.*" \
     # ffmpeg intentionally unpinned: tracks the latest bookworm candidate so security point-updates flow in on rebuild
     "ffmpeg" \
+    # Fonts for recorded pages: without them CJK, Thai, Indic and emoji render as empty boxes, and common UI font
+    # stacks (Arial, Helvetica, Roboto) fall back to the wider DejaVu, which changes how text wraps and truncates.
+    fonts-liberation \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+    fonts-noto-core \
     # Shared libraries required by chrome-headless-shell
     libasound2 \
     libatk-bridge2.0-0 \

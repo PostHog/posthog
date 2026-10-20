@@ -1,6 +1,7 @@
 import json
 import uuid
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -72,6 +73,7 @@ def _make_llm_response(content: str | None, stop_reason: str = "end_turn") -> Ma
         block.text = content
         response.content = [block]
     response.stop_reason = stop_reason
+    response._request_id = None
     return response
 
 
@@ -365,6 +367,33 @@ class TestRunSignalPipelineEmitterFailures:
         assert result == {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
 
 
+class TestEmissionRetryIdentity:
+    @pytest.mark.asyncio
+    async def test_activity_retries_keep_signal_id_but_later_imports_do_not(self):
+        config = _make_config(record_processed_outputs=False)
+        team = MagicMock(id=1)
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.activity") as temporal_activity,
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+        ):
+            temporal_activity.in_activity.return_value = True
+            info = temporal_activity.info.return_value
+            info.workflow_run_id = "first-import"
+            info.activity_id = "emit-1"
+            emit.side_effect = RuntimeError("dispatch failed")
+            with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
+                await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+            first = emit.call_args.kwargs["signal_id"]
+            emit.side_effect = None
+            info.attempt = 2
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+            assert emit.call_args.kwargs["signal_id"] == first
+            info.workflow_run_id = "next-import"
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+            assert emit.call_args.kwargs["signal_id"] != first
+
+
 class TestCheckActionability:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -477,7 +506,11 @@ class TestCheckActionability:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "model,expected_output_config",
-        [("claude-sonnet-5", {"effort": "medium"}), ("claude-sonnet-4-5", None)],
+        [
+            ("claude-sonnet-5", {"effort": "medium"}),
+            ("claude-sonnet-5-5", {"effort": "medium"}),
+            ("claude-sonnet-4-5", None),
+        ],
     )
     async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
         mock_client = MagicMock()
@@ -498,12 +531,12 @@ class TestCheckActionability:
         output = _make_output(source_id="42")
         with (
             patch(
-                "products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag",
-                return_value="typesafe-shadow",
+                "products.signals.backend.system_one_decision.posthoganalytics.get_feature_flag",
+                return_value="system-one-shadow",
             ),
-            patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
+            patch("products.signals.backend.system_one_decision.posthoganalytics.capture"),
             patch(
-                "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
+                "products.signals.backend.system_one_decision.decision_api.decide_when_available",
                 return_value=DecisionResult(
                     model="jevk5-fp8-0.2",
                     answers={"actionable": NoulAnswer(probability=0.98)},
@@ -521,12 +554,14 @@ class TestCheckActionability:
         # report attributes to), since the per-call blob replaces the client default.
         assert "x-posthog-property-ai_stage" not in headers
         assert json.loads(headers["X-PostHog-Properties"]) == {
+            "$ai_prompt_name": "signals-actionability-test_product-test",
             "ai_product": "signals_emission",
             "ai_stage": "actionability",
             "signals_decision_id": decision_request.trace_id,
             "source_id": output.source_id,
             "source_product": output.source_product,
             "source_type": output.source_type,
+            "system_one_prompt_source": "bundled",
             "team_id": "7",
         }
 
@@ -668,7 +703,7 @@ class TestSummarizeLongDescriptions:
 class TestEmitSignals:
     @pytest.mark.asyncio
     async def test_passes_correct_args_to_emit_signal(self):
-        output = _make_output(source_id="42", description="bug report")
+        output = replace(_make_output(source_id="42", description="bug report"), signal_id=str(uuid.uuid4()))
         team = MagicMock()
 
         with (
@@ -686,6 +721,8 @@ class TestEmitSignals:
             description="bug report",
             weight=0.5,
             extra={},
+            idempotency_key=None,
+            signal_id=output.signal_id,
         )
 
     @pytest.mark.asyncio

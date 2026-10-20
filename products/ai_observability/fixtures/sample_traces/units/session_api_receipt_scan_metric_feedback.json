@@ -1,0 +1,1129 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "ReceiptRadar scans a repaint-supplies receipt",
+  "scenario": "ReceiptRadar is an AI expense-tracking assistant for independent real-estate agents: they photograph a paper receipt and it extracts line items, checks them against a catalog of previously logged expenses for duplicates, and files the result for the agent's tax records. In this session it parses a hardware-store receipt for guest-bathroom repaint supplies across two Gemini vision calls (the first attempt fails to parse as JSON and is retried), runs a hybrid embedding-plus-keyword duplicate check against the agent's own history and the shared catalog, and saves the confirmed record after the agent leaves a quick thumbs-up.",
+  "summary": {
+    "events": {
+      "$ai_embedding": 6,
+      "$ai_generation": 2,
+      "$ai_span": 4,
+      "$ai_trace": 1,
+      "$ai_metric": 2,
+      "$ai_feedback": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 1,
+    "libs": [
+      "capture-api"
+    ],
+    "providers": [
+      "gemini"
+    ],
+    "frameworks": [],
+    "models": [
+      "gemini-3.8-flash",
+      "gemini-embedding-2"
+    ],
+    "content_types": [
+      "image",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_latency": 5.262,
+        "op_type": "dedup_item_lookup",
+        "product": "use1a",
+        "environment": "production",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "release": "app-2026.09.18-rc3",
+        "$ai_model": "gemini-embedding-2",
+        "$ai_span_id": "f19bd55ee5e8e38d32f808915f87629f98d9f",
+        "$ai_provider": "gemini",
+        "$ai_cost_usd": null,
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "$ai_span_name": "embed_vendor_lookup_query",
+        "$ai_input_tokens": 273,
+        "$ai_base_url": "https://generativelanguage.googleapis.com",
+        "$ai_request_url": "https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_is_error": false,
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "cost_micros": 720,
+        "$ai_http_status": 200,
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_input": "Vendor name and address extracted from the receipt header, used to match against the saved vendor directory for auto-categorization of this purchase."
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 274,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_model": "gemini-embedding-2",
+        "product": "use1a",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "environment": "production",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "$ai_span_name": "embed_vendor_lookup_query",
+        "$ai_provider": "gemini",
+        "$ai_latency": 5.536,
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_http_status": 200,
+        "release": "app-2026.09.18-rc3",
+        "$ai_input_tokens": 273,
+        "$ai_cost_usd": null,
+        "$ai_request_url": "https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent",
+        "$ai_is_error": false,
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "cost_micros": 720,
+        "op_type": "dedup_item_lookup",
+        "$ai_span_id": "f19bd55ee5e8e38d32f808915f87629f98d9f",
+        "$ai_base_url": "https://generativelanguage.googleapis.com",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_input": "Raw OCR preview of the first receipt line, used to estimate which expense category this purchase most likely belongs to before running full extraction."
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 1095,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_id": "f19bd55ee5e8e38d32f808915f87629f98d9f",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_provider": "gemini",
+        "cost_micros": 720,
+        "$ai_latency": 6.357,
+        "op_type": "dedup_item_lookup",
+        "$ai_is_error": false,
+        "$ai_request_url": "https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent",
+        "environment": "production",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_model": "gemini-embedding-2",
+        "$ai_base_url": "https://generativelanguage.googleapis.com",
+        "$ai_input_tokens": 273,
+        "$ai_http_status": 200,
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_span_name": "embed_vendor_lookup_query",
+        "$ai_cost_usd": null,
+        "product": "use1a",
+        "release": "app-2026.09.18-rc3",
+        "$ai_input": "Store location and phone number from the receipt footer, used to disambiguate vendors that share a common business name across regions."
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 14387,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_output_tokens": 1042,
+        "product": "use1a",
+        "$ai_request_url": "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-pro:generateContent",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_is_error": false,
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_span_id": "c07395598527e2bc9f1a5d133b4751f21f8c33495",
+        "release": "app-2026.09.18-rc3",
+        "$ai_provider": "gemini",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "$ai_span_name": "parse_receipt_images",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_prompt_name": "receipt_extraction_v2",
+        "$ai_cost_usd": null,
+        "stage_group": "dedup_and_verify",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "$ai_reasoning_tokens": 810,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_prompt_version": 1,
+        "$ai_latency": 19.649,
+        "retry_count": 3,
+        "$ai_input_tokens": 4293,
+        "$ai_model": "gemini-3.8-flash",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_http_status": 200,
+        "environment": "production",
+        "$ai_base_url": "https://generativelanguage.googleapis.com",
+        "prompt_ref": "2c42b8cdae7dbeac16087d1cca78",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are the extraction step of ReceiptRadar, an expense-scanning assistant built for independent real-estate agents who photograph paper receipts on their phone instead of typing expenses by hand. You have been given a short vendor lookup summary and three photos of a single paper receipt: a full-page shot, a close-up of the itemized lines, and a close-up of the totals block. Read every line item exactly as printed, including any abbreviations, and do not invent an item that is not visible in at least one of the photos.\n\nReturn one JSON object with a title summarizing the vendor and date, an amount for the grand total, a tax figure, and a subtotal, plus a confidence score between 0 and 1 for how legible the receipt was overall. Under items, list every distinct line with its own item_id, name, unit_of_measure, quantity, unit_price, line_total, a short category_guess string, and a modifiers array for any sub-lines such as a multi-pack breakdown or a bundled accessory that is priced separately on the same line. Every modifier needs its own sku_ref, qty, and description drawn from what is printed on the receipt, not a generic placeholder.\n\nGroup the items into categories using whatever taxonomy fits best; a receipt can produce one category or several. Each category needs a category_name and the list of item indices it covers. Add a top-level tags array for anything worth flagging for the agent's tax preparer, such as a likely home-office deduction, and add a short summary sentence describing the overall purchase in plain language.\n\nIf a figure on the receipt is smudged or cut off in every photo, make your best estimate from context and lower the confidence score rather than leaving the field blank. Never guess at a total that is fully legible just because the line items do not add up cleanly; line items are sometimes rounded differently than the printed subtotal, and that is expected.\n\n## Item schema reference\n\nEvery item in the items array needs: item_id (a short lowercase code the app assigns, not something the vendor prints), name (exactly as printed, abbreviations kept), unit_of_measure, quantity, unit_price, line_total, category_guess, and an optional modifiers array. A modifier is any sub-line that is priced separately but belongs to the same purchase, such as a single roll pulled out of a multi-roll case price, or an accessory bundled onto the same receipt line. Modifiers need their own sku_ref, qty, and description.\n\n## Category taxonomy\n\nUse the closest match from this list rather than inventing a new category name: Home improvement - paint and finishes, Home improvement - tools, Home improvement - supplies, Staging and furniture rental, Photography and marketing, Client gifts and closing gifts, Signage and yard materials, Office supplies and printing, Vehicle and mileage related purchases, Professional services and licensing fees, Meals tied to a specific client meeting, and Miscellaneous. If nothing fits closely, use Miscellaneous rather than forcing a category that does not describe the purchase well.\n\n## Tax-deductibility tagging\n\nTag an item eligible-for-home-office-improvement-deduction only when the receipt is for the agent's own listed home office space, not a client's property. Tag possible_tax_deduction for anything that plausibly supports the agent's business but where the connection is not certain from the receipt alone, such as a hardware purchase with no stated destination. Tag flagged_for_manual_category_review whenever the category_guess confidence is low or the item name is ambiguous enough that a human should confirm it before it is filed with the agent's tax preparer.\n\n## Currency and rounding rules\n\nAll monetary fields are integers representing the smallest reporting unit configured for the agent's account; do not output decimals. If the printed receipt uses decimals, convert before writing the field. Round to the nearest whole unit rather than truncating. A subtotal and a computed sum of line totals are allowed to differ by a small amount because many vendors round each line independently before printing the subtotal; do not treat a small mismatch as an extraction error.\n\n## Common failure modes\n\nThe two most frequent extraction failures seen in production are: an item name that contains a straight double quote from a printed abbreviation such as a size marking, which must be escaped rather than left as a raw quote inside the JSON string; and a long modifiers array where a trailing comma is accidentally left after the last object when the model is composing the array element by element. Both failures produce a SyntaxError on the app's parser side rather than a wrong-answer error, so the fix is almost always a formatting correction rather than a re-read of the receipt.\n\n## Hybrid dedup search\n\nAfter extraction, each new item is embedded and checked against two sources: the shared expense_catalog of previously logged vendor items across the whole agency, and this agent's own user_history of past receipts. A candidate above the near_duplicate threshold on either source is flagged so the agent is not billed twice for the same purchase, for example when a receipt is photographed a second time by mistake. The rerank_score blends the vector similarity with a keyword overlap score before the final_score is computed.",
+                "type": "text"
+              },
+              {
+                "image": "base64-encoded JPEG photo of the front of the receipt, full page, well lit",
+                "type": "image"
+              },
+              {
+                "image": "base64-encoded JPEG photo, close-up crop of the itemized purchase lines",
+                "type": "image"
+              },
+              {
+                "image": "base64-encoded JPEG, close-up of the total and tax lines",
+                "type": "image"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "message": {
+              "content": "{\"title\": \"Riverside Hardware - Sep 18 2026\", \"amount\": 449, \"tax\": 248, \"subtotal\": 351, \"confidence_score\": 0.35, \"items\": [{\"item_id\": \"itm_pnt_0451\", \"name\": \"Interior paint, 1 gal\", \"unit_of_measure\": \"per_gallon\", \"quantity\": 1, \"line_number\": 1, \"is_taxable\": 1, \"category_guess\": \"Home improvement - paint and finishes\", \"unit_price\": 125, \"line_note\": \"Matches a previous purchase from this vendor in March.\", \"currency\": \"USD\", \"category_indices\": [0, 1], \"line_total\": 249, \"tax\": 202, \"subtotal\": 310, \"modifiers\": [{\"name\": \"Drop cloth\", \"sku_ref\": \"PNT-0451-GAL\", \"qty\": 100, \"line_total\": 170, \"description\": \"Canvas drop cloth, 9x12 feet, reusable.\"}, {\"name\": \"Masking film\", \"sku_ref\": \"M-221\", \"qty\": 5, \"line_total\": 37, \"description\": \"Masking film for windows and trim protection.\"}, {\"name\": \"Sandpaper, 220 grit pack\", \"sku_ref\": \"SND-220-PK-6CT\", \"qty\": 20, \"line_total\": 18, \"description\": \"Painter's tape, 1.5 inch width, removes cleanly without residue.\"}], \"description\": \"Eggshell interior latex paint, one gallon, tinted to a warm white.\", \"tags\": [\"eligible-for-home-office-improvement-deduction\"]}, {\"item_id\": \"itm_tape_0221\", \"name\": \"Painter's tape\", \"unit_of_measure\": \"per_roll_pack\", \"quantity\": 2, \"line_number\": 1, \"is_taxable\": 1, \"category_guess\": \"Home improvement - supplies\", \"unit_price\": 380, \"line_note\": \"Bulk pack; unit price reflects the multi-roll discount at checkout.\", \"currency\": \"USD\", \"category_indices\": [2], \"line_total\": 146, \"tax\": 122, \"subtotal\": 251, \"modifiers\": [{\"name\": \"Extra tape roll, 2 inch\", \"sku_ref\": \"SKU-PAINTERS-TAPE-BLUE-360FT\", \"qty\": 360, \"line_total\": 126, \"description\": \"Blue painter's tape, 2 inch by 360 feet, low-tack adhesive.\"}, {\"name\": \"Trim\", \"sku_ref\": \"SKU-TRIM-GUARD-10PK\", \"qty\": 10, \"line_total\": 42, \"description\": \"Corner trim guards, pack of ten, protects edges while painting.\"}], \"description\": \"Painter's tape and corner trim guards for the same repaint job.\", \"tags\": [\"possible_tax_deduction\", \"flagged_for_manual_category_review\"]}], \"categories\": [{\"category_name\": \"Paint & Finishes\", \"category_indices\": [0, 1, 2], \"notes\": \"Primary spend for this project.\"}, {\"category_name\": \"Tools & Hardware Supplies\", \"category_indices\": [2], \"notes\": \"misc\"}], \"tags\": [\"business_expense_home_renovation_project\", \"uploaded_via_mobile_camera_scan_2026_09_18\"], \"summary\": \"Hardware store run for the guest bathroom repaint: one gallon of eggshell paint, tape and a drop cloth for prep, plus a multi-pack of trim guards picked up on the way out. Receipt was slightly creased but every line item is legible.\", \"line_total\": 449}",
+              "role": "assistant"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 15058,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_base_url": "https://generativelanguage.googleapis.com",
+        "product": "use1a",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "$ai_is_error": false,
+        "cost_micros": 720,
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_model": "gemini-embedding-2",
+        "$ai_latency": 0.671,
+        "release": "app-2026.09.18-rc3",
+        "$ai_request_url": "https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent",
+        "op_type": "dedup_item_lookup",
+        "$ai_http_status": 200,
+        "environment": "production",
+        "$ai_span_id": "ec232fd0ccdc10b2b8a5244143f8ae5b6494a94fc9",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_provider": "gemini",
+        "$ai_span_name": "embed_extracted_items",
+        "$ai_input_tokens": 72,
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_cost_usd": null,
+        "$ai_input": "Interior eggshell paint, one gallon, tinted to a warm white; purchased for the guest bathroom repaint; embedded with prior purchase history for duplicate and category matching against the vendor's saved item catalog and this agent's own expense history."
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 15208,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_model": "gemini-embedding-2",
+        "$ai_input_tokens": 75,
+        "environment": "production",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_cost_usd": null,
+        "op_type": "dedup_item_lookup",
+        "product": "use1a",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_provider": "gemini",
+        "$ai_http_status": 200,
+        "$ai_request_url": "https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent",
+        "$ai_span_id": "ec232fd0ccdc10b2b8a5244143f8ae5b6494a94fc9",
+        "cost_micros": 720,
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "$ai_is_error": false,
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_span_name": "embed_extracted_items",
+        "release": "app-2026.09.18-rc3",
+        "$ai_base_url": "https://generativelanguage.googleapis.com",
+        "$ai_latency": 0.821,
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_input": "Painter's tape and trim protection bundle including a roll of blue painter's tape and a ten pack of corner trim guards; purchased alongside the paint for surface protection during the same repaint job, embedded for catalog matching against past receipts."
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 21955,
+      "distinct_id": "user-1",
+      "properties": {
+        "stage_group": "dedup_and_verify",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "product": "use1a",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_span_name": "validate_receipt_extraction",
+        "$ai_is_error": false,
+        "release": "app-2026.09.18-rc3",
+        "environment": "production",
+        "$ai_latency": 0,
+        "stage": "backend_4EWDbRKqXK",
+        "$ai_span_id": "c4678f30bcd0eea2d248df6b3929b6f66df86efab3f96",
+        "$ai_input_state": {
+          "reason_hint": "stop",
+          "source_refs": [
+            "photo",
+            "photo"
+          ]
+        },
+        "$ai_output_state": {
+          "line_items_detected": 13,
+          "categories_detected": 7,
+          "totals_balance": true,
+          "doc_kind": "itemized_receipt",
+          "images_all_processed": true,
+          "ocr_confidence_ok": true,
+          "tax_line_ok": true
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 21955,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_model": "gemini-3.8-flash",
+        "$ai_prompt_name": "receipt_extraction_repair_v1",
+        "environment": "production",
+        "$ai_prompt_version": "repair-attempt-2026-09-23T15-53-24Z-v1",
+        "$ai_is_error": true,
+        "release": "app-2026.09.18-rc3",
+        "$ai_provider": "gemini",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "$ai_error": {
+          "message": "Unterminated string in JSON",
+          "type": "json_repair"
+        },
+        "prompt_ref": "repair-attempt-2026-09-23T15-53-24Z-v1",
+        "$ai_span_id": "6f4e4bc7ff99f0c26327495652280d97f01dfb45e2cbb3b2dee2d5a3f",
+        "$ai_span_name": "receipt_json_repair_attempt",
+        "error_detail": "Unterminated string in JSON",
+        "product": "use1a",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_latency": 5.746,
+        "retry_hint": "json_repair",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_input": [
+          {
+            "content": "The previous attempt to parse this receipt returned a response that could not be parsed as JSON. The raw text is included below between markers so you can see exactly where it broke; do not repeat the same mistake. Common causes are an unescaped quote inside an item name, a trailing comma after the last item in an array, or a currency symbol left inside a numeric field instead of being stripped out before the number.\n\nRe-run the extraction from scratch using the same three receipt photos and the same vendor lookup context as before. Produce a single JSON object and nothing else: no markdown code fences, no leading commentary, no trailing explanation. Every string must use standard double-quote escaping, every array must omit a trailing comma after its last element, and every numeric field must contain only digits, an optional leading minus sign, and at most one decimal point.\n\nBelow is the full extraction guide this app uses for every receipt, included again in case the earlier failure was caused by losing track of the schema partway through a long response. Read it in full before producing the object.\n\n## Item schema reference\n\nEvery item in the items array needs: item_id (a short lowercase code the app assigns, not something the vendor prints), name (exactly as printed, abbreviations kept), unit_of_measure, quantity, unit_price, line_total, category_guess, and an optional modifiers array. A modifier is any sub-line that is priced separately but belongs to the same purchase, such as a single roll pulled out of a multi-roll case price, or an accessory bundled onto the same receipt line. Modifiers need their own sku_ref, qty, and description.\n\n## Category taxonomy\n\nUse the closest match from this list rather than inventing a new category name: Home improvement - paint and finishes, Home improvement - tools, Home improvement - supplies, Staging and furniture rental, Photography and marketing, Client gifts and closing gifts, Signage and yard materials, Office supplies and printing, Vehicle and mileage related purchases, Professional services and licensing fees, Meals tied to a specific client meeting, and Miscellaneous. If nothing fits closely, use Miscellaneous rather than forcing a category that does not describe the purchase well.\n\n## Tax-deductibility tagging\n\nTag an item eligible-for-home-office-improvement-deduction only when the receipt is for the agent's own listed home office space, not a client's property. Tag possible_tax_deduction for anything that plausibly supports the agent's business but where the connection is not certain from the receipt alone, such as a hardware purchase with no stated destination. Tag flagged_for_manual_category_review whenever the category_guess confidence is low or the item name is ambiguous enough that a human should confirm it before it is filed with the agent's tax preparer.\n\n## Currency and rounding rules\n\nAll monetary fields are integers representing the smallest reporting unit configured for the agent's account; do not output decimals. If the printed receipt uses decimals, convert before writing the field. Round to the nearest whole unit rather than truncating. A subtotal and a computed sum of line totals are allowed to differ by a small amount because many vendors round each line independently before printing the subtotal; do not treat a small mismatch as an extraction error.\n\n## Common failure modes\n\nThe two most frequent extraction failures seen in production are: an item name that contains a straight double quote from a printed abbreviation such as a size marking, which must be escaped rather than left as a raw quote inside the JSON string; and a long modifiers array where a trailing comma is accidentally left after the last object when the model is composing the array element by element. Both failures produce a SyntaxError on the app's parser side rather than a wrong-answer error, so the fix is almost always a formatting correction rather than a re-read of the receipt.\n\n## Hybrid dedup search\n\nAfter extraction, each new item is embedded and checked against two sources: the shared expense_catalog of previously logged vendor items across the whole agency, and this agent's own user_history of past receipts. A candidate above the near_duplicate threshold on either source is flagged so the agent is not billed twice for the same purchase, for example when a receipt is photographed a second time by mistake. The rerank_score blends the vector similarity with a keyword overlap score before the final_score is computed.\n\n## Escalation and manual review\n\nAn item is flagged needs_review_flag when the catalog_hit is ambiguous, when the confidence_score on the whole receipt is below the configured floor, or when totals_balance comes back false from the validation step. Flagged items still save to the ledger but surface in the agent's weekly review queue rather than going straight into the automated expense report. This keeps a bad OCR read from silently corrupting a tax filing while still letting the common case move through with no manual touch at all.\n\n## Changelog\n\nv3.2 added the image_count and image_hashes fields to the root trace so a receipt photographed more than once can be deduplicated at the upload step rather than only after extraction. v3.1 split the single duplicate check into separate expense_catalog and user_history sources after agents reported seeing their own repeat purchases, such as recurring photography invoices, incorrectly cleared as unique every time. v3.0 introduced the modifiers array to handle multi-pack pricing after enough hardware-store receipts broke the flat item model used in v2.\n\n## Photo quality guidance\n\nAgents are told to take three photos per receipt: a full-page shot of the front, a close-up of the itemized lines, and a close-up of the totals block. The full-page shot is what the app falls back to when a close-up is blurry or cut off at the edge, so it should always be captured even when the close-ups look clean on the agent's own screen. A receipt printed on thermal paper fades within a few months, so the extraction step should treat a faint but still legible character as read normally rather than as missing, since waiting to re-photograph an older receipt usually means losing the line entirely.\n\n## Vendor directory lookups\n\nBefore the vision model runs, the app embeds the vendor name, a short OCR preview of the first line, and the store location from the footer, and checks them against a saved vendor directory. A hit lets the extraction step start from a known category bias, for example defaulting a hardware store toward Home improvement categories before a single item is read, which measurably reduces how often category_guess needs a manual correction. A miss is not an error; plenty of receipts come from a vendor the agent has never logged before, and the lookup simply returns no bias in that case.\n\n## Handling multi-page and stapled receipts\n\nSome vendors staple a separate totals slip to a long itemized tape, especially for larger hardware or staging orders. When more than one physical receipt is photographed together, extract every item exactly as printed from whichever page it appears on, then use whichever page contains the final printed subtotal and tax figures for the top-level amount, tax, and subtotal fields rather than summing the pages yourself. Do not merge two visually similar items from different pages into one line just because their names look alike; only merge lines when the receipt itself explicitly voids or reprints one of them.\n\n## Confidence scoring\n\nThe confidence_score field is a single number for the whole receipt, not per item, so it should reflect the hardest line to read rather than an average across every line. A crisp, fully legible thermal receipt typically scores above 0.8. A receipt with one smudged or cut-off figure that had to be estimated from context should score in the 0.3 to 0.5 range even if every other line was perfectly clear, since that is the range that routes the receipt into the agent's manual review queue instead of auto-filing it. Never report a score above 0.6 when any required top-level field, such as the grand total, had to be estimated rather than read directly.\n\n## Feedback and the ledger\n\nOnce a receipt clears validation and the dedup check, the agent sees a short summary card in the app and can leave a quick thumbs-up or flag it before it posts to the expense ledger. A thumbs-up moves straight to workflow_step awaiting_user_feedback and then saved_after_confirmation without any further model calls. A flag reopens the item for a manual edit, and whatever the agent corrects by hand is written back into the same catalog entry so the next receipt from that vendor benefits from the correction. This is also the only point in the pipeline where a human ever overrides a category_guess, which is why the manual_override field on a dedup candidate always starts out null and is only ever set from this step, never by the model itself.\n\nThe records_written counter on the final save step should always equal one for a single-receipt scan; a value above one means the save step retried after a transient ledger write failure, and errors on that same step should be checked before assuming the retry actually succeeded cleanly.\n\n## Item schema reference\n\nEvery item in the items array needs: item_id (a short lowercase code the app assigns, not something the vendor prints), name (exactly as printed, abbreviations kept), unit_of_measure, quantity, unit_price, line_total, category_guess, and an optional modifiers array. A modifier is any sub-line that is priced separately but belongs to the same purchase, such as a single roll pulled out of a multi-roll case price, or an accessory bundled onto the same receipt line. Modifiers need their own sku_ref, qty, and description.\n\n## Category taxonomy\n\nUse the closest match from this list rather than inventing a new category name: Home improvement - paint and finishes, Home improvement - tools, Home improvement - supplies, Staging and furniture rental, Photography and marketing, Client gifts and closing gifts, Signage and yard materials, Office supplies and printing, Vehicle and mileage related purchases, Professional services and licensing fees, Meals tied to a specific client meeting, and Miscellaneous. If nothing fits closely, use Miscellaneous rather than forcing a category that does not describe the purchase well.\n\n## Tax-deductibility tagging\n\nTag an item eligible-for-home-office-improvement-deduction only when the receipt is for the agent's own listed home office space, not a client's property. Tag possible_tax_deduction for anything that plausibly supports the agent's business but where the connection is not certain from the receipt alone, such as a hardware purchase with no stated destination. Tag flagged_for_manual_category_review whenever the category_guess confidence is low or the item name is ambiguous enough that a human should confirm it before it is filed with the agent's tax preparer.\n\n## Currency and rounding rules\n\nAll monetary fields are integers representing the smallest reporting unit configured for the agent's account; do not output decimals. If the printed receipt uses decimals, convert before writing the field. Round to the nearest whole unit rather than truncating. A subtotal and a computed sum of line totals are allowed to differ by a small amount because many vendors round each line independently before printing the subtotal; do not treat a small mismatch as an extraction error.\n\n## Common failure modes\n\nThe two most frequent extraction failures seen in production are: an item name that contains a straight double quote from a printed abbreviation such as a size marking, which must be escaped rather than left as a raw quote inside the JSON string; and a long modifiers array where a trailing comma is accidentally left after the last object when the model is composing the array element by element. Both failures produce a SyntaxError on the app's parser side rather than a wrong-answer error, so the fix is almost always a formatting correction rather than a re-read of the receipt.\n\n## Hybrid dedup search\n\nAfter extraction, each new item is embedded and checked against two sources: the shared expense_catalog of previously logged vendor items across the whole agency, and this agent's own user_history of past receipts. A candidate above the near_duplicate threshold on either source is flagged so the agent is not billed twice for the same purchase, for example when a receipt is photographed a second time by mistake. The rerank_score blends the vector similarity with a keyword overlap score before the final_score is computed.",
+            "role": "user"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 21955,
+      "distinct_id": "user-1",
+      "properties": {
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "stage": "reply_uwPtL6rEPeDLD",
+        "stage_group": "dedup_and_verify",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "environment": "production",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "release": "app-2026.09.18-rc3",
+        "$ai_span_id": "3414b1fc7b3fd59f4fb13d8da7cdab41ba21e4bb12877e7c39",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "$ai_latency": 7.568,
+        "$ai_is_error": false,
+        "$ai_span_name": "reconcile_receipt_totals",
+        "product": "use1a",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_input_state": {
+          "item_count": 2
+        },
+        "$ai_output_state": {
+          "amount": 449,
+          "item_count": 2,
+          "subtotal": 351,
+          "tax": 248
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 21955,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_is_error": false,
+        "$ai_span_id": "ba9461eed3fd9c9cca49c84444723b456ceea4e92ea3",
+        "$ai_span_name": "mixed_Z2kIEiYWa",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "release": "app-2026.09.18-rc3",
+        "stage_group": "dedup_and_verify",
+        "product": "use1a",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "environment": "production",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_latency": 7.568,
+        "stage": "mixed_Z2kIEiYWa",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_input_state": {
+          "search_mode": "keyword_plus_vector",
+          "item_count": 2,
+          "candidate_k": 2
+        },
+        "$ai_output_state": {
+          "line_items_detected": 13,
+          "categories_detected": 7,
+          "candidates_considered": 3,
+          "catalog_matches_returned": 10,
+          "history_matches_returned": 10,
+          "exact_matches_found": 2,
+          "near_duplicate_flagged_count": 10,
+          "manual_review_flagged": 0,
+          "top_candidates": [
+            {
+              "rank": 12,
+              "item_id": "itm_pnt_0451",
+              "matches": 5,
+              "unique_matches": 5,
+              "conflicts": 0
+            },
+            {
+              "rank": 12,
+              "item_id": "itm_tape_0221",
+              "matches": 5,
+              "unique_matches": 5,
+              "conflicts": 0
+            }
+          ],
+          "dedup_summary": {
+            "count": 20,
+            "scores": [
+              {
+                "final_score": 0.544728318680081,
+                "near_duplicate": false,
+                "keyword_score": 0.722992,
+                "item_id": "itm_pnt_0451",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.528507,
+                "source": "expense_catalog",
+                "catalog_hit": true,
+                "rerank_score": 0.895551,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.519926904188919,
+                "near_duplicate": false,
+                "keyword_score": 0.709971,
+                "item_id": "itm_pnt_0451",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.644139,
+                "source": "expense_catalog",
+                "catalog_hit": true,
+                "rerank_score": 0.61394,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.51860634047199,
+                "near_duplicate": false,
+                "keyword_score": 0.600945,
+                "item_id": "itm_pnt_0451",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.599204,
+                "source": "expense_catalog",
+                "catalog_hit": true,
+                "rerank_score": 0.588727,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.518046595378932,
+                "near_duplicate": false,
+                "keyword_score": 0.762004,
+                "item_id": "itm_pnt_0451",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.487366,
+                "source": "expense_catalog",
+                "catalog_hit": true,
+                "rerank_score": 0.718734,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.51710903852943,
+                "near_duplicate": false,
+                "keyword_score": 0.668077,
+                "item_id": "itm_pnt_0451",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.653103,
+                "source": "expense_catalog",
+                "catalog_hit": true,
+                "rerank_score": 0.953297,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.800000011920929,
+                "near_duplicate": true,
+                "keyword_score": 0,
+                "item_id": "itm_tape_0221",
+                "exact_score": 0.800000011920929,
+                "manual_override": null,
+                "vec_score": 0.999763,
+                "source": "expense_catalog",
+                "catalog_hit": true,
+                "rerank_score": 0,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": true
+              },
+              {
+                "final_score": 0.800000011920929,
+                "near_duplicate": false,
+                "keyword_score": 0,
+                "item_id": "itm_tape_0221",
+                "exact_score": 0.800000011920929,
+                "manual_override": null,
+                "vec_score": 0.999763,
+                "source": "expense_catalog",
+                "catalog_hit": true,
+                "rerank_score": 0,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": true
+              },
+              {
+                "final_score": 0.752970099896408,
+                "near_duplicate": false,
+                "keyword_score": 0.502869,
+                "item_id": "itm_tape_0221",
+                "exact_score": 0.800000011920929,
+                "manual_override": null,
+                "vec_score": 0.957633,
+                "source": "expense_catalog",
+                "catalog_hit": true,
+                "rerank_score": 0.732731,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.621235732326208,
+                "near_duplicate": false,
+                "keyword_score": 0.49257,
+                "item_id": "itm_tape_0221",
+                "exact_score": 0.400000005960464,
+                "manual_override": null,
+                "vec_score": 0.514158,
+                "source": "expense_catalog",
+                "catalog_hit": true,
+                "rerank_score": 0.625566,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.529600357073131,
+                "near_duplicate": false,
+                "keyword_score": 0.56216,
+                "item_id": "itm_tape_0221",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.640676,
+                "source": "expense_catalog",
+                "catalog_hit": true,
+                "rerank_score": 0.800971,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.505284500347098,
+                "near_duplicate": false,
+                "keyword_score": 0.658173,
+                "item_id": "itm_pnt_0451",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.461504,
+                "source": "user_history",
+                "catalog_hit": true,
+                "rerank_score": 0.809437,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.500325547337688,
+                "near_duplicate": false,
+                "keyword_score": 0.609341,
+                "item_id": "itm_pnt_0451",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.462627,
+                "source": "user_history",
+                "catalog_hit": true,
+                "rerank_score": 0.915164,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.487613911766082,
+                "near_duplicate": false,
+                "keyword_score": 0.618513,
+                "item_id": "itm_pnt_0451",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.383699,
+                "source": "user_history",
+                "catalog_hit": true,
+                "rerank_score": 0.717887,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.473055935488801,
+                "near_duplicate": false,
+                "keyword_score": 0.512688,
+                "item_id": "itm_pnt_0451",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.387407,
+                "source": "user_history",
+                "catalog_hit": true,
+                "rerank_score": 0.922935,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.47277019599067,
+                "near_duplicate": false,
+                "keyword_score": 0.624408,
+                "item_id": "itm_pnt_0451",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.413951,
+                "source": "user_history",
+                "catalog_hit": true,
+                "rerank_score": 0.939368,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.488682626014384,
+                "near_duplicate": false,
+                "keyword_score": 0.532217,
+                "item_id": "itm_tape_0221",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.479067,
+                "source": "user_history",
+                "catalog_hit": true,
+                "rerank_score": 0.82409,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.486345566438303,
+                "near_duplicate": false,
+                "keyword_score": 0.648425,
+                "item_id": "itm_tape_0221",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.453929,
+                "source": "user_history",
+                "catalog_hit": true,
+                "rerank_score": 0.725411,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.475101739238865,
+                "near_duplicate": false,
+                "keyword_score": 0.485245,
+                "item_id": "itm_tape_0221",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.502285,
+                "source": "user_history",
+                "catalog_hit": true,
+                "rerank_score": 0.610974,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.460518716882586,
+                "near_duplicate": false,
+                "keyword_score": 0.437699,
+                "item_id": "itm_tape_0221",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.348469,
+                "source": "user_history",
+                "catalog_hit": true,
+                "rerank_score": 0.536086,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              },
+              {
+                "final_score": 0.452272292865994,
+                "near_duplicate": false,
+                "keyword_score": 0.589784,
+                "item_id": "itm_tape_0221",
+                "exact_score": 0,
+                "manual_override": null,
+                "vec_score": 0.365039,
+                "source": "user_history",
+                "catalog_hit": true,
+                "rerank_score": 0.660972,
+                "catalog_version": "catalog-v4.2.1",
+                "needs_review_flag": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 21955,
+      "distinct_id": "user-1",
+      "properties": {
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_latency": 27.295,
+        "hybrid_search_used": true,
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_prompt_name": "receipt_extraction_v2",
+        "environment": "production",
+        "stage_group": "dedup_and_verify",
+        "$ai_prompt_version": 1,
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "product": "use1a",
+        "release": "app-2026.09.18-rc3",
+        "$ai_is_error": false,
+        "prompt_ref": "2c42b8cdae7dbeac16087d1cca78",
+        "$ai_span_name": "scan_and_log_expense_receipt",
+        "pipeline_version": "receipt-pipeline-v3.2",
+        "$ai_input_state": {
+          "context": "Guest bathroom repaint receipt",
+          "image_count": 3,
+          "image_hashes": [
+            "b54bc6a4f413cef1c4747b4dc42b6a573e4d83e062c1da1393d66c7eb8cee907",
+            "28d378557d377b923705ff52a9ba73b0c72f7be3d900551991c137c9b0fbfb2a",
+            "8dbb1853e5769e93f6064414241a773dabb78768cfec7178fbe1b9da0b77a067"
+          ]
+        },
+        "$ai_output_state": {
+          "model_meta": {
+            "finish_reason": "stop",
+            "verified": true,
+            "error_message": "Unterminated string in JSON",
+            "model": "gemini-3.8-flash",
+            "source_mapping": [
+              {
+                "crop_url": null,
+                "item_id": "itm_pnt_0451",
+                "source": "photo"
+              },
+              {
+                "crop_url": null,
+                "item_id": "itm_tape_0221",
+                "source": "photo"
+              }
+            ]
+          },
+          "receipt": {
+            "tags": [
+              "business_expense_home_renovation_project",
+              "uploaded_via_mobile_camera_scan_2026_09_18"
+            ],
+            "summary": "Hardware store run for the guest bathroom repaint: one gallon of eggshell paint, tape and a drop cloth for prep, plus a multi-pack of trim guards picked up on the way out. Receipt was slightly creased but every line item is legible.",
+            "tax_included": false,
+            "amount": 449,
+            "discount": 0,
+            "round_off": 0,
+            "modifiers": [
+              {
+                "amount": 170,
+                "qty": 100,
+                "name": "Drop cloth",
+                "sku_ref": "PNT-0451-GAL"
+              },
+              {
+                "amount": 37,
+                "qty": 5,
+                "name": "Masking film",
+                "sku_ref": "M-221"
+              },
+              {
+                "amount": 18,
+                "qty": 20,
+                "name": "Sandpaper, 220 grit pack",
+                "sku_ref": "SND-220-PK-6CT"
+              },
+              {
+                "amount": 126,
+                "qty": 360,
+                "name": "Extra tape roll, 2 inch",
+                "sku_ref": "SKU-PAINTERS-TAPE-BLUE-360FT"
+              },
+              {
+                "amount": 42,
+                "qty": 10,
+                "name": "Trim",
+                "sku_ref": "SKU-TRIM-GUARD-10PK"
+              }
+            ],
+            "categories": [
+              {
+                "expiry": null,
+                "content_hash": "52a732ee496ac1",
+                "confidence": 0.445922,
+                "category_name": "Paint & Finishes",
+                "override_hash": null,
+                "content_hash_v2": "52a732ee496ac1",
+                "hash_mismatch": false,
+                "height": null,
+                "notes": "Primary spend for this project.",
+                "category_indices": [
+                  0,
+                  1,
+                  2
+                ]
+              },
+              {
+                "expiry": null,
+                "content_hash": "52a732ee496ac1",
+                "confidence": 0.445922,
+                "category_name": "Tools & Hardware Supplies",
+                "override_hash": null,
+                "content_hash_v2": "52a732ee496ac1",
+                "hash_mismatch": false,
+                "height": null,
+                "notes": "misc",
+                "category_indices": [
+                  2
+                ]
+              }
+            ],
+            "fee": 0,
+            "extra": 0,
+            "items": [
+              {
+                "linked_attachments": [],
+                "normalized_name": "Interior eggshell paint, one gallon, neutral white tint.",
+                "tags": [
+                  "eligible-for-home-office-improvement-deduction"
+                ],
+                "voided": null,
+                "brand": null,
+                "vendor_sku": "VND-PNT-0451-GAL",
+                "amount": 249,
+                "attachments": [],
+                "unit_of_measure": "per_gallon",
+                "modifiers": [
+                  {
+                    "amount": 170,
+                    "img_hash": "",
+                    "qty": 100,
+                    "name": "Drop cloth",
+                    "sku_ref": "PNT-0451-GAL"
+                  },
+                  {
+                    "amount": 37,
+                    "img_hash": "",
+                    "qty": 5,
+                    "name": "Masking film",
+                    "sku_ref": "M-221"
+                  },
+                  {
+                    "amount": 18,
+                    "img_hash": "",
+                    "qty": 20,
+                    "name": "Sandpaper, 220 grit pack",
+                    "sku_ref": "SND-220-PK-6CT"
+                  }
+                ],
+                "is_taxable": 1,
+                "unit_price": 125,
+                "description": "Eggshell interior latex paint, one gallon, tinted to a warm white.",
+                "currency": "USD",
+                "item_id": "itm_pnt_0451",
+                "line_total": 249,
+                "name": "Interior paint, 1 gal",
+                "warranty_until": null,
+                "quantity": 1,
+                "return_window_days": null,
+                "category_guess": "Home improvement - paint and finishes",
+                "line_note": "Matches a previous purchase from this vendor in March.",
+                "loyalty_points_used": null,
+                "barcode_image_ref": "",
+                "subtotal": 310,
+                "tax": 202,
+                "linked_receipt_notes": [],
+                "brand_id": null,
+                "thumbnail_image_ref": "",
+                "manufacturer_notes": null,
+                "source_channel": "photo",
+                "packaging_image_ref": "",
+                "category_indices": [
+                  0,
+                  1
+                ],
+                "duplicate_candidates": [],
+                "line_number": 1
+              },
+              {
+                "linked_attachments": [],
+                "normalized_name": "Interior eggshell paint, one gallon, neutral white tint.",
+                "tags": [
+                  "possible_tax_deduction",
+                  "flagged_for_manual_category_review"
+                ],
+                "voided": null,
+                "brand": null,
+                "vendor_sku": "VND-PNT-0451-GAL",
+                "amount": 146,
+                "attachments": [],
+                "unit_of_measure": "per_roll_pack",
+                "modifiers": [
+                  {
+                    "amount": 126,
+                    "img_hash": "",
+                    "qty": 360,
+                    "name": "Extra tape roll, 2 inch",
+                    "sku_ref": "SKU-PAINTERS-TAPE-BLUE-360FT"
+                  },
+                  {
+                    "amount": 42,
+                    "img_hash": "",
+                    "qty": 10,
+                    "name": "Trim",
+                    "sku_ref": "SKU-TRIM-GUARD-10PK"
+                  }
+                ],
+                "is_taxable": 1,
+                "unit_price": 380,
+                "description": "Painter's tape and corner trim guards for the same repaint job.",
+                "currency": "USD",
+                "item_id": "itm_tape_0221",
+                "line_total": 146,
+                "name": "Painter's tape",
+                "warranty_until": null,
+                "quantity": 2,
+                "return_window_days": null,
+                "category_guess": "Home improvement - supplies",
+                "line_note": "Bulk pack; unit price reflects the multi-roll discount at checkout.",
+                "loyalty_points_used": null,
+                "barcode_image_ref": "",
+                "subtotal": 251,
+                "tax": 122,
+                "linked_receipt_notes": [],
+                "brand_id": null,
+                "thumbnail_image_ref": "",
+                "manufacturer_notes": null,
+                "source_channel": "photo",
+                "packaging_image_ref": "",
+                "category_indices": [
+                  2
+                ],
+                "duplicate_candidates": [],
+                "line_number": 1
+              }
+            ],
+            "duplicate_count": 0,
+            "revision": 0,
+            "memo": "Auto-verified",
+            "subtotal": 351,
+            "tax": 248,
+            "rounding_fee": 0,
+            "refund": 0,
+            "voids": 0,
+            "title": "Riverside Hardware - Sep 18 2026",
+            "line_item_refs": [
+              {
+                "description": "Eggshell interior latex paint, one gallon, tinted to a warm white.",
+                "name": "Interior paint, 1 gal",
+                "quantity": 1,
+                "price_source": "live",
+                "line_number": 1
+              },
+              {
+                "description": "Painter's tape and corner trim guards for the same repaint job.",
+                "name": "Painter's tape",
+                "quantity": 2,
+                "price_source": "live",
+                "line_number": 1
+              }
+            ]
+          },
+          "checks": {
+            "review_notes": null,
+            "last_error": "Unterminated string in JSON",
+            "passed_checks": true,
+            "final_total": 449
+          }
+        }
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 42375,
+      "distinct_id": "user-1",
+      "properties": {
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "$ai_cost_usd": null,
+        "$ai_request_url": "https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent",
+        "$ai_is_error": false,
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_http_status": 200,
+        "cost_micros": 720,
+        "environment": "production",
+        "op_type": "summary_title_embed",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_provider": "gemini",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "release": "app-2026.09.18-rc3",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_input_tokens": 123,
+        "$ai_base_url": "https://generativelanguage.googleapis.com",
+        "$ai_model": "gemini-embedding-2",
+        "$ai_span_id": "ec232fd0ccdc10b2b8a5244143f8ae5b6494a94fc9",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_span_name": "embed_receipt_summary_title",
+        "$ai_latency": 1.116,
+        "batch_id": "receipt-batch-2026-09-23-b",
+        "product": "use1a",
+        "$ai_input": "Riverside Hardware, September 18 2026: guest bathroom repaint supplies including one gallon of eggshell interior paint, a canvas drop cloth, masking film, a six-pack of 220-grit sandpaper, a 360-foot roll of blue painter's tape, and a ten-pack of corner trim guards. Two line items were logged against the expense catalog with no exact duplicates found and nothing flagged for manual review. Tagged as a possible home-office improvement deduction pending the agent's confirmation."
+      }
+    },
+    {
+      "event": "$ai_metric",
+      "offset_ms": 42375,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "environment": "production",
+        "release": "app-2026.09.18-rc3",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_metric_name": "duplicate_items_flagged_count",
+        "product": "use1a",
+        "$ai_span_id": "778cba930d818c975468b61fb470019336a227e43e963010c73798725ab40c6c74e1",
+        "$ai_metric_value": 0,
+        "batch_id": "receipt-batch-2026-09-23-b"
+      }
+    },
+    {
+      "event": "$ai_metric",
+      "offset_ms": 42375,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_id": "4bd52db179cb7f6bdf2c9dba8a7cac7604deba99cf82a77ff403f2d14678da",
+        "$ai_metric_value": 0,
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "batch_id": "receipt-batch-2026-09-23-b",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "release": "app-2026.09.18-rc3",
+        "environment": "production",
+        "$ai_metric_name": "manual_review_required_count",
+        "product": "use1a"
+      }
+    },
+    {
+      "event": "$ai_feedback",
+      "offset_ms": 42375,
+      "distinct_id": "user-1",
+      "properties": {
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "rating": 0,
+        "$ai_span_id": "b86621bb49acb377bb6a0550ec3d1490f2a66cd208b",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "environment": "production",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "needs_followup": false,
+        "direction": "accuracy",
+        "release": "app-2026.09.18-rc3",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_feedback_text": "Looks right, thanks for catching the tape!",
+        "receipt_total": 449,
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "amount_seen": 449,
+        "items_reviewed": 1,
+        "product": "use1a",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "workflow_step": "awaiting_user_feedback",
+        "batch_id": "receipt-batch-2026-09-23-b",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 44584,
+      "distinct_id": "user-1",
+      "properties": {
+        "release": "app-2026.09.18-rc3",
+        "$session_id": "b9fd420c-a426-7f85-1194-c25d5444f492",
+        "distinct_id": "ad60d19c-b327-72d7-02f7-c4a41a4c78c7",
+        "$ai_parent_id": "1de5159b964f0ebcbdb7c113c9b",
+        "$ai_trace_id": "1de5159b964f0ebcbdb7c113c9b",
+        "product": "use1a",
+        "trace_ref": "1de5159b964f0ebcbdb7c113c9b",
+        "environment": "production",
+        "$ai_span_id": "cdccf5dad627e1f9953c489a03dde394d781ead9",
+        "$ai_session_id": "09efded708c365e9e3e4b8ee6a31",
+        "session": "09efded708c365e9e3e4b8ee6a31",
+        "$ai_latency": 3.325,
+        "$ai_is_error": false,
+        "workflow_step": "saved_after_confirmation",
+        "$ai_span_name": "save_expense_record_to_ledger",
+        "batch_id": "receipt-batch-2026-09-23-b",
+        "hybrid_search_used": true,
+        "$ai_input_state": {
+          "total_ref": 449,
+          "commit": "app-2026.09.18-rc3",
+          "grand_total_ref": 449
+        },
+        "$ai_output_state": {
+          "records_written": 1,
+          "errors": 0,
+          "direction": "accuracy",
+          "needs_retry": false,
+          "ledger_synced": true
+        }
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

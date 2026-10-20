@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator, UserType } from '~/types'
+import { AvailableFeature, PropertyFilterType, PropertyOperator, UserType } from '~/types'
 
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { GraphsTab, ProductTab, TileId } from './common'
@@ -405,6 +405,41 @@ describe('webAnalyticsLogic compare filter', () => {
 
         logic.actions.setDates('-7d', null)
         await expectLogic(logic).toMatchValues({ compareFilter: { compare: true } })
+    })
+})
+
+describe('webAnalyticsLogic conversion goal tiles', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // The replay filter group carries the conversion goal. If the error tracking query inherits it,
+    // selecting a goal silently narrows the errors the tile shows.
+    it('keeps the error tracking tile unfiltered by the conversion goal', async () => {
+        const errorTrackingFilterGroup = (): unknown =>
+            (logic.values.tiles.find((tile) => tile.tileId === TileId.ERROR_TRACKING) as any)?.query.source.filterGroup
+        const withoutGoal = errorTrackingFilterGroup()
+
+        logic.actions.setConversionGoal({ actionId: 42 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(withoutGoal).toBeTruthy()
+        expect(errorTrackingFilterGroup()).toEqual(withoutGoal)
     })
 })
 
@@ -941,5 +976,45 @@ describe('webAnalyticsLogic warmablePresetShortId', () => {
 
         expect(logic.values.appliedPresetShortId).toBe('abc123')
         expect(logic.values.warmablePresetShortId).toBeNull()
+    })
+})
+
+describe('webAnalyticsLogic path cleaning filters', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        featureFlagLogic.mount()
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            organization: {
+                ...MOCK_DEFAULT_USER.organization,
+                available_product_features: [{ key: AvailableFeature.PATHS_ADVANCED, name: 'Paths advanced' }],
+            },
+        } as UserType)
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        [PropertyOperator.Exact, PropertyOperator.IsCleanedPathExact],
+        [PropertyOperator.IsNot, PropertyOperator.IsCleanedPathNotExact],
+        [PropertyOperator.IContains, PropertyOperator.IContains],
+    ])('rewrites a %s path filter to %s', (operator, expectedOperator) => {
+        webAnalyticsFilterLogic.actions.setWebAnalyticsFilters([
+            { key: '$pathname', value: ['/user/:id'], operator, type: PropertyFilterType.Event },
+        ])
+
+        expect(logic.values.webAnalyticsFilters).toEqual([
+            { key: '$pathname', value: ['/user/:id'], operator: expectedOperator, type: PropertyFilterType.Event },
+        ])
     })
 })

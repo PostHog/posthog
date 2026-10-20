@@ -14,6 +14,8 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql.direct_sql.capability import is_direct_capable
+
 from posthog.api.utils import action
 from posthog.permissions import is_service_auth
 
@@ -24,6 +26,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     auto_enable_new_schemas,
+    discovered_schema_finder,
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
@@ -39,6 +42,7 @@ from products.warehouse_sources.backend.facade.source_management import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
     ExternalDataSchemaSerializer,
     RowFiltersField,
 )
@@ -97,6 +101,9 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
             "that run on new rows of the table run again for every row. Incremental, append, and xmin syncs only, "
             "and never shorter than the sync frequency."
         ),
+    )
+    full_refresh_time_of_day = serializers.TimeField(
+        required=False, allow_null=True, help_text=FULL_REFRESH_TIME_OF_DAY_HELP_TEXT
     )
     primary_key_columns = serializers.ListField(
         child=serializers.CharField(),
@@ -230,7 +237,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
-                if instance.is_direct_query
+                if is_direct_capable(instance)
                 else instance.connection_metadata
             )
             schema_names = {s.name: s.label for s in schemas}
@@ -269,7 +276,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
-            if instance.is_direct_query and connection_metadata != instance.connection_metadata:
+            if connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
@@ -295,7 +302,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 strict_name_match=namespaced_adapter is not None and namespaced_adapter.uses_strict_schema_name_match,
                 schema_metadata_by_name=namespaced_adapter.schema_metadata_by_name(schemas)
                 if namespaced_adapter is not None
-                else None,
+                else {name_substitutions.get(s.name, s.name): s.schema_metadata for s in schemas if s.schema_metadata},
             )
             # Mutable local: engine reconciliation below may extend the deleted set.
             schemas_deleted = sync_result.deleted
@@ -496,7 +503,10 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             source_impl = base.SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
             config = source_impl.parse_config(source.job_inputs)
             discovered = source_impl.get_schemas(
-                config, self.team_id, names=names, api_version=source_impl.resolve_api_version(source.api_version)
+                config,
+                self.team_id,
+                names=None if source_impl.uses_stable_schema_resource_ids else names,
+                api_version=source_impl.resolve_api_version(source.api_version),
             )
         except Exception as e:
             # Discovery connects to the customer's source, so an expected user/upstream failure
@@ -511,12 +521,13 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 failures[str(schema.id)] = (schema.name, reason)
             return failures, set()
 
-        # Not every source honors the `names` filter, so match by name instead of order.
-        discovered_by_name = {discovered_schema.name: discovered_schema for discovered_schema in discovered}
+        # Not every source honors the `names` filter, so match by name instead of order. Sheets are
+        # discovered without that filter because a renamed worksheet is matched by its stable id.
+        find_discovered_schema = discovered_schema_finder(discovered)
         defaulted_schema_ids: set[str] = set()
         for schema_update in needing_defaults:
             schema = source_schemas_by_id[schema_update["id"]]
-            discovered_schema = discovered_by_name.get(schema.name)
+            discovered_schema = find_discovered_schema(schema.name, schema.schema_metadata)
             if discovered_schema is None:
                 failures[str(schema.id)] = (
                     schema.name,

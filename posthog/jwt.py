@@ -8,6 +8,11 @@ from django.conf import settings
 import jwt
 from cryptography.hazmat.primitives import serialization
 
+# For JWTs a third party signs with keys it publishes. Asymmetric signatures only: an HMAC
+# family would let anyone holding the published key sign with it as a shared secret, and
+# "none" carries no signature at all.
+ASYMMETRIC_SIGNING_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
+
 JWT_ALGORITHM = "HS256"
 
 
@@ -21,14 +26,19 @@ class PosthogJwtAudience(Enum):
     HOGQL_LANGUAGE_SERVICE = "hogql-language-service"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
+    REPLAY_PROXY = "posthog:replay_proxy"
     WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
     WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
     WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"
     WORKFLOWS_STEP_RESUME = "posthog:workflows:step_resume"
-    INTEGRATION_SERVICE = "posthog:integration_service"
+    WORKFLOWS_SEND_TRANSACTIONAL_EMAIL = "posthog:workflows:send_transactional_email"
+    WORKFLOWS_RESUME_BATCH = "posthog:workflows:resume_batch"
+    CREDENTIALS_SERVICE = "posthog:credentials_service"
     TASKS_CREATE = "posthog:tasks:create"
     CUSTOMER_TASKS_CREATE = "posthog:customer-tasks:create"
     WORKFLOW_SCOUT_RUN = "posthog:workflows:scout_run"
+    WORKFLOW_CLASSIFY = "posthog:workflows:classify"
+    WORKFLOW_VISION_REQUEST = "posthog:workflows:vision_request"
     CONVERSATIONS_TICKETS = "posthog:conversations:tickets"
     CUSTOMER_ANALYTICS_ACCOUNTS = "posthog:customer_analytics:accounts"
     SECURITY_HUB_RULES = "posthog:security_hub:rules"

@@ -7,7 +7,7 @@ import {
     CompressionField,
     FileFormatField,
     MaxFileSizeField,
-    PERSON_PROPERTIES_EVENT_FIELD,
+    PERSON_EVENT_FIELDS,
     ParquetExtensionField,
     validateAzureContainerName,
 } from './common'
@@ -32,8 +32,22 @@ export const azureBlobDefinition: DestinationDefinition = {
     validate: (formValues) => ({
         container_name: validateAzureContainerName(formValues.container_name),
     }),
-    eventTableOverrides: { teamIdHogql: 'team_id' },
-    eventTableExtraFields: { ...PERSON_PROPERTIES_EVENT_FIELD },
+    eventTableExtraFields: {
+        team_id: {
+            name: 'team_id',
+            hogql_value: 'team_id',
+            type: 'integer',
+            schema_valid: true,
+        },
+        ...PERSON_EVENT_FIELDS,
+        azure_blob_ingested_timestamp: {
+            name: 'azure_blob_ingested_timestamp',
+            hogql_value: 'NOW64()',
+            type: 'datetime',
+            schema_valid: true,
+        },
+    },
+    eventTableOverrides: { includeGenericPersonFields: false },
     Fields: function AzureBlobFields({ isNew, formValues, savedConfig }) {
         return (
             <>

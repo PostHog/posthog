@@ -154,6 +154,7 @@ export function checkFeatureFlagConfirmation(
         if (!updatedFlag.active && onDisableAndArchive) {
             openFeatureFlagDisableDialog({
                 source: 'feature-flag-detail',
+                filters: updatedFlag.filters,
                 onDisable: onConfirm,
                 onDisableAndArchive,
             })

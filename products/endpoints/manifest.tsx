@@ -85,8 +85,10 @@ export const manifest: ProductManifest = {
         {
             path: 'Endpoints',
             intents: [ProductKey.ENDPOINTS],
-            category: ProductItemCategory.TOOLS,
+            category: ProductItemCategory.DATA,
             href: urls.endpoints(),
+            searchKeywords: ['rest api', 'query api'],
+            searchTabs: [{ name: 'Usage', href: urls.endpointsUsage() }],
             type: 'endpoints',
             iconType: 'endpoints',
             iconColor: [
@@ -99,7 +101,7 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Endpoints',
-            category: 'Tools',
+            category: 'Data',
             iconType: 'endpoints' as FileSystemIconType,
             iconColor: [
                 'var(--color-product-endpoints-light)',

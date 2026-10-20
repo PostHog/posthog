@@ -90,6 +90,7 @@ export function ArtifactPreviewContent({
   members,
   activateThread,
   createAnchoredComment,
+  sendCommentToAgent,
   onResolutionsChange,
   imageCommenting,
   setImageCommenting,
@@ -120,6 +121,11 @@ export function ArtifactPreviewContent({
     content: string,
     mentions?: number[],
   ) => Promise<void>;
+  sendCommentToAgent: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
   imageCommenting: boolean;
   setImageCommenting: Dispatch<SetStateAction<boolean>>;
@@ -143,6 +149,7 @@ export function ArtifactPreviewContent({
             <ArtifactDocumentCommentAction
               target={commentTarget}
               taskId={taskId}
+              name={name}
             />
           }
         />
@@ -168,6 +175,7 @@ export function ArtifactPreviewContent({
               members={members}
               onActivateThread={activateThread}
               onCreate={createAnchoredComment}
+              onSendToAgent={sendCommentToAgent}
               onResolutionsChange={onResolutionsChange}
             />
           </div>
@@ -199,6 +207,7 @@ export function ArtifactPreviewContent({
             <ArtifactDocumentCommentAction
               target={commentTarget}
               taskId={taskId}
+              name={name}
             />
           }
         />
@@ -213,6 +222,7 @@ export function ArtifactPreviewContent({
             members={members}
             onActivateThread={activateThread}
             onCreate={createAnchoredComment}
+            onSendToAgent={sendCommentToAgent}
             onResolutionsChange={onResolutionsChange}
           />
         </div>
@@ -233,7 +243,11 @@ export function ArtifactPreviewContent({
   ) {
     const imageActions = (
       <div className="flex shrink-0 items-center gap-1">
-        <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
+        <ArtifactDocumentCommentAction
+          target={commentTarget}
+          taskId={taskId}
+          name={name}
+        />
         <Tooltip>
           <TooltipTrigger
             render={
@@ -279,6 +293,7 @@ export function ArtifactPreviewContent({
             onCommentingChange={setImageCommenting}
             onActivateThread={activateThread}
             onCreate={createAnchoredComment}
+            onSendToAgent={sendCommentToAgent}
             onError={onMediaError}
           />
         </div>
@@ -287,7 +302,11 @@ export function ArtifactPreviewContent({
   }
 
   const documentActions = (
-    <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
+    <ArtifactDocumentCommentAction
+      target={commentTarget}
+      taskId={taskId}
+      name={name}
+    />
   );
 
   return (

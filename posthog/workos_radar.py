@@ -4,8 +4,8 @@ WorkOS Radar integration for bot/fraud detection during authentication flows.
 This module provides a client for the WorkOS Radar Attempts API to evaluate
 signup attempts for potential fraud or bot activity. When Radar returns a
 BLOCK verdict, the attempt is rejected with a SuspiciousAttemptBlocked
-exception unless the email is on the Redis bypass list managed via the
-admin tool.
+exception unless a security access rule exempts that address from the
+signup risk check.
 """
 
 import time
@@ -21,15 +21,15 @@ import structlog
 import posthoganalytics
 from rest_framework.exceptions import APIException
 
-from posthog.redis import get_client
 from posthog.turnstile import create_challenge_nonce, validate_and_consume_nonce, verify_turnstile_token
 from posthog.utils import get_ip_address, get_short_user_agent
+
+from products.security.backend.facade.api import is_signup_risk_exempt
 
 logger = structlog.get_logger(__name__)
 
 WORKOS_RADAR_API_URL = "https://api.workos.com/radar/attempts"
 WORKOS_RADAR_TIMEOUT = 5.0
-WORKOS_RADAR_BYPASS_REDIS_KEY = "workos_radar_bypass_emails"
 
 
 class SuspiciousAttemptBlocked(APIException):
@@ -81,18 +81,6 @@ def _get_raw_user_agent(request: HttpRequest) -> str:
     return request.headers.get("user-agent", "")
 
 
-def is_radar_bypass_email(email: str) -> bool:
-    return bool(get_client().sismember(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower()))
-
-
-def add_radar_bypass_email(email: str) -> None:
-    get_client().sadd(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
-
-
-def remove_radar_bypass_email(email: str) -> None:
-    get_client().srem(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
-
-
 def evaluate_auth_attempt(
     request: HttpRequest,
     email: str,
@@ -106,8 +94,8 @@ def evaluate_auth_attempt(
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
 
     Raises:
-        SuspiciousAttemptBlocked: When verdict is BLOCK and the email is
-            not in the Redis bypass list.
+        SuspiciousAttemptBlocked: When verdict is BLOCK and no access rule
+            exempts the address from the signup risk check.
         ChallengeRequired: When verdict is CHALLENGE and no valid Turnstile
             token was provided.
     """
@@ -143,6 +131,9 @@ def evaluate_auth_attempt(
         duration_ms=duration_ms,
         was_blocked=outcome == "block",
         was_bypassed=outcome == "bypass",
+        # Only access rules bypass Radar now, but the property stays so queries written
+        # while the Redis list existed keep working and the event still says why.
+        bypass_source="rule" if outcome == "bypass" else None,
         was_challenged=outcome == "challenge",
         was_challenge_completed=outcome == "completed",
     )
@@ -203,7 +194,7 @@ def _decide_outcome(
         token_valid = nonce_valid and verify_turnstile_token(turnstile_token, ip_address)
         return "completed" if token_valid else "block"
 
-    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE) and is_radar_bypass_email(email):
+    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE) and is_signup_risk_exempt(email):
         return "bypass"
 
     if verdict == RadarVerdict.BLOCK:
@@ -294,6 +285,7 @@ def _log_radar_event(
     duration_ms: float,
     was_blocked: bool = False,
     was_bypassed: bool = False,
+    bypass_source: Optional[str] = None,
     was_challenged: bool = False,
     was_challenge_completed: bool = False,
 ) -> None:
@@ -310,6 +302,7 @@ def _log_radar_event(
         "would_block": verdict == RadarVerdict.BLOCK,
         "was_blocked": was_blocked,
         "was_bypassed": was_bypassed,
+        "bypass_source": bypass_source,
         "was_challenged": was_challenged,
         "was_challenge_completed": was_challenge_completed,
         "is_error": verdict == RadarVerdict.ERROR,
@@ -330,6 +323,7 @@ def _log_radar_event(
         action=action.value,
         auth_method=auth_method.value,
         verdict=verdict.value,
+        bypass_source=bypass_source,
         email_hash=_hash_email(email),
         duration_ms=round(duration_ms, 2),
     )

@@ -37,6 +37,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { commentAgentContext, withScreenshot } from "../commentAgentContext";
+import { sendCommentToAgent } from "../sendCommentToAgent";
 import { ArtifactEditView } from "./ArtifactEditView";
 import {
   ArtifactPreviewContent,
@@ -392,6 +394,17 @@ export function ArtifactPreview({
       members={members}
       activateThread={activateThread}
       createAnchoredComment={createAnchoredComment}
+      sendCommentToAgent={(anchor, content, screenshot) =>
+        sendCommentToAgent({
+          taskId,
+          comment: content,
+          context: withScreenshot(
+            commentAgentContext(anchor, { kind: "artifact", name }),
+            screenshot,
+          ),
+          surface: "artifact",
+        })
+      }
       onResolutionsChange={onResolutionsChange}
       imageCommenting={imageCommenting}
       setImageCommenting={setImageCommenting}

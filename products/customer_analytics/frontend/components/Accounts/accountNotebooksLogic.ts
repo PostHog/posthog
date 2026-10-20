@@ -28,14 +28,27 @@ import type {
     PaginatedAccountNotebookListApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import {
+    getTileRecord,
+    getTileString,
+    type AccountViewTileConfig,
+    type AccountViewTileLogicProps,
+} from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
 export const NOTES_PER_PAGE = 5
 
 export const DEFAULT_NOTES_SORTING: Sorting = { columnKey: 'created_at', order: -1 }
 
-export interface AccountNotebooksLogicProps {
+export interface AccountNotebooksLogicProps extends AccountViewTileLogicProps {
     accountId: string
+}
+
+function getInitialSorting(config: AccountViewTileConfig | undefined): Sorting | null {
+    const sorting = getTileRecord(config, 'sorting')
+    return typeof sorting?.columnKey === 'string' && (sorting.order === 1 || sorting.order === -1)
+        ? (sorting as unknown as Sorting)
+        : DEFAULT_NOTES_SORTING
 }
 
 // Maps the table's sorting state onto the backend's whitelisted `ordering` param.
@@ -141,7 +154,7 @@ export type accountNotebooksLogicType = MakeLogicType<
 export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
     path((key) => ['scenes', 'customerAnalytics', 'accounts', 'accountNotebooksLogic', key]),
     props({} as AccountNotebooksLogicProps),
-    key((props) => props.accountId),
+    key((props) => `${props.accountId}:${props.instanceId ?? 'default'}`),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
         actions: [notebookPanelLogic, ['selectNotebook']],
@@ -199,11 +212,14 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             },
         ],
     })),
-    reducers({
-        searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
-        sorting: [DEFAULT_NOTES_SORTING as Sorting | null, { setSorting: (_, { sorting }) => sorting }],
+    reducers(({ props }) => ({
+        searchTerm: [
+            getTileString(props.initialConfig, 'searchTerm'),
+            { setSearchTerm: (_, { searchTerm }) => searchTerm },
+        ],
+        sorting: [getInitialSorting(props.initialConfig), { setSorting: (_, { sorting }) => sorting }],
         page: [1, { setPage: (_, { page }) => page }],
-    }),
+    })),
     selectors(({ actions }) => ({
         notebooks: [
             (s) => [s.notebooksResponse],
@@ -227,9 +243,10 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             }),
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, props, values }) => ({
         setSearchTerm: async (_, breakpoint) => {
             await breakpoint(300)
+            props.onConfigChange?.({ searchTerm: values.searchTerm, sorting: values.sorting })
             posthog.capture(AccountsEvents.NotesSearched, {
                 has_query: values.searchTerm.trim().length > 0,
                 query_length: values.searchTerm.trim().length,
@@ -237,6 +254,7 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             actions.setPage(1)
         },
         setSorting: ({ sorting }) => {
+            props.onConfigChange?.({ searchTerm: values.searchTerm, sorting: values.sorting })
             posthog.capture(AccountsEvents.NotesSorted, {
                 column: sorting?.columnKey ?? null,
                 direction: sorting ? (sorting.order === -1 ? 'desc' : 'asc') : 'cleared',

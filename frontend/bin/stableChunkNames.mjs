@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { CHUNK_IMPORT_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
+
+import { moduleKey } from './loggedOutScenes.mjs'
+
 /**
  * Stable chunk names.
  *
@@ -48,13 +52,20 @@ export function chunkIdentity(output) {
 // the import map. The same path passed to new URL(), fetch() or a Worker must stay a real URL.
 const IMPORT_OF_PATH = /(\bfrom\s*|\bimport\s*\(?\s*)(["'])\/static\/([^"'\s]+?\.js)\2/g
 
-/** Replaces every import of a known chunk by path with an import of its identity specifier. */
-export function rewriteChunkSource(source, identityByFile) {
+const isDynamicImport = (keyword) => keyword.trimEnd().endsWith('(')
+
+/**
+ * Replaces every import of a known chunk by path with an import of its identity specifier. A
+ * dynamic import of a chunk in `cssChunkFiles` goes through `window.ESBUILD_IMPORT`, which waits
+ * for the stylesheets that chunk registers.
+ */
+export function rewriteChunkSource(source, identityByFile, cssChunkFiles = new Set()) {
     return source.replace(SOURCE_MAP_COMMENT, '').replace(IMPORT_OF_PATH, (match, keyword, quote, file) => {
         if (!identityByFile.has(file)) {
             return match
         }
-        const replacement = `${keyword}${quote}${SPECIFIER_PREFIX}${identityByFile.get(file)}${quote}`
+        const importer = cssChunkFiles.has(file) && isDynamicImport(keyword) ? `${CHUNK_IMPORT_GLOBAL}(` : keyword
+        const replacement = `${importer}${quote}${SPECIFIER_PREFIX}${identityByFile.get(file)}${quote}`
         // Pad to the original byte length so every other offset in the file is unchanged and the
         // esbuild-emitted source map (which points at byte offsets) still lines up. `from"…"`,
         // `import"…"` and `import("…")` all allow whitespace after the closing quote.
@@ -80,6 +91,8 @@ export function stableFileName(originalFile, rewrittenSource) {
  * Plans the stable copy of a build. `outputs` is the esbuild metafile's `outputs`, and
  * `readSource(outputPath)` returns an output file's contents. Pure apart from `readSource`.
  *
+ * `preludes` maps an output path to a function of its specifier that returns the chunk's first line.
+ *
  * Returns, per JS output, its identity, stable file name and rewritten source, plus the import
  * map.
  */
@@ -103,19 +116,20 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/', prel
         identityByFile.set(fileOf(outputPath), identity)
     }
 
+    const cssChunkFiles = new Set([...preludes.keys()].map(fileOf))
     const plan = new Map()
     const imports = {}
     for (const [outputPath] of jsOutputs) {
         const file = fileOf(outputPath)
         const rawSource = readSource(outputPath)
-        const source = rewriteChunkSource(rawSource, identityByFile)
-        // Every replacement preserves length, except an identity collision with a short entry name
-        // (see rewriteChunkSource). When that happens the map's byte offsets no longer line up.
+        const source = rewriteChunkSource(rawSource, identityByFile, cssChunkFiles)
+        // Every replacement preserves length, unless it outgrows a very short chunk name (an identity
+        // collision, or ESBUILD_IMPORT). When that happens the map's byte offsets no longer line up.
         const mapValid = source.length === rawSource.replace(SOURCE_MAP_COMMENT, '').length
         // A prelude goes on its own first line, so the map only needs to shift down one line.
-        const prelude = preludes.get(outputPath) ?? null
-        const finalSource = prelude ? `${prelude}\n${source}` : source
         const identity = identityByFile.get(file)
+        const prelude = preludes.get(outputPath)?.(`${SPECIFIER_PREFIX}${identity}`) ?? null
+        const finalSource = prelude ? `${prelude}\n${source}` : source
         const stableFile = stableFileName(file, finalSource)
         plan.set(outputPath, { identity, file, stableFile, source: finalSource, mapValid, prelude })
         imports[`${SPECIFIER_PREFIX}${identity}`] = `static/${stableFile}`
@@ -124,9 +138,62 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/', prel
 }
 
 /**
+ * The import map specifiers a logged-out page can reach. The walk starts at the chunk of `entry`
+ * and follows every import, except a dynamic import of a module in `signedInModules`. Modules are
+ * module keys (see loggedOutScenes.mjs). Each module in `loggedOutModules` must be reached.
+ *
+ * `outputs` is the esbuild metafile's `outputs`, and `plan` is the plan from planStableChunks.
+ */
+export function loggedOutSpecifiers(
+    outputs,
+    plan,
+    { entry, loggedOutModules, signedInModules, cssSpecifiersByOutput }
+) {
+    const moduleOf = (output) => (output.entryPoint ? moduleKey(output.entryPoint) : null)
+    const start = Object.keys(outputs).find(
+        (outputPath) => outputPath.endsWith('.js') && moduleOf(outputs[outputPath]) === moduleKey(entry)
+    )
+    if (!start) {
+        throw new Error(`stable chunks: no output chunk for the entry ${entry}`)
+    }
+    const reached = new Set([start])
+    const queue = [start]
+    while (queue.length > 0) {
+        for (const { path: target, kind } of outputs[queue.pop()].imports || []) {
+            const output = outputs[target]
+            if (!output || !target.endsWith('.js') || reached.has(target)) {
+                continue
+            }
+            if (kind === 'dynamic-import' && signedInModules.has(moduleOf(output))) {
+                continue
+            }
+            reached.add(target)
+            queue.push(target)
+        }
+    }
+
+    // A logged-out scene that the walk misses would load with no import map entries for its chunks.
+    const reachedModules = new Set([...reached].map((outputPath) => moduleOf(outputs[outputPath])))
+    const unreached = [...loggedOutModules].filter((module) => !reachedModules.has(module))
+    if (unreached.length > 0) {
+        throw new Error(`stable chunks: logged-out scenes not reachable from ${entry}: ${unreached.join(', ')}`)
+    }
+
+    const specifiers = new Set()
+    for (const outputPath of reached) {
+        specifiers.add(`${SPECIFIER_PREFIX}${plan.get(outputPath).identity}`)
+        for (const specifier of cssSpecifiersByOutput.get(outputPath) ?? []) {
+            specifiers.add(specifier)
+        }
+    }
+    return [...specifiers].sort()
+}
+
+/**
  * Writes the stable copies and their source maps next to esbuild's output, and returns the
  * manifest the backend reads. `chunks` is the chunk map (scene name -> esbuild chunk hashes) and
- * `entrypoints` the absolute paths of the entry files, as `buildOrWatch` returns them.
+ * `entrypoints` the absolute paths of the entry files, as `buildOrWatch` returns them. `loggedOut`
+ * holds the options for loggedOutSpecifiers. Without it, every page gets the full import map.
  */
 export function writeStableChunks({
     absWorkingDir,
@@ -137,6 +204,7 @@ export function writeStableChunks({
     preludes = new Map(),
     extraImports = {},
     eagerCss = [],
+    loggedOut = null,
 }) {
     const distDir = path.resolve(absWorkingDir, 'dist')
     const { plan, imports } = planStableChunks(
@@ -178,6 +246,8 @@ export function writeStableChunks({
     const manifest = {
         imports,
         eagerCss: eagerCss.map((file) => `static/${file}`),
+        // The backend renders only these import map entries for a logged-out page.
+        loggedOutImports: loggedOut ? loggedOutSpecifiers(outputs, plan, loggedOut) : null,
         preload: {
             js: (preloadManifest?.js || []).map(toStableUrl),
             authenticatedJs: (preloadManifest?.authenticatedJs || []).map(toStableUrl),

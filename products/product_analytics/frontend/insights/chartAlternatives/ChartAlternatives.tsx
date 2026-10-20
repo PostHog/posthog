@@ -28,11 +28,11 @@ export function ChartAlternatives({
     const logic = useMountedLogic(chartAlternativesLogic(logicProps))
     useMountedLogic(chartPreviewsLogic(logicProps))
     const { canShowAlternatives, currentOption, galleryOpen, selectionDisabledReason } = useValues(logic)
-    const { closeGallery, toggleGallery } = useActions(logic)
+    const { closeGallery, reportChartMenuOpened, toggleGallery } = useActions(logic)
     const triggerRef = useRef<HTMLButtonElement>(null)
 
     if (!canShowAlternatives) {
-        return <ChartFilter />
+        return <ChartFilter onOpen={reportChartMenuOpened} />
     }
 
     return (

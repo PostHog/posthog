@@ -16,6 +16,7 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -308,6 +309,27 @@ def test_invoke_start_agent_server_skips_log_tails_when_rate_limited(mocker) -> 
 
 
 @pytest.mark.parametrize(
+    "is_modal, use_modal_vm_sandbox, expected_runtime",
+    [(True, True, "vm"), (True, False, "gvisor"), (False, True, None)],
+    ids=["modal_vm", "modal_gvisor", "non_modal"],
+)
+def test_invoke_start_agent_server_forwards_sandbox_runtime(
+    mocker, is_modal: bool, use_modal_vm_sandbox: bool, expected_runtime: str | None
+) -> None:
+    sandbox = mocker.Mock(spec=ModalSandbox, id="sandbox-id") if is_modal else mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.return_value = None
+
+    _invoke_start_agent_server(
+        sandbox,
+        _context(use_modal_vm_sandbox=use_modal_vm_sandbox),
+        mocker.Mock(agentsh_domains=None),
+        repo_ready_file=None,
+    )
+
+    assert sandbox.start_agent_server.call_args.kwargs["sandbox_runtime"] == expected_runtime
+
+
+@pytest.mark.parametrize(
     ("error", "expected_statuses"),
     [
         (
@@ -379,6 +401,7 @@ async def test_combined_start_failure_records_step_statuses(mocker, error, expec
 )
 async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, activity, boot_path) -> None:
     context = _context()
+    context.origin_product = "review_hog"
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.supports_combined_agent_server_start_and_health.return_value = False
     sandbox.read_agent_server_boot_metrics.return_value = (
@@ -415,6 +438,7 @@ async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, act
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.update_state_atomic"
     )
     record_step = mocker.patch("products.tasks.backend.temporal.metrics.record_agent_server_step_ms")
+    metric_meter = mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
 
     await activity(
         StartAgentServerInput(
@@ -426,13 +450,21 @@ async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, act
         )
     )
 
+    read_labels = next(
+        call.args[0] for call in metric_meter.call_args_list if call.args[0]["step"] == "read_agent_boot_metrics"
+    )
+    assert read_labels["origin_product"] == "review_hog"
+    assert read_labels["runtime"] == "gvisor"
+    assert read_labels["boot_path"] == boot_path
+    assert read_labels["used_snapshot"] == "true"
+
     assert [record.args for record in record_step.call_args_list] == [
         ("agent_server_phase_context_fetch", 40, boot_path),
         ("agent_server_phase_repository_ready", 1200, boot_path),
         ("agent_server_phase_server_total", 1400, boot_path),
     ]
     assert all(
-        record.kwargs == {"used_snapshot": True, "origin_product": None, "runtime": "gvisor"}
+        record.kwargs == {"used_snapshot": True, "origin_product": "review_hog", "runtime": "gvisor"}
         for record in record_step.call_args_list
     )
 
@@ -668,6 +700,26 @@ def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> Non
     assert _resolve_protected_base_branch(context) == expected
 
 
+@pytest.mark.parametrize(
+    "stack_base_branch,expected",
+    [
+        # A stacked run starts on the lower layer's head: protect that head as the PR base.
+        ("posthog-self-driving/layer-one-abc123", "posthog-self-driving/layer-one-abc123"),
+        # The marker names another branch, so the run moved on and the open PR lookup decides.
+        ("posthog-self-driving/other-def456", "master"),
+    ],
+)
+def test_resolve_protected_base_branch_for_stacked_run(mocker, stack_base_branch, expected) -> None:
+    _mock_github_integration(mocker, pr_base="master")
+    context = _context(
+        github_integration_id=42,
+        repository="PostHog/posthog",
+        branch="posthog-self-driving/layer-one-abc123",
+        state={"stack_base_branch": stack_base_branch},
+    )
+    assert _resolve_protected_base_branch(context) == expected
+
+
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
     get = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
@@ -696,6 +748,20 @@ def _mock_prepare_launch_dependencies(mocker) -> None:
     mocker.patch(f"{prefix}.get_imported_mcp_server_configs", return_value=[])
     mocker.patch(f"{prefix}.get_relayed_mcp_server_names", return_value=[])
     mocker.patch(f"{prefix}.emit_agent_log")
+    mocker.patch(f"{prefix}.release_task_run_milestone_claims")
+
+
+def test_prepare_launch_releases_boot_milestone_claims(mocker) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    _mock_prepare_launch_dependencies(mocker)
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock(
+        state={"use_dedicated_stream": True}
+    )
+    release = mocker.patch(f"{prefix}.release_task_run_milestone_claims")
+
+    _prepare_launch(_context(), "read_only", "sandbox-id")
+
+    release.assert_called_once_with("run-id", True)
 
 
 @pytest.mark.parametrize(
@@ -763,7 +829,7 @@ def test_ensure_every_repository_is_on_disk(mocker) -> None:
     )
 
     assert [call.args[0] for call in sandbox.execute.call_args_list] == [
-        f"test -d {sandbox_repo_path('PostHog/posthog')}",
+        f"test -e {sandbox_repo_path('PostHog/posthog')}/.git",
         f"test -d {sandbox_repo_path('PostHog/posthog-js')}",
     ]
 
@@ -781,7 +847,7 @@ def test_ensure_repository_on_disk_fails_non_retryably_when_repo_missing(mocker)
         _ensure_repository_on_disk(_context(repository="PostHog/posthog"), sandbox)
 
     assert exc_info.value.non_retryable is True
-    assert "never" in str(exc_info.value)
+    assert "no checkout" in str(exc_info.value)
 
 
 def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
@@ -1121,7 +1187,10 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
     assert result.shadow_launched is True
     shadow_result_reader.assert_not_called()
     create_event_ingest_token.assert_called_once()
-    assert create_event_ingest_token.call_args.kwargs == {"sandbox_id": "sandbox-id"}
+    assert create_event_ingest_token.call_args.kwargs == {
+        "sandbox_id": "sandbox-id",
+        "stream_generation": context.stream_generation,
+    }
     task_queryset.get.assert_called_once_with(id="task-id")
     get_user_mcp_configs.assert_called_once_with(
         token="oauth-token",

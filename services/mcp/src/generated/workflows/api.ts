@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 26 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -23,13 +23,20 @@ export const HogFlowsListQueryParams = () => zod.object({
         .describe(
             'Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.'
         ),
+    broadcast_status: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.'
+        ),
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
     origin_product: zod
-        .enum(['broadcasts', 'loops'])
+        .enum(['broadcasts', 'loops', 'transactional_emails'])
         .optional()
         .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod
@@ -99,12 +106,16 @@ export const HogFlowsCreateBody = () => zod
             ),
         origin_product: zod
             .union([
-                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod
+                    .enum(['loops', 'broadcasts', 'transactional_emails'])
+                    .describe(
+                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+                    ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
             ),
         trigger_masking: zod
             .union([
@@ -1029,6 +1040,136 @@ export const HogFlowsMetricsRetrieveQueryParams = () => zod.object({
     name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
 })
 
+/**
+ * One published version's series. Every hog flow metric is mirrored under
+ * `hog_flow_version` with the version appended to the id, which is what makes "before and
+ * after this change" answerable at all. The unversioned read keys batch and broadcast runs on
+ * the run instead, so it is not the sum of the versions.
+ */
+export const HogFlowsMetricsVersionRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const hogFlowsMetricsVersionRetrieveQueryAfterDefault = `-7d`
+
+export const hogFlowsMetricsVersionRetrieveQueryBreakdownByDefault = `kind`
+export const hogFlowsMetricsVersionRetrieveQueryIntervalDefault = `day`
+
+export const HogFlowsMetricsVersionRetrieveQueryParams = () => zod.object({
+    after: zod
+        .string()
+        .min(1)
+        .default(hogFlowsMetricsVersionRetrieveQueryAfterDefault)
+        .describe(
+            "Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'."
+        ),
+    before: zod.string().min(1).optional().describe("End of the time range. Same format as 'after'. Defaults to now."),
+    breakdown_by: zod
+        .enum(['name', 'kind'])
+        .default(hogFlowsMetricsVersionRetrieveQueryBreakdownByDefault)
+        .describe(
+            "Group the series by metric 'name' or 'kind'. Defaults to 'kind'.\n\n\* `name` - name\n\* `kind` - kind"
+        ),
+    instance_id: zod.string().min(1).optional().describe('Filter metrics to a specific execution instance.'),
+    interval: zod
+        .enum(['hour', 'day', 'week'])
+        .default(hogFlowsMetricsVersionRetrieveQueryIntervalDefault)
+        .describe(
+            "Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week"
+        ),
+    kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
+    name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+    version: zod
+        .number()
+        .describe(
+            "Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it."
+        ),
+})
+
+/**
+ * Agent-authored changes to this workflow, awaiting a human's decision.
+ *
+ * Creating one stages nothing: a proposal only reaches the workflow's draft once a human
+ * approves it, and only reaches the live config once someone publishes that draft.
+ */
+export const HogFlowsProposalsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const HogFlowsProposalsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    status: zod
+        .enum(['applied', 'approved', 'rejected', 'suggested'])
+        .optional()
+        .describe('Only return proposals in this status (suggested, approved, rejected, applied).'),
+})
+
+/**
+ * Agent-authored changes to this workflow, awaiting a human's decision.
+ *
+ * Creating one stages nothing: a proposal only reaches the workflow's draft once a human
+ * approves it, and only reaches the live config once someone publishes that draft.
+ */
+export const HogFlowsProposalsCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const hogFlowsProposalsCreateBodyTitleMax = 200
+
+export const hogFlowsProposalsCreateBodyStepIdMax = 200
+
+export const hogFlowsProposalsCreateBodySourceIdMax = 200
+
+export const HogFlowsProposalsCreateBody = () => zod.object({
+    title: zod.string().max(hogFlowsProposalsCreateBodyTitleMax).describe('Short summary of the proposed change.'),
+    rationale: zod.string().describe('Why this change is worth making, in prose a human reads.'),
+    content: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it.'
+        ),
+    evidence: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.'
+        ),
+    step_id: zod
+        .string()
+        .max(hogFlowsProposalsCreateBodyStepIdMax)
+        .nullish()
+        .describe(
+            "The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers."
+        ),
+    source_id: zod
+        .string()
+        .max(hogFlowsProposalsCreateBodySourceIdMax)
+        .nullish()
+        .describe(
+            'Stable id of the producing agent run or finding. Posting the same one twice returns the existing proposal instead of creating a duplicate.'
+        ),
+})
+
 export const HogFlowsPublishCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -1156,4 +1297,69 @@ export const HogFlowsMetricsGlobalRetrieveQueryParams = () => zod.object({
             "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d."
         ),
     before: zod.string().min(1).optional().describe("End of the window. Same format as 'after'. Defaults to now."),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const WorkflowDataSuggestionsBuildParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const workflowDataSuggestionsBuildBodyRetryDefault = false
+
+export const WorkflowDataSuggestionsBuildBody = () => zod.object({
+    suggestion_id: zod.string().describe('The id of a suggestion from the list endpoint.'),
+    retry: zod
+        .boolean()
+        .default(workflowDataSuggestionsBuildBodyRetryDefault)
+        .describe(
+            "Start a new build when the last one failed. Leave it false when asking for a running build's status."
+        ),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const WorkflowDataSuggestionsCurrentParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const WorkflowDataSuggestionsGenerateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const workflowDataSuggestionsGenerateBodyRefreshDefault = false
+
+export const WorkflowDataSuggestionsGenerateBody = () => zod.object({
+    refresh: zod
+        .boolean()
+        .default(workflowDataSuggestionsGenerateBodyRefreshDefault)
+        .describe('Make new suggestions even when the cached ones are still valid.'),
+})
+
+/**
+ * Whether a project is set up to send messages from workflows.
+ */
+export const WorkflowSetupStatusParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })

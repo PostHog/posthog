@@ -205,6 +205,7 @@ export {
     FieldTitle,
 } from './field'
 export { Heading, headingVariants } from './heading'
+export { IconStack, IconStackItem } from './icon-stack'
 export { Input } from './input'
 export {
     NumberFieldRoot,
@@ -239,6 +240,7 @@ export {
     ItemHeader,
     ItemFooter,
 } from './item'
+export { Highlight, highlightVariants, type HighlightColor, type HighlightProps } from './highlight'
 export { Kbd, KbdGroup, KbdText } from './kbd'
 export { Label } from './label'
 export {
@@ -349,6 +351,6 @@ export { Text, textVariants } from './text'
 export { Textarea } from './textarea'
 export { Toggle, toggleVariants } from './toggle'
 export { ToggleGroup, ToggleGroupItem } from './toggle-group'
-export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip'
+export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, createTooltipHandle } from './tooltip'
 export { ThemeProvider, useTheme, type Theme } from './theme-provider'
 export { cn } from './lib/utils'

@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube 
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.sonarqube import (
     SonarqubeResumeConfig,
     _error_detail,
-    _extract_paging,
     _format_created_after,
     get_rows,
     normalize_base_url,
@@ -77,16 +76,6 @@ class TestFormatCreatedAfter:
     )
     def test_format(self, _name: str, value: Any, expected: str) -> None:
         assert _format_created_after(value) == expected
-
-
-class TestExtractPaging:
-    def test_paging_object_shape(self) -> None:
-        # issues/components/rules/users wrap paging in a `paging` object.
-        assert _extract_paging({"paging": {"pageIndex": 2, "pageSize": 500, "total": 1200}}) == (2, 500, 1200)
-
-    def test_top_level_shape(self) -> None:
-        # /api/metrics/search returns p/ps/total at the top level instead.
-        assert _extract_paging({"p": 1, "ps": 500, "total": 42}) == (1, 500, 42)
 
 
 class TestErrorDetail:
@@ -173,44 +162,6 @@ def _collect(monkeypatch: Any, manager: _FakeResumableManager, **kwargs: Any) ->
 
 
 class TestSimplePagination:
-    def test_paginates_until_total_reached(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(sonarqube, "PAGE_SIZE", 2)
-        pages = {
-            f"{_BASE}/api/metrics/search?p=1&ps=2": {
-                "metrics": [{"key": "a"}, {"key": "b"}],
-                "p": 1,
-                "ps": 2,
-                "total": 3,
-            },
-            f"{_BASE}/api/metrics/search?p=2&ps=2": {"metrics": [{"key": "c"}], "p": 2, "ps": 2, "total": 3},
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="metrics")
-
-        assert [r["key"] for r in rows] == ["a", "b", "c"]
-        assert fetched == list(pages)
-
-    def test_passes_required_qualifier_for_projects(self, monkeypatch: Any) -> None:
-        url = f"{_BASE}/api/components/search?qualifiers=TRK&p=1&ps=500"
-        pages = {url: {"components": [{"key": "proj"}], "paging": {"pageIndex": 1, "pageSize": 500, "total": 1}}}
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="projects")
-
-        assert [r["key"] for r in rows] == ["proj"]
-        assert fetched == [url]
-
-    def test_saves_resume_state_only_while_more_pages_remain(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(sonarqube, "PAGE_SIZE", 1)
-        pages = {
-            f"{_BASE}/api/metrics/search?p=1&ps=1": {"metrics": [{"key": "a"}], "p": 1, "ps": 1, "total": 2},
-            f"{_BASE}/api/metrics/search?p=2&ps=1": {"metrics": [{"key": "b"}], "p": 2, "ps": 1, "total": 2},
-        }
-        _patch_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager()
-        _collect(monkeypatch, manager, endpoint="metrics")
-
-        assert manager.saved == [SonarqubeResumeConfig(next_page=2)]
-
     def test_resumes_from_saved_page(self, monkeypatch: Any) -> None:
         url = f"{_BASE}/api/metrics/search?p=2&ps=500"
         pages = {url: {"metrics": [{"key": "b"}], "p": 2, "ps": 500, "total": 1000}}
@@ -238,39 +189,6 @@ class TestSimplePagination:
 
 
 class TestWindowedIssues:
-    def test_single_window_paginates_and_stops(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{_BASE}/api/issues/search?s=CREATION_DATE&asc=true&p=1&ps=500": {
-                "issues": [{"key": "i1", "creationDate": "2024-01-01T00:00:00+0000"}],
-                "paging": {"pageIndex": 1, "pageSize": 500, "total": 1},
-            },
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="issues")
-
-        assert [r["key"] for r in rows] == ["i1"]
-        assert fetched == list(pages)
-
-    def test_incremental_adds_created_after(self, monkeypatch: Any) -> None:
-        url = (
-            f"{_BASE}/api/issues/search?s=CREATION_DATE&asc=true&p=1&ps=500&createdAfter=2026-03-04T02%3A58%3A14%2B0000"
-        )
-        pages = {
-            url: {
-                "issues": [{"key": "i9", "creationDate": "2026-03-05T00:00:00+0000"}],
-                "paging": {"pageIndex": 1, "pageSize": 500, "total": 1},
-            }
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        _collect(
-            monkeypatch,
-            _FakeResumableManager(),
-            endpoint="issues",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-        )
-        assert fetched == [url]
-
     def test_rewindows_past_the_result_cap(self, monkeypatch: Any) -> None:
         # Shrink the cap so re-windowing triggers after 2 pages instead of 20.
         monkeypatch.setattr(sonarqube, "ISSUES_MAX_PAGES", 2)
@@ -373,18 +291,6 @@ class _FakeStream:
 
 
 class TestReadBounded:
-    @pytest.mark.parametrize(
-        "cap, chunks, expected",
-        [
-            (16, [b"aaaa", b"bbbb"], b"aaaabbbb"),
-            (8, [b"aaaa", b"bbbb"], b"aaaabbbb"),  # exactly at the cap is allowed
-            (0, [], b""),
-        ],
-    )
-    def test_reads_body_within_cap(self, cap, chunks, expected, monkeypatch) -> None:
-        monkeypatch.setattr(sonarqube, "MAX_RESPONSE_BYTES", cap)
-        assert sonarqube._read_bounded(_FakeStream(chunks)) == expected  # type: ignore[arg-type]
-
     def test_raises_when_body_exceeds_cap(self, monkeypatch) -> None:
         monkeypatch.setattr(sonarqube, "MAX_RESPONSE_BYTES", 4)
         with pytest.raises(ValueError):

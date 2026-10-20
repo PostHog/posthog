@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import {
     signalsScoutChatTasksCreate,
     signalsScoutConfigList,
+    signalsScoutConfigRun,
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsCosts,
@@ -25,6 +26,7 @@ import type { ScoutCostsApi, SignalScoutConfigApi, UserBasicApi } from 'products
 import { llmSkillsNamePublishCommunityCreate } from 'products/skills/frontend/generated/api'
 
 import { SignalScoutRunSummary } from '../types'
+import { SCOUT_RUNS_FLEET_COVERAGE_LIMIT } from '../utils/scoutRunsWindow'
 import { ScoutRosterSort, scoutFleetLogic } from './scoutFleetLogic'
 
 jest.mock('posthog-js')
@@ -32,6 +34,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutChatTasksCreate: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
     signalsScoutConfigList: jest.fn(),
+    signalsScoutConfigRun: jest.fn(),
     signalsScoutConfigSync: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
     signalsScoutRunsFindingsSummary: jest.fn(),
@@ -49,6 +52,7 @@ const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.Mock
     typeof signalsScoutChatTasksCreate
 >
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
+const mockSignalsScoutConfigRun = signalsScoutConfigRun as jest.MockedFunction<typeof signalsScoutConfigRun>
 const mockSignalsScoutConfigSync = signalsScoutConfigSync as jest.MockedFunction<typeof signalsScoutConfigSync>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
@@ -72,6 +76,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     enabled: true,
     status: 'active',
     pause_reason: null,
+    managed_by: 'team',
     deprecation: null,
     emit: true,
     run_interval_minutes: 1440,
@@ -80,13 +85,23 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    allowed_mcp_tools: null,
+    tool_preset: null,
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
     status_changed_by: null,
     auto_pause_exempt: false,
+    lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    precheck_query: null,
+    precheck_disabled: false,
+    effective_precheck_query: null,
+    precheck_query_source: 'off',
+    last_precheck_at: null,
+    last_precheck_outcome: null,
+    last_precheck_row_count: null,
     source_product: null,
     source_id: null,
     created_at: '2026-07-22T00:00:00Z',
@@ -110,6 +125,7 @@ const OWNED_CONFIG: SignalScoutConfigApi = { ...BASE_CONFIG, scout_origin: 'cust
 function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
         run_id: 'run-1',
+        total_spend: null,
         skill_name: BASE_CONFIG.skill_name,
         skill_version: 1,
         status: 'completed',
@@ -143,6 +159,7 @@ describe('scoutFleetLogic', () => {
         initKeaTests()
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
+        mockSignalsScoutConfigRun.mockReset()
         mockSignalsScoutConfigSync.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
@@ -201,6 +218,31 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
+    it.each([
+        [
+            'a tool list after write access',
+            { write_scopes: ['dashboard:write'] },
+            { allowed_mcp_tools: ['insight-get'] },
+        ],
+        [
+            'write access after a tool preset',
+            { tool_preset: 'read_only' as const },
+            { write_scopes: ['insight:write'] },
+        ],
+    ])('never queues write access and a tool selection into one request, for %s', async (_name, earlier, later) => {
+        // The API rejects a request that carries both, which would drop the later edit too.
+        const firstRequest = deferred<SignalScoutConfigApi>()
+        mockSignalsScoutConfigUpdate.mockReturnValueOnce(firstRequest.promise).mockResolvedValueOnce(BASE_CONFIG)
+
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, { enabled: false })
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, earlier)
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, later)
+        firstRequest.resolve({ ...BASE_CONFIG, enabled: false })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSignalsScoutConfigUpdate).toHaveBeenNthCalledWith(2, String(MOCK_TEAM_ID), BASE_CONFIG.id, later)
+    })
+
     it('publishes a scout against its canonical project and preserves its tags', async () => {
         const config = { ...BASE_CONFIG, scout_origin: 'custom' as const, tags: ['errors'] }
         logic.actions.loadScoutConfigsSuccess([config])
@@ -218,6 +260,56 @@ describe('scoutFleetLogic', () => {
                 scout_config: expect.objectContaining({ tags: ['errors'] }),
             })
         )
+    })
+
+    it.each([
+        {
+            name: 'sends a trimmed note and clears the draft once the run starts',
+            note: '  focus on checkout  ',
+            fails: false,
+            body: { note: 'focus on checkout' },
+            draftAfter: undefined,
+            popoverOpenAfter: false,
+            capturedHasNote: [true],
+        },
+        {
+            name: 'sends no body for a blank note',
+            note: '   ',
+            fails: false,
+            body: undefined,
+            draftAfter: '   ',
+            popoverOpenAfter: true,
+            capturedHasNote: [false],
+        },
+        {
+            name: 'keeps the draft and the popover when the run is refused',
+            note: 'focus on checkout',
+            fails: true,
+            body: { note: 'focus on checkout' },
+            draftAfter: 'focus on checkout',
+            popoverOpenAfter: true,
+            capturedHasNote: [],
+        },
+    ])('run now with a note: $name', async ({ note, fails, body, draftAfter, popoverOpenAfter, capturedHasNote }) => {
+        if (fails) {
+            mockSignalsScoutConfigRun.mockRejectedValue({ detail: 'You need skill editor access' })
+        } else {
+            mockSignalsScoutConfigRun.mockResolvedValue({ status: 'started' } as any)
+        }
+        logic.actions.setRunNotePopoverConfigId(BASE_CONFIG.id)
+        logic.actions.setRunNoteDraft(BASE_CONFIG.id, note)
+
+        logic.actions.runScoutNow(BASE_CONFIG.id, note)
+        await expectLogic(logic).toDispatchActions(['runScoutNowFinished'])
+
+        expect(mockSignalsScoutConfigRun).toHaveBeenCalledWith(String(MOCK_TEAM_ID), BASE_CONFIG.id, body)
+        expect(logic.values.runNoteDrafts[BASE_CONFIG.id]).toEqual(draftAfter)
+        expect(logic.values.runNotePopoverConfigId).toEqual(popoverOpenAfter ? BASE_CONFIG.id : null)
+        const runNowEvents = jest
+            .mocked(posthog.capture)
+            .mock.calls.filter(([, properties]) => properties?.action_type === 'run_now')
+        expect(runNowEvents.map(([, properties]) => properties?.has_note)).toEqual(capturedHasNote)
+        expect(JSON.stringify(runNowEvents)).not.toContain('checkout')
     })
 
     // The roster is the only consumer of the tag filter, so assert through the rows it renders.
@@ -488,14 +580,14 @@ describe('scoutFleetLogic', () => {
 
     // The whole point of materializing on open: a project the coordinator never reached has no
     // configs at all, and the roster has no other way to get any.
-    it('fills an empty roster from the fleet the sync materializes', async () => {
+    it.each(['roster', 'onboarding'] as const)('fills an empty fleet for %s', async (surface) => {
         mockSignalsScoutConfigSync.mockResolvedValue([BASE_CONFIG])
         logic.actions.loadScoutConfigsSuccess([])
 
-        logic.actions.materializeScoutFleet()
+        logic.actions.materializeScoutFleet(surface)
 
         await expectLogic(logic).toDispatchActions(['syncScoutFleetSuccess'])
-        expect(mockSignalsScoutConfigSync).toHaveBeenCalledWith(String(MOCK_TEAM_ID), { surface: 'roster' })
+        expect(mockSignalsScoutConfigSync).toHaveBeenCalledWith(String(MOCK_TEAM_ID), { surface })
         expect(logic.values.scoutConfigs).toEqual([BASE_CONFIG])
         expect(logic.values.scoutFleetSynced).toBe(true)
         expect(logic.values.scoutFleetSyncOutcome).toBe('synced')
@@ -784,6 +876,30 @@ describe('scoutFleetLogic', () => {
         }
     })
 
+    it.each([
+        ['a trailing space', 'checkout ', 'checkout'],
+        ['a trailing space after a number', '123 ', '123'],
+        ['only spaces', '  ', undefined],
+    ])('keeps %s in the search box after the debounced URL write', async (_, typed, written) => {
+        jest.useFakeTimers()
+        try {
+            // The enabled filter keeps a roster param in the URL, so the search write reaches the
+            // shared-link hydration path.
+            router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
+            logic.actions.setScoutSearch(typed)
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(router.values.searchParams.scoutSearch).toEqual(written)
+            expect(logic.values.scoutSearch).toEqual(typed)
+
+            // The filter controls push the URL, so a push must not trim the search either.
+            logic.actions.setScoutEnabledFilter('disabled')
+            expect(logic.values.scoutSearch).toEqual(typed)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('keeps the roster filters out of a bare URL that a sibling logic replaces', async () => {
         router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
         await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
@@ -932,6 +1048,44 @@ describe('scoutFleetLogic', () => {
             }
         })
 
+        it('keeps a newer single-scout read when an earlier fleet read lands after it', async () => {
+            const fleetRequest = deferred<SignalScoutRunSummary[]>()
+            mockSignalsScoutRunsRecentPerScout.mockImplementationOnce(() => fleetRequest.promise)
+            logic.actions.loadScoutRuns()
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValueOnce([makeRun({ run_id: 'run-fresh' })])
+            logic.actions.loadScoutRunsForSkill(BASE_CONFIG.skill_name)
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsForSkillSuccess'])
+
+            fleetRequest.resolve([
+                makeRun({ run_id: 'run-stale' }),
+                makeRun({ run_id: 'run-other', skill_name: 'signals-scout-surveys' }),
+            ])
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess'])
+
+            expect(logic.values.scoutRuns.map((run) => run.run_id).sort()).toEqual(['run-fresh', 'run-other'])
+        })
+
+        it('keeps a single-scout read that a fleet read past the probe bound did not cover', async () => {
+            const otherConfigs = Array.from({ length: SCOUT_RUNS_FLEET_COVERAGE_LIMIT }, (_, index) => ({
+                ...BASE_CONFIG,
+                id: `config-other-${index}`,
+                skill_name: `signals-scout-other-${index}`,
+            }))
+            logic.actions.loadScoutConfigsSuccess([BASE_CONFIG, ...otherConfigs])
+            expect(logic.values.scoutRunsCoverFleet).toBe(false)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValueOnce([makeRun({ run_id: 'run-own' })])
+            logic.actions.loadScoutRunsForSkill(BASE_CONFIG.skill_name)
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsForSkillSuccess'])
+
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValueOnce([
+                makeRun({ run_id: 'run-other', skill_name: 'signals-scout-other-0' }),
+            ])
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess'])
+
+            expect(logic.values.scoutRuns.map((run) => run.run_id).sort()).toEqual(['run-other', 'run-own'])
+        })
+
         it('keeps the runs array and settled run references when a poll changes nothing', async () => {
             const settledRun = makeRun({ run_id: 'run-settled', status: 'completed' })
             mockSignalsScoutRunsRecentPerScout.mockImplementation(async () => [JSON.parse(JSON.stringify(settledRun))])
@@ -1016,9 +1170,23 @@ describe('scoutFleetLogic', () => {
             // Every roster card subscribes to this map and ScoutRunBoxes keys its tooltip memo on it,
             // so a fresh map each poll re-renders the whole roster for nothing. Reusing it too
             // eagerly is the worse failure though: the roster would show a frozen cost forever.
-            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
+            // Each strip reads its own scout's slice, so a moved cost must replace only that
+            // scout's slice and leave every other strip's slice, and its render, alone.
+            // Both runs are live, so each poll asks for their costs again.
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([
+                makeRun({ run_id: 'run-priced', status: 'in_progress', completed_at: null }),
+                makeRun({
+                    run_id: 'run-other',
+                    skill_name: 'signals-scout-other',
+                    status: 'in_progress',
+                    completed_at: null,
+                }),
+            ])
             mockSignalsScoutRunsTokenCosts.mockResolvedValue({
-                costs: [{ run_id: 'run-priced', token_cost_usd: 4.03 }],
+                costs: [
+                    { run_id: 'run-priced', token_cost_usd: 4.03 },
+                    { run_id: 'run-other', token_cost_usd: 0.5 },
+                ],
                 available: true,
             })
             await mountAsStaff(true)
@@ -1026,6 +1194,7 @@ describe('scoutFleetLogic', () => {
             logic.actions.loadScoutRuns()
             await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
             const first = logic.values.scoutRunCosts
+            const firstSlices = logic.values.scoutRunCostsByScout
             expect(first.get('run-priced')).toBe(4.03)
 
             logic.actions.loadScoutRuns()
@@ -1033,13 +1202,49 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.scoutRunCosts).toBe(first)
 
             mockSignalsScoutRunsTokenCosts.mockResolvedValue({
-                costs: [{ run_id: 'run-priced', token_cost_usd: 5.11 }],
+                costs: [
+                    { run_id: 'run-priced', token_cost_usd: 5.11 },
+                    { run_id: 'run-other', token_cost_usd: 0.5 },
+                ],
                 available: true,
             })
             logic.actions.loadScoutRuns()
             await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
             expect(logic.values.scoutRunCosts).not.toBe(first)
             expect(logic.values.scoutRunCosts.get('run-priced')).toBe(5.11)
+            const slices = logic.values.scoutRunCostsByScout
+            expect(slices.get(BASE_CONFIG.skill_name)).not.toBe(firstSlices.get(BASE_CONFIG.skill_name))
+            expect(slices.get(BASE_CONFIG.skill_name)?.get('run-priced')).toBe(5.11)
+            expect(slices.get('signals-scout-other')).toBe(firstSlices.get('signals-scout-other'))
+        })
+
+        it('asks for a settled run once, and keeps asking for a live or newly settled one', async () => {
+            const recentlySettled = new Date(Date.now() - 60_000).toISOString()
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([
+                makeRun({ run_id: 'run-settled' }),
+                makeRun({ run_id: 'run-just-settled', completed_at: recentlySettled }),
+                makeRun({ run_id: 'run-live', status: 'in_progress', completed_at: null }),
+            ])
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({
+                costs: [
+                    { run_id: 'run-settled', token_cost_usd: 4.03 },
+                    { run_id: 'run-just-settled', token_cost_usd: 1 },
+                    { run_id: 'run-live', token_cost_usd: 2 },
+                ],
+                available: true,
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(mockSignalsScoutRunsTokenCosts.mock.calls.map(([, body]) => body.run_ids)).toEqual([
+                ['run-settled', 'run-just-settled', 'run-live'],
+                ['run-just-settled', 'run-live'],
+            ])
+            expect(logic.values.scoutRunCosts.get('run-settled')).toBe(4.03)
         })
 
         it('sends no further batches once the deployment reports it cannot price runs', async () => {
@@ -1063,8 +1268,12 @@ describe('scoutFleetLogic', () => {
             const runIds = Array.from({ length: 401 }, (_, index) => `run-${index}`)
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
             const held: Array<() => void> = []
+            // A tenth of each batch costs more, so the fleet has a top decile to mark.
             mockSignalsScoutRunsTokenCosts.mockImplementation(async (_projectId, body) => {
-                const costs = [{ run_id: body.run_ids[0], token_cost_usd: 1 }]
+                const costs = body.run_ids.map((run_id, index) => ({
+                    run_id,
+                    token_cost_usd: index % 10 === 0 ? 5 : 1,
+                }))
                 if (!body.run_ids.includes('run-0')) {
                     await new Promise<void>((resolve) => held.push(resolve))
                 }
@@ -1076,15 +1285,19 @@ describe('scoutFleetLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'mergeScoutRunCosts'])
             await new Promise((resolve) => setTimeout(resolve, 0))
 
-            expect(logic.values.scoutRunCosts.get('run-0')).toBe(1)
+            expect(logic.values.scoutRunCosts.get('run-0')).toBe(5)
             expect(logic.values.scoutRunCostsLoading).toBe(true)
             expect(held).toHaveLength(2)
+            // The threshold ranks the whole fleet, so it waits for the load to finish rather than
+            // moving with each batch and re-rendering every strip on the roster.
+            expect(logic.values.expensiveRunCostThreshold).toBeNull()
 
             held.forEach((resolve) => resolve())
             await expectLogic(logic).toDispatchActions(['loadScoutRunCostsSuccess'])
 
-            expect(logic.values.scoutRunCosts.get('run-200')).toBe(1)
-            expect(logic.values.scoutRunCosts.get('run-400')).toBe(1)
+            expect(logic.values.scoutRunCosts.get('run-200')).toBe(5)
+            expect(logic.values.scoutRunCosts.get('run-400')).toBe(5)
+            expect(logic.values.expensiveRunCostThreshold).toBe(5)
         })
 
         it('keeps the batches that answered when a later batch fails', async () => {
@@ -1105,6 +1318,32 @@ describe('scoutFleetLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
 
             expect(logic.values.scoutRunCosts.get('run-0')).toBe(4.03)
+        })
+
+        it('asks again for a batch whose costs never reached the store because a sibling failed', async () => {
+            const runIds = Array.from({ length: 401 }, (_, index) => `run-${index}`)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
+            mockSignalsScoutRunsTokenCosts.mockImplementation(async (_projectId, body) => {
+                if (body.run_ids.includes('run-200')) {
+                    throw new ApiError('nope', 500)
+                }
+                if (body.run_ids.includes('run-400')) {
+                    await new Promise((resolve) => setTimeout(resolve, 5))
+                }
+                return { costs: body.run_ids.map((run_id) => ({ run_id, token_cost_usd: 1 })), available: true }
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            mockSignalsScoutRunsTokenCosts.mockClear().mockResolvedValue({ costs: [], available: true })
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            const askedAgain = mockSignalsScoutRunsTokenCosts.mock.calls.flatMap(([, body]) => body.run_ids)
+            expect(askedAgain).toContain('run-400')
+            expect(askedAgain).not.toContain('run-0')
         })
 
         // Recovering in the loader skips the gate `initKea` applies to loader failures, so the

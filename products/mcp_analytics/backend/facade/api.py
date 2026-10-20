@@ -6,7 +6,7 @@ from django.utils import timezone
 from posthog.schema import AnyPropertyFilterDiscriminated
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import CacheOrigin, parse_expr
 
 from posthog.api.capture import capture_internal
 from posthog.models.team.team import Team
@@ -18,11 +18,20 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_TOOL_SQL,
     NEW_SDK_SOURCE,
 )
+from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, harness_label_sql
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from . import contracts
 from .constants import MCP_MISSING_CAPABILITY_EVENT
 from .enums import SubmissionKind
+
+
+def mcp_harness_virtual_field_expr() -> ast.Expr:
+    # nosemgrep: hogql-fstring-audit (both SQL fragments are fixed server-side expressions)
+    return parse_expr(
+        f"if(startsWith(event, '$mcp_'), arrayMap(h -> {harness_label_sql('h')}, [{HARNESS_TOKEN_SQL}])[1], NULL)",
+        cache_origin=CacheOrigin.BUILTIN,
+    )
 
 
 def _to_submission(instance: MCPAnalyticsSubmission) -> contracts.Submission:
@@ -101,6 +110,7 @@ def list_mcp_sessions(
     order_by: str = "",
     date_from: str | None = None,
     date_to: str | None = None,
+    has_errors: bool | None = None,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
@@ -113,6 +123,7 @@ def list_mcp_sessions(
         order_by=order_by,
         date_from=date_from,
         date_to=date_to,
+        has_errors=has_errors,
         properties=properties,
         filter_test_accounts=filter_test_accounts,
         user=user,

@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # Instantly does not sign webhook deliveries, but it does send static custom headers configured
 # on the webhook. `create_webhook` attaches a generated secret in the x-posthog-webhook-secret
@@ -28,9 +28,10 @@ if (not inputs.bypass_secret_check) {
   if (empty(inputs.signing_secret)) {
     return {
       'httpResponse': {
-        'status': 400,
-        'body': 'Webhook secret not configured',
-      }
+        'status': 200,
+        'body': 'Webhook secret not configured, delivery dropped',
+      },
+      'appMetric': 'missing_credential'
     }
   }
 

@@ -7,7 +7,7 @@ import temporalio.workflow
 from temporalio import activity
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
-from temporalio.client import WorkflowHistory
+from temporalio.client import WorkflowFailureError, WorkflowHistory
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import (
     ActivityError,
@@ -451,59 +451,49 @@ def _activity_error() -> ActivityError:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("route_elsewhere", [False, True])
-async def test_render_runs_on_the_requested_queue(route_elsewhere: bool):
+@pytest.mark.parametrize("render_fails", [False, True])
+async def test_caller_built_render_skips_the_asset_steps(render_fails: bool):
     from django.conf import settings
 
     from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
 
-    requested_queue = "other-rasterization-task-queue" if route_elsewhere else None
-    expected_queue = requested_queue or settings.RASTERIZATION_TASK_QUEUE
-    rendered_on: list[str] = []
-
-    @activity.defn(name="build_rasterization_input")
-    async def build_mocked(_exported_asset_id: int) -> BuildRasterizationResult:
-        return BuildRasterizationResult(
-            activity_input=RasterizationActivityInput(session_id="s", team_id=7, s3_bucket="b", s3_key_prefix="p"),
-            render_fingerprint="abc",
-        )
-
     @activity.defn(name="rasterize-recording")
     async def render_mocked(_inputs: dict) -> dict:
-        rendered_on.append(activity.info().task_queue)
-        return {"s3_uri": "s3://bucket/key", "video_duration_s": 1.0, "playback_speed": 1.0}
+        if render_fails:
+            raise ApplicationError("no snapshots", type="NO_SNAPSHOTS", non_retryable=True)
+        return {"s3_uri": "s3://bench/case/video.mp4", "video_duration_s": 1.0, "playback_speed": 8.0}
 
-    @activity.defn(name="finalize_rasterization")
-    async def finalize_noop(_inputs: FinalizeRasterizationInput) -> None:
-        pass
-
-    @activity.defn(name="clear_stuck_counter_activity")
-    async def clear_noop(_inputs: BumpStuckCounterInput) -> None:
-        pass
-
+    render_input = RasterizationActivityInput(
+        session_id="case-1",
+        team_id=1,
+        source_s3_uri="s3://bench/case/events.jsonl.zst",
+        s3_bucket="bench",
+        s3_key_prefix="case",
+    )
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
-        await _register_search_attributes(env)
         async with (
             Worker(
                 env.client,
                 task_queue=task_queue,
                 workflows=[RasterizeRecordingWorkflow],
-                activities=[build_mocked, finalize_noop, clear_noop],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ),
-            # Both queues carry a render worker, so a mis-routed render still completes and the
-            # assertion below names the wrong queue instead of hanging forever.
             Worker(env.client, task_queue=settings.RASTERIZATION_TASK_QUEUE, activities=[render_mocked]),
-            Worker(env.client, task_queue="other-rasterization-task-queue", activities=[render_mocked]),
         ):
-            await env.client.execute_workflow(
+            handle = await env.client.start_workflow(
                 RasterizeRecordingWorkflow.run,
-                RasterizeRecordingInputs(exported_asset_id=42, task_queue=requested_queue),
+                RasterizeRecordingInputs(render_input=render_input, product="replay_vision_benchmark"),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
                 retry_policy=RetryPolicy(maximum_attempts=1),
-                search_attributes=_search_attributes(),
             )
+            if render_fails:
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+            else:
+                assert (await handle.result()).s3_uri == "s3://bench/case/video.mp4"
+            history = await handle.fetch_history()
 
-    assert rendered_on == [expected_queue]
+    # No asset to prepare from, finalize onto, or record a failure against.
+    assert _scheduled_activities(history) == ["rasterize-recording"]

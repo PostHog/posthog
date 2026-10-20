@@ -13,13 +13,13 @@ logo.dev limits requests per month by plan, not per minute or per hour, so the b
 - `LOGODEV_EGRESS_HOURLY_BUDGET` (default 5,000) caps total spend.
 
 Icon bytes are never stored server-side, because logo.dev licenses that separately.
-Browser caching (`posthog/cdp/services/icons.py` sets `Cache-Control`) is the only dedupe, so steady-state traffic tracks unique (user, icon) first views per day.
+Browser caching (`products/cdp/backend/services/icons.py` sets `Cache-Control`) is the only dedupe, so steady-state traffic tracks unique (user, icon) first views per day.
 Raise the settings if that outgrows the defaults.
 
 ## Lanes and callers
 
 The default reserve ladder applies.
-The CDP icon picker and MCP store icons (`posthog/cdp/services/icons.py`, source `cdp_icons`) call on the `NORMAL` lane.
+The CDP icon picker and MCP store icons (`products/cdp/backend/services/icons.py`, source `cdp_icons`) call on the `NORMAL` lane.
 Nothing in this domain runs `CRITICAL`, because the icon id is user-controlled and a never-shed lane would make the budget advisory.
 A denied call raises `LogoDevEgressBudgetExhausted`, and the caller degrades to no icon.
 

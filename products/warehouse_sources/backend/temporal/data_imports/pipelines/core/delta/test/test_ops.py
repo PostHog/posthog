@@ -4,8 +4,12 @@ from unittest.mock import MagicMock
 from django.test import override_settings
 
 import deltalake
+import botocore.exceptions
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     DELTA_MERGE_CONFLICT_RETRIES,
     ObjectStorePermissionDeniedError,
@@ -13,6 +17,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     execute_with_conflict_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
+
+
+def _permission_error_with_client_error_cause() -> PermissionError:
+    # Mirrors s3fs.errors.translate_boto_error: the message on the PermissionError it raises is the
+    # server's own (here generic) Message, while the original ClientError (which carries the real
+    # Code) is kept only as __cause__.
+    client_error = botocore.exceptions.ClientError(
+        {"Error": {"Code": "SignatureDoesNotMatch", "Message": "Invalid argument."}}, "PutObject"
+    )
+    permission_error = PermissionError("Invalid argument.")
+    permission_error.__cause__ = client_error
+    return permission_error
 
 
 class TestDeltaMergeSpillKwargs:
@@ -47,7 +63,7 @@ class TestExecuteWithConflictRetry:
     DELTA_MERGE_CONFLICT_RETRIES). Regression coverage for the sync dying on the first such
     conflict instead of refreshing the table and re-running the operation, as the error's own
     "must be rerun" message calls for. Shared by merges, overwrite/append writes, and
-    `compact_table`'s optimize.compact."""
+    `compact_if_fragmented`'s optimize.compact."""
 
     @pytest.mark.asyncio
     async def test_succeeds_without_retry(self):
@@ -75,6 +91,21 @@ class TestExecuteWithConflictRetry:
         assert result == {"num_output_rows": 1}
         assert operation_fn.call_count == 2
         table.update_incremental.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_can_propagate_a_conflict_without_retrying(self):
+        table = MagicMock()
+        operation_fn = MagicMock(
+            side_effect=deltalake.exceptions.CommitFailedError(
+                "Commit failed: a concurrent transaction added new data."
+            )
+        )
+
+        with pytest.raises(deltalake.exceptions.CommitFailedError):
+            await execute_with_conflict_retry(table, operation_fn, "op", make_logger(), conflict_retries=0)
+
+        operation_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_retries_on_invalid_version_race_then_succeeds(self):
@@ -133,6 +164,31 @@ class TestExecuteWithConflictRetry:
         operation_fn.assert_called_once()
         table.update_incremental.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_transient_object_store_error_is_wrapped_and_not_retried(self):
+        # delta-rs prefixes a self-recovering object-store blip (e.g. the backend refusing a PUT
+        # because it's temporarily out of free space) with "Generic S3 error". Regression coverage
+        # for this reaching the caller as a raw DeltaError, which the activity boundary would report
+        # as a fresh error-tracking issue per write and would leak into the customer-facing error,
+        # instead of the same non-reportable classification get_delta_table already applies.
+        table = MagicMock()
+        error = deltalake.exceptions.DeltaError(
+            "Failed to parse parquet: External: Generic S3 error: Error performing PUT "
+            "in 5s, after 10 retries - Server returned non-2xx status code: 507 Insufficient Storage"
+        )
+        operation_fn = MagicMock(side_effect=error)
+
+        with pytest.raises(TransientObjectStoreError) as exc_info:
+            await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
+
+        assert exc_info.value.__cause__ is error
+        # This can reach the customer as the sync run's error text if every retry is exhausted, so
+        # the raw storage text (which can name the bucket and the object key) must not survive into
+        # the wrapper's own message - only onto __cause__, asserted above.
+        assert "Insufficient Storage" not in str(exc_info.value)
+        operation_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
+
     @parameterized.expand(
         [
             # delta-rs maps a 403 from its Rust object_store crate onto io::ErrorKind::PermissionDenied
@@ -156,6 +212,18 @@ class TestExecuteWithConflictRetry:
             ),
             # s3fs translates an explicit S3 AccessDenied response code into PermissionError.
             ("s3fs_access_denied", PermissionError("Access Denied")),
+            # s3fs collapses InvalidAccessKeyId (the worker's own access key no longer exists) into
+            # the same PermissionError type, with AWS's own fixed message instead of "Access Denied".
+            (
+                "s3fs_invalid_access_key_id",
+                PermissionError("The AWS Access Key Id you provided does not exist in our records."),
+            ),
+            # s3fs also collapses SignatureDoesNotMatch into PermissionError, but our backend returns
+            # a generic "Invalid argument." Message for it instead of AWS's usual signature-mismatch
+            # sentence, so none of the message needles above match it. Regression coverage for this
+            # refusal leaking as a raw, unclassified PermissionError instead of being read off the
+            # chained ClientError's actual code.
+            ("s3fs_signature_does_not_match", _permission_error_with_client_error_cause()),
         ]
     )
     @pytest.mark.asyncio

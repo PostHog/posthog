@@ -13,7 +13,6 @@ from products.wizard.backend.facade.contracts import (
     WizardWorkspace,
 )
 from products.wizard.backend.facade.enums import (
-    WIZARD_TASK_STATUS_CHOICES,
     WizardRunEnvironment,
     WizardRunErrorCode,
     WizardRunStage,
@@ -211,7 +210,7 @@ class UpdateWizardRunTaskSerializer(serializers.Serializer):
     )
 
     status = serializers.ChoiceField(
-        choices=WIZARD_TASK_STATUS_CHOICES,
+        choices=WizardTaskStatus.choices,
         help_text="Current task status reported by the setup agent.",
     )
 
@@ -244,7 +243,7 @@ class WizardRunTaskSerializer(serializers.Serializer):
 
     status = serializers.ChoiceField(
         read_only=True,
-        choices=WIZARD_TASK_STATUS_CHOICES,
+        choices=WizardTaskStatus.choices,
         help_text="Current task status reported by the setup agent.",
     )
 

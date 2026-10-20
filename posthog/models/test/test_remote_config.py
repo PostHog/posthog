@@ -1,25 +1,42 @@
 from datetime import timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
+from django.core.cache import caches
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.integration import Integration
 from posthog.models.project import Project
-from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
+from posthog.models.remote_config import (
+    REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
+    TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
+    RemoteConfig,
+    RemoteConfigTokenChangeSyncError,
+    UnreadableTriggerGroupsError,
+)
 
 from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.templates.helpers import mock_transpile
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
+SITE_HOG = "export function onEvent({ inputs }) { console.log(inputs) }"
+_READABLE_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": ["purchase"]}}
+_SENT_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": [{"name": "purchase"}]}}
+
+
+def _flag_group(flag: str | dict[str, Any], **conditions: Any) -> dict[str, Any]:
+    return {"id": "g4", "sampleRate": 1, "conditions": {"matchType": "all", "flag": flag, **conditions}}
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -324,6 +341,20 @@ class TestRemoteConfig(_RemoteConfigBase):
         session_recording = config["sessionRecording"]
         assert session_recording["sampleRate"] == expected
 
+    @parameterized.expand(
+        [
+            ("without_variant", {"id": 7, "key": "k"}, "k"),
+            ("with_variant", {"id": 7, "key": "k", "variant": "test"}, {"flag": "k", "variant": "test"}),
+        ]
+    )
+    def test_session_recording_linked_flag(
+        self, _name: str, stored: dict[str, Any], expected: str | dict[str, Any]
+    ) -> None:
+        self.team.session_recording_linked_flag = stored
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["sessionRecording"]["linkedFlag"] == expected
+
     def test_session_recording_domains(self):
         self.team.session_recording_opt_in = True
         self.team.recording_domains = ["https://posthog.com", "https://*.posthog.com"]
@@ -333,6 +364,108 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert config is not None
         session_recording = config["sessionRecording"]
         assert session_recording["domains"] == self.team.recording_domains
+
+    @parameterized.expand(
+        [
+            ("group_not_an_object", {"version": 2, "groups": ["not-a-group", _READABLE_GROUP]}, [_SENT_GROUP], True),
+            (
+                "conditions_missing",
+                {"version": 2, "groups": [{"id": "g2", "sampleRate": 1}, _READABLE_GROUP]},
+                [_SENT_GROUP],
+                True,
+            ),
+            (
+                "events_null",
+                {"version": 2, "groups": [_flag_group("k", events=None)]},
+                [_flag_group("k", events=None)],
+                False,
+            ),
+            (
+                "events_not_a_list",
+                {"version": 2, "groups": [{"conditions": {"events": "purchase"}}, _READABLE_GROUP]},
+                [_SENT_GROUP],
+                True,
+            ),
+            ("groups_missing", {"version": 2}, [], False),
+            ("groups_all_unreadable", {"version": 2, "groups": [{"conditions": {"events": "purchase"}}]}, False, True),
+            ("column_not_an_object", ["not-a-config"], False, True),
+            ("groups_not_a_list", {"version": 2, "groups": None}, False, True),
+            (
+                "flag_object_converted",
+                {
+                    "version": 2,
+                    "groups": [
+                        _flag_group({"id": 7, "key": "k"}, events=["purchase"]),
+                        _flag_group({"id": 7, "key": "k", "variant": "test"}),
+                    ],
+                },
+                [_flag_group("k", events=[{"name": "purchase"}]), _flag_group({"flag": "k", "variant": "test"})],
+                False,
+            ),
+            (
+                "flag_object_without_usable_key",
+                {"version": 2, "groups": [_flag_group({"id": 7}), _flag_group({"key": ""})]},
+                [_flag_group({"id": 7}), _flag_group({"key": ""})],
+                False,
+            ),
+        ]
+    )
+    def test_session_recording_trigger_groups_sent_to_sdk(
+        self,
+        _name: str,
+        stored: Any,
+        expected_trigger_groups: list[dict] | Literal[False],
+        expect_reported: bool,
+    ) -> None:
+        self.team.session_recording_trigger_groups = stored
+        with (
+            patch("posthog.models.remote_config.capture_exception") as mock_capture_exception,
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
+            ),
+        ):
+            self.team.save()
+            self.sync_remote_config()
+        reported = any(
+            isinstance(c.args[0], UnreadableTriggerGroupsError) for c in mock_capture_exception.call_args_list
+        )
+        assert reported == expect_reported
+        session_recording = self.remote_config.config["sessionRecording"]
+        if expected_trigger_groups is False:
+            assert session_recording is False
+        else:
+            assert session_recording["version"] == 2
+            assert session_recording["triggerGroups"] == expected_trigger_groups
+
+    @parameterized.expand(
+        [
+            ("rollout_region", "US", {"flag": "k", "variant": "test"}),
+            ("same_project_id_other_region", "EU", {"id": 7, "key": "k", "variant": "test"}),
+        ]
+    )
+    def test_session_recording_trigger_group_flag_rollout_targets_one_region(
+        self, _name: str, region: str, expected_flag: dict[str, Any]
+    ) -> None:
+        def rollout_for_us_project(key: str, *args: Any, group_properties: Any = None, **kwargs: Any) -> bool:
+            project = (group_properties or {}).get("project", {})
+            return (
+                key == TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT
+                and project.get("id") == str(self.team.id)
+                and project.get("region") == "US"
+            )
+
+        flag = {"id": 7, "key": "k", "variant": "test"}
+        self.team.session_recording_trigger_groups = {"version": 2, "groups": [_flag_group(flag, events=["purchase"])]}
+        with (
+            override_settings(CLOUD_DEPLOYMENT=region),
+            patch("posthoganalytics.feature_enabled", side_effect=rollout_for_us_project),
+        ):
+            self.team.save()
+            self.sync_remote_config()
+        assert self.remote_config.config["sessionRecording"]["triggerGroups"] == [
+            _flag_group(expected_flag, events=[{"name": "purchase"}])
+        ]
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True
@@ -402,6 +535,112 @@ class TestRemoteConfig(_RemoteConfigBase):
             result = self.remote_config._build_site_apps_js()
 
         assert result == []
+
+    @parameterized.expand([("no_default", {}), ("top_level_default", {"default": "abc"})])
+    def test_site_functions_keep_publishing_when_the_secret_is_encrypted(
+        self, _name: str, default: dict[str, str]
+    ) -> None:
+        # `move_secret_inputs` leaves the value in `encrypted_inputs`, which the transpiler never
+        # reads, so the function has to stay published.
+        function = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            hog=SITE_HOG,
+            inputs_schema=[{"key": "token", "type": "string", "secret": True, **default}],
+            inputs={"token": {"value": "example-private-browser-value"}},
+        )
+        assert (function.inputs or {}) == {}
+        assert (function.encrypted_inputs or {})["token"]["value"] == "example-private-browser-value"
+
+        with patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(function.id) in result
+        assert "example-private-browser-value" not in result
+
+    @parameterized.expand(
+        [
+            ("mapping", True, {"inputs": {"token": {"value": "example-private-browser-value"}}}),
+            ("mapping_default", True, {"inputs": {}, "default": "example-private-browser-value"}),
+            ("mapping_null_input", True, {"inputs": {"token": None}, "default": "example-private-browser-value"}),
+            ("legacy_plaintext_inputs", False, {"inputs": {"token": {"value": "example-private-browser-value"}}}),
+        ]
+    )
+    def test_site_functions_are_not_published_while_a_secret_sits_in_plaintext(
+        self, _name: str, in_mapping: bool, stored: dict
+    ) -> None:
+        schema = {"key": "token", "type": "string", "secret": True}
+        if "default" in stored:
+            schema["default"] = stored["default"]
+        config = {"inputs_schema": [schema], "inputs": stored["inputs"]}
+        unsafe = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            hog=SITE_HOG,
+            **({"mappings": [config]} if in_mapping else config),
+        )
+        if not in_mapping:
+            # A row saved before secret inputs were encrypted keeps the value in `inputs`, which
+            # `save()` would otherwise move out of the way.
+            HogFunction.objects.filter(id=unsafe.id).update(inputs=config["inputs"], encrypted_inputs=None)
+            unsafe.refresh_from_db()
+        safe = HogFunction.objects.create(team=self.team, type="site_destination", enabled=True, hog=SITE_HOG)
+
+        with patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(unsafe.id) not in result
+        assert str(safe.id) in result
+        assert "example-private-browser-value" not in result
+
+    @parameterized.expand(
+        [
+            (
+                "disabled_mapping",
+                {
+                    "disabled": True,
+                    "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+                    "inputs": {"token": {"value": "example-private-browser-value"}},
+                },
+            ),
+            (
+                "null_input_with_a_non_secret_last_schema",
+                {
+                    "inputs_schema": [
+                        {"key": "token", "type": "string", "secret": True, "default": "example-private-browser-value"},
+                        {"key": "label", "type": "string", "default": "shown"},
+                    ],
+                    "inputs": {"token": {"value": None}, "label": None},
+                },
+            ),
+            (
+                "null_input_after_a_mapping_with_a_secret_default",
+                {
+                    "inputs_schema": [
+                        {"key": "token", "type": "string", "secret": True, "default": "example-private-browser-value"}
+                    ],
+                    "inputs": {"token": {"value": None}},
+                },
+                {"inputs_schema": [], "inputs": {"label": None}},
+            ),
+        ]
+    )
+    def test_site_functions_publish_when_no_secret_reaches_the_browser(self, _name: str, *mappings: dict) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            hog=SITE_HOG,
+            mappings=list(mappings),
+        )
+
+        with patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(function.id) in result
+        assert "example-private-browser-value" not in result
 
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
@@ -687,10 +926,6 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
 
     def test_hypercache_uses_dedicated_cache_when_alias_registered(self):
-        from django.core.cache import caches
-
-        from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
-
         # When cache_alias is set, HyperCache.__init__ calls get_cache_writer_url which
         # reads CACHES[alias]["LOCATION"]. Provide a stub URL to satisfy that lookup;
         # the in-memory backend ignores it.
@@ -743,6 +978,76 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                 },
                 timeout=10,
             )
+
+
+class TestRemoteConfigTokenChange(_RemoteConfigBase):
+    def setUp(self):
+        super().setUp()
+        self.hypercache = RemoteConfig.get_hypercache()
+        self.old_token = self.team.api_token
+        self.team.api_token = "phc_new_token"
+        self.team.save()
+        self.hypercache.clear_cache("phc_new_token")
+
+    def test_token_change_writes_the_new_token_to_every_tier(self):
+        with patch("posthog.storage.object_storage.write") as mock_s3_write:
+            self.remote_config.sync_after_token_change(self.old_token)
+
+        assert self.hypercache.get_from_cache_with_source("phc_new_token")[1] == "redis"
+        written_keys = [call.args[0] for call in mock_s3_write.call_args_list]
+        assert self.hypercache.get_cache_key("phc_new_token") in written_keys
+
+    def test_token_change_drops_the_old_token_entry(self):
+        self.hypercache.set_cache_value_redis_only(self.old_token, self.remote_config.config)
+
+        with patch("posthog.storage.object_storage.delete") as mock_s3_delete:
+            self.remote_config.sync_after_token_change(self.old_token)
+
+        assert self.hypercache.get_from_cache_with_source(self.old_token)[1] != "redis"
+        mock_s3_delete.assert_called_once_with(self.hypercache.get_cache_key(self.old_token))
+
+    @patch("posthog.models.remote_config.requests.post")
+    def test_token_change_purges_both_tokens_from_the_cdn(self, mock_post):
+        with self.settings(
+            REMOTE_CONFIG_CDN_PURGE_ENDPOINT="https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
+            REMOTE_CONFIG_CDN_PURGE_TOKEN="MY_TOKEN",
+            REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.posthog.com"],
+        ):
+            self.remote_config.sync_after_token_change(self.old_token)
+
+        purged = [file["url"] for call in mock_post.call_args_list for file in call.kwargs["json"]["files"]]
+        assert f"https://cdn.posthog.com/array/{self.old_token}/config" in purged
+        assert "https://cdn.posthog.com/array/phc_new_token/config" in purged
+
+    @parameterized.expand(
+        [
+            ("old_token_eviction", "posthog.storage.object_storage.delete"),
+            ("new_token_durable_write", "posthog.storage.object_storage.write"),
+        ]
+    )
+    def test_token_change_raises_when_a_tier_fails(self, _name, failing_call):
+        with patch(failing_call, side_effect=Exception("object storage unavailable")):
+            with pytest.raises(RemoteConfigTokenChangeSyncError):
+                self.remote_config.sync_after_token_change(self.old_token)
+
+        assert self.hypercache.get_from_cache_with_source("phc_new_token")[1] == "redis"
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "token-change-shared-cache",
+            },
+            FLAGS_DEDICATED_CACHE_ALIAS: {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "token-change-flags-cache",
+            },
+        }
+    )
+    def test_token_change_raises_when_the_shared_redis_delete_fails(self):
+        with patch.object(caches["default"], "delete", side_effect=ConnectionError("shared redis down")):
+            with pytest.raises(RemoteConfigTokenChangeSyncError):
+                self.remote_config.sync_after_token_change(self.old_token)
 
 
 class TestRemoteConfigRaceCondition(_RemoteConfigBase):

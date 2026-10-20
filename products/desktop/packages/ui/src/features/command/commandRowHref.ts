@@ -10,6 +10,10 @@ export function channelHref(channelId: string): string {
   return `/spaces/${channelId}`;
 }
 
+export function canvasHref(channelId: string, canvasId: string): string {
+  return `/spaces/${channelId}/dashboards/${canvasId}`;
+}
+
 function canvasId(result: TaskSearchResult): string | undefined {
   const value = result.metadata.canvas_id;
   return typeof value === "string" && value ? value : undefined;
@@ -18,7 +22,7 @@ function canvasId(result: TaskSearchResult): string | undefined {
 /** Where a search match lives, or nothing when the row has no route of its own. */
 export function searchResultHref(
   result: TaskSearchResult,
-  { task, bluebirdEnabled }: { task?: Task; bluebirdEnabled: boolean },
+  { task }: { task?: Task },
 ): string | undefined {
   const channelId = result.channel_id ?? undefined;
   if (result.kind === "channel") {
@@ -28,12 +32,12 @@ export function searchResultHref(
     const canvas = canvasId(result);
     if (!canvas) return undefined;
     return channelId
-      ? `/spaces/${channelId}/dashboards/${canvas}`
+      ? canvasHref(channelId, canvas)
       : `/canvases?canvas=${canvas}`;
   }
-  if (task) return taskHref(task, bluebirdEnabled ? channelId : undefined);
+  if (task) return taskHref(task, channelId);
   if (!result.task_id) return undefined;
-  return bluebirdEnabled && channelId
+  return channelId
     ? `/spaces/${channelId}/tasks/${result.task_id}`
     : `/tasks/${result.task_id}`;
 }

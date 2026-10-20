@@ -1,8 +1,5 @@
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -24,10 +21,6 @@ describe('ScoutSuggestionsStrip', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI], {
-            [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]: true,
-        })
     }
 
     // The strip opens collapsed, so a press from the collapsed line is the common path for Refresh,

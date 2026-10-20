@@ -1,6 +1,8 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -9,6 +11,31 @@ import { organizationLogic } from './organizationLogic'
 import { projectLogic } from './projectLogic'
 
 describe('projectLogic', () => {
+    it('captures project setting changes without event usage logic', async () => {
+        useMocks({
+            patch: {
+                '/api/projects/:id': () => [200, { ...MOCK_DEFAULT_PROJECT, name: 'New project name' }],
+            },
+        })
+        initKeaTests()
+        const logic = projectLogic()
+        logic.mount()
+        logic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        try {
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentProject({ name: 'New project name' })
+            }).toDispatchActions(['updateCurrentProjectSuccess'])
+
+            expect(capture).toHaveBeenCalledWith('name project setting updated', {
+                setting: 'name',
+                value: 'New project name',
+            })
+        } finally {
+            capture.mockRestore()
+        }
+    })
+
     it('cancels project deletion in the current organization when the project has no organization_id', async () => {
         const requestedOrganizationIds: string[] = []
         useMocks({
@@ -35,5 +62,20 @@ describe('projectLogic', () => {
         }).toDispatchActions(['cancelProjectDeletionSuccess'])
 
         expect(requestedOrganizationIds).toEqual([MOCK_ORGANIZATION_ID])
+    })
+
+    it.each([
+        ['/project/997/insights', false],
+        ['/project/997/my-tickets', true],
+    ])('on a project pending deletion, %s stays open: %s', async (path, staysOpen) => {
+        initKeaTests()
+        router.actions.push(path)
+        const logic = projectLogic()
+        logic.mount()
+
+        logic.actions.loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname === path).toBe(staysOpen)
     })
 })

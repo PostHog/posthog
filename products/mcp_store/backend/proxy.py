@@ -592,16 +592,16 @@ def proxy_mcp_request(
         **auth_headers,
     }
 
-    # Forward the full `x-posthog-*` namespace so the upstream server can
-    # identify the consumer, mode, and version that the caller declared, plus
-    # any custom PostHog-namespace headers the caller wants to pass through.
-    # Without this, the PostHog MCP cannot resolve single-exec mode for
-    # posthog-code-installed PostHog MCPs (the consumer header never reaches
-    # the resolver) and the `exec` tool comes back as "Tool exec not found".
-    # Non-PostHog upstreams ignore unknown headers in that namespace.
     for header_name in request.headers:
-        if header_name.lower().startswith("x-posthog-"):
+        if header_name.lower().startswith("x-posthog-") and header_name.lower() not in {
+            "x-posthog-mcp-mode",
+            "x-posthog-mcp-store",
+        }:
             headers[header_name] = request.headers[header_name]
+
+    # Store policy must see leaf tools, and shared credentials must not expand nested connectors.
+    headers["x-posthog-mcp-mode"] = "tools"
+    headers["x-posthog-mcp-store"] = "true"
 
     mcp_session_id = request.headers.get("mcp-session-id")
     if mcp_session_id:

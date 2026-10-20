@@ -3,20 +3,15 @@ import { CompareLabelType, EntityTypes } from '~/types'
 
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-import { handleTrendsChartClick, type TrendsChartClickDeps } from './handleTrendsChartClick'
+import { canHandleTrendsChartClick, handleTrendsChartClick, type TrendsChartClickDeps } from './handleTrendsChartClick'
 
 function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
     return {
         id: 0,
         seriesIndex: 0,
         colorIndex: 0,
-        action: {
-            id: '$pageview',
-            type: EntityTypes.EVENTS,
-            order: 0,
-            name: '$pageview',
-            days: ['2024-06-10', '2024-06-11', '2024-06-12'],
-        },
+        action: { id: '$pageview', type: EntityTypes.EVENTS, order: 0, name: '$pageview' },
+        order: 0,
         label: '$pageview',
         count: 10,
         aggregated_value: 10,
@@ -195,28 +190,26 @@ describe('handleTrendsChartClick', () => {
         expect(onDataPointClick).not.toHaveBeenCalled()
     })
 
-    it('uses trendResult.days[index] as fallback when action.days is missing', () => {
+    it('sends a previous-period click with the current-period day, which the actors query shifts back', () => {
         const openPersonsModal = jest.fn()
-        const trendResult = makeTrendResult({
-            // ActionFilter without a `days` array — the adapter should fall
-            // back to reading from the top-level trend result `days`.
-            action: { id: '$pageview', type: EntityTypes.EVENTS, order: 0, name: '$pageview' },
-            days: ['D0', 'D1', 'D2'],
+        const current = makeTrendResult({ compare: true, compare_label: CompareLabelType.Current })
+        const previous = makeTrendResult({
+            id: 1,
+            compare: true,
+            compare_label: CompareLabelType.Previous,
+            days: ['2024-06-03', '2024-06-04', '2024-06-05'],
         })
-        const deps = makeDeps({ openPersonsModal, indexedResults: [trendResult] })
+        const deps = makeDeps({ openPersonsModal, indexedResults: [current, previous] })
 
-        handleTrendsChartClick(keyFor(trendResult), 2, deps)
+        handleTrendsChartClick(keyFor(previous), 1, deps)
 
-        expect(openPersonsModal.mock.calls[0][0].query).toMatchObject({ day: 'D2' })
+        expect(openPersonsModal.mock.calls[0][0].query).toMatchObject({ day: '2024-06-11', compare: 'previous' })
     })
 
-    it('no-ops when neither action.days nor trendResult.days can supply a day', () => {
+    it('no-ops when the clicked row has no day at that index', () => {
         const openPersonsModal = jest.fn()
         const onDataPointClick = jest.fn()
-        const trendResult = makeTrendResult({
-            action: { id: '$pageview', type: EntityTypes.EVENTS, order: 0, name: '$pageview' },
-            days: [],
-        })
+        const trendResult = makeTrendResult({ days: [] })
         const deps = makeDeps({
             openPersonsModal,
             indexedResults: [trendResult],
@@ -237,5 +230,24 @@ describe('handleTrendsChartClick', () => {
         handleTrendsChartClick(keyFor(trendResult), 1, deps)
 
         expect(openPersonsModal).not.toHaveBeenCalled()
+    })
+
+    // The charts gate their tooltip click hint on this, so anything it allows the handler above
+    // must act on. A hint that promises a drill-down the handler declines is a dead end.
+    describe('canHandleTrendsChartClick', () => {
+        const querySource = makeDeps().querySource
+
+        it.each([
+            ['the persons modal has a query source', { hasPersonsModal: true, querySource }, true],
+            ['the persons modal has no query source', { hasPersonsModal: true, querySource: null }, false],
+            ['there is no persons modal', { hasPersonsModal: false, querySource }, false],
+            [
+                'a context callback handles the click instead',
+                { context: { onDataPointClick: jest.fn() }, hasPersonsModal: false, querySource: null },
+                true,
+            ],
+        ])('when %s', (_desc, input, expected) => {
+            expect(canHandleTrendsChartClick(input)).toBe(expected)
+        })
     })
 })

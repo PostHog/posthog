@@ -14,7 +14,7 @@ from products.signals.backend.ranking.features import FeatureSet, feature_set_by
 
 def model_feature_set(metadata: Mapping[str, Any]) -> FeatureSet | None:
     """The feature set the model declares, or None when this build cannot produce it. Metadata
-    written before the field existed declares nothing and reads as the tabular set."""
+    that declares no set is left unscored."""
     return feature_set_by_name(metadata.get("feature_set"))
 
 
@@ -22,7 +22,7 @@ def model_mismatch(metadata: Mapping[str, Any]) -> str | None:
     """Why the model cannot be scored, or None when it can.
 
     A model is checked against its own declared set rather than one global contract, so a family
-    on a richer set is not rejected for disagreeing with the tabular one.
+    on one set is not rejected for disagreeing with another set.
     """
     feature_set = model_feature_set(metadata)
     if feature_set is None:
@@ -51,8 +51,28 @@ def readable_head_names(metadata: Mapping[str, Any]) -> frozenset[str]:
     return frozenset(entry["head"] for entry in metadata.get("heads", []) if entry.get("readable"))
 
 
+def classification_thresholds(metadata: Mapping[str, Any]) -> dict[str, float]:
+    """The saved refit threshold per head. A model saved before thresholds existed has none, and its
+    grades then report null classification fields rather than a threshold read from the graded rows."""
+    return {
+        entry["head"]: float(entry["refit_classification_threshold"])
+        for entry in metadata.get("heads", [])
+        if entry.get("refit_classification_threshold") is not None
+    }
+
+
+def head_lifts(scores: Mapping[str, float], metadata: Mapping[str, Any]) -> dict[str, float]:
+    """Each head's probability over its base rate, the saved refit threshold. A head without a
+    positive saved threshold has no lift, and no other value may stand in for it."""
+    thresholds = classification_thresholds(metadata)
+    return {
+        head: probability / thresholds[head] for head, probability in scores.items() if thresholds.get(head, 0.0) > 0.0
+    }
+
+
 def trained_head_files(metadata: Mapping[str, Any], known_heads: Collection[str]) -> dict[str, str]:
-    """The `<head>.ubj` object name per head the candidate fit, of the heads in `known_heads`.
+    """The model file per head the candidate fit, of the heads in `known_heads`: `<head>.ubj` for a
+    per-head booster, and the one shared `model.onnx` for every head of an ONNX model.
 
     Every trained head is scored, readable or not. A rare head never clears `min_holdout_positives`
     on one day's holdout, and the pooled newborn grade over many days is the only read that can

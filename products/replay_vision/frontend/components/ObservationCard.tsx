@@ -1,31 +1,21 @@
-import { useState } from 'react'
-
-import { IconChevronRight, IconCopy, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconCopy, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
     type ClassifierScannerConfig,
     type ScorerScannerConfig,
-    SUCCEEDED_OUTPUT_LABEL,
     configFromSnapshot,
     failureKindDescription,
     ineligibleKindDescription,
     parseFailureReason,
     parseIneligibleReason,
 } from '../replay_scanners/types'
-import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
-import { VERDICT_LABEL, readReasoning, scannerLabel } from '../utils/observation'
-import { CitedMarkdown } from './CitedMarkdown'
+import { VERDICT_LABEL, confidenceLevel, isSummaryScannerType, readReasoning } from '../utils/observation'
 import { LabeledRow } from './LabeledRow'
-import { ObservationProgressBar } from './ObservationProgressBar'
-import { ObservationRetryButton } from './ObservationRetryButton'
-import { ScannerTypeBadge } from './ScannerTypeBadge'
 import { TimestampCitation } from './TimestampCitation'
 
 export function ObservationStatusTag({
@@ -183,7 +173,7 @@ export function ObservationPrimaryOutput({
         )
     }
 
-    if (scannerType === 'summarizer') {
+    if (isSummaryScannerType(scannerType)) {
         const title = typeof result.title === 'string' ? result.title : null
         const summary = typeof result.summary === 'string' ? result.summary : null
         const showCopy = copyable && summary !== null
@@ -331,63 +321,16 @@ export function ObservationPrimaryOutput({
 
 // A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
 // peek line so the verdict and reasoning stay above the fold, but keep it in view so the verdict has context.
-function PromptRow({ prompt }: { prompt: string }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-    return (
-        <div>
-            <button
-                type="button"
-                className="flex items-center gap-0.5 text-xs text-muted mb-0.5 hover:text-default"
-                onClick={() => setExpanded(!expanded)}
-                aria-expanded={expanded}
-                data-attr="vision-observation-prompt-toggle"
-            >
-                <IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
-                Prompt
-            </button>
-            <p
-                className={cn(
-                    'text-sm m-0 leading-snug',
-                    expanded ? 'text-default whitespace-pre-wrap' : 'text-muted line-clamp-1'
-                )}
-            >
-                {prompt}
-            </p>
-        </div>
-    )
-}
-
-export function ObservationConfidence({
-    result,
-    standalone = false,
-}: {
-    result: Record<string, unknown>
-    /** For surfaces with no "Confidence" label of their own: the tag names the metric and the percentage is dropped. */
-    standalone?: boolean
-}): JSX.Element | null {
+/** Names the metric in the tag, for surfaces with no "Confidence" label of their own. */
+export function ObservationConfidence({ result }: { result: Record<string, unknown> }): JSX.Element | null {
     if (typeof result.confidence !== 'number') {
         return null
     }
-    const value = result.confidence
-    const pct = Math.round(value * 100)
-    const { type, label } =
-        value >= 0.8
-            ? ({ type: 'success', label: 'High' } as const)
-            : value >= 0.5
-              ? ({ type: 'warning', label: 'Medium' } as const)
-              : ({ type: 'danger', label: 'Low' } as const)
-    if (standalone) {
-        return (
-            <Tooltip title={`Confidence: ${pct}%`}>
-                <LemonTag type={type}>{`${label} confidence`}</LemonTag>
-            </Tooltip>
-        )
-    }
+    const { type, label } = confidenceLevel(result.confidence)
     return (
-        <div className="flex items-center gap-2">
-            <LemonTag type={type}>{label}</LemonTag>
-            <span className="text-sm tabular-nums text-muted">{pct}%</span>
-        </div>
+        <Tooltip title={`Confidence: ${Math.round(result.confidence * 100)}%`}>
+            <LemonTag type={type}>{`${label} confidence`}</LemonTag>
+        </Tooltip>
     )
 }
 
@@ -434,120 +377,6 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
                 <LabeledRow label="Details">
                     <p className="text-sm text-default m-0 leading-snug">{parsed.message}</p>
                 </LabeledRow>
-            )}
-        </div>
-    )
-}
-
-export function ObservationDockCard({
-    observation,
-    onSeek,
-    onRetry,
-    retrying = false,
-}: {
-    observation: ReplayObservationApi
-    onSeek?: (timestampMs: number) => void
-    onRetry?: () => void
-    retrying?: boolean
-}): JSX.Element {
-    const snapshot = observation.scanner_snapshot
-    const scannerType = snapshot?.scanner_type
-    const result = readResult(observation)
-    // The prompt is the question the scan judged, so it gives the verdict its meaning. Show it inline here so a
-    // reader does not have to open the details page to know what "Yes" answered.
-    const prompt = snapshot ? (configFromSnapshot(snapshot)?.prompt ?? null) : null
-    const similarUrl = observation.status === 'succeeded' ? similarSearchUrl(observation) : null
-    // Summarizers excluded: their primary output already is the full text
-    const reasoning =
-        observation.status === 'succeeded' && scannerType !== 'summarizer' ? readReasoning(observation) : null
-
-    return (
-        <div className="border rounded p-3 bg-surface-primary space-y-2">
-            <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                    {observation.status !== 'succeeded' && (
-                        <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
-                    )}
-                    <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
-                    {scannerType && (
-                        <span className="shrink-0">
-                            <ScannerTypeBadge scannerType={scannerType} size="small" />
-                        </span>
-                    )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                    {observation.status === 'succeeded' && result && (
-                        <ObservationConfidence result={result} standalone />
-                    )}
-                    <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
-                        View details
-                    </Link>
-                    {similarUrl && (
-                        <Link
-                            to={similarUrl}
-                            onClick={() => markSimilarSearchIntent(observation)}
-                            className="text-xs whitespace-nowrap"
-                            data-attr="vision-dock-find-similar"
-                        >
-                            Find similar
-                        </Link>
-                    )}
-                </div>
-            </div>
-
-            {observation.status === 'failed' && observation.error_reason && (
-                <div className="space-y-2">
-                    <FailureDetail errorReason={observation.error_reason} />
-                    {onRetry && (
-                        <ObservationRetryButton
-                            status={observation.status}
-                            errorReason={observation.error_reason}
-                            onRetry={onRetry}
-                            loading={retrying}
-                            dataAttr="vision-dock-retry-observation"
-                        />
-                    )}
-                </div>
-            )}
-
-            {observation.status === 'ineligible' && observation.error_reason && (
-                <div className="space-y-2">
-                    <IneligibleDetail errorReason={observation.error_reason} />
-                    {onRetry && (
-                        <ObservationRetryButton
-                            status={observation.status}
-                            errorReason={observation.error_reason}
-                            onRetry={onRetry}
-                            loading={retrying}
-                            dataAttr="vision-dock-retry-observation"
-                        />
-                    )}
-                </div>
-            )}
-
-            {observation.status === 'succeeded' && snapshot && result && (
-                <>
-                    <LabeledRow label={scannerType ? SUCCEEDED_OUTPUT_LABEL[scannerType] : 'Result'}>
-                        <ObservationPrimaryOutput
-                            observation={observation}
-                            compact
-                            showPrompt={false}
-                            onSeek={onSeek}
-                            expandSummary
-                            copyable
-                        />
-                    </LabeledRow>
-                    {prompt && scannerType !== 'summarizer' && <PromptRow prompt={prompt} />}
-                    {reasoning && (
-                        <LabeledRow label="Model reasoning">
-                            <CitedMarkdown text={reasoning} segments={result.reasoning_segments} onSeek={onSeek} />
-                        </LabeledRow>
-                    )}
-                </>
-            )}
-
-            {(observation.status === 'pending' || observation.status === 'running') && (
-                <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
             )}
         </div>
     )

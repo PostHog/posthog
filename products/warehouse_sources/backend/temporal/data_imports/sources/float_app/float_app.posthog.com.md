@@ -15,10 +15,10 @@ import AlphaRelease from "../\_snippets/alpha-release.mdx"
 <AlphaRelease />
 
 [Float](https://www.float.com/) is a resource-management and team-scheduling platform for capacity
-planning. This source syncs your people, accounts, clients, departments, projects, phases,
-allocations, milestones, logged time, time off, holidays, rate cards, and currencies into the
-PostHog data warehouse so you can join scheduling and capacity data with your product and revenue
-data.
+planning. This source syncs your people, accounts, clients, departments, projects, project stages,
+phases, allocations, milestones, project expenses, logged time, time off, holidays, public holidays,
+rate cards, currencies, and Float's per-person utilization report into the PostHog data warehouse so
+you can join scheduling and capacity data with your product and revenue data.
 
 ## Prerequisites
 
@@ -43,6 +43,12 @@ Every Float table is **full refresh** only — Float's public API exposes no ser
 modified-since filter on its core resources, so there is no reliable incremental cursor to sync
 against. The Delete Log tables (`deleted_tasks`, `deleted_timeoffs`, `deleted_logged_time`) are
 tombstone logs for reconciling deletions and are **not** selected by default.
+
+`reports_people` is Float's utilization report rather than a plain list endpoint: it takes a date
+range and returns one aggregate row per person. PostHog requests it one calendar month at a time
+over the last 12 months, so the table holds one row per person per month. `public_holidays` covers
+the 3 years before and the year after the current one, because Float otherwise returns the current
+year alone.
 
 ## Configuration
 

@@ -8,30 +8,36 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
+from posthog.hogql.errors import QueryError
+
 from posthog.api.tagged_item import set_tags_on_object
-from posthog.cdp.templates.fixtures import template_slack
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
+from posthog.errors import CHQueryErrorNoCommonType
 from posthog.models import User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS, LLMDetectorUnavailableError
-from products.alerts.backend.facade.contracts import AlertDelivery
+from products.alerts.backend.facade.api import LLMDetectorUnavailableError
+from products.alerts.backend.facade.contracts import INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert import AlertSerializer
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
@@ -57,6 +63,49 @@ class TrendsInsightAPITest(APIBaseTest):
 
 
 class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
+    def test_evaluation_delay_persists_and_patch_rejects_conflicts(self) -> None:
+        insight = self.create_trends_insight(interval="hour")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": insight["id"],
+                "name": "Delayed orders",
+                "subscribed_users": [],
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                "calculation_interval": "hourly",
+                "evaluation_delay_intervals": 2,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        alert_id = response.json()["id"]
+        assert response.json()["evaluation_delay_intervals"] == 2
+        url = f"/api/projects/{self.team.id}/alerts/{alert_id}"
+        scheduled_check = datetime.now(UTC) + timedelta(days=20)
+        AlertConfiguration.objects.filter(id=alert_id).update(state=AlertState.FIRING, next_check_at=scheduled_check)
+        changed = self.client.patch(url, {"name": "Delayed completed orders"}, format="json")
+        assert changed.status_code == status.HTTP_200_OK, changed.content
+        assert changed.json()["evaluation_delay_intervals"] == 2
+        renamed = AlertConfiguration.objects.get(id=alert_id)
+        assert renamed.state == AlertState.FIRING
+        assert renamed.next_check_at == scheduled_check
+        for patch_data in (
+            {"config": {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}},
+            {"insight": self.insight["id"]},
+            {"evaluation_delay_intervals": -1},
+        ):
+            invalid = self.client.patch(url, patch_data, format="json")
+            assert invalid.status_code == status.HTTP_400_BAD_REQUEST, invalid.content
+        assert AlertConfiguration.objects.get(id=alert_id).evaluation_delay_intervals == 2
+        delayed = self.client.patch(url, {"evaluation_delay_intervals": 3}, format="json")
+        assert delayed.status_code == status.HTTP_200_OK, delayed.content
+        saved = AlertConfiguration.objects.get(id=alert_id)
+        assert saved.state == AlertState.NOT_FIRING
+        assert saved.next_check_at is not None
+        assert saved.next_check_at <= datetime.now(UTC)
+
     def setUp(self):
         super().setUp()
         self.default_insight_data: dict[str, Any] = {
@@ -95,6 +144,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "state": "Not firing",
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "detector_config": None,
+            "evaluation_delay_intervals": 0,
             "threshold": {
                 "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
                 "created_at": mock.ANY,
@@ -1445,7 +1495,9 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             )
             assert response.status_code == status.HTTP_200_OK, response.content
             nxt = response.json()["next_check_at"]
-            assert datetime.fromisoformat(nxt.replace("Z", "+00:00")) == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC)
+            assert datetime.fromisoformat(nxt.replace("Z", "+00:00")) == datetime(
+                2026, 4, 6, 16, 0, 0, tzinfo=UTC
+            ) + alert_check_offset(CalendarInterval.HOURLY, alert["id"])
 
     def test_patch_schedule_restriction_empty_normalizes_to_null(self) -> None:
         creation_request = {
@@ -1773,6 +1825,28 @@ class TestAlertSimulate(TrendsInsightAPITest):
         assert "needs at least" in response.json()["detail"]
         assert not AlertCheck.objects.filter(alert_configuration__insight=insight).exists()
 
+    @parameterized.expand(
+        [
+            ("hogql", QueryError("Function 'toStartOfHour' expects 1 argument, found 2"), "toStartOfHour"),
+            ("clickhouse", CHQueryErrorNoCommonType("There is no supertype", code=386), "no supertype"),
+        ]
+    )
+    @mock.patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
+    def test_simulate_sql_query_error_returns_validation_error(self, _name, error, message, mock_calculate) -> None:
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"})
+        mock_calculate.side_effect = error
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": insight.id,
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30},
+                "config": {"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert message in response.json()["detail"]
+
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
     def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:
         mock_simulate.return_value = {
@@ -2064,7 +2138,7 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         cache.clear()
 
 
-class TestAlertEventProperties(APIBaseTest):
+class TestAlertEventProperties(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -2171,6 +2245,7 @@ class TestAlertEventProperties(APIBaseTest):
         expected_detector_fields: dict,
     ) -> None:
         alert = AlertConfiguration(
+            id=None,
             name="test alert",
             condition=condition,
             detector_config=detector_config,
@@ -2223,6 +2298,7 @@ class TestAlertEventProperties(APIBaseTest):
     )
     def test_event_properties_capture_alert_config_adoption(self, _name: str, config: dict, expected: dict) -> None:
         alert = AlertConfiguration(
+            id=None,
             name="test alert",
             condition={"type": "absolute_value"},
             config=config,
@@ -2231,6 +2307,18 @@ class TestAlertEventProperties(APIBaseTest):
         props = alert._get_event_properties()
         for key, value in expected.items():
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
+
+
+class TestPersistedAlertEventProperties(APIBaseTest):
+    def test_event_properties_include_alert_id_and_subscriber_count(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
+        alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="test alert")
+        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+
+        props = alert._get_event_properties()
+
+        assert props["alert_id"] == alert.id
+        assert props["subscribed_users_count"] == 1
 
 
 class TestAlertListFilters(TrendsInsightAPITest):

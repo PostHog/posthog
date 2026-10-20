@@ -4,19 +4,25 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
-import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import api, { ApiMethodOptions, getJSONOrNull, isAbortError } from 'lib/api'
+import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
+import posthog from 'lib/posthog-typed'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
 import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { parseErrorMessage, pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
+import { isExpiredQueryStatusError, parseErrorMessage, pollForResults } from '~/queries/query'
+import {
+    DashboardFilter,
+    HogQLVariable,
+    MetricsDashboardVariable,
+    QueryStatus,
+    TileFilters,
+} from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -33,6 +39,12 @@ import {
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
 
+// The backend labels every transient capacity failure with this code, whatever its message: PostHog's
+// own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
+const RATE_LIMITED_ERROR_CODE = 'rate_limited'
+const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+const RATE_LIMIT_USER_MESSAGE = 'Too many queries are running right now.'
+
 export function getInsightQueryError(insight: InsightModel): ApiError | null {
     const queryStatus = insight.query_status
     if (!queryStatus?.error) {
@@ -40,14 +52,20 @@ export function getInsightQueryError(insight: InsightModel): ApiError | null {
     }
 
     const parsedError = parseErrorMessage(queryStatus.error_message ?? undefined)
-    return new ApiError(undefined, 400, undefined, {
-        detail: parsedError.message,
-        code: queryStatus.error_code ?? parsedError.code,
+    const code = queryStatus.error_code ?? parsedError.code
+    // A tile failure arrives without the HTTP status the query originally failed with, so the
+    // status is rebuilt from the code. Out of memory must stay 513: as a 400 the tile tells the
+    // user their query definition is broken, which sends them to fix a query that was never wrong.
+    // A capacity rejection must stay 429 for the same reason: the query is fine, PostHog is busy.
+    const status = code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE ? 513 : code === RATE_LIMITED_ERROR_CODE ? 429 : 400
+    return new ApiError(undefined, status, undefined, {
+        detail: parsedError.message === RATE_LIMIT_ERROR_MESSAGE ? RATE_LIMIT_USER_MESSAGE : parsedError.message,
+        code,
         queryId: queryStatus.id,
     })
 }
 
-/** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
+/** Shape used for project template creation and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
     dashboard: DashboardType | null | undefined
 ): DashboardTemplateEditorType | undefined {
@@ -66,6 +84,7 @@ export function dashboardToSaveableTemplate(
                     return {
                         type: 'TEXT' as const,
                         body: tile.text.body,
+                        agent_context: tile.text.agent_context,
                         layouts: tile.layouts,
                         color: tile.color,
                         transparent_background: tile.transparent_background,
@@ -109,6 +128,25 @@ export function dashboardToSaveableTemplate(
                 throw new Error('Unknown tile type')
             }),
         variables: [],
+    }
+}
+
+export function dashboardTemplateForExport(
+    template: DashboardTemplateEditorType | undefined
+): DashboardTemplateEditorType | null {
+    if (!template) {
+        return null
+    }
+    return {
+        ...template,
+        tiles: template.tiles.map((tile) => {
+            if (tile.type !== 'TEXT') {
+                return tile
+            }
+            const exportedTile = { ...tile }
+            delete exportedTile.agent_context
+            return exportedTile
+        }),
     }
 }
 
@@ -178,9 +216,7 @@ export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
-export const AUTO_PREVIEW_TILE_LIMIT: number = 22
-
-const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+export const AUTO_PREVIEW_TILE_LIMIT: number = 35
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
 // insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
@@ -276,6 +312,28 @@ export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record
 }
 
 /**
+ * Records whether a tile rerun after an expired status poll recovers, because the 404 alone does not show it.
+ * The insights endpoint bypasses performQuery, so its query submission telemetry never sees this rerun.
+ */
+async function captureTileRerunAfterStatusExpired(
+    rerun: () => Promise<InsightModel | null>
+): Promise<InsightModel | null> {
+    try {
+        const result = await rerun()
+        posthog.capture('query rerun after status expired', {
+            source: 'dashboard_tile',
+            recovered: result?.result != null && !result.query_status?.error,
+        })
+        return result
+    } catch (e) {
+        if (!isAbortError(e)) {
+            posthog.capture('query rerun after status expired', { source: 'dashboard_tile', recovered: false })
+        }
+        throw e
+    }
+}
+
+/**
  * Fetches an insight with a retry and polling mechanism.
  * It first attempts to fetch the insight synchronously. If rate-limited, it retries with exponential backoff.
  * After multiple failed attempts, it switches to asynchronous polling to fetch the result.
@@ -304,6 +362,17 @@ export async function getInsightWithRetry(
     }
 
     let attempt = 0
+    let rateLimitedAttempts = 0
+
+    const captureRecovery = (result: InsightModel | null): void => {
+        if (rateLimitedAttempts > 0 && result?.result != null && !result.query_status?.error) {
+            posthog.capture('dashboard tile recovered from capacity error', {
+                insight_short_id: insight.short_id,
+                dashboard_id: dashboardId,
+                attempts: rateLimitedAttempts,
+            })
+        }
+    }
 
     while (attempt < maxAttempts) {
         try {
@@ -318,30 +387,29 @@ export async function getInsightWithRetry(
             })}`
             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-            const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-            const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
+            const result: InsightModel | null = await getJSONOrNull(insightResponse)
 
-            if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
+            if (
+                result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
+                result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
+            ) {
                 attempt++
+                rateLimitedAttempts++
 
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
                     try {
-                        const asyncApiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
-                            refresh: 'force_async',
-                            from_dashboard: dashboardId,
-                            client_query_id: queryId,
-                            session_id: currentSessionId(),
-                            ...(filtersOverride ? { filters_override: filtersOverride } : {}),
-                            ...(variablesOverride ? { variables_override: variablesOverride } : {}),
-                            ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
-                        })}`
-                        // The async call returns an insight with a query_status object
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                        const insightResponse = await api.get(asyncApiUrl, methodOptions)
-
-                        if (insightResponse?.query_status?.id) {
-                            const finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                        const asyncApiUrl = (asyncRefresh: 'force_async' | 'async'): string =>
+                            `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
+                                refresh: asyncRefresh,
+                                from_dashboard: dashboardId,
+                                client_query_id: queryId,
+                                session_id: currentSessionId(),
+                                ...(filtersOverride ? { filters_override: filtersOverride } : {}),
+                                ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                                ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
+                            })}`
+                        const readCachedInsight = async (finalStatus: QueryStatus): Promise<InsightModel | null> => {
                             if (finalStatus.complete && !finalStatus.error) {
                                 const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                     refresh: 'force_cache',
@@ -357,11 +425,64 @@ export async function getInsightWithRetry(
                                     cacheUrl,
                                     methodOptions
                                 )
-                                const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
-                                if (legacyInsight) {
-                                    const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
-                                    return { ...queryBasedInsight, query_status: finalStatus }
+                                const refreshedInsight: InsightModel | null =
+                                    await getJSONOrNull(refreshedInsightResponse)
+                                if (refreshedInsight) {
+                                    return {
+                                        ...refreshedInsight,
+                                        query_status: refreshedInsight.query_status?.error
+                                            ? refreshedInsight.query_status
+                                            : finalStatus,
+                                    }
                                 }
+                            }
+                            return null
+                        }
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                        const insightResponse = await api.get(asyncApiUrl('force_async'), methodOptions)
+
+                        if (insightResponse?.query_status?.id) {
+                            let finalStatus: QueryStatus
+                            try {
+                                finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                            } catch (e) {
+                                // pollForResults pauses in a hidden tab, so the status can expire before the next poll.
+                                // The insights endpoint ignores client_query_id and names the run by its cache key, so
+                                // the rerun in executeQuery never sees this poll. Submit once more with async, which
+                                // reads the result that the finished run cached.
+                                if (!isExpiredQueryStatusError(e)) {
+                                    throw e
+                                }
+                                const rerun = await captureTileRerunAfterStatusExpired(async () => {
+                                    // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
+                                    const rerunResponse = await api.get(asyncApiUrl('async'), methodOptions)
+                                    if (rerunResponse?.result != null && !rerunResponse.query_status?.error) {
+                                        return rerunResponse
+                                    }
+                                    if (
+                                        rerunResponse?.result == null &&
+                                        rerunResponse?.query_status?.id &&
+                                        !rerunResponse.query_status.complete
+                                    ) {
+                                        return await readCachedInsight(
+                                            await pollForResults(rerunResponse.query_status.id, methodOptions)
+                                        )
+                                    }
+                                    if (rerunResponse?.result == null) {
+                                        throw new Error('The rerun returned no result')
+                                    }
+                                    return rerunResponse
+                                })
+                                if (!rerun) {
+                                    throw new Error('The rerun returned no result')
+                                }
+                                captureRecovery(rerun)
+                                return rerun
+                            }
+                            const cachedInsight = await readCachedInsight(finalStatus)
+                            if (cachedInsight) {
+                                captureRecovery(cachedInsight)
+                                return cachedInsight
                             }
                         }
 
@@ -392,6 +513,7 @@ export async function getInsightWithRetry(
                 continue // Retry
             }
 
+            captureRecovery(result)
             return result
         } catch (e: any) {
             if (shouldCancelQuery(e)) {
@@ -498,17 +620,73 @@ export const dashboardSearchParamsFromOverrides = (
  * An empty override must stay in the URL when it clears a saved dashboard filter. Without that explicit
  * value, a reload restores the saved filter. Empty overrides on unfiltered dashboards can be removed.
  */
+function withoutCurrent(variable: Partial<MetricsDashboardVariable>): Partial<MetricsDashboardVariable> {
+    const { current: _, ...definition } = variable
+    return definition
+}
+
+/** A saved metric variable goes into requests as its name and selection, and the server puts the saved definition back.
+ * A definition that is not saved yet goes in full, because the server does not know it. */
+export function withCompactMetricVariables(
+    filters: DashboardFilter,
+    saved: MetricsDashboardVariable[]
+): DashboardFilter {
+    if (!filters.metricVariables) {
+        return filters
+    }
+    return {
+        ...filters,
+        metricVariables: filters.metricVariables.map((variable) => {
+            const savedVariable = saved.find((other) => other.name === variable.name)
+            return savedVariable && equal(withoutCurrent(savedVariable), withoutCurrent(variable))
+                ? ({ name: variable.name, current: variable.current } as MetricsDashboardVariable)
+                : variable
+        }),
+    }
+}
+
+/** Saved filters with the filters from the URL on top. A metric variable that the URL names gets its saved definition. */
+export function combineSavedAndUrlFilters(saved: DashboardFilter, url: DashboardFilter): DashboardFilter {
+    // Until the dashboard loads, the saved definitions are unknown, so the server resolves the names.
+    if (!url.metricVariables || !saved.metricVariables) {
+        return combineDashboardFilters(saved, url)
+    }
+    const metricVariables = url.metricVariables.flatMap((variable) => {
+        if (variable.source) {
+            return [variable]
+        }
+        const savedVariable = saved.metricVariables?.find((other) => other.name === variable.name)
+        return savedVariable ? [{ ...savedVariable, current: variable.current }] : []
+    })
+    return combineDashboardFilters(saved, { ...url, metricVariables })
+}
+
+/** Analytics captures the page URL, so metric variables go into a URL as their names and selections only. A definition
+ * that is not saved yet stays in the page until the dashboard is saved. */
+function withMetricVariableSelections(filters: DashboardFilter): DashboardFilter {
+    if (!filters.metricVariables) {
+        return filters
+    }
+    return {
+        ...filters,
+        metricVariables: filters.metricVariables.map(
+            (variable) => ({ name: variable.name, current: variable.current }) as MetricsDashboardVariable
+        ),
+    }
+}
+
 export function searchParamsWithUrlFilters(
     searchParams: Record<string, any>,
     filters: DashboardFilter,
     persistedFilters: DashboardFilter = {}
 ): Record<string, any> {
     const nextSearchParams = { ...searchParams }
-    if (!dashboardFilterOverrideChangesFilters(filters, persistedFilters)) {
+    const compact = withMetricVariableSelections(filters)
+    if (!dashboardFilterOverrideChangesFilters(compact, withMetricVariableSelections(persistedFilters))) {
         delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
         return nextSearchParams
     }
-    return { ...nextSearchParams, ...encodeURLFilters(filters) }
+    return { ...nextSearchParams, ...encodeURLFilters(compact) }
 }
 
 export function dashboardFilterOverrideChangesFilters(

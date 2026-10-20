@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.cloud_utils import is_cloud
+from posthog.schema_enums import ProductKey
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,11 +43,66 @@ _PARENT_PROBE_PATHS = {
     "organisation": "/organisations/",
     "project": "/projects/",
     "environment": "/projects/",
+    "identity": "/projects/",
+    "environment_feature": "/projects/",
+    "versioned_environment_feature": "/projects/",
+    "project_feature_environment": "/projects/",
+    "project_segment_environment": "/projects/",
 }
 
 
 @SourceRegistry.register
 class FlagsmithSource(ResumableSource[FlagsmithSourceConfig, FlagsmithResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^FLAGSMITH_", "^NEXT_PUBLIC_FLAGSMITH_ENVIRONMENT_KEY$"),
+        npm=(
+            "flagsmith-nodejs",
+            "flagsmith",
+            "@flagsmith/flagsmith",
+            "react-native-flagsmith",
+            "flagsmith-es",
+            "@flagsmith/nodejs",
+            "@flagsmith/react-native",
+            "@flagsmith/cli",
+            "flagsmith-cli",
+            "@openfeature/flagsmith-provider",
+            "@openfeature/flagsmith-client-provider",
+            "@flags-sdk/flagsmith",
+            "@flagsmith/backstage-plugin",
+            "n8n-nodes-flagsmith",
+            "bullet-train-client",
+            "bullet-train-nodejs",
+            "react-native-bullet-train",
+            "flagsmith-react",
+            "flagsmith-vue",
+        ),
+        pypi=("flagsmith", "flagsmith-flag-engine", "openfeature-provider-flagsmith", "bullet-train"),
+        cargo=("flagsmith", "flagsmith-flag-engine", "open-feature-flagsmith"),
+        cocoapods=("FlagsmithClient", "BulletTrainClient"),
+        composer=("flagsmith/flagsmith-php-client", "clearlyip/laravel-flagsmith"),
+        go=(
+            "github.com/Flagsmith/flagsmith-go-client",
+            "github.com/open-feature/go-sdk-contrib/providers/flagsmith",
+            "github.com/Flagsmith/flagsmith-go-api-client",
+        ),
+        hex=("flagsmith_engine", "flagsmith_elixir_sdk"),
+        maven=(
+            "com.flagsmith:flagsmith-java-client",
+            "com.flagsmith:flagsmith-kotlin-android-client",
+            "com.flagsmith:flagsmith-kotlin-client",
+            "com.flagsmith:flagsmith-openfeature-provider-kotlin",
+            "dev.openfeature.contrib.providers:flagsmith",
+            "com.solidstategroup:bullet-train-client",
+        ),
+        pub=("flagsmith", "flagsmith_flutter_core"),
+        rubygems=("flagsmith", "openfeature-flagsmith-provider"),
+        swiftpm=(
+            "github.com/flagsmith/flagsmith-ios-client",
+            "github.com/flagsmith/flagsmith-openfeature-swift-provider",
+        ),
+        alternative_to=(ProductKey.FEATURE_FLAGS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -65,7 +122,7 @@ class FlagsmithSource(ResumableSource[FlagsmithSourceConfig, FlagsmithResumeConf
             keywords=["feature flags", "remote config"],
             label="Flagsmith",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Flagsmith organisation API key to pull your projects, environments, feature flags, flag states, segments, and audit log into the PostHog Data warehouse.
+            caption="""Enter your Flagsmith organisation API key to pull your projects, environments, feature flags, flag states, segments, identities, and audit log into the PostHog Data warehouse.
 
 Create an organisation API key under **Organisation Settings > API Keys** in your Flagsmith dashboard. Note that organisation API keys grant admin access to every project in the organisation, so store them carefully.
 

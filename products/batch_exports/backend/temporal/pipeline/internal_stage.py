@@ -51,8 +51,8 @@ from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
     BatchExportModel,
-    BatchExportSchema,
     afetch_last_run_records_completed,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
@@ -296,8 +296,6 @@ class BatchExportInsertIntoInternalStageInputs:
     batch_export_model: BatchExportModel | None = None
     is_workflows: bool = False
     on_demand: bool = False
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
     destination_default_fields: list[BatchExportField] | None = None
 
     @property
@@ -313,7 +311,6 @@ class BatchExportInsertIntoInternalStageInputs:
             "run_id": self.run_id,
             "backfill_details": self.backfill_details,
             "batch_export_model": self.batch_export_model,
-            "batch_export_schema": self.batch_export_schema,
             "destination_default_fields": self.destination_default_fields,
         }
 
@@ -372,6 +369,7 @@ async def insert_into_internal_stage_activity(
         logger.info("Computed staging partitions", num_partitions=num_partitions)
 
         try:
+            model = migrate_batch_export_model(inputs.batch_export_model)
             (
                 _,
                 record_batch_model,
@@ -381,8 +379,7 @@ async def insert_into_internal_stage_activity(
                 extra_query_parameters,
             ) = await database_sync_to_async(resolve_batch_exports_model)(
                 inputs.team_id,
-                inputs.batch_export_model,
-                inputs.batch_export_schema,
+                model,
                 inputs.batch_export_id,
                 is_backfill=inputs.backfill_details is not None,
             )
@@ -415,7 +412,7 @@ async def _stage_query_results(
     record_batch_model: RecordBatchModel | None,
     model_name: str,
     fields: list[BatchExportField] | None,
-    filters: list[dict[str, str | list[str] | None]] | None,
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None,
     extra_query_parameters: dict[str, typing.Any] | None,
     full_range: tuple[dt.datetime | None, dt.datetime | None],
     s3_staging_folder: S3StagingFolder,
@@ -539,7 +536,7 @@ async def _get_query(
     data_interval_end: str,
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
-    filters: list[dict[str, str | list[str] | None]] | None = None,
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None = None,
     num_partitions: int | None = None,
     is_workflows: bool = False,
     **parameters,
@@ -642,7 +639,7 @@ async def _get_query(
         filters_str = ""
         if filters is not None and len(filters) > 0:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=team_id, values=extra_query_parameters, native_events_source=native_source
+                filters, team_id=team_id, values=extra_query_parameters
             )
 
         if native_source:
@@ -806,6 +803,9 @@ async def _write_batch_export_record_batches_to_internal_stage(
         else:
             query = query_or_model
             query_settings = {}
+
+        if str(team_id) in settings.BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS:
+            query_settings["output_format_arrow_compression_method"] = settings.BATCH_EXPORT_ARROW_COMPRESSION_METHOD
 
         base_s3_staging_folder = get_base_s3_staging_folder(
             batch_export_id=batch_export_id,

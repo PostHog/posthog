@@ -129,6 +129,18 @@ export const AiObservabilityOfflineExperimentsCreateBody = /* @__PURE__ */ zod.o
         .describe('Version of the prompt under evaluation.'),
 })
 
+export const aiObservabilityOfflineExperimentsPartialUpdateBodyTagsItemMax = 255
+
+export const aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax = 100
+
+export const AiObservabilityOfflineExperimentsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsItemMax))
+        .max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
+})
+
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax = 255
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemTrialMax = 255
@@ -416,12 +428,21 @@ export const DatasetItemsRestoreBody = /* @__PURE__ */ zod.object({
 /**
  * Create an empty dataset. Its first revision is created with its first item.
  */
+export const datasetsCreateBodyTagsItemMax = 255
+
+export const datasetsCreateBodyTagsMax = 100
+
 export const datasetsCreateBodyNameMax = 400
 
 export const datasetsCreateBodyDescriptionDefault = ``
 export const datasetsCreateBodyDescriptionMax = 10000
 
 export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(datasetsCreateBodyTagsItemMax))
+        .max(datasetsCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(datasetsCreateBodyNameMax).describe('Dataset name. Names are unique within a project.'),
     description: zod
         .string()
@@ -437,11 +458,20 @@ export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Update descriptive dataset fields without changing its revision.
  */
+export const datasetsPartialUpdateBodyTagsItemMax = 255
+
+export const datasetsPartialUpdateBodyTagsMax = 100
+
 export const datasetsPartialUpdateBodyNameMax = 400
 
 export const datasetsPartialUpdateBodyDescriptionMax = 10000
 
 export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(datasetsPartialUpdateBodyTagsItemMax))
+        .max(datasetsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod
         .string()
         .max(datasetsPartialUpdateBodyNameMax)
@@ -515,20 +545,27 @@ export const evaluationsCreateBodyNameMax = 400
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsCreateBodyOutputConfigStepExclusiveMin = 0
 
+export const evaluationsCreateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsCreateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsCreateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsCreateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsCreateBodyTargetConfigOneWindowSecondsMin = 10
-export const evaluationsCreateBodyTargetConfigOneWindowSecondsMax = 604800
+export const evaluationsCreateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigWindowSecondsMax = 604800
 
-export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
-export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax = 86400
+export const evaluationsCreateBodyTargetConfigQuietPeriodSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigQuietPeriodSecondsMax = 86400
 
-export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin = 60
-export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
+export const evaluationsCreateBodyTargetConfigMaxAgeSecondsMin = 60
+export const evaluationsCreateBodyTargetConfigMaxAgeSecondsMax = 604800
 
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
@@ -557,13 +594,17 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .nullish()
+                        .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
                 }),
                 zod.object({
                     source: zod
                         .string()
                         .min(1)
                         .describe(
-                            'Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                            'Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
                         ),
                 }),
                 zod.object({
@@ -580,10 +621,12 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'numeric', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'categorical', 'sentiment'])
             .describe(
-                "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
+                '\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment'
+            )
+            .describe(
+                "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
@@ -595,32 +638,80 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                        'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
-                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                min: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
+                    ),
+                max: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
+                    ),
                 step: zod
                     .number()
                     .gt(evaluationsCreateBodyOutputConfigStepExclusiveMin)
                     .nullish()
                     .describe('Optional positive input increment. Does not round evaluation results.'),
-                passing_rule: zod
-                    .object({
-                        operator: zod
-                            .enum(['gte', 'lte'])
-                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                        threshold: zod
-                            .number()
-                            .describe('Finite passing threshold within any configured score bounds.'),
-                    })
-                    .nullish()
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsCreateBodyOutputConfigOptionsItemKeyMax)
+                                .regex(evaluationsCreateBodyOutputConfigOptionsItemKeyRegExp)
+                                .describe('Stable category key.'),
+                            label: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsCreateBodyOutputConfigOptionsItemLabelMax)
+                                .describe('Category display label.'),
+                        })
+                    )
+                    .min(1)
+                    .max(evaluationsCreateBodyOutputConfigOptionsMax)
+                    .optional()
                     .describe(
-                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        'Categorical output options. Keys identify stored results; labels are displayed to users.'
+                    ),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .optional()
+                    .describe(
+                        'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.object({
+                            categories: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                     ),
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -659,45 +750,41 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                 "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
             ),
         target_config: zod
-            .union([
-                zod.object({
-                    strategy: zod
-                        .enum(['fixed_window'])
-                        .describe('Wait a fixed window after the first matching generation, then evaluate.'),
-                    window_seconds: zod
-                        .number()
-                        .min(evaluationsCreateBodyTargetConfigOneWindowSecondsMin)
-                        .max(evaluationsCreateBodyTargetConfigOneWindowSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-                zod.object({
-                    strategy: zod
-                        .enum(['inactivity'])
-                        .describe('Evaluate once the unit has had no new activity for the quiet period.'),
-                    quiet_period_seconds: zod
-                        .number()
-                        .min(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin)
-                        .max(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                    max_age_seconds: zod
-                        .number()
-                        .min(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin)
-                        .max(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax)
-                        .optional()
-                        .describe(
-                            "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-            ])
+            .object({
+                strategy: zod
+                    .enum(['fixed_window', 'inactivity'])
+                    .optional()
+                    .describe(
+                        "'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'."
+                    ),
+                window_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigWindowSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigWindowSecondsMax)
+                    .optional()
+                    .describe(
+                        "fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                quiet_period_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigQuietPeriodSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigQuietPeriodSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                max_age_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigMaxAgeSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigMaxAgeSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+            })
             .optional()
             .describe(
-                "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
+                "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`."
             ),
         model_configuration: zod
             .union([
@@ -713,10 +800,11 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                                 'azure_openai',
                                 'together_ai',
                                 'minimax',
-                                'zeabur',
+                                'system_one',
+                                'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -841,20 +929,27 @@ export const evaluationsUpdateBodyNameMax = 400
 export const evaluationsUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsUpdateBodyOutputConfigStepExclusiveMin = 0
 
+export const evaluationsUpdateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsUpdateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsUpdateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsUpdateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsUpdateBodyTargetConfigOneWindowSecondsMin = 10
-export const evaluationsUpdateBodyTargetConfigOneWindowSecondsMax = 604800
+export const evaluationsUpdateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsUpdateBodyTargetConfigWindowSecondsMax = 604800
 
-export const evaluationsUpdateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
-export const evaluationsUpdateBodyTargetConfigTwoQuietPeriodSecondsMax = 86400
+export const evaluationsUpdateBodyTargetConfigQuietPeriodSecondsMin = 10
+export const evaluationsUpdateBodyTargetConfigQuietPeriodSecondsMax = 86400
 
-export const evaluationsUpdateBodyTargetConfigTwoMaxAgeSecondsMin = 60
-export const evaluationsUpdateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
+export const evaluationsUpdateBodyTargetConfigMaxAgeSecondsMin = 60
+export const evaluationsUpdateBodyTargetConfigMaxAgeSecondsMax = 604800
 
 export const evaluationsUpdateBodyModelConfigurationOneModelMax = 100
 
@@ -883,13 +978,17 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .nullish()
+                        .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
                 }),
                 zod.object({
                     source: zod
                         .string()
                         .min(1)
                         .describe(
-                            'Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                            'Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
                         ),
                 }),
                 zod.object({
@@ -906,10 +1005,12 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'numeric', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'categorical', 'sentiment'])
             .describe(
-                "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
+                '\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment'
+            )
+            .describe(
+                "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
@@ -921,32 +1022,80 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                        'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
-                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                min: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
+                    ),
+                max: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
+                    ),
                 step: zod
                     .number()
                     .gt(evaluationsUpdateBodyOutputConfigStepExclusiveMin)
                     .nullish()
                     .describe('Optional positive input increment. Does not round evaluation results.'),
-                passing_rule: zod
-                    .object({
-                        operator: zod
-                            .enum(['gte', 'lte'])
-                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                        threshold: zod
-                            .number()
-                            .describe('Finite passing threshold within any configured score bounds.'),
-                    })
-                    .nullish()
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsUpdateBodyOutputConfigOptionsItemKeyMax)
+                                .regex(evaluationsUpdateBodyOutputConfigOptionsItemKeyRegExp)
+                                .describe('Stable category key.'),
+                            label: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsUpdateBodyOutputConfigOptionsItemLabelMax)
+                                .describe('Category display label.'),
+                        })
+                    )
+                    .min(1)
+                    .max(evaluationsUpdateBodyOutputConfigOptionsMax)
+                    .optional()
                     .describe(
-                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        'Categorical output options. Keys identify stored results; labels are displayed to users.'
+                    ),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .optional()
+                    .describe(
+                        'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.object({
+                            categories: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                     ),
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -985,45 +1134,41 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                 "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
             ),
         target_config: zod
-            .union([
-                zod.object({
-                    strategy: zod
-                        .enum(['fixed_window'])
-                        .describe('Wait a fixed window after the first matching generation, then evaluate.'),
-                    window_seconds: zod
-                        .number()
-                        .min(evaluationsUpdateBodyTargetConfigOneWindowSecondsMin)
-                        .max(evaluationsUpdateBodyTargetConfigOneWindowSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-                zod.object({
-                    strategy: zod
-                        .enum(['inactivity'])
-                        .describe('Evaluate once the unit has had no new activity for the quiet period.'),
-                    quiet_period_seconds: zod
-                        .number()
-                        .min(evaluationsUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
-                        .max(evaluationsUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                    max_age_seconds: zod
-                        .number()
-                        .min(evaluationsUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
-                        .max(evaluationsUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
-                        .optional()
-                        .describe(
-                            "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-            ])
+            .object({
+                strategy: zod
+                    .enum(['fixed_window', 'inactivity'])
+                    .optional()
+                    .describe(
+                        "'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'."
+                    ),
+                window_seconds: zod
+                    .number()
+                    .min(evaluationsUpdateBodyTargetConfigWindowSecondsMin)
+                    .max(evaluationsUpdateBodyTargetConfigWindowSecondsMax)
+                    .optional()
+                    .describe(
+                        "fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                quiet_period_seconds: zod
+                    .number()
+                    .min(evaluationsUpdateBodyTargetConfigQuietPeriodSecondsMin)
+                    .max(evaluationsUpdateBodyTargetConfigQuietPeriodSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                max_age_seconds: zod
+                    .number()
+                    .min(evaluationsUpdateBodyTargetConfigMaxAgeSecondsMin)
+                    .max(evaluationsUpdateBodyTargetConfigMaxAgeSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+            })
             .optional()
             .describe(
-                "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
+                "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`."
             ),
         model_configuration: zod
             .union([
@@ -1039,10 +1184,11 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                                 'azure_openai',
                                 'together_ai',
                                 'minimax',
-                                'zeabur',
+                                'system_one',
+                                'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -1069,20 +1215,27 @@ export const evaluationsPartialUpdateBodyNameMax = 400
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin = 0
 
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsPartialUpdateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin = 10
-export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax = 604800
+export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax = 604800
 
-export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
-export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax = 86400
+export const evaluationsPartialUpdateBodyTargetConfigQuietPeriodSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigQuietPeriodSecondsMax = 86400
 
-export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin = 60
-export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
+export const evaluationsPartialUpdateBodyTargetConfigMaxAgeSecondsMin = 60
+export const evaluationsPartialUpdateBodyTargetConfigMaxAgeSecondsMax = 604800
 
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
@@ -1112,13 +1265,17 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .nullish()
+                        .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
                 }),
                 zod.object({
                     source: zod
                         .string()
                         .min(1)
                         .describe(
-                            'Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                            'Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
                         ),
                 }),
                 zod.object({
@@ -1135,11 +1292,13 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'numeric', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'categorical', 'sentiment'])
+            .describe(
+                '\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment'
+            )
             .optional()
             .describe(
-                "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
+                "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
@@ -1151,32 +1310,80 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                        'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
-                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                min: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
+                    ),
+                max: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
+                    ),
                 step: zod
                     .number()
                     .gt(evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin)
                     .nullish()
                     .describe('Optional positive input increment. Does not round evaluation results.'),
-                passing_rule: zod
-                    .object({
-                        operator: zod
-                            .enum(['gte', 'lte'])
-                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                        threshold: zod
-                            .number()
-                            .describe('Finite passing threshold within any configured score bounds.'),
-                    })
-                    .nullish()
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyMax)
+                                .regex(evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyRegExp)
+                                .describe('Stable category key.'),
+                            label: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsPartialUpdateBodyOutputConfigOptionsItemLabelMax)
+                                .describe('Category display label.'),
+                        })
+                    )
+                    .min(1)
+                    .max(evaluationsPartialUpdateBodyOutputConfigOptionsMax)
+                    .optional()
                     .describe(
-                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        'Categorical output options. Keys identify stored results; labels are displayed to users.'
+                    ),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .optional()
+                    .describe(
+                        'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.object({
+                            categories: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                     ),
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -1215,45 +1422,41 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                 "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
             ),
         target_config: zod
-            .union([
-                zod.object({
-                    strategy: zod
-                        .enum(['fixed_window'])
-                        .describe('Wait a fixed window after the first matching generation, then evaluate.'),
-                    window_seconds: zod
-                        .number()
-                        .min(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin)
-                        .max(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-                zod.object({
-                    strategy: zod
-                        .enum(['inactivity'])
-                        .describe('Evaluate once the unit has had no new activity for the quiet period.'),
-                    quiet_period_seconds: zod
-                        .number()
-                        .min(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
-                        .max(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
-                        .optional()
-                        .describe(
-                            "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                    max_age_seconds: zod
-                        .number()
-                        .min(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
-                        .max(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
-                        .optional()
-                        .describe(
-                            "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                }),
-            ])
+            .object({
+                strategy: zod
+                    .enum(['fixed_window', 'inactivity'])
+                    .optional()
+                    .describe(
+                        "'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'."
+                    ),
+                window_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax)
+                    .optional()
+                    .describe(
+                        "fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                quiet_period_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigQuietPeriodSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigQuietPeriodSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+                max_age_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigMaxAgeSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigMaxAgeSecondsMax)
+                    .optional()
+                    .describe(
+                        "inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                    ),
+            })
             .optional()
             .describe(
-                "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
+                "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`."
             ),
         model_configuration: zod
             .union([
@@ -1269,10 +1472,11 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                                 'azure_openai',
                                 'together_ai',
                                 'minimax',
-                                'zeabur',
+                                'system_one',
+                                'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -1300,6 +1504,13 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
 export const evaluationsTestHogCreateBodyOutputTypeDefault = `boolean`
 export const evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin = 0
 
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsTestHogCreateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
 
@@ -1315,11 +1526,11 @@ export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax = 
 
 export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     output_type: zod
-        .enum(['boolean', 'numeric'])
-        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric')
+        .enum(['boolean', 'numeric', 'categorical'])
+        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical')
         .default(evaluationsTestHogCreateBodyOutputTypeDefault)
         .describe(
-            'Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric'
+            'Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical'
         ),
     output_config: zod
         .object({
@@ -1331,34 +1542,82 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .optional()
                 .describe(
-                    'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                 ),
-            min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-            max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+            min: zod
+                .number()
+                .nullish()
+                .describe(
+                    'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
+                ),
+            max: zod
+                .number()
+                .nullish()
+                .describe(
+                    'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
+                ),
             step: zod
                 .number()
                 .gt(evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin)
                 .nullish()
                 .describe('Optional positive input increment. Does not round evaluation results.'),
-            passing_rule: zod
-                .object({
-                    operator: zod
-                        .enum(['gte', 'lte'])
-                        .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                    threshold: zod.number().describe('Finite passing threshold within any configured score bounds.'),
-                })
-                .nullish()
+            options: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .min(1)
+                            .max(evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyMax)
+                            .regex(evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyRegExp)
+                            .describe('Stable category key.'),
+                        label: zod
+                            .string()
+                            .min(1)
+                            .max(evaluationsTestHogCreateBodyOutputConfigOptionsItemLabelMax)
+                            .describe('Category display label.'),
+                    })
+                )
+                .min(1)
+                .max(evaluationsTestHogCreateBodyOutputConfigOptionsMax)
+                .optional()
+                .describe('Categorical output options. Keys identify stored results; labels are displayed to users.'),
+            selection_mode: zod
+                .enum(['single', 'multiple'])
+                .optional()
                 .describe(
-                    'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                    'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                ),
+            passing_rule: zod
+                .union([
+                    zod.object({
+                        operator: zod
+                            .enum(['gte', 'lte'])
+                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                        threshold: zod
+                            .number()
+                            .describe('Finite passing threshold within any configured score bounds.'),
+                    }),
+                    zod.object({
+                        categories: zod
+                            .array(zod.string())
+                            .describe(
+                                'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                 ),
         })
         .optional()
-        .describe('Output settings used to validate the preview, including numeric bounds and allows_na.'),
+        .describe('Output settings used to validate the preview, including bounds, categories, and allows_na.'),
     source: zod
         .string()
         .min(1)
         .describe(
-            'Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+            'Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
         ),
     sample_count: zod
         .number()
@@ -1826,18 +2085,6 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         ),
 })
 
-export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PURE__ */ zod.object({
-    experiment_id: zod.string().describe('`$ai_experiment_id` whose offline-evaluation items to return.'),
-    date_from: zod
-        .string()
-        .nullish()
-        .describe('Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.'),
-    date_to: zod
-        .string()
-        .nullish()
-        .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
-})
-
 export const llmAnalyticsParserRecipesCreateBodyNameMax = 255
 
 export const llmAnalyticsParserRecipesCreateBodySourceMax = 100000
@@ -1876,6 +2123,8 @@ export const LlmAnalyticsParserRecipesPartialUpdateBody = /* @__PURE__ */ zod.ob
 
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
+export const llmAnalyticsProviderKeysCreateBodySystemOneModelMax = 100
+
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20
 
 export const llmAnalyticsProviderKeysCreateBodySetAsActiveDefault = false
@@ -1891,14 +2140,31 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
             'azure_openai',
             'together_ai',
             'minimax',
-            'zeabur',
+            'system_one',
+            'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysCreateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysCreateBodyApiVersionMax)
@@ -1908,6 +2174,8 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const llmAnalyticsProviderKeysUpdateBodyNameMax = 255
+
+export const llmAnalyticsProviderKeysUpdateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysUpdateBodyApiVersionMax = 20
 
@@ -1924,14 +2192,31 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
             'azure_openai',
             'together_ai',
             'minimax',
-            'zeabur',
+            'system_one',
+            'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysUpdateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysUpdateBodyApiVersionMax)
@@ -1941,6 +2226,8 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const llmAnalyticsProviderKeysPartialUpdateBodyNameMax = 255
+
+export const llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax = 20
 
@@ -1957,15 +2244,32 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
             'azure_openai',
             'together_ai',
             'minimax',
-            'zeabur',
+            'system_one',
+            'openai_compatible',
         ])
         .optional()
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax)
@@ -1975,6 +2279,8 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
 })
 
 export const llmAnalyticsProviderKeysValidateCreateBodyNameMax = 255
+
+export const llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax = 20
 
@@ -1991,14 +2297,31 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
             'azure_openai',
             'together_ai',
             'minimax',
-            'zeabur',
+            'system_one',
+            'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax)
@@ -2037,6 +2360,10 @@ export const LlmAnalyticsReviewQueuesPartialUpdateBody = /* @__PURE__ */ zod.obj
         .describe('Human-readable queue name.'),
 })
 
+export const llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsCreateBodyTagsMax = 100
+
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyArchivedDefault = false
@@ -2044,7 +2371,14 @@ export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax
 
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
+export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
 export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax))
+        .max(llmAnalyticsScoreDefinitionsCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
     kind: zod
@@ -2097,6 +2431,27 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
                     .describe(
                         'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
                     ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
                 min: zod.number().nullish().describe('Optional inclusive minimum score.'),
@@ -2105,8 +2460,33 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
                     .number()
                     .nullish()
                     .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
                 true_label: zod.string().optional().describe('Optional label for a true value.'),
                 false_label: zod.string().optional().describe('Optional label for a false value.'),
             }),
@@ -2114,9 +2494,18 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
         .describe('Initial immutable scorer configuration.'),
 })
 
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax = 100
+
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
 export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax))
+        .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
@@ -2126,11 +2515,21 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     archived: zod.boolean().optional().describe('Whether the scorer is archived.'),
 })
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax = 255
+
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemKeyMax = 128
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
 export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax)
+        .optional()
+        .describe('Updated scorer name, saved with this version.'),
+    description: zod.string().nullish().describe('Updated scorer description, saved with this version.'),
     config: zod
         .union([
             zod.object({
@@ -2171,6 +2570,27 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
                     .describe(
                         'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
                     ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
                 min: zod.number().nullish().describe('Optional inclusive minimum score.'),
@@ -2179,8 +2599,33 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
                     .number()
                     .nullish()
                     .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
                 true_label: zod.string().optional().describe('Optional label for a true value.'),
                 false_label: zod.string().optional().describe('Optional label for a false value.'),
             }),
@@ -2221,6 +2666,7 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
  */
 export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
 export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
+export const llmAnalyticsSummarizationCreateBodyCompactContextDefault = false
 
 export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
     summarize_type: zod
@@ -2247,6 +2693,12 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(llmAnalyticsSummarizationCreateBodyForceRefreshDefault)
         .describe('Force regenerate summary, bypassing cache'),
+    compact_context: zod
+        .boolean()
+        .default(llmAnalyticsSummarizationCreateBodyCompactContextDefault)
+        .describe(
+            'Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title.'
+        ),
     model: zod.string().nullish().describe('LLM model to use (defaults based on provider)'),
     trace_id: zod
         .string()
@@ -2679,13 +3131,13 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
                         'azure_openai',
                         'together_ai',
                         'minimax',
-                        'zeabur',
+                        'openai_compatible',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     ),
                 model: zod
                     .string()
@@ -2818,13 +3270,13 @@ export const TaggersUpdateBody = /* @__PURE__ */ zod.object({
                         'azure_openai',
                         'together_ai',
                         'minimax',
-                        'zeabur',
+                        'openai_compatible',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     ),
                 model: zod
                     .string()
@@ -2959,13 +3411,13 @@ export const TaggersPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'azure_openai',
                         'together_ai',
                         'minimax',
-                        'zeabur',
+                        'openai_compatible',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
                     ),
                 model: zod
                     .string()

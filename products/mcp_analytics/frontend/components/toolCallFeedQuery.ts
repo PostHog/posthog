@@ -3,7 +3,12 @@ import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpPro
 
 import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { DataTableNode, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { LAB_ORDER, labSqlExpression } from '../aiLabs'
+import { labMark } from '../brandMarks'
+import { HARNESS_BY_LABEL, harnessMark } from '../dashboard/harnessRegistry'
 
 export const MCP_ACTIVITY_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-activity')
 export const MCP_ACTIVITY_PAGE_SIZE = 100
@@ -12,14 +17,23 @@ export const MCP_ACTIVITY_INTENT_COLUMN = 'properties.$mcp_intent -- Agent inten
 export const MCP_ACTIVITY_ERROR_COLUMN = 'properties.$mcp_is_error -- Error'
 export const MCP_ACTIVITY_SESSION_COLUMN = 'properties.$session_id -- Session'
 
+const harnessLabels = [...Object.keys(HARNESS_BY_LABEL), 'Unidentified client']
+const clientMarkSql = hogql`transform(properties.$virt_mcp_harness, ${harnessLabels}, ${harnessLabels.map(harnessMark)}, 'Other harnesses')`
+const modelMarkSql = hogql`transform(${hogql.raw(labSqlExpression('properties.$mcp_llm_model'))}, ${LAB_ORDER}, ${LAB_ORDER.map(labMark)}, 'Unbranded model')`
+
 export const MCP_ACTIVITY_COLUMNS = [
     '*',
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) -- Tool",
+    `coalesce(
+        nullIf(toString(properties.$mcp_exec_tool_call_name), ''),
+        if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call',
+           nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL),
+        toString(properties.$mcp_tool_name)
+    ) -- Tool`,
     MCP_ACTIVITY_INTENT_COLUMN,
     MCP_ACTIVITY_ERROR_COLUMN,
     'properties.$mcp_duration_ms -- Duration (ms)',
-    'properties.$mcp_client_name -- Client',
-    'properties.$mcp_llm_model -- Model',
+    hogql`withIcon(coalesce(nullIf(toString(properties.$mcp_client_name), ''), properties.$virt_mcp_harness), ${hogql.raw(clientMarkSql)}) -- Client`,
+    hogql`withIcon(properties.$mcp_llm_model, ${hogql.raw(modelMarkSql)}) -- Model`,
     MCP_ACTIVITY_SESSION_COLUMN,
     'timestamp',
 ]

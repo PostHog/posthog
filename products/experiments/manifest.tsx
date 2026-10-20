@@ -2,7 +2,7 @@ import { toParams } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { ExperimentMetric, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, FileSystemIconColor, ProductManifest } from '~/types'
+import { ActivityScope, ExperimentsTabs, FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Experiments',
@@ -17,8 +17,16 @@ export const manifest: ProductManifest = {
             iconType: 'experiment',
             docsHref: 'https://posthog.com/docs/experiments',
         },
+        ExperimentsStaffTools: {
+            import: () => import('./frontend/scenes/ExperimentsStaffToolsScene'),
+            instanceLevel: true,
+            name: 'Experiments staff tools',
+        },
     },
-    routes: { '/experiments': ['Experiments', 'experiments'] },
+    routes: {
+        '/experiments': ['Experiments', 'experiments'],
+        '/experiments/staff': ['ExperimentsStaffTools', 'experimentsStaffTools'],
+    },
     urls: {
         experiment: (
             id: string | number,
@@ -33,7 +41,8 @@ export const manifest: ProductManifest = {
             const params = options ? toParams(options) : ''
             return params ? `${baseUrl}?${params}` : baseUrl
         },
-        experiments: (): string => '/experiments',
+        experiments: (tab?: ExperimentsTabs): string => (tab ? `/experiments?tab=${tab}` : '/experiments'),
+        experimentsStaffTools: (): string => '/experiments/staff',
         experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
         experimentsSharedMetric: (id: string | number, action?: string): string =>
             action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
@@ -43,6 +52,7 @@ export const manifest: ProductManifest = {
             name: 'Experiment',
             iconType: 'experiment',
             href: (ref: string) => urls.experiment(ref),
+            listHref: () => urls.experiments(),
             iconColor: ['var(--color-product-experiments-light)'],
             filterKey: 'experiment',
         },
@@ -61,9 +71,14 @@ export const manifest: ProductManifest = {
         {
             path: `Experiments`,
             intents: [ProductKey.EXPERIMENTS],
-            category: ProductItemCategory.FEATURES,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'experiment',
             href: urls.experiments(),
+            searchKeywords: ['a/b testing', 'ab test', 'split test'],
+            searchTabs: [
+                { name: 'Shared metrics', href: urls.experiments(ExperimentsTabs.SharedMetrics) },
+                { name: 'Holdout groups', href: urls.experiments(ExperimentsTabs.Holdouts) },
+            ],
             iconType: 'experiment',
             iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
             sceneKey: 'Experiments',

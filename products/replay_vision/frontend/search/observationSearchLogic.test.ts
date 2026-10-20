@@ -164,14 +164,14 @@ describe('observationSearchLogic', () => {
     })
 
     it.each([
-        ['spread distances split off a top tier', [0.1, 0.12, 0.4], expect.closeTo(0.15)],
-        ['clustered distances stay one tier', [0.1, 0.12, 0.14], null],
-    ])('%s', (_name, distances, expectedCutoff) => {
+        ['the first three in rank order are top matches', [0.4, 0.1, 0.12, 0.14], new Set(['obs-0', 'obs-1', 'obs-2'])],
+        ['three or fewer results stay one tier', [0.1, 0.12, 0.4], null],
+    ])('%s', (_name, distances, expectedTopMatchIds) => {
         const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         logic.actions.searchSuccess(searchResults(distances), 'query', false)
 
-        expect(logic.values.topMatchDistanceCutoff).toEqual(expectedCutoff)
+        expect(logic.values.topMatchIds).toEqual(expectedTopMatchIds)
         logic.unmount()
     })
 
@@ -274,6 +274,26 @@ describe('observationSearchLogic', () => {
             'replay vision observation search completed',
             expect.objectContaining({ ...expected, scope: 'cross-scanner' })
         )
+        captureSpy.mockRestore()
+        logic.unmount()
+    })
+
+    it('opening a result captures its rank and whether the order was reranked', () => {
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
+        logic.mount()
+        logic.actions.searchSuccess(searchResults([0.1, 0.2, 0.3]), 'query', false, null, true)
+
+        logic.actions.resultOpened('obs-1', 'watch')
+
+        expect(captureSpy).toHaveBeenCalledWith('replay vision observation search result opened', {
+            rank: 2,
+            target: 'watch',
+            reranked: true,
+            result_count: 3,
+            scope: 'cross-scanner',
+            similar_search: false,
+        })
         captureSpy.mockRestore()
         logic.unmount()
     })

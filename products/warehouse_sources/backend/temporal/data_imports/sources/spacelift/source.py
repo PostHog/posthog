@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -24,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.
     RUNS_INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.spacelift import (
+    ACCOUNT_NOT_FOUND_MESSAGE,
+    INVALID_API_KEY_MESSAGE,
     SpaceliftResumeConfig,
     spacelift_source,
     validate_credentials as validate_spacelift_credentials,
@@ -33,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SpaceliftSource(ResumableSource[SpaceliftSourceConfig, SpaceliftResumeConfig]):
+    codebase_detection = detect(env=("^SPACELIFT_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -102,7 +107,9 @@ Your account name is the subdomain you use to access Spacelift (e.g. `my-company
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # Raised by the apiKeyUser token exchange when the key id/secret is wrong or revoked.
-            "Invalid Spacelift API key": "Your Spacelift API key is invalid or has been revoked. Create a new API key in your Spacelift organization settings, then reconnect.",
+            "Invalid Spacelift API key": INVALID_API_KEY_MESSAGE,
+            # Raised by the same exchange when the account subdomain names no Spacelift account.
+            "Spacelift account not found": ACCOUNT_NOT_FOUND_MESSAGE,
             # Raised when a query stays unauthorized after a fresh token, i.e. the key lacks space access.
             "Spacelift API returned unauthorized": "Your Spacelift API key does not have access to this data. Grant the key read access to the relevant spaces in Spacelift, then reconnect.",
             "Invalid Spacelift account name": "The Spacelift account name is invalid. Enter only the subdomain of your Spacelift URL (e.g. `my-company` for `my-company.app.spacelift.io`).",
@@ -114,6 +121,11 @@ Your account name is the subdomain you use to access Spacelift (e.g. `my-company
             return (
                 "All runs across every stack and module. Incremental syncs re-pull the last "
                 f"{RUNS_INCREMENTAL_LOOKBACK_SECONDS // 86400} days so state changes on recent runs are captured"
+            )
+        if endpoint == "run_changes":
+            return (
+                "Per-resource changes of each run. Incremental syncs re-pull the runs of the last "
+                f"{RUNS_INCREMENTAL_LOOKBACK_SECONDS // 86400} days so changes from runs that finish later are captured"
             )
         if endpoint == "managed_entities":
             return "Terraform/OpenTofu resources managed across your stacks, including drift status"

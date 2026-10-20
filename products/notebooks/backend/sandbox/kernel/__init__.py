@@ -10,6 +10,4 @@ fails the build rather than the next cold start.
 
 Intra-package imports must stay relative so the code works under both names
 (`products.notebooks.backend.kernel` in tests, `nb_kernel` in the sandbox).
-
-See `products/notebooks/backend/sql_v2_kernel_architecture.md` for the design.
 """

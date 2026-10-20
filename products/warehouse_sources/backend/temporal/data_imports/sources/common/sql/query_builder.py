@@ -153,6 +153,65 @@ class SelectQueryBuilder:
 
         return SafeSQL(sql=" ".join(parts), params=params)
 
+    def select_keyset(
+        self,
+        *,
+        schema: str,
+        table_name: str,
+        keyset_column: str,
+        keyset_last_value: Any | None,
+        limit: int,
+        enabled_columns: list[str] | None = None,
+        primary_keys: list[str] | None = None,
+        row_filters: list[ValidatedRowFilter] | None = None,
+    ) -> SafeSQL:
+        """Build one keyset (seek) page for a resumable full load.
+
+        Emits ``SELECT … FROM schema.table [WHERE <keyset_column> > :keyset_value [AND …]]
+        ORDER BY <keyset_column> ASC LIMIT <limit>``. The keyset predicate is omitted on the first
+        page (`keyset_last_value is None`) so it reads from the start.
+
+        `limit` is inlined as an integer literal (it is our own batch size, never user input) because
+        several dialects reject a bound parameter in ``LIMIT``. `row_filters` compose with the keyset
+        predicate exactly as in `select_all`. Callers must have validated `keyset_column` is a single
+        orderable primary key (see `keyset.keyset_resume_column`).
+
+        Note: `LIMIT n` is understood by MySQL/Postgres/Snowflake/BigQuery/Redshift/ClickHouse. MSSQL
+        (which uses `TOP`/`OFFSET…FETCH`) needs its own builder when it opts in.
+        """
+        table_ref = self.quoter.quote_qualified(schema, table_name)
+        quoted_keyset = self.quoter.quote(keyset_column)
+
+        projected = compute_projected_columns(enabled_columns, primary_keys, None)
+        select_clause = format_projected_select_clause(projected, self.quoter)
+
+        params = self._empty_params()
+        conditions: list[str] = []
+
+        if keyset_last_value is not None:
+            placeholder = self._append_param("keyset_value", keyset_last_value, params)
+            conditions.append(f"{quoted_keyset} > {placeholder}")
+
+        for index, row_filter in enumerate(row_filters or []):
+            quoted_column = self.quoter.quote(row_filter.column)
+            if is_multi_value_operator(row_filter.operator):
+                placeholders = [
+                    self._append_param(f"row_filter_{index}_{position}", element, params)
+                    for position, element in enumerate(row_filter.value)
+                ]
+                conditions.append(f"{quoted_column} {row_filter.operator} ({', '.join(placeholders)})")
+            else:
+                placeholder = self._append_param(f"row_filter_{index}", row_filter.value, params)
+                conditions.append(f"{quoted_column} {row_filter.operator} {placeholder}")
+
+        parts = [f"SELECT {select_clause} FROM {table_ref}"]
+        if conditions:
+            parts.append("WHERE " + " AND ".join(conditions))
+        parts.append(f"ORDER BY {quoted_keyset} ASC")
+        parts.append(f"LIMIT {int(limit)}")
+
+        return SafeSQL(sql=" ".join(parts), params=params)
+
     def _empty_params(self) -> dict[str, Any] | list[Any]:
         if self.param_style in (ParamStyle.PYFORMAT_NAMED, ParamStyle.NAMED):
             return {}

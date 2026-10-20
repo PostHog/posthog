@@ -1,88 +1,4 @@
 database "posthog" {
-  table "kafka_metrics_avro2" {
-    settings = {
-      input_format_avro_allow_missing_fields = "1"
-    }
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Nullable(Int32)"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "Nullable(String)"
-    }
-    column "metric_name" {
-      type = "Nullable(String)"
-    }
-    column "metric_type" {
-      type = "Nullable(String)"
-    }
-    column "value" {
-      type = "Nullable(Float64)"
-    }
-    column "count" {
-      type = "Nullable(Int64)"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(Int64)"
-    }
-    column "unit" {
-      type = "Nullable(String)"
-    }
-    column "aggregation_temporality" {
-      type = "Nullable(String)"
-    }
-    column "is_monotonic" {
-      type = "Nullable(UInt8)"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "instrumentation_scope" {
-      type = "Nullable(String)"
-    }
-    column "attributes" {
-      type = "Map(String, String)"
-    }
-    column "series_fingerprint" {
-      type = "Nullable(Int64)"
-    }
-    column "has_labels" {
-      type = "Nullable(UInt8)"
-    }
-    column "retention_days" {
-      type = "Nullable(Int32)"
-    }
-    engine "kafka" {
-      collection           = "warpstream_metrics"
-      topic_list           = "clickhouse_metrics"
-      group_name           = "clickhouse-metrics-avro2"
-      format               = "Avro"
-      num_consumers        = 4
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 500
-      flush_interval_ms    = 10000
-      thread_per_consumer  = true
-    }
-  }
-
   table "log_attributes2" {
     order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
     partition_by = "toDate(time_bucket)"
@@ -683,10 +599,10 @@ SQL
     primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
     order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
     partition_by = "toDate(time_bucket)"
-    ttl          = "time_bucket + toIntervalDay(42)"
+    ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
       index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
+      ttl_only_drop_parts = "0"
     }
     column "team_id" {
       type = "Int32"
@@ -712,6 +628,9 @@ SQL
     }
     column "pattern" {
       type = "String"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -747,6 +666,9 @@ SQL
     }
     column "pattern" {
       type = "String"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -1882,92 +1804,6 @@ SQL
     }
   }
 
-  table "metrics2_input" {
-    column "uuid" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "metric_type" {
-      type = "LowCardinality(String)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type = "UInt64"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(UInt64)"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "has_labels" {
-      type = "Bool"
-    }
-    column "unit" {
-      type = "LowCardinality(String)"
-    }
-    column "aggregation_temporality" {
-      type = "LowCardinality(String)"
-    }
-    column "is_monotonic" {
-      type = "Bool"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    engine "null" {
-    }
-  }
-
   table "metrics4_attributes" {
     order_by     = ["team_id", "metric_name", "attribute_type", "time_bucket", "attribute_key", "attribute_value", "service_name", "original_expiry_time_bucket"]
     partition_by = "toDate(original_expiry_time_bucket)"
@@ -2023,6 +1859,11 @@ SQL
       type        = "ngrambf_v1(3, 32768, 3, 0)"
       granularity = 1
     }
+    index "idx_time_bucket_minmax" {
+      expr        = "time_bucket"
+      type        = "minmax"
+      granularity = 1
+    }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_attributes"
       replica_name = "{replica}-{shard}"
@@ -2030,7 +1871,7 @@ SQL
   }
 
   table "metrics4_names" {
-    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket"]
+    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket", "service_name"]
     partition_by = "toDate(original_expiry_time_bucket)"
     ttl          = "original_expiry_timestamp"
     settings = {
@@ -2050,6 +1891,16 @@ SQL
     }
     column "original_expiry_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_types" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "metric_type" {
+      type  = "String"
+      alias = "metric_types[1]"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_names"
@@ -2184,8 +2035,9 @@ SQL
     partition_by = "toStartOfWeek(original_expiry_timestamp)"
     ttl          = "original_expiry_timestamp"
     settings = {
-      index_granularity   = "1024"
-      ttl_only_drop_parts = "1"
+      deduplicate_merge_projection_mode = "rebuild"
+      index_granularity                 = "1024"
+      ttl_only_drop_parts               = "1"
     }
     column "team_id" {
       type = "Int32"
@@ -2265,6 +2117,20 @@ SQL
       expr        = "time_bucket"
       type        = "minmax"
       granularity = 1
+    }
+    projection "services_by_hour" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  uniqExact(metric_name),
+  uniq(series_fingerprint),
+  max(timestamp)
+GROUP BY
+  team_id, time_bucket, service_name
+SQL
+
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.metrics4_series"
@@ -2402,351 +2268,780 @@ SQL
   }
 
   table "query_log_archive" {
-    column "hostname" {
-      type = "LowCardinality(String)"
+    column "initial_query_start_time" {
+      type = "DateTime64(6, 'UTC')"
     }
-    column "user" {
-      type = "LowCardinality(String)"
-    }
-    column "query_id" {
-      type = "String"
+    column "team_id" {
+      type = "Int64"
     }
     column "initial_query_id" {
       type = "String"
     }
     column "is_initial_query" {
-      type = "UInt8"
+      type = "SimpleAggregateFunction(max, UInt8)"
+    }
+    column "hostname" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "user" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
     }
     column "type" {
-      type = "Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)"
+      type = "SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4))"
+    }
+    column "event_time_microseconds" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    column "query_duration_ms" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "read_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "read_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "written_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "written_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "result_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "result_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "memory_usage" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "memory_usage_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "peak_threads_usage" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "execution_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "current_database" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "query" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "normalized_query_hash" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "query_kind_by_root" {
+      type = "SimpleAggregateFunction(max, Tuple(UInt8, String))"
+    }
+    column "tables" {
+      type = "SimpleAggregateFunction(max, Array(String))"
+    }
+    column "exception_code" {
+      type = "SimpleAggregateFunction(max, Int32)"
+    }
+    column "exception" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "stack_trace" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "ProfileEvents_SelectedRows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_RealTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_OSCPUVirtualTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_UserTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SystemTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedParts" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedMarks" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_NetworkReceiveBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_NetworkSendBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_ReadBufferFromFileDescriptorReadBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_WriteBufferFromFileDescriptorWriteBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3Clients" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3DeleteObjects" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3CopyObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3ListObjects" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3HeadObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3GetObjectAttributes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3CreateMultipartUpload" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3UploadPartCopy" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3UploadPart" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3AbortMultipartUpload" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3CompleteMultipartUpload" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3PutObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3GetObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_ReadBufferFromS3Bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_WriteBufferFromS3Bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "lc_org_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_user_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_session_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_is_impersonated" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_workflow" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_kind" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_route_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_access_method" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_api_key_label" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_api_key_mask" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_query_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_product" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_chargeable" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_request_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_client_query_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_dashboard_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_insight_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_cohort_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_batch_export_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_experiment_feature_flag_key" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_alert_config_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_feature" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_table_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_warehouse_query" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_person_on_events_mode" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_service_name" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_workload" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_query__kind" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_query__query" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_query" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_modifiers" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__workflow_namespace" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__workflow_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__workflow_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__workflow_run_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__activity_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__activity_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__attempt" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_dagster__job_name" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_dagster__run_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_dagster__owner" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_metric_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_execution_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_metric_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_funnel_order_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_exposures_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_metric_events_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_query_surface" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_precompute_table" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_query_group_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_precompute_skip_reason" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_scan_date_from" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_scan_date_to" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_precompute_window_start" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_precompute_window_end" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_plan_fingerprint" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_estimated_rows" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_estimated_bytes" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "query_id" {
+      type = "String"
+    }
+    column "event_time" {
+      type = "DateTime('UTC')"
     }
     column "event_date" {
       type = "Date"
     }
-    column "event_time" {
-      type = "DateTime"
-    }
-    column "event_time_microseconds" {
-      type = "DateTime64(6)"
-    }
     column "query_start_time" {
-      type = "DateTime"
+      type = "DateTime('UTC')"
     }
     column "query_start_time_microseconds" {
-      type = "DateTime64(6)"
-    }
-    column "query_duration_ms" {
-      type = "UInt64"
-    }
-    column "read_rows" {
-      type = "UInt64"
-    }
-    column "read_bytes" {
-      type = "UInt64"
-    }
-    column "written_rows" {
-      type = "UInt64"
-    }
-    column "written_bytes" {
-      type = "UInt64"
-    }
-    column "result_rows" {
-      type = "UInt64"
-    }
-    column "result_bytes" {
-      type = "UInt64"
-    }
-    column "memory_usage" {
-      type = "UInt64"
-    }
-    column "peak_threads_usage" {
-      type = "UInt64"
-    }
-    column "current_database" {
-      type = "LowCardinality(String)"
-    }
-    column "query" {
-      type = "String"
-    }
-    column "formatted_query" {
-      type = "String"
-    }
-    column "normalized_query_hash" {
-      type = "UInt64"
+      type = "DateTime64(6, 'UTC')"
     }
     column "query_kind" {
       type = "LowCardinality(String)"
     }
-    column "exception_code" {
-      type = "Int32"
-    }
-    column "exception" {
+    column "formatted_query" {
       type = "String"
     }
-    column "stack_trace" {
+    column "query_shape" {
       type = "String"
     }
-    column "team_id" {
-      type = "Int64"
+    column "hogql_shape" {
+      type = "String"
     }
-    column "log_comment" {
-      type = "JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email)"
+    column "exception_name" {
+      type = "String"
     }
     column "ProfileEvents" {
       type = "Map(String, UInt64)"
     }
-    column "exception_name" {
-      type  = "String"
-      alias = "errorCodeToName(exception_code)"
+    engine "distributed" {
+      cluster_name    = "ops"
+      remote_database = "posthog"
+      remote_table    = "sharded_query_log_archive_v3"
+    }
+  }
+
+  table "query_log_archive_v3" {
+    column "initial_query_start_time" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "initial_query_id" {
+      type = "String"
+    }
+    column "is_initial_query" {
+      type = "SimpleAggregateFunction(max, UInt8)"
+    }
+    column "hostname" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "user" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "type" {
+      type = "SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4))"
+    }
+    column "event_time_microseconds" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    column "query_duration_ms" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "read_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "read_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "written_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "written_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "result_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "result_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "memory_usage" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "memory_usage_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "peak_threads_usage" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "execution_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "current_database" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "query" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "normalized_query_hash" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "query_kind_by_root" {
+      type = "SimpleAggregateFunction(max, Tuple(UInt8, String))"
+    }
+    column "tables" {
+      type = "SimpleAggregateFunction(max, Array(String))"
+    }
+    column "exception_code" {
+      type = "SimpleAggregateFunction(max, Int32)"
+    }
+    column "exception" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "stack_trace" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "ProfileEvents_SelectedRows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_RealTimeMicroseconds" {
-      type  = "Int64"
-      alias = "ProfileEvents['RealTimeMicroseconds']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_OSCPUVirtualTimeMicroseconds" {
-      type  = "Int64"
-      alias = "ProfileEvents['OSCPUVirtualTimeMicroseconds']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_UserTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SystemTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedParts" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedMarks" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_NetworkReceiveBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_NetworkSendBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_ReadBufferFromFileDescriptorReadBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_WriteBufferFromFileDescriptorWriteBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3Clients" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3Clients']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3DeleteObjects" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3DeleteObjects']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3CopyObject" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3CopyObject']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3ListObjects" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3ListObjects']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3HeadObject" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3HeadObject']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3GetObjectAttributes" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3GetObjectAttributes']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3CreateMultipartUpload" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3CreateMultipartUpload']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3UploadPartCopy" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3UploadPartCopy']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3UploadPart" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3UploadPart']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3AbortMultipartUpload" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3AbortMultipartUpload']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3CompleteMultipartUpload" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3CompleteMultipartUpload']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3PutObject" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3PutObject']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_S3GetObject" {
-      type  = "Int64"
-      alias = "ProfileEvents['S3GetObject']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_ReadBufferFromS3Bytes" {
-      type  = "Int64"
-      alias = "ProfileEvents['ReadBufferFromS3Bytes']"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "ProfileEvents_WriteBufferFromS3Bytes" {
-      type  = "Int64"
-      alias = "ProfileEvents['WriteBufferFromS3Bytes']"
-    }
-    column "lc_workflow" {
-      type  = "LowCardinality(String)"
-      alias = "log_comment.workflow"
-    }
-    column "lc_kind" {
-      type  = "LowCardinality(String)"
-      alias = "log_comment.kind"
-    }
-    column "lc_id" {
-      type  = "String"
-      alias = "CAST(log_comment.id, 'String')"
-    }
-    column "lc_route_id" {
-      type  = "String"
-      alias = "CAST(log_comment.route_id, 'String')"
-    }
-    column "lc_access_method" {
-      type  = "LowCardinality(String)"
-      alias = "log_comment.access_method"
-    }
-    column "lc_api_key_label" {
-      type  = "String"
-      alias = "CAST(log_comment.api_key_label, 'String')"
-    }
-    column "lc_api_key_mask" {
-      type  = "String"
-      alias = "CAST(log_comment.api_key_mask, 'String')"
-    }
-    column "lc_query_type" {
-      type  = "LowCardinality(String)"
-      alias = "log_comment.query_type"
-    }
-    column "lc_product" {
-      type  = "LowCardinality(String)"
-      alias = "log_comment.product"
-    }
-    column "lc_chargeable" {
-      type  = "Bool"
-      alias = "log_comment.chargeable"
-    }
-    column "lc_name" {
-      type  = "String"
-      alias = "CAST(log_comment.name, 'String')"
-    }
-    column "lc_request_name" {
-      type  = "String"
-      alias = "CAST(log_comment.request_name, 'String')"
-    }
-    column "lc_client_query_id" {
-      type  = "String"
-      alias = "CAST(log_comment.client_query_id, 'String')"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     column "lc_org_id" {
-      type  = "String"
-      alias = "CAST(log_comment.org_id, 'String')"
+      type = "SimpleAggregateFunction(max, String)"
     }
     column "lc_user_id" {
-      type  = "Int64"
-      alias = "log_comment.user_id"
-    }
-    column "lc_is_impersonated" {
-      type  = "Bool"
-      alias = "log_comment.is_impersonated"
+      type = "SimpleAggregateFunction(max, Int64)"
     }
     column "lc_session_id" {
-      type  = "String"
-      alias = "CAST(log_comment.session_id, 'String')"
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_is_impersonated" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_workflow" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_kind" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_route_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_access_method" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_api_key_label" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_api_key_mask" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_query_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_product" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_chargeable" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_request_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_client_query_id" {
+      type = "SimpleAggregateFunction(max, String)"
     }
     column "lc_dashboard_id" {
-      type  = "Int64"
-      alias = "log_comment.dashboard_id"
+      type = "SimpleAggregateFunction(max, Int64)"
     }
     column "lc_insight_id" {
-      type  = "Int64"
-      alias = "log_comment.insight_id"
+      type = "SimpleAggregateFunction(max, Int64)"
     }
     column "lc_cohort_id" {
-      type  = "Int64"
-      alias = "log_comment.cohort_id"
+      type = "SimpleAggregateFunction(max, Int64)"
     }
     column "lc_batch_export_id" {
-      type  = "String"
-      alias = "CAST(log_comment.batch_export_id, 'String')"
+      type = "SimpleAggregateFunction(max, String)"
     }
     column "lc_experiment_id" {
-      type  = "Int64"
-      alias = "log_comment.experiment_id"
+      type = "SimpleAggregateFunction(max, Int64)"
     }
     column "lc_experiment_feature_flag_key" {
-      type  = "String"
-      alias = "CAST(log_comment.experiment_feature_flag_key, 'String')"
+      type = "SimpleAggregateFunction(max, String)"
     }
     column "lc_alert_config_id" {
-      type  = "String"
-      alias = "CAST(log_comment.alert_config_id, 'String')"
+      type = "SimpleAggregateFunction(max, String)"
     }
     column "lc_feature" {
-      type  = "LowCardinality(String)"
-      alias = "log_comment.feature"
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
     }
     column "lc_table_id" {
-      type  = "String"
-      alias = "CAST(log_comment.table_id, 'String')"
+      type = "SimpleAggregateFunction(max, String)"
     }
     column "lc_warehouse_query" {
-      type  = "Bool"
-      alias = "log_comment.warehouse_query"
+      type = "SimpleAggregateFunction(max, Bool)"
     }
     column "lc_person_on_events_mode" {
-      type  = "LowCardinality(String)"
-      alias = "log_comment.person_on_events_mode"
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
     }
     column "lc_service_name" {
-      type  = "String"
-      alias = "CAST(log_comment.service_name, 'String')"
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
     }
     column "lc_workload" {
-      type  = "LowCardinality(String)"
-      alias = "log_comment.workload"
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
     }
     column "lc_query__kind" {
-      type  = "LowCardinality(String)"
-      alias = "if(JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'kind'), JSONExtractString(toString(log_comment), 'query', 'kind'))"
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
     }
     column "lc_query__query" {
-      type  = "String"
-      alias = "multiIf(NOT is_initial_query, '', JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'query'), JSONExtractString(toString(log_comment), 'query', 'query'))"
+      type = "SimpleAggregateFunction(max, String)"
     }
     column "lc_query" {
-      type  = "String"
-      alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), '')"
-    }
-    column "lc_temporal__workflow_namespace" {
-      type  = "String"
-      alias = "CAST(log_comment.`temporal.workflow_namespace`, 'String')"
-    }
-    column "lc_temporal__workflow_type" {
-      type  = "String"
-      alias = "CAST(log_comment.`temporal.workflow_type`, 'String')"
-    }
-    column "lc_temporal__workflow_id" {
-      type  = "String"
-      alias = "CAST(log_comment.`temporal.workflow_id`, 'String')"
-    }
-    column "lc_temporal__workflow_run_id" {
-      type  = "String"
-      alias = "CAST(log_comment.`temporal.workflow_run_id`, 'String')"
-    }
-    column "lc_temporal__activity_type" {
-      type  = "String"
-      alias = "CAST(log_comment.`temporal.activity_type`, 'String')"
-    }
-    column "lc_temporal__activity_id" {
-      type  = "String"
-      alias = "CAST(log_comment.`temporal.activity_id`, 'String')"
-    }
-    column "lc_temporal__attempt" {
-      type  = "Int64"
-      alias = "log_comment.`temporal.attempt`"
-    }
-    column "lc_dagster__job_name" {
-      type  = "String"
-      alias = "CAST(log_comment.`dagster.job_name`, 'String')"
-    }
-    column "lc_dagster__run_id" {
-      type  = "String"
-      alias = "CAST(log_comment.`dagster.run_id`, 'String')"
-    }
-    column "lc_dagster__owner" {
-      type  = "String"
-      alias = "CAST(log_comment.`dagster.tags.owner`, 'String')"
+      type = "SimpleAggregateFunction(max, String)"
     }
     column "lc_modifiers" {
-      type  = "String"
-      alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')"
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__workflow_namespace" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__workflow_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__workflow_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__workflow_run_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__activity_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__activity_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__attempt" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_dagster__job_name" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_dagster__run_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_dagster__owner" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_metric_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_execution_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_metric_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_funnel_order_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_exposures_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_metric_events_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_query_surface" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_precompute_table" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_query_group_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_precompute_skip_reason" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_scan_date_from" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_scan_date_to" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_precompute_window_start" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_precompute_window_end" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_plan_fingerprint" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_estimated_rows" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_estimated_bytes" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "query_id" {
+      type = "String"
+    }
+    column "event_time" {
+      type = "DateTime('UTC')"
+    }
+    column "event_date" {
+      type = "Date"
+    }
+    column "query_start_time" {
+      type = "DateTime('UTC')"
+    }
+    column "query_start_time_microseconds" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "query_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "formatted_query" {
+      type = "String"
+    }
+    column "query_shape" {
+      type = "String"
+    }
+    column "hogql_shape" {
+      type = "String"
+    }
+    column "exception_name" {
+      type = "String"
+    }
+    column "ProfileEvents" {
+      type = "Map(String, UInt64)"
     }
     engine "distributed" {
       cluster_name    = "ops"
       remote_database = "posthog"
-      remote_table    = "sharded_query_log_archive"
+      remote_table    = "sharded_query_log_archive_v3"
     }
   }
 
@@ -2917,6 +3212,7 @@ SQL
       index_granularity                       = "8192"
       index_granularity_bytes                 = "104857600"
       map_serialization_version               = "with_buckets"
+      storage_policy                          = "s3_tiered"
       ttl_only_drop_parts                     = "1"
     }
     column "time_bucket" {
@@ -3078,16 +3374,6 @@ SQL
       type        = "bloom_filter(0.001)"
       granularity = 16
     }
-    index "idx_trace_bloom_part" {
-      expr        = "trace_id"
-      type        = "bloom_filter(0.00001)"
-      granularity = 99999
-    }
-    index "idx_span_id_bloom_part" {
-      expr        = "span_id"
-      type        = "bloom_filter(0.00001)"
-      granularity = 99999
-    }
     index "idx_trace_bloom_part_v2" {
       expr        = "trace_id"
       type        = "bloom_filter(0.05)"
@@ -3097,13 +3383,6 @@ SQL
       expr        = "span_id"
       type        = "bloom_filter(0.05)"
       granularity = 99999
-    }
-    projection "projection_index_span_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY span_id
-SQL
-
     }
     projection "projection_index_team_span_id" {
       query = <<SQL
@@ -3131,13 +3410,6 @@ SELECT
   count() AS event_count
 GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span
-SQL
-
-    }
-    projection "projection_index_trace_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY trace_id
 SQL
 
     }
@@ -3389,6 +3661,362 @@ SQL
     }
   }
 
+  table "writable_query_log_archive_v3" {
+    column "initial_query_start_time" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "initial_query_id" {
+      type = "String"
+    }
+    column "is_initial_query" {
+      type = "SimpleAggregateFunction(max, UInt8)"
+    }
+    column "hostname" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "user" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "type" {
+      type = "SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4))"
+    }
+    column "event_time_microseconds" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    column "query_duration_ms" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "read_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "read_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "written_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "written_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "result_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "result_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "memory_usage" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "memory_usage_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "peak_threads_usage" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "execution_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "current_database" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "query" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "normalized_query_hash" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "query_kind_by_root" {
+      type = "SimpleAggregateFunction(max, Tuple(UInt8, String))"
+    }
+    column "tables" {
+      type = "SimpleAggregateFunction(max, Array(String))"
+    }
+    column "exception_code" {
+      type = "SimpleAggregateFunction(max, Int32)"
+    }
+    column "exception" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "stack_trace" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "ProfileEvents_SelectedRows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_RealTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_OSCPUVirtualTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_UserTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SystemTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedParts" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedMarks" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_NetworkReceiveBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_NetworkSendBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_ReadBufferFromFileDescriptorReadBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_WriteBufferFromFileDescriptorWriteBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3Clients" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3DeleteObjects" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3CopyObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3ListObjects" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3HeadObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3GetObjectAttributes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3CreateMultipartUpload" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3UploadPartCopy" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3UploadPart" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3AbortMultipartUpload" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3CompleteMultipartUpload" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3PutObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3GetObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_ReadBufferFromS3Bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_WriteBufferFromS3Bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "lc_org_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_user_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_session_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_is_impersonated" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_workflow" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_kind" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_route_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_access_method" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_api_key_label" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_api_key_mask" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_query_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_product" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_chargeable" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_request_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_client_query_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_dashboard_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_insight_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_cohort_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_batch_export_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_experiment_feature_flag_key" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_alert_config_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_feature" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_table_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_warehouse_query" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_person_on_events_mode" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_service_name" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_workload" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_query__kind" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_query__query" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_query" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_modifiers" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__workflow_namespace" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__workflow_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__workflow_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__workflow_run_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__activity_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__activity_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__attempt" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_dagster__job_name" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_dagster__run_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_dagster__owner" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_metric_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_execution_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_metric_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_funnel_order_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_exposures_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_metric_events_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_query_surface" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_precompute_table" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_query_group_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_precompute_skip_reason" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_scan_date_from" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_scan_date_to" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_precompute_window_start" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_precompute_window_end" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_plan_fingerprint" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_estimated_rows" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_estimated_bytes" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    engine "distributed" {
+      cluster_name    = "ops"
+      remote_database = "posthog"
+      remote_table    = "query_log_archive_v3_buffer"
+    }
+  }
+
   materialized_view "kafka_logs_avro_billing_metrics_mv" {
     to_table = "posthog.logs_billing_metrics"
     query    = <<SQL
@@ -3473,144 +4101,6 @@ SQL
     }
   }
 
-  materialized_view "kafka_metrics_avro2_mv" {
-    to_table = "posthog.metrics2_input"
-    query    = <<SQL
-SELECT
-  uuid,
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  ifNull(metric_name, '') AS metric_name,
-  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
-  cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
-  timestamp,
-  observed_timestamp,
-  timestamp
-  + toIntervalDay(
-    assumeNotNull(
-      if(
-        (retention_days IS NOT NULL) AND (retention_days > 0),
-        retention_days,
-        toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))
-      )
-    )
-  ) AS original_expiry_timestamp,
-  ifNull(service_name, '') AS service_name,
-  ifNull(metric_type, '') AS metric_type,
-  ifNull(value, 0) AS value,
-  toUInt64(ifNull(count, 1)) AS count,
-  histogram_bounds,
-  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
-  trace_id,
-  span_id,
-  ifNull(trace_flags, 0) AS trace_flags,
-  toBool(ifNull(has_labels, 1)) AS has_labels,
-  ifNull(unit, '') AS unit,
-  ifNull(aggregation_temporality, '') AS aggregation_temporality,
-  ifNull(is_monotonic, 0) AS is_monotonic,
-  ifNull(instrumentation_scope, '') AS instrumentation_scope,
-  if(
-    toBool(ifNull(has_labels, 1)),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
-    CAST(map(), 'Map(String, String)')
-  ) AS resource_attributes,
-  if(
-    toBool(ifNull(has_labels, 1)),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)),
-    CAST(map(), 'Map(String, String)')
-  ) AS attributes,
-  _partition,
-  _topic,
-  _offset
-FROM posthog.kafka_metrics_avro2
-WHERE kafka_metrics_avro2.series_fingerprint IS NOT NULL
-SETTINGS
-  min_insert_block_size_rows = 0,
-  min_insert_block_size_bytes = 0
-SQL
-
-    column "uuid" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "String"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "metric_type" {
-      type = "String"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type = "UInt64"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(UInt64)"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "has_labels" {
-      type = "Bool"
-    }
-    column "unit" {
-      type = "String"
-    }
-    column "aggregation_temporality" {
-      type = "String"
-    }
-    column "is_monotonic" {
-      type = "UInt8"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "attributes" {
-      type = "Map(String, String)"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    column "_topic" {
-      type = "LowCardinality(String)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-  }
-
   materialized_view "logs34_to_log_attributes3" {
     to_table = "posthog.log_attributes3"
     query    = <<SQL
@@ -3674,6 +4164,92 @@ SQL
       type = "LowCardinality(String)"
     }
     column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "logs34_to_pattern_buckets" {
+    to_table = "posthog.logs_pattern_buckets"
+    query    = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  namespace,
+  environment,
+  severity_text,
+  pattern_version,
+  pattern,
+  maxSimpleState(retention_days) AS retention_days,
+  sumSimpleState(1) AS log_count
+FROM
+  (
+    SELECT
+      team_id,
+      toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+      service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
+      if(
+        (resource_attributes['deployment.environment.name']) != '',
+        resource_attributes['deployment.environment.name'],
+        if(
+          (resource_attributes['deployment.environment']) != '',
+          resource_attributes['deployment.environment'],
+          resource_attributes['env']
+        )
+      ) AS environment,
+      lower(severity_text) AS severity_text,
+      pattern_version,
+      pattern,
+      toUInt16(
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
+      ) AS retention_days
+    FROM posthog.logs34
+    WHERE pattern_version != 0
+  )
+GROUP BY
+  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime('UTC')"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
+    }
+    column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
     }
   }
@@ -3819,509 +4395,6 @@ SQL
     }
   }
 
-  materialized_view "metrics2_input_to_metric_attributes" {
-    to_table = "posthog.metric_attributes2"
-    query    = <<SQL
-SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'metric' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
-  materialized_view "metrics2_input_to_metric_attributes3" {
-    to_table = "posthog.metric_attributes3"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      metric_name AS metric_name,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'metric' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
-  materialized_view "metrics2_input_to_metric_names3" {
-    to_table = "posthog.metric_names3"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  toStartOfHour(timestamp) AS time_bucket,
-  toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
-FROM posthog.metrics2_input AS input
-WHERE has_labels
-GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-  }
-
-  materialized_view "metrics2_input_to_metric_series" {
-    to_table = "posthog.metric_series2"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  metric_type,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  service_name,
-  instrumentation_scope,
-  resource_attributes,
-  attributes,
-  timestamp AS last_seen,
-  original_expiry_timestamp
-FROM posthog.metrics2_input
-WHERE has_labels
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "metric_type" {
-      type = "LowCardinality(String)"
-    }
-    column "unit" {
-      type = "LowCardinality(String)"
-    }
-    column "aggregation_temporality" {
-      type = "LowCardinality(String)"
-    }
-    column "is_monotonic" {
-      type = "Bool"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "last_seen" {
-      type = "DateTime64(6)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-  }
-
-  materialized_view "metrics2_input_to_metric_series3" {
-    to_table = "posthog.metric_series3"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  metric_type,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  service_name,
-  instrumentation_scope,
-  resource_attributes,
-  attributes,
-  timestamp AS last_seen,
-  original_expiry_timestamp
-FROM posthog.metrics2_input
-WHERE has_labels
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "metric_type" {
-      type = "LowCardinality(String)"
-    }
-    column "unit" {
-      type = "LowCardinality(String)"
-    }
-    column "aggregation_temporality" {
-      type = "LowCardinality(String)"
-    }
-    column "is_monotonic" {
-      type = "Bool"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "last_seen" {
-      type = "DateTime64(6)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-  }
-
-  materialized_view "metrics2_input_to_metrics" {
-    to_table = "posthog.metrics2"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  resource_fingerprint,
-  timestamp,
-  observed_timestamp,
-  original_expiry_timestamp,
-  service_name,
-  metric_type,
-  value,
-  count,
-  histogram_bounds,
-  histogram_counts,
-  trace_id,
-  span_id,
-  trace_flags,
-  has_labels,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  instrumentation_scope,
-  _partition,
-  _topic,
-  _offset
-FROM posthog.metrics2_input
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "metric_type" {
-      type = "LowCardinality(String)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type = "UInt64"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(UInt64)"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "has_labels" {
-      type = "Bool"
-    }
-    column "unit" {
-      type = "LowCardinality(String)"
-    }
-    column "aggregation_temporality" {
-      type = "LowCardinality(String)"
-    }
-    column "is_monotonic" {
-      type = "Bool"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-  }
-
-  materialized_view "metrics2_input_to_resource_attributes" {
-    to_table = "posthog.metric_attributes2"
-    query    = <<SQL
-SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_attributes AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
-  materialized_view "metrics2_input_to_resource_attributes3" {
-    to_table = "posthog.metric_attributes3"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      metric_name AS metric_name,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_attributes AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
   materialized_view "ops_query_log_archive_mv" {
     to_table = "posthog.writable_query_log_archive"
     query    = <<SQL
@@ -4453,6 +4526,490 @@ SQL
     }
     column "ProfileEvents" {
       type = "Map(LowCardinality(String), UInt64)"
+    }
+  }
+
+  materialized_view "ops_query_log_archive_v3_mv" {
+    to_table = "posthog.writable_query_log_archive_v3"
+    query    = <<SQL
+WITH
+  JSONExtract(ql.log_comment, 'Tuple(team_id Int64, org_id String, user_id Int64, session_id String, is_impersonated Bool, workflow String, kind String, id String, route_id String, access_method String, api_key_label String, api_key_mask String, query_type String, product String, chargeable Bool, name String, request_name String, client_query_id String, dashboard_id Int64, insight_id Int64, cohort_id Int64, batch_export_id String, experiment_id Int64, experiment_feature_flag_key String, alert_config_id String, feature String, table_id String, warehouse_query Bool, person_on_events_mode String, service_name String, workload String, experiment_name String, experiment_metric_name String, experiment_execution_path String, experiment_metric_type String, experiment_funnel_order_type String, experiment_exposures_path String, experiment_metric_events_path String, experiment_query_surface String, experiment_precompute_table String, experiment_query_group_id String, experiment_precompute_skip_reason String, experiment_scan_date_from String, experiment_scan_date_to String, precompute_window_start String, precompute_window_end String, plan_fingerprint String, estimated_rows Int64, estimated_bytes Int64, temporal Tuple(workflow_namespace String, workflow_type String, workflow_id String, workflow_run_id String, activity_type String, activity_id String, attempt Int64), dagster Tuple(job_name String, run_id String, tags Tuple(owner String)), query Tuple(kind String, query String, source Tuple(kind String, query String)))') AS lc
+SELECT
+  if(
+    empty(ql.initial_query_id),
+    ql.query_start_time_microseconds,
+    ql.initial_query_start_time_microseconds
+  ) AS initial_query_start_time,
+  lc.team_id AS team_id,
+  if(empty(ql.initial_query_id), ql.query_id, ql.initial_query_id) AS initial_query_id,
+  ql.is_initial_query AS is_initial_query,
+  if(ql.is_initial_query, ql.hostname, '') AS hostname,
+  ql.user AS user,
+  ql.type AS type,
+  ql.event_time_microseconds AS event_time_microseconds,
+  if(ql.is_initial_query, ql.query_duration_ms, 0) AS query_duration_ms,
+  if(ql.is_initial_query, ql.read_rows, 0) AS read_rows,
+  if(ql.is_initial_query, ql.read_bytes, 0) AS read_bytes,
+  if(ql.is_initial_query, ql.written_rows, 0) AS written_rows,
+  if(ql.is_initial_query, ql.written_bytes, 0) AS written_bytes,
+  if(ql.is_initial_query, ql.result_rows, 0) AS result_rows,
+  if(ql.is_initial_query, ql.result_bytes, 0) AS result_bytes,
+  ql.memory_usage AS memory_usage,
+  ql.memory_usage AS memory_usage_sum,
+  ql.peak_threads_usage AS peak_threads_usage,
+  1 AS execution_count,
+  ql.current_database AS current_database,
+  if(ql.is_initial_query, ql.query, '') AS query,
+  if(ql.is_initial_query, ql.normalized_query_hash, 0) AS normalized_query_hash,
+  tuple(ql.is_initial_query, ql.query_kind) AS query_kind_by_root,
+  if(ql.is_initial_query, ql.tables, []) AS tables,
+  if(ql.is_initial_query, ql.exception_code, 0) AS exception_code,
+  if(ql.is_initial_query, ql.exception, '') AS exception,
+  if(ql.is_initial_query, ql.stack_trace, '') AS stack_trace,
+  if(ql.is_initial_query, ql.ProfileEvents['SelectedRows'], 0) AS ProfileEvents_SelectedRows,
+  if(ql.is_initial_query, ql.ProfileEvents['SelectedBytes'], 0) AS ProfileEvents_SelectedBytes,
+  ql.ProfileEvents['RealTimeMicroseconds'] AS ProfileEvents_RealTimeMicroseconds,
+  ql.ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS ProfileEvents_OSCPUVirtualTimeMicroseconds,
+  ql.ProfileEvents['UserTimeMicroseconds'] AS ProfileEvents_UserTimeMicroseconds,
+  ql.ProfileEvents['SystemTimeMicroseconds'] AS ProfileEvents_SystemTimeMicroseconds,
+  ql.ProfileEvents['SelectedParts'] AS ProfileEvents_SelectedParts,
+  ql.ProfileEvents['SelectedMarks'] AS ProfileEvents_SelectedMarks,
+  ql.ProfileEvents['NetworkReceiveBytes'] AS ProfileEvents_NetworkReceiveBytes,
+  ql.ProfileEvents['NetworkSendBytes'] AS ProfileEvents_NetworkSendBytes,
+  ql.ProfileEvents['ReadBufferFromFileDescriptorReadBytes'] AS ProfileEvents_ReadBufferFromFileDescriptorReadBytes,
+  ql.ProfileEvents['WriteBufferFromFileDescriptorWriteBytes'] AS ProfileEvents_WriteBufferFromFileDescriptorWriteBytes,
+  ql.ProfileEvents['S3Clients'] AS ProfileEvents_S3Clients,
+  ql.ProfileEvents['S3DeleteObjects'] AS ProfileEvents_S3DeleteObjects,
+  ql.ProfileEvents['S3CopyObject'] AS ProfileEvents_S3CopyObject,
+  ql.ProfileEvents['S3ListObjects'] AS ProfileEvents_S3ListObjects,
+  ql.ProfileEvents['S3HeadObject'] AS ProfileEvents_S3HeadObject,
+  ql.ProfileEvents['S3GetObjectAttributes'] AS ProfileEvents_S3GetObjectAttributes,
+  ql.ProfileEvents['S3CreateMultipartUpload'] AS ProfileEvents_S3CreateMultipartUpload,
+  ql.ProfileEvents['S3UploadPartCopy'] AS ProfileEvents_S3UploadPartCopy,
+  ql.ProfileEvents['S3UploadPart'] AS ProfileEvents_S3UploadPart,
+  ql.ProfileEvents['S3AbortMultipartUpload'] AS ProfileEvents_S3AbortMultipartUpload,
+  ql.ProfileEvents['S3CompleteMultipartUpload'] AS ProfileEvents_S3CompleteMultipartUpload,
+  ql.ProfileEvents['S3PutObject'] AS ProfileEvents_S3PutObject,
+  ql.ProfileEvents['S3GetObject'] AS ProfileEvents_S3GetObject,
+  ql.ProfileEvents['ReadBufferFromS3Bytes'] AS ProfileEvents_ReadBufferFromS3Bytes,
+  ql.ProfileEvents['WriteBufferFromS3Bytes'] AS ProfileEvents_WriteBufferFromS3Bytes,
+  lc.org_id AS lc_org_id,
+  lc.user_id AS lc_user_id,
+  lc.session_id AS lc_session_id,
+  lc.is_impersonated AS lc_is_impersonated,
+  lc.workflow AS lc_workflow,
+  lc.kind AS lc_kind,
+  lc.id AS lc_id,
+  lc.route_id AS lc_route_id,
+  lc.access_method AS lc_access_method,
+  lc.api_key_label AS lc_api_key_label,
+  lc.api_key_mask AS lc_api_key_mask,
+  lc.query_type AS lc_query_type,
+  lc.product AS lc_product,
+  lc.chargeable AS lc_chargeable,
+  lc.name AS lc_name,
+  lc.request_name AS lc_request_name,
+  lc.client_query_id AS lc_client_query_id,
+  lc.dashboard_id AS lc_dashboard_id,
+  lc.insight_id AS lc_insight_id,
+  lc.cohort_id AS lc_cohort_id,
+  lc.batch_export_id AS lc_batch_export_id,
+  lc.experiment_id AS lc_experiment_id,
+  lc.experiment_feature_flag_key AS lc_experiment_feature_flag_key,
+  lc.alert_config_id AS lc_alert_config_id,
+  lc.feature AS lc_feature,
+  lc.table_id AS lc_table_id,
+  lc.warehouse_query AS lc_warehouse_query,
+  lc.person_on_events_mode AS lc_person_on_events_mode,
+  lc.service_name AS lc_service_name,
+  lc.workload AS lc_workload,
+  if(notEmpty(lc.query.source.kind), lc.query.source.kind, lc.query.kind) AS lc_query__kind,
+  if(
+    ql.is_initial_query,
+    if(notEmpty(lc.query.source.kind), lc.query.source.query, lc.query.query),
+    ''
+  ) AS lc_query__query,
+  if(ql.is_initial_query, JSONExtractRaw(ql.log_comment, 'query'), '') AS lc_query,
+  if(ql.is_initial_query, JSONExtractRaw(ql.log_comment, 'modifiers'), '') AS lc_modifiers,
+  lc.temporal.workflow_namespace AS lc_temporal__workflow_namespace,
+  lc.temporal.workflow_type AS lc_temporal__workflow_type,
+  lc.temporal.workflow_id AS lc_temporal__workflow_id,
+  lc.temporal.workflow_run_id AS lc_temporal__workflow_run_id,
+  lc.temporal.activity_type AS lc_temporal__activity_type,
+  lc.temporal.activity_id AS lc_temporal__activity_id,
+  lc.temporal.attempt AS lc_temporal__attempt,
+  lc.dagster.job_name AS lc_dagster__job_name,
+  lc.dagster.run_id AS lc_dagster__run_id,
+  lc.dagster.tags.owner AS lc_dagster__owner,
+  lc.experiment_name AS lc_experiment_name,
+  lc.experiment_metric_name AS lc_experiment_metric_name,
+  lc.experiment_execution_path AS lc_experiment_execution_path,
+  lc.experiment_metric_type AS lc_experiment_metric_type,
+  lc.experiment_funnel_order_type AS lc_experiment_funnel_order_type,
+  lc.experiment_exposures_path AS lc_experiment_exposures_path,
+  lc.experiment_metric_events_path AS lc_experiment_metric_events_path,
+  lc.experiment_query_surface AS lc_experiment_query_surface,
+  lc.experiment_precompute_table AS lc_experiment_precompute_table,
+  lc.experiment_query_group_id AS lc_experiment_query_group_id,
+  lc.experiment_precompute_skip_reason AS lc_experiment_precompute_skip_reason,
+  lc.experiment_scan_date_from AS lc_experiment_scan_date_from,
+  lc.experiment_scan_date_to AS lc_experiment_scan_date_to,
+  lc.precompute_window_start AS lc_precompute_window_start,
+  lc.precompute_window_end AS lc_precompute_window_end,
+  lc.plan_fingerprint AS lc_plan_fingerprint,
+  lc.estimated_rows AS lc_estimated_rows,
+  lc.estimated_bytes AS lc_estimated_bytes
+FROM system.query_log AS ql
+WHERE ql.type != 'QueryStart'
+SQL
+
+    column "initial_query_start_time" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "initial_query_id" {
+      type = "String"
+    }
+    column "is_initial_query" {
+      type = "SimpleAggregateFunction(max, UInt8)"
+    }
+    column "hostname" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "user" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "type" {
+      type = "SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4))"
+    }
+    column "event_time_microseconds" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    column "query_duration_ms" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "read_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "read_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "written_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "written_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "result_rows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "result_bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "memory_usage" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "memory_usage_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "peak_threads_usage" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "execution_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "current_database" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "query" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "normalized_query_hash" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "query_kind_by_root" {
+      type = "SimpleAggregateFunction(max, Tuple(UInt8, String))"
+    }
+    column "tables" {
+      type = "SimpleAggregateFunction(max, Array(String))"
+    }
+    column "exception_code" {
+      type = "SimpleAggregateFunction(max, Int32)"
+    }
+    column "exception" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "stack_trace" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "ProfileEvents_SelectedRows" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_RealTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_OSCPUVirtualTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_UserTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SystemTimeMicroseconds" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedParts" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_SelectedMarks" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_NetworkReceiveBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_NetworkSendBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_ReadBufferFromFileDescriptorReadBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_WriteBufferFromFileDescriptorWriteBytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3Clients" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3DeleteObjects" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3CopyObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3ListObjects" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3HeadObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3GetObjectAttributes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3CreateMultipartUpload" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3UploadPartCopy" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3UploadPart" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3AbortMultipartUpload" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3CompleteMultipartUpload" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3PutObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_S3GetObject" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_ReadBufferFromS3Bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ProfileEvents_WriteBufferFromS3Bytes" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "lc_org_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_user_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_session_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_is_impersonated" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_workflow" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_kind" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_route_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_access_method" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_api_key_label" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_api_key_mask" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_query_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_product" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_chargeable" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_request_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_client_query_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_dashboard_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_insight_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_cohort_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_batch_export_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_id" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_experiment_feature_flag_key" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_alert_config_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_feature" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_table_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_warehouse_query" {
+      type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "lc_person_on_events_mode" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_service_name" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_workload" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_query__kind" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_query__query" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_query" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_modifiers" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__workflow_namespace" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__workflow_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__workflow_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__workflow_run_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__activity_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_temporal__activity_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_temporal__attempt" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_dagster__job_name" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_dagster__run_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_dagster__owner" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_metric_name" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_execution_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_metric_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_funnel_order_type" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_exposures_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_metric_events_path" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_query_surface" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_precompute_table" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_query_group_id" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_precompute_skip_reason" {
+      type = "SimpleAggregateFunction(max, LowCardinality(String))"
+    }
+    column "lc_experiment_scan_date_from" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_experiment_scan_date_to" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_precompute_window_start" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_precompute_window_end" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_plan_fingerprint" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
+    column "lc_estimated_rows" {
+      type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "lc_estimated_bytes" {
+      type = "SimpleAggregateFunction(max, Int64)"
     }
   }
 
@@ -5069,6 +5626,71 @@ SELECT
   1 AS value,
   'Test to check that the metric endpoint is working' AS help,
   'gauge' AS type
+SQL
+
+  }
+
+  view "metrics4_view" {
+    query = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  resource_fingerprint,
+  timestamp,
+  observed_timestamp,
+  original_expiry_timestamp,
+  service_name,
+  metric_type,
+  value,
+  count,
+  histogram_bounds,
+  histogram_counts,
+  trace_id,
+  span_id,
+  trace_flags,
+  has_labels,
+  unit,
+  aggregation_temporality,
+  is_monotonic,
+  instrumentation_scope
+FROM posthog.metrics2
+WHERE
+  (time_bucket > toDateTime('2026-08-25 00:00:00'))
+AND
+  (time_bucket < toDateTime('2026-09-14 00:00:00'))
+AND
+  (timestamp > toDateTime('2026-08-25 00:00:00'))
+AND
+  (timestamp < toDateTime('2026-09-14 00:00:00'))
+UNION ALL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  resource_fingerprint,
+  point_timestamp AS timestamp,
+  point_observed_timestamp AS observed_timestamp,
+  toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
+  service_name,
+  metric_type,
+  point_value AS value,
+  point_count AS count,
+  histogram_bounds,
+  point_histogram_counts AS histogram_counts,
+  point_trace_id AS trace_id,
+  point_span_id AS span_id,
+  point_trace_flags AS trace_flags,
+  toBool(has_labels) AS has_labels,
+  unit,
+  aggregation_temporality,
+  toBool(is_monotonic) AS is_monotonic,
+  instrumentation_scope
+FROM
+  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, observed_timestamp_arr AS point_observed_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
+WHERE time_bucket >= toDateTime('2026-09-14 00:00:00')
 SQL
 
   }

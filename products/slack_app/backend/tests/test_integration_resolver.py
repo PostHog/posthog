@@ -11,10 +11,12 @@ from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
 from products.slack_app.backend.services.integration_resolver import (
+    UserAndIntegrationsResolution,
     load_integrations,
     pick_a_project_message,
     resolve_from_candidates,
     resolve_user_for_workspace,
+    unresolved_user_properties,
 )
 
 WORKSPACE = "T_WS"
@@ -819,3 +821,53 @@ class TestPickAProjectMessage:
         assert "<!channel>" not in message
         assert "&lt;!channel&gt;" in message
         assert "<https://evil.example|Open PostHog>" not in message
+
+
+class TestUnresolvedUserProperties:
+    @pytest.mark.parametrize(
+        "slack_email, account, scope, expected",
+        [
+            pytest.param(
+                None,
+                None,
+                "users:read,users:read.email",
+                {"slack_email_available": False, "posthog_account_exists": None, "account_linking_available": True},
+                id="slack_exposes_no_email",
+            ),
+            pytest.param(
+                "stranger@example.com",
+                None,
+                "users:read,users:read.email",
+                {"slack_email_available": True, "posthog_account_exists": False, "account_linking_available": True},
+                id="no_posthog_account",
+            ),
+            pytest.param(
+                "Outsider@Example.com",
+                "active",
+                "users:read,users:read.email",
+                {"slack_email_available": True, "posthog_account_exists": True, "account_linking_available": True},
+                id="account_outside_the_connected_organizations",
+            ),
+            pytest.param(
+                "former@example.com",
+                "deactivated",
+                "users:read,users:read.email",
+                {"slack_email_available": True, "posthog_account_exists": False, "account_linking_available": True},
+                id="deactivated_account",
+            ),
+            pytest.param(
+                "stranger@example.com",
+                None,
+                "chat:write",
+                {"slack_email_available": True, "posthog_account_exists": False, "account_linking_available": False},
+                id="install_cannot_link_accounts",
+            ),
+        ],
+    )
+    def test_reports_why_the_slack_user_was_not_identified(self, db, slack_email, account, scope, expected):
+        if account is not None:
+            User.objects.create(email=slack_email.lower(), distinct_id="u-outside", is_active=account == "active")
+        probe = Integration(kind="slack", integration_id=WORKSPACE, config={"scope": scope})
+        resolution = UserAndIntegrationsResolution(failure_reason="user_not_found", slack_email=slack_email)
+
+        assert unresolved_user_properties(resolution, probe) == expected

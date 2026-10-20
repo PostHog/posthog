@@ -2,6 +2,7 @@ import { MOCK_GROUP_TYPES, MOCK_TEAM_ID, api } from 'lib/api.mock'
 
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
@@ -106,6 +107,43 @@ describe('propertyDefinitionsTableLogic', () => {
             // Doesn't call api.get again
             expect(api.get).toHaveBeenCalledTimes(1)
         })
+
+        it.each([
+            {
+                outcome: 'succeeded',
+                error: null,
+                action: 'loadPropertyDefinitionsSuccess',
+                event: 'event property definitions page load succeeded',
+                expectedProperties: { num_results: 50 },
+            },
+            {
+                outcome: 'failed',
+                error: 'request failed',
+                action: 'loadPropertyDefinitionsFailure',
+                event: 'event property definitions page load failed',
+                expectedProperties: { error: 'There was an unknown error fetching property definitions.' },
+            },
+        ])(
+            'captures when loading property definitions $outcome',
+            async ({ error, action, event, expectedProperties }) => {
+                const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+                try {
+                    if (error) {
+                        api.get.mockRejectedValueOnce(error)
+                    }
+                    await expectLogic(logic, () =>
+                        logic.actions.loadPropertyDefinitions(startingUrl)
+                    ).toDispatchActions([action])
+
+                    expect(capture).toHaveBeenCalledWith(
+                        event,
+                        expect.objectContaining({ load_time: expect.any(Number), ...expectedProperties })
+                    )
+                } finally {
+                    capture.mockRestore()
+                }
+            }
+        )
 
         it('pagination forwards and backwards', async () => {
             const url = urls.propertyDefinitions()

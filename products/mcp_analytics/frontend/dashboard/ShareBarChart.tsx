@@ -16,12 +16,15 @@ export function ShareBarChart<T>({
     theme,
     tooltip,
     label,
+    fitContent = false,
 }: {
     rows: ShareBarRow<T>[]
     totalCalls: number
     theme: ChartTheme
     tooltip: (ctx: TooltipContext<T & { share: number }>) => JSX.Element | null
     label: string
+    /** Size to the rows instead of a fixed, scrollable 320px area. */
+    fitContent?: boolean
 }): JSX.Element {
     const labels = useMemo(() => rows.map((row) => row.key), [rows])
     const series = useMemo<Series<T & { share: number }>[]>(
@@ -41,8 +44,17 @@ export function ShareBarChart<T>({
     )
     const config = useShareBarChartConfig(rows.length, totalCalls)
     return (
-        <div className="h-80 overflow-y-auto" translate="no" tabIndex={0} role="region" aria-label={label}>
-            <div className="flex min-h-80 flex-col" style={{ height: rows.length * 40 + 20 }}>
+        <div
+            className={fitContent ? undefined : 'h-80 overflow-y-auto'}
+            translate="no"
+            tabIndex={0}
+            role="region"
+            aria-label={label}
+        >
+            <div
+                className={fitContent ? 'flex flex-col' : 'flex min-h-80 flex-col'}
+                style={{ height: rows.length * 40 + 20 }}
+            >
                 <BarChart series={series} labels={labels} theme={theme} config={config} tooltip={tooltip}>
                     <ShareBarLabels rows={rows} totalCalls={totalCalls} />
                 </BarChart>

@@ -472,14 +472,14 @@ def build_team_digest_data(
         "crash_free": get_crash_free_sessions(team, filter_test_accounts),
         "source_maps_recommendation": get_source_maps_recommendation_for_team(team),
         "test_account_filters_skipped": not filter_test_accounts,
-        "error_tracking_url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking?utm_source=error_tracking_weekly_digest",
+        "error_tracking_url": f"{settings.SITE_URL}/project/{team.pk}/error-tracking?utm_source=error_tracking_weekly_digest",
         "ingestion_failures_url": build_ingestion_failures_url(team.pk),
     }
 
 
 def build_ingestion_failures_url(team_id: int) -> str:
     return (
-        f"{settings.SITE_URL}/project/{team_id}/activity/explore#q="
+        f"{settings.SITE_URL}/project/{team_id}/activity/events#q="
         "%7B%22kind%22%3A%22DataTableNode%22%2C%22full%22%3Atrue%2C%22source%22%3A%7B%22kind%22%3A%22EventsQuery%22%2C"
         "%22select%22%3A%5B%22*%22%2C%22event%22%2C%22person_display_name%20--%20Person%22%2C"
         "%22coalesce(properties.%24current_url%2C%20properties.%24screen_name)%20--%20Url%20%2F%20Screen%22%2C"

@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # Chatwoot signs deliveries (recent versions) with X-Chatwoot-Signature: sha256=<hex hmac-sha256 of
 # "<X-Chatwoot-Timestamp>.<raw body>">. Older self-hosted installs have no per-webhook secret and
@@ -27,9 +27,10 @@ if (not inputs.bypass_signature_check) {
   if (empty(inputs.signing_secret)) {
     return {
       'httpResponse': {
-        'status': 400,
-        'body': 'Signing secret not configured',
-      }
+        'status': 200,
+        'body': 'Signing secret not configured, delivery dropped',
+      },
+      'appMetric': 'missing_credential'
     }
   }
 

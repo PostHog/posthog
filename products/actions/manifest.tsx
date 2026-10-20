@@ -50,6 +50,7 @@ export const manifest: ProductManifest = {
         action: {
             name: 'Action',
             href: (ref: string) => urls.action(ref),
+            listHref: () => urls.actions(),
             filterKey: 'action',
             iconType: 'action' as FileSystemIconType,
             iconColor: [
@@ -75,6 +76,7 @@ export const manifest: ProductManifest = {
             path: 'Actions',
             category: 'Schema',
             href: urls.actions(),
+            searchKeywords: ['event group', 'grouped events'],
             iconType: 'action' as FileSystemIconType,
             sceneKey: 'Actions',
         },

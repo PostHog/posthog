@@ -24,9 +24,12 @@ from products.marketing_analytics.dags.marketing_precompute import (
     PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     SELECTED_TEAM_IDS_ENV_VAR,
-    ensure_marketing_precompute_op,
+    SHARDS_ENV_VAR,
+    TEAM_CONCURRENCY_ENV_VAR,
     get_selected_team_ids,
     marketing_precompute_job,
+    split_marketing_precompute_teams_op,
+    warm_selected_teams,
 )
 
 _ENSURE = "products.marketing_analytics.dags.marketing_precompute.ensure_precomputed"
@@ -127,6 +130,25 @@ class TestGetSelectedTeamIds:
             assert get_selected_team_ids() == []
 
 
+class TestShardSplit:
+    @parameterized.expand(
+        [("one_shard", "1", 1), ("more_teams_than_shards", "3", 3), ("more_shards_than_teams", "8", 5)]
+    )
+    def test_shards_are_team_disjoint_and_cover_every_team(self, _name, shards, expected_shards):
+        # A team in two shards would be warmed twice in parallel; a dropped team would stay cold.
+        team_ids = [3, 4, 5, 6, 7]
+        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ",".join(map(str, team_ids)), SHARDS_ENV_VAR: shards}):
+            outputs = list(split_marketing_precompute_teams_op(dagster.build_op_context()))
+
+        assert len(outputs) == expected_shards
+        assert sorted(tid for out in outputs for tid in out.value["team_ids"]) == team_ids
+        assert len({out.value["end"] for out in outputs}) == 1
+
+    def test_empty_audience_yields_no_shards(self):
+        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
+            assert list(split_marketing_precompute_teams_op(dagster.build_op_context())) == []
+
+
 class TestConversionWarming(APIBaseTest):
     """Touchpoints + conversions orchestration; ensure_precomputed is patched so no ClickHouse traffic."""
 
@@ -205,7 +227,7 @@ class TestConversionWarming(APIBaseTest):
             patch(_FF, _flag_fn(conversion=False, costs=False)),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result["conversion_teams"] == 1
         assert result["costs_teams"] == 0
         tables = _tables(ensure_mock)
@@ -218,7 +240,7 @@ class TestConversionWarming(APIBaseTest):
         # _INELIGIBLE_GOAL remaps a tracked UTM field → not precomputable. Touchpoints (config-agnostic) still warms.
         team = self._make_team("A", goals=[_INELIGIBLE_GOAL])
         with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result["conversion_teams"] == 1
         assert _tables(ensure_mock) == [LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED]
 
@@ -227,7 +249,7 @@ class TestConversionWarming(APIBaseTest):
     def test_warms_conversions_for_precomputable_goal(self, ensure_mock):
         team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
         with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
-            ensure_marketing_precompute_op(dagster.build_op_context())
+            warm_selected_teams(dagster.build_op_context())
         tables = _tables(ensure_mock)
         assert LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED in tables
         assert LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED in tables
@@ -244,7 +266,7 @@ class TestConversionWarming(APIBaseTest):
         team.marketing_analytics_config.save()
 
         with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
-            ensure_marketing_precompute_op(dagster.build_op_context())
+            warm_selected_teams(dagster.build_op_context())
 
         warmed = {
             call.kwargs["table"]: call.kwargs["insert_query"]
@@ -275,7 +297,7 @@ class TestConversionWarming(APIBaseTest):
         # One eligible + one ineligible goal → exactly one conversions job.
         team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL, _INELIGIBLE_GOAL])
         with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
-            ensure_marketing_precompute_op(dagster.build_op_context())
+            warm_selected_teams(dagster.build_op_context())
         conversion_calls = [
             t for t in _tables(ensure_mock) if t == LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED
         ]
@@ -286,20 +308,32 @@ class TestConversionWarming(APIBaseTest):
     def test_skips_team_without_conversion_goals(self, ensure_mock):
         team = self._make_team("A", goals=None)
         with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
         ensure_mock.assert_not_called()
 
+    @parameterized.expand([("database_built", False), ("database_build_fails", True)])
     @patch(_ENSURE, new_callable=_ready_mock)
-    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
-    def test_pool_warms_every_team(self, ensure_mock):
+    def test_pool_warms_every_team(self, _name, database_fails, ensure_mock):
         # The parallel fan-out must process every team, not just the first — a pool that dropped teams
-        # would leave them cold. Three teams, each with a precomputable goal, must all warm.
+        # would leave them cold. Three teams, each with a precomputable goal, must all warm, and a failed
+        # database build must not stop them. With a window of 2, a third team only starts after one finishes.
+        # The database is built once per team however many buckets it warms: rebuilding it per bucket is
+        # what made the warmer CPU-bound.
         teams = [self._make_team(name, goals=[_PRECOMPUTABLE_GOAL]) for name in ("A", "B", "C")]
         ids = ",".join(str(team.pk) for team in teams)
-        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ids}):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+        with (
+            patch(_FF, _flag_fn(conversion=True)),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ids, TEAM_CONCURRENCY_ENV_VAR: "2"}),
+            patch(_DB) as database,
+        ):
+            if database_fails:
+                database.create_for.side_effect = Exception("warehouse source broken")
+            result = warm_selected_teams(dagster.build_op_context())
+
         assert result == {"teams": 3, "conversion_teams": 3, "costs_teams": 0, "failures": 0}
+        assert ensure_mock.call_count > len(teams)
+        assert database.create_for.call_count == len(teams)
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
@@ -307,7 +341,7 @@ class TestConversionWarming(APIBaseTest):
         team = self._make_team("A", goals=[_INELIGIBLE_GOAL])
         expected = PRECOMPUTE_WINDOW_DAYS + team.marketing_analytics_config.attribution_window_days
         with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
-            ensure_marketing_precompute_op(dagster.build_op_context())
+            warm_selected_teams(dagster.build_op_context())
         kwargs = ensure_mock.call_args_list[0].kwargs  # touchpoints is warmed first
         assert (kwargs["time_range_end"] - kwargs["time_range_start"]).days == expected
 
@@ -317,7 +351,7 @@ class TestConversionWarming(APIBaseTest):
         # Conversions span only the query window — the conversion event must fall in-range.
         team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
         with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
-            ensure_marketing_precompute_op(dagster.build_op_context())
+            warm_selected_teams(dagster.build_op_context())
         conv_call = next(
             c
             for c in ensure_mock.call_args_list
@@ -335,7 +369,7 @@ class TestConversionWarming(APIBaseTest):
             patch(_FF, _flag_fn(conversion=True)),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
-            ensure_marketing_precompute_op(dagster.build_op_context())
+            warm_selected_teams(dagster.build_op_context())
         assert ensure_mock.call_count > 1
         for call in ensure_mock.call_args_list:
             assert (call.kwargs["time_range_end"] - call.kwargs["time_range_start"]).days <= 7
@@ -356,7 +390,7 @@ class TestConversionWarming(APIBaseTest):
             patch(_FF, _flag_fn(conversion=True)),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{t1.pk},{t2.pk}"}),
         ):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result["teams"] == 2
         assert result["failures"] == 1
         assert ensure_mock.call_count == 2
@@ -367,20 +401,20 @@ class TestConversionWarming(APIBaseTest):
         ensure_mock.return_value = MagicMock(ready=False, errors=["still pending"])
         team = self._make_team("A", goals=[_INELIGIBLE_GOAL])
         with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result["failures"] == 1
 
     @patch(_ENSURE, new_callable=_ready_mock)
     def test_empty_allowlist_is_a_noop(self, ensure_mock):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
         ensure_mock.assert_not_called()
 
     @patch(_ENSURE, new_callable=_ready_mock)
     def test_missing_team_is_skipped(self, ensure_mock):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: "999999999"}):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
         ensure_mock.assert_not_called()
 
@@ -416,7 +450,7 @@ class TestCostsWarming(APIBaseTest):
     def test_costs_flag_off_skips_costs(self, _db, ensure_mock):
         team = self._make_team("A")
         with patch(_FF, _flag_fn(costs=False)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
         ensure_mock.assert_not_called()
 
@@ -432,7 +466,7 @@ class TestCostsWarming(APIBaseTest):
             patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result["costs_teams"] == 1
         tables = _tables(ensure_mock)
         assert tables == [LazyComputationTable.MARKETING_COSTS_PREAGGREGATED] * len(COST_MATERIALIZATION_GRAINS)
@@ -448,7 +482,7 @@ class TestCostsWarming(APIBaseTest):
             patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter(materializable=False)])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         # Team has warehouse tables (patched) so costs was attempted (costs_teams=1); the unmaterializable
         # source just produces no ensure_precomputed calls — nothing is warmed.
         assert result["costs_teams"] == 1
@@ -467,7 +501,7 @@ class TestCostsWarming(APIBaseTest):
             patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
-            ensure_marketing_precompute_op(dagster.build_op_context())
+            warm_selected_teams(dagster.build_op_context())
         _, kwargs = db_mock.create_for.call_args
         assert kwargs["bypass_warehouse_access_control"] is True
         assert "user" not in kwargs  # no requesting user
@@ -489,7 +523,7 @@ class TestCostsWarming(APIBaseTest):
             patch(_FACTORY, return_value=self._fake_factory([src_all, src_campaign])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
-            ensure_marketing_precompute_op(dagster.build_op_context())
+            warm_selected_teams(dagster.build_op_context())
         assert ensure_mock.call_count == 4
 
     @patch(_ENSURE, new_callable=_ready_mock)
@@ -513,7 +547,7 @@ class TestCostsWarming(APIBaseTest):
             patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{broken.pk},{healthy.pk}"}),
         ):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result["teams"] == 2
         assert result["failures"] == 1  # broken team's costs stage
         assert result["costs_teams"] == 1  # healthy team still warmed
@@ -528,7 +562,7 @@ class TestCostsWarming(APIBaseTest):
         # adapter needs a warehouse table, so there is nothing to warm.
         team = self._make_team("A")
         with patch(_FF, _flag_fn(costs=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result["costs_teams"] == 0
         db_mock.create_for.assert_not_called()
         ensure_mock.assert_not_called()
@@ -547,7 +581,7 @@ class TestCostsWarming(APIBaseTest):
             patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
-            result = ensure_marketing_precompute_op(dagster.build_op_context())
+            result = warm_selected_teams(dagster.build_op_context())
         assert result["conversion_teams"] == 1
         assert result["costs_teams"] == 1
         assert set(_tables(ensure_mock)) == {

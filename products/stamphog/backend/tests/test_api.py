@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.core import signing
 from django.db import transaction
@@ -75,7 +75,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("enabled", {"enabled": False}),
-            ("review_mode", {"review_mode": ReviewMode.LABEL}),
+            ("review_mode", {"review_mode": ReviewMode.ALL}),
             ("trigger_label", {"trigger_label": "review-me"}),
         ]
     )
@@ -111,7 +111,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("names_the_review_mode", {"review_mode": ReviewMode.LABEL}, status.HTTP_403_FORBIDDEN),
+            ("names_the_review_mode", {"review_mode": ReviewMode.ALL}, status.HTTP_403_FORBIDDEN),
             ("turns_reviews_off", {"enabled": False}, status.HTTP_403_FORBIDDEN),
             ("turns_reviews_on", {"enabled": True}, status.HTTP_201_CREATED),
             ("leaves_the_defaults", {}, status.HTTP_201_CREATED),
@@ -481,7 +481,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         [
             ("new_row", None, status.HTTP_201_CREATED),
             ("paused_row", "42", status.HTTP_200_OK),
-            # A placeholder's label mode was set without proving GitHub access, so it resets on binding.
+            # A placeholder's all mode was set without proving GitHub access, so it resets on binding.
             ("placeholder_row", "", status.HTTP_200_OK),
         ]
     )
@@ -497,17 +497,22 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                 repository="acme/alpha",
                 installation_id=existing_installation,
                 enabled=False,
-                review_mode=ReviewMode.LABEL,
+                review_mode=ReviewMode.ALL,
             )
         self._login_as_member()
 
-        response = self.client.post(f"{self.url}add_repository/", {"repository": "acme/alpha"}, format="json")
+        with patch(f"{_VIEWS}.create_trigger_label.delay") as queue_label:
+            response = self.client.post(f"{self.url}add_repository/", {"repository": "acme/alpha"}, format="json")
 
         assert response.status_code == expected_status, response.content
         config = StamphogRepoConfig.objects.unscoped().get(team_id=self.team.id, repository="acme/alpha")
         assert (config.enabled, config.installation_id, config.connected_by_user_id) == (True, "42", self.user.id)
-        expected_mode = ReviewMode.ALL if existing_installation in (None, "") else ReviewMode.LABEL
+        expected_mode = ReviewMode.LABEL if existing_installation in (None, "") else ReviewMode.ALL
         assert config.review_mode == expected_mode
+        expected_calls = (
+            [call(team_id=self.team.id, config_id=str(config.id))] if expected_mode == ReviewMode.LABEL else []
+        )
+        assert queue_label.call_args_list == expected_calls
 
     @parameterized.expand(
         [
@@ -985,7 +990,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             installation_id="",
             enabled=True,
             digest_enabled=True,
-            review_mode=ReviewMode.LABEL,
+            review_mode=ReviewMode.ALL,
             trigger_label="nobody-uses-this",
         )
         response = self.client.post(
@@ -1000,7 +1005,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.connected_by_user_id == self.user.id
         assert manual.enabled is False
         assert manual.digest_enabled is False
-        assert manual.review_mode == ReviewMode.ALL
+        assert manual.review_mode == ReviewMode.LABEL
         assert manual.trigger_label == StamphogRepoConfig._meta.get_field("trigger_label").get_default()
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
@@ -1016,7 +1021,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             repository="PostHog/posthog",
             installation_id="41",
             enabled=True,
-            review_mode=ReviewMode.LABEL,
+            review_mode=ReviewMode.ALL,
             connected_by_user_id=previous_connector_id,
         )
         response = self.client.post(
@@ -1028,7 +1033,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         stale.refresh_from_db()
         assert stale.installation_id == "42"
         assert stale.enabled is True  # settings survive the rebind
-        assert stale.review_mode == ReviewMode.LABEL  # including the review policy
+        assert stale.review_mode == ReviewMode.ALL  # including the review policy
         assert stale.connected_by_user_id == self.user.id
         # The restamp reads its before-value from the locked row, so the log names who held the
         # connection before this sync took it over.
@@ -1179,7 +1184,23 @@ class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # The run is the only record of a digest's destination now that routing is derived per run
         # rather than stored on a channel row. Losing these fields leaves "why did my digest go
         # there" unanswerable from anywhere but a worker log.
-        for channel_id, audience in (("C1", "team-x"), ("C2", "team-y")):
+        # team-x's summary predates the repository key, and team-y posted nothing. Both are stored
+        # shapes the page has to render. team-z's summary predates the `judged` key, so it was written
+        # from PR bodies and must stay out of the API.
+        old_shape_summary = {
+            "headline": "Retries are on for exports.",
+            "prs": [{"pr_number": 7, "title": "Retry exports", "url": "https://example.com/7", "author_login": "ada"}],
+            "judged": True,
+        }
+        body_derived_summary = {
+            "headline": "Text from a private pull request body.",
+            "prs": [{"pr_number": 8, "title": "Private change", "url": "https://example.com/8", "author_login": "bo"}],
+        }
+        for channel_id, audience, summary in (
+            ("C1", "team-x", old_shape_summary),
+            ("C2", "team-y", {}),
+            ("C3", "team-z", body_derived_summary),
+        ):
             DigestRun.objects.unscoped().create(
                 team_id=self.team.id,
                 audience_key=audience,
@@ -1188,13 +1209,32 @@ class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                 slack_channel_name=audience,
                 resolution_source=ChannelResolutionSource.OWNERS_CONTACT,
                 status=DigestRunStatus.COMPLETED,
+                summary=summary,
             )
 
         url = f"/api/projects/{self.team.id}/stamphog/digest_runs/"
         body = self.client.get(url).json()
-        assert {r["slack_channel_id"] for r in body["results"]} == {"C1", "C2"}
-        assert {r["audience_key"] for r in body["results"]} == {"team-x", "team-y"}
+        assert {r["slack_channel_id"] for r in body["results"]} == {"C1", "C2", "C3"}
+        assert {r["audience_key"] for r in body["results"]} == {"team-x", "team-y", "team-z"}
         assert {r["resolution_source"] for r in body["results"]} == {"owners_contact"}
+        summaries = {r["audience_key"]: r["summary"] for r in body["results"]}
+        assert summaries == {
+            "team-x": {
+                "headline": "Retries are on for exports.",
+                "prs": [
+                    {
+                        "pr_number": 7,
+                        "title": "Retry exports",
+                        "url": "https://example.com/7",
+                        "author_login": "ada",
+                        "summary": "",
+                        "repository": "",
+                    }
+                ],
+            },
+            "team-y": {"headline": "", "prs": []},
+            "team-z": {"headline": "", "prs": []},
+        }
 
         filtered = self.client.get(f"{url}?slack_channel_id=C1").json()
         assert [r["audience_key"] for r in filtered["results"]] == ["team-x"]

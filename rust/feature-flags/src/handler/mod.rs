@@ -175,15 +175,7 @@ async fn process_request_inner(
             .unwrap_or_else(|| "disabled".to_string());
 
         // Populate canonical log with distinct_id, device_id, and anon_distinct_id
-        // anon_distinct_id uses same precedence as hash_key_override: top-level > person_properties
-        let anon_distinct_id_for_logging = request.anon_distinct_id.clone().or_else(|| {
-            request
-                .person_properties
-                .as_ref()
-                .and_then(|props| props.get("$anon_distinct_id"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        });
+        let anon_distinct_id_for_logging = request.extract_anon_distinct_id();
         let device_id = request.extract_device_id();
         with_canonical_log(|log| {
             log.distinct_id = Some(distinct_id_for_logging.clone());

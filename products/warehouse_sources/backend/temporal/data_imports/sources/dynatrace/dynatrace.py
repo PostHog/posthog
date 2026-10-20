@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from requests import Request, Response
@@ -17,12 +17,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.settings import (
     DYNATRACE_ENDPOINTS,
     ENDPOINT_SCOPES,
+    TAGGED_ENTITY_TYPES,
     DynatraceEndpointConfig,
 )
 
@@ -401,6 +403,115 @@ def check_endpoint_permissions(
     return results
 
 
+def _endpoint_pages(
+    base_url: str,
+    api_token: str,
+    endpoint: str,
+    config: DynatraceEndpointConfig,
+    params: dict[str, Any],
+    team_id: int,
+    job_id: str,
+    db_incremental_field_last_value: Optional[Any],
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
+    initial_paginator_state: Optional[dict[str, Any]] = None,
+    path: Optional[str] = None,
+    response_actions: Optional[list[ResponseAction]] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Pages of one Dynatrace list endpoint, built on the shared REST framework.
+
+    A fresh config (and so a fresh paginator) per call, which is what lets the tag fan-out walk
+    each entity type without carrying the previous type's cursor into the next request.
+    """
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url,
+            # Non-secret headers only; the token rides the framework api_key auth so it's redacted
+            # from logs and raised error messages.
+            "headers": {"Accept": "application/json"},
+            "auth": {
+                "type": "api_key",
+                "api_key": f"Api-Token {api_token}",
+                "name": "Authorization",
+                "location": "header",
+            },
+            "paginator": DynatraceNextPageKeyPaginator(),
+            # The environment URL is user-supplied: pin every request to its host and refuse any
+            # redirect so the Authorization header can't be bounced off the validated target.
+            "allowed_hosts": [],
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": path or config.path,
+                    "params": params,
+                    # Missing key / non-list body yields 0 rows (matches the previous behavior),
+                    # so no data_selector_required here.
+                    "data_selector": config.data_key,
+                    "response_actions": response_actions or [],
+                },
+            }
+        ],
+    }
+
+    yield from rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _parent_fan_out(
+    base_url: str,
+    api_token: str,
+    endpoint: str,
+    config: DynatraceEndpointConfig,
+    parent_endpoint: str,
+    parent_id_field: str,
+    params: dict[str, Any],
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[DynatraceResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read ``endpoint`` once per row of its parent listing, stamping each row with the parent id.
+
+    No resume state is kept: a staged parent cursor would skip the children of the page it was
+    read from. A safe point after each parent lets a worker shutdown hand the run over even when
+    many parents have no children.
+    """
+    parent_config = DYNATRACE_ENDPOINTS[parent_endpoint]
+    parent_params = {**_build_request_params(parent_config, None), **config.parent_params}
+    parent_pages = _endpoint_pages(
+        base_url, api_token, parent_config.name, parent_config, parent_params, team_id, job_id, None
+    )
+    for parent_page in parent_pages:
+        for parent in parent_page:
+            parent_id = parent.get(parent_id_field)
+            if not parent_id:
+                continue
+            pages = _endpoint_pages(
+                base_url,
+                api_token,
+                endpoint,
+                config,
+                params,
+                team_id,
+                job_id,
+                None,
+                path=config.path.replace("{id}", quote(str(parent_id), safe="")),
+                # A security problem can be removed between the listing and this request.
+                response_actions=[{"status_code": 404, "action": "ignore"}],
+            )
+            for page in pages:
+                yield [{**row, parent_id_field: parent_id} for row in page]
+            resumable_source_manager.safe_point()
+
+
 def dynatrace_source(
     environment_url: str,
     api_token: str,
@@ -424,6 +535,42 @@ def dynatrace_source(
         _check_host(environment_url, team_id)
         base_url = normalize_environment_url(environment_url)
 
+        params = _build_request_params(config, metric_selector)
+
+        if config.fans_out_over_entity_types:
+            # /api/v2/tags needs an entitySelector naming a single type and reports no entity back,
+            # so each type is read on its own and stamped onto its rows. The sweep is one
+            # unpaginated request per type, so there is nothing worth checkpointing for resume.
+            for entity_type in TAGGED_ENTITY_TYPES:
+                pages = _endpoint_pages(
+                    base_url,
+                    api_token,
+                    endpoint,
+                    config,
+                    {**params, "entitySelector": f'type("{entity_type}")'},
+                    team_id,
+                    job_id,
+                    db_incremental_field_last_value,
+                )
+                for page in pages:
+                    yield [{**row, "entityType": entity_type} for row in page]
+            return
+
+        if config.parent_endpoint and config.parent_id_field:
+            yield from _parent_fan_out(
+                base_url,
+                api_token,
+                endpoint,
+                config,
+                config.parent_endpoint,
+                config.parent_id_field,
+                params,
+                team_id,
+                job_id,
+                resumable_source_manager,
+            )
+            return
+
         initial_paginator_state: Optional[dict[str, Any]] = None
         if resumable_source_manager.can_resume():
             resume = resumable_source_manager.load_state()
@@ -436,41 +583,12 @@ def dynatrace_source(
             if state and state.get("next_page_key"):
                 resumable_source_manager.save_state(DynatraceResumeConfig(next_page_key=state["next_page_key"]))
 
-        rest_config: RESTAPIConfig = {
-            "client": {
-                "base_url": base_url,
-                # Non-secret headers only; the token rides the framework api_key auth so it's redacted
-                # from logs and raised error messages.
-                "headers": {"Accept": "application/json"},
-                "auth": {
-                    "type": "api_key",
-                    "api_key": f"Api-Token {api_token}",
-                    "name": "Authorization",
-                    "location": "header",
-                },
-                "paginator": DynatraceNextPageKeyPaginator(),
-                # The environment URL is user-supplied: pin every request to its host and refuse any
-                # redirect so the Authorization header can't be bounced off the validated target.
-                "allowed_hosts": [],
-                "allow_redirects": False,
-            },
-            "resource_defaults": {},
-            "resources": [
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        "path": config.path,
-                        "params": _build_request_params(config, metric_selector),
-                        # Missing key / non-list body yields 0 rows (matches the previous behavior),
-                        # so no data_selector_required here.
-                        "data_selector": config.data_key,
-                    },
-                }
-            ],
-        }
-
-        resource = rest_api_resource(
-            rest_config,
+        resource = _endpoint_pages(
+            base_url,
+            api_token,
+            endpoint,
+            config,
+            params,
             team_id,
             job_id,
             db_incremental_field_last_value,

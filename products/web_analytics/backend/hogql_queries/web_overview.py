@@ -1,4 +1,5 @@
 import math
+from functools import cached_property
 from typing import Optional, Union
 
 import structlog
@@ -18,8 +19,6 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
     WEB_ANALYTICS_NO_JOIN_SERVED,
@@ -279,6 +278,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 query=self.preaggregated_query_builder.get_query(),
                 team=self.team,
                 user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 timings=self.timings,
                 modifiers=pre_agg_modifiers,
                 limit_context=self.limit_context,
@@ -394,6 +394,7 @@ WHERE and(
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
         )
         visitors_response = visitors_runner._calculate()
         visitors = next(item for item in visitors_response.results if item.key == "visitors")
@@ -403,6 +404,7 @@ WHERE and(
             query=self._conversion_goal_select(),
             team=self.team,
             user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -479,6 +481,7 @@ WHERE and(
                 query=self.to_query(),
                 team=self.team,
                 user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 timings=self.timings,
                 modifiers=execution_modifiers,
                 limit_context=self.limit_context,

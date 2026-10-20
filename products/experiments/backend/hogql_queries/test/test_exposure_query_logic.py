@@ -126,15 +126,16 @@ class TestNormalizeToExposureCriteria:
 class TestGetTestAccountsFilter:
     _team_filter = {"key": "$host", "type": "event", "value": "localhost", "operator": "not_icontains"}
 
-    @parameterized.expand([(None,), ({},), ({"filterTestAccounts": False},)])
-    def test_does_not_filter_unless_opted_in(self, exposure_criteria):
-        # filterTestAccounts defaults to False: absent criteria must not pick up the team's filters.
+    @parameterized.expand([(None,), ({},), ({"filterTestAccounts": True},)])
+    def test_applies_team_filters_unless_opted_out(self, exposure_criteria):
+        # Absent criteria follow DEFAULT_FILTER_TEST_ACCOUNTS, the same read the main results
+        # query applies, so this surface describes the same population as the results table.
         team = Team(id=1, project_id=1, test_account_filters=[self._team_filter])
-        assert get_test_accounts_filter(team, exposure_criteria) == []
+        assert len(get_test_accounts_filter(team, exposure_criteria)) == 1
 
-    def test_applies_team_filters_when_opted_in(self):
+    def test_opting_out_skips_team_filters(self):
         team = Team(id=1, project_id=1, test_account_filters=[self._team_filter])
-        assert len(get_test_accounts_filter(team, {"filterTestAccounts": True})) == 1
+        assert get_test_accounts_filter(team, {"filterTestAccounts": False}) == []
 
 
 class TestGetMultipleVariantHandling:

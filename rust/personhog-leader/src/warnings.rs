@@ -6,7 +6,7 @@ use tracing::warn;
 
 use common_ingestion_warnings::registry::WarningType;
 use common_ingestion_warnings::serializer::Warning as WarningPayload;
-use common_ingestion_warnings::throttle::{ThrottleDecision, WarningThrottle};
+use common_ingestion_warnings::throttle::WarningThrottle;
 use common_ingestion_warnings::WarningSource;
 use common_kafka::kafka_producer::KafkaContext;
 
@@ -72,27 +72,17 @@ impl WarningsProducer {
 
     pub fn emit(&self, warning: &SizeViolationWarning) {
         let warning_type = WarningType::PersonPropertiesSizeViolation;
-        match self
+        if let Some(outcome) = self
             .throttle
             .check(&warning.team_id.to_string(), warning_type)
+            .drop_outcome()
         {
-            ThrottleDecision::Emit => {}
-            ThrottleDecision::Throttled => {
-                counter!(
-                    "personhog_leader_ingestion_warnings_suppressed_total",
-                    "outcome" => "throttled"
-                )
-                .increment(1);
-                return;
-            }
-            ThrottleDecision::CardinalityCapped => {
-                counter!(
-                    "personhog_leader_ingestion_warnings_suppressed_total",
-                    "outcome" => "cardinality_capped"
-                )
-                .increment(1);
-                return;
-            }
+            counter!(
+                "personhog_leader_ingestion_warnings_suppressed_total",
+                "outcome" => outcome
+            )
+            .increment(1);
+            return;
         }
 
         // teamId, category, severity, and pipelineStep are injected by the

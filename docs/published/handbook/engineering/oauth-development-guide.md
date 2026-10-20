@@ -241,6 +241,8 @@ See [Client Types](#client-types) section for detailed explanation.
 
 OAuth supports all the same scopes as Personal API Keys. Each scope has a `read` and/or `write` action (e.g., `experiment:read`, `experiment:write`).
 
+Project and environment detail responses return `live_events_token` only when the authenticated caller can read queries. For scoped credentials, this requires `query:read`, `query:write`, or `*`. A key with only `project:read` receives `null` for this field. List responses do not include `live_events_token`.
+
 For a complete list of available scopes, see [frontend/src/lib/scopes.tsx](https://github.com/PostHog/posthog/blob/master/frontend/src/lib/scopes.tsx#L15).
 
 ### OpenID Connect Scopes
@@ -321,6 +323,12 @@ token_response = requests.post(
 tokens = token_response.json()
 print(tokens)
 ```
+
+## First-party client metadata documents
+
+PostHog's own public clients (hogli, the Visual Review Chrome extension, and internal tools) authenticate with client ID metadata documents (CIMD) rather than a registered application or dynamic client registration. Their documents live in the [posthog.com repo](https://github.com/PostHog/posthog.com) at `static/.well-known/oauth/<app>/client-metadata.json`, served at `https://posthog.com/.well-known/oauth/<app>/client-metadata.json`. That URL is the `client_id`, so one ID works on US, EU, and self-hosted.
+
+To add one, create a JSON file there with `client_id` set to its own URL. The CIMD fetcher follows no redirects, so the URL has to answer with a 200 directly. Put the scope ceiling in `com.posthog.scopes`. A new document is an unverified, not-first-party client until someone sets `is_verified` or `is_first_party` on its application in Django admin, in each region.
 
 ## Self-registered client logos
 

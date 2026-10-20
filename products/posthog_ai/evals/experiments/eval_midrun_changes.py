@@ -1,19 +1,20 @@
-"""Eval: agent handles mid-run / lifecycle scenarios across two carrier shapes.
+"""Eval: agent handles mid-run / lifecycle scenarios across three carrier shapes.
 
 Carrier scenarios for diagnostic group E from
-``products/experiments/skills/diagnosing-experiment-results/SKILL.md``.
+``products/experiments/skills/diagnosing-experiment-health/SKILL.md``.
 
-Two cases:
+Three cases:
 
 1. ``ship_variant_flag_flip_on_stopped_experiment`` (E7 — post-hoc) — the
    seeded experiment is *stopped* and its feature flag has been rewritten by
    ``experiment-ship-variant``; multivariate is now 0/100, and the verbatim
    E7 signature ("Added automatically when the experiment was ended to keep
-   only one variant.") sits in the activity log. Tests two behaviors: the
+   only one variant."), on the catch-all release condition that an "all
+   users" ship prepends, sits in the activity log. Tests two behaviors: the
    agent names the ship-variant flip as the cause AND does not push reversal
    on a stopped experiment (Step 4 state-aware rule).
 
-2. ``ship_variant_under_uncertainty`` (E5 / C10 — pre-ship guidance) — a
+2. ``ship_variant_under_uncertainty`` (C10 / E7 — pre-ship guidance) — a
    *running* experiment, primary metric up but a secondary / guardrail metric
    trending negative. The user asks whether to ship the test variant. The
    correct behavior is to advise AGAINST a confident ship — flagging the
@@ -23,12 +24,18 @@ Two cases:
    "all users"). This case tests the agent's pre-ship judgment, which the
    existing E7 post-hoc case does not exercise.
 
+3. ``pause_inside_the_run`` (E9 — an interruption can bias the result) — a
+   five-day pause inside a two-week run, then a resume, with nothing else
+   changed. The agent must say that metric events of the paused days still
+   count toward the test variant although nobody received it, so the result
+   is biased, and must not call the run unaffected.
+
 The seeder writes a real ``ActivityLog`` row carrying the synthetic 50/50 →
 0/100 diff (with the verbatim "Added automatically when the experiment was
 ended to keep only one variant." signature in
-``detail.changes[].after.groups[].properties[].description``) so that any
+``detail.changes[].after.groups[].description``) so that any
 investigation path the agent picks — reading the live flag config,
-inspecting the activity log, or replaying experiment-stats — surfaces real
+inspecting the activity log, or reading the stored results — surfaces real
 production-shaped state. Which path the agent takes is not graded; only the
 final diagnosis and the no-edit recommendation are.
 
@@ -51,6 +58,7 @@ from products.posthog_ai.evals.experiments.seeders import (
     ENDED_EXPERIMENT_NAME,
     ROLLOUT_EXPERIMENT_NAME,
     seed_ended_experiment_with_flag_flip,
+    seed_paused_and_resumed_experiment,
     seed_running_experiment,
 )
 
@@ -73,7 +81,7 @@ async def eval_midrun_changes(ctx: EvalContext) -> None:
                 "diagnosis_group": (
                     "The flag was rewritten when the experiment was ended via ship-variant — PostHog "
                     "rewrites the multivariate distribution to 0/100 in favour of the shipped variant "
-                    "and adds a property entry with the description "
+                    "and, in the 'all users' mode, prepends a release condition with the description "
                     "'Added automatically when the experiment was ended to keep only one variant.'. "
                     "This is the documented behavior of ship-variant, not an error."
                 ),
@@ -103,17 +111,41 @@ async def eval_midrun_changes(ctx: EvalContext) -> None:
                 # independently.
                 "diagnosis_group": (
                     "The agent identifies at least one of these as the relevant diagnostic: "
-                    "(a) the guardrail / secondary metric trending negative is the gap the "
-                    "ship-variant recommendation logic does NOT consider — guardrail-aware "
-                    "users are the ones the default would mislead, (b) the primary's "
+                    "(a) the guardrail / secondary metric trending negative is something the "
+                    "ship-variant flow does NOT check — the product reads no metric before a "
+                    "ship, so the user has to weigh the guardrail, (b) the primary's "
                     "chance-to-win is in the noise band where early flips happen, so the "
                     "significance is not settled, (c) on ambiguous ships the safe default is "
-                    "to keep control rather than ship the position-default test variant. If "
+                    "to keep control rather than ship the test variant. If "
                     "release mode is discussed, the agent should prefer 'experiment "
                     "population' (default) over 'all users' — uncertain ships should not "
                     "extend the blast radius past the experiment's existing population."
                 ),
                 "advises_against_shipping": True,
+            },
+        ),
+        SandboxedEvalCase(
+            # E9: the tempting wrong answer is "the split did not change, so the result is unaffected".
+            name="pause_inside_the_run",
+            prompt=(
+                f"We paused my experiment '{ROLLOUT_EXPERIMENT_NAME}' for five days in the middle "
+                "of a two-week run because of a release freeze, then resumed it. The split is "
+                "unchanged and nothing else was edited. Can I read the results as if it had run "
+                "the whole two weeks?"
+            ),
+            setup=seed_paused_and_resumed_experiment,
+            expected={
+                "diagnosis_group": (
+                    "The agent explains that a pause turns the flag off, so people in the test "
+                    "variant received the default (control) experience during the pause, while "
+                    "their metric events from those days still count toward the test variant — "
+                    "the analysis has no notion of the pause. The result is therefore biased (the "
+                    "test arm is diluted toward control) in proportion to the pause. The agent "
+                    "recommends stating the pause window with the result or, because five of "
+                    "fourteen days is a large share, resetting and relaunching. This is the E9 "
+                    "diagnostic. An answer that says the results are unaffected because the split "
+                    "did not change fails."
+                ),
             },
         ),
     ]

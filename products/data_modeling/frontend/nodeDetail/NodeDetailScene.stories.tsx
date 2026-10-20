@@ -1,6 +1,7 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect, useRef } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -32,7 +33,6 @@ const node = {
     id: 'example-node',
     name: 'monthly_revenue_summary_by_region_and_channel',
     type: 'view',
-    dag: 'example-dag',
     saved_query_id: 'example-view',
     created_at: '2026-01-10T10:00:00Z',
     updated_at: '2026-01-10T10:00:00Z',
@@ -55,6 +55,111 @@ const savedQuery = {
         { name: 'channel', type: 'string' },
         { name: 'revenue', type: 'float' },
     ],
+}
+
+const tableNode = {
+    id: 'orders-table-node',
+    name: 'postgres.public.orders',
+    type: 'table',
+    saved_query_id: null,
+    origin: 'warehouse',
+    warehouse_table_id: '2efce7bc-9b76-442a-8234-33f6fc3e8c7d',
+    created_at: '2026-02-11T10:00:00Z',
+    updated_at: '2026-09-13T10:00:00Z',
+    upstream_count: 0,
+    downstream_count: 3,
+}
+
+const downstreamNodes = [
+    {
+        ...node,
+        id: 'daily-revenue-node',
+        name: 'daily_revenue',
+        saved_query_id: 'daily-revenue-view',
+        upstream_count: 1,
+        downstream_count: 1,
+    },
+    {
+        ...node,
+        id: 'customer-health-node',
+        name: 'customer_health',
+        saved_query_id: 'customer-health-view',
+        upstream_count: 1,
+        downstream_count: 0,
+    },
+    {
+        ...node,
+        id: 'sales-forecast-node',
+        name: 'sales_forecast',
+        saved_query_id: 'sales-forecast-view',
+        upstream_count: 1,
+        downstream_count: 0,
+    },
+]
+
+const tableLineage = (
+    sourceNode: Omit<typeof tableNode, 'warehouse_table_id'> & { warehouse_table_id: string | null }
+): { nodes: object[]; edges: object[] } => ({
+    nodes: [sourceNode, ...downstreamNodes],
+    edges: downstreamNodes.map((targetNode, index) => ({
+        id: `table-edge-${index + 1}`,
+        source_id: sourceNode.id,
+        target_id: targetNode.id,
+        properties: {},
+        created_at: sourceNode.created_at,
+        updated_at: sourceNode.updated_at,
+    })),
+})
+
+const postHogTableNode = {
+    ...tableNode,
+    id: 'events-table-node',
+    name: 'events',
+    origin: 'posthog',
+    warehouse_table_id: null,
+}
+
+const warehouseTable = {
+    id: tableNode.warehouse_table_id,
+    name: 'postgres_public_orders',
+    hogql_name: tableNode.name,
+    format: 'Parquet',
+    created_by: null,
+    created_at: '2026-02-11T10:00:00Z',
+    credential: null,
+    columns: [
+        { name: 'id', type: 'integer' },
+        { name: 'customer_id', type: 'integer' },
+        { name: 'total', type: 'decimal' },
+    ],
+    external_data_source: { id: 'source-1' },
+    external_schema: { id: 'schema-1' },
+}
+
+const warehouseSource = {
+    id: 'source-1',
+    source_type: 'Postgres',
+    access_method: 'warehouse',
+    created_by: 'casey@example.com',
+    created_at: '2026-02-11T10:00:00Z',
+}
+
+const warehouseSchema = {
+    id: 'schema-1',
+    name: 'public.orders',
+    label: 'Orders',
+    should_sync: true,
+    status: 'Completed',
+    latest_error: null,
+    last_synced_at: '2026-09-13T09:42:00Z',
+    sync_type: 'incremental',
+    sync_frequency: '1hour',
+}
+
+const emptyDataQualityMocks = {
+    '/api/projects/:team_id/data_quality_checks/': () => [200, { count: 0, next: null, previous: null, results: [] }],
+    '/api/projects/:team_id/data_quality_checks/health/': () => [200, []],
+    '/api/projects/:team_id/data_quality_runs/': () => [200, { count: 0, next: null, previous: null, results: [] }],
 }
 
 const meta: Meta<typeof NodeDetailScene> = {
@@ -89,6 +194,60 @@ export default meta
 
 type Story = StoryObj<typeof NodeDetailScene>
 export const View: Story = {}
+
+export const WarehouseTable: Story = {
+    args: { id: tableNode.id },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DATA_QUALITY_CHECKS],
+        pageUrl: urls.nodeDetail(tableNode.id, 'lineage'),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': ({ request }: { request: Request }) =>
+                        request.url.includes('/lineage') ? [200, tableLineage(tableNode)] : [200, tableNode],
+                    '/api/environments/:team_id/warehouse_tables/:id/': () => [200, warehouseTable],
+                    '/api/environments/:team_id/external_data_sources/:id/': () => [200, warehouseSource],
+                    '/api/environments/:team_id/external_data_schemas/:id/': () => [200, warehouseSchema],
+                    ...emptyDataQualityMocks,
+                },
+            },
+        },
+    },
+}
+
+export const PostHogTable: Story = {
+    args: { id: 'events-table-node' },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DATA_QUALITY_CHECKS],
+        pageUrl: urls.nodeDetail('events-table-node', 'lineage'),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': ({ request }: { request: Request }) =>
+                        request.url.includes('/lineage')
+                            ? [200, tableLineage(postHogTableNode)]
+                            : [200, postHogTableNode],
+                    '/api/projects/:team_id/data_quality_checks/subjects/': () => [
+                        200,
+                        [
+                            {
+                                subject_type: 'posthog_table',
+                                id: 'd4fb61da-50ae-59dc-a94f-f2036dfcfe49',
+                                name: 'events',
+                                display_name: '',
+                                time_column: 'timestamp',
+                                columns: { distinct_id: 'String', timestamp: 'DateTime' },
+                                editable: true,
+                            },
+                        ],
+                    ],
+                    ...emptyDataQualityMocks,
+                },
+            },
+        },
+    },
+}
+
 export const NarrowView: Story = {
     decorators: [
         (Story) => (
@@ -100,6 +259,9 @@ export const NarrowView: Story = {
 }
 
 export const PaginatedColumns: Story = {
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: /^Columns/ }))
+    },
     parameters: {
         msw: {
             mocks: {
@@ -208,4 +370,17 @@ export const SuspendedWithRunHistory: Story = {
 export const NarrowSuspendedWithRunHistory: Story = {
     ...SuspendedWithRunHistory,
     decorators: NarrowView.decorators,
+}
+
+export const DeletedModel: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [404, { detail: 'Not found.' }],
+                },
+            },
+        },
+    },
 }

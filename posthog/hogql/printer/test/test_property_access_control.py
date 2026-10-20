@@ -1,3 +1,5 @@
+import uuid
+
 from posthog.test.base import BaseTest, ClickhouseTestMixin, cleanup_materialized_columns, materialized
 
 from django.conf import settings
@@ -9,9 +11,11 @@ from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
+from posthog.models.event.util import create_event
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -96,6 +100,33 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "JSONDropKeys" not in sql  # no redundant drop-then-extract
         assert "'secret_field'" not in sql
         assert not any("secret_field" in str(v) for v in values.values())
+
+    @parameterized.expand(
+        [
+            ("field_access", "SELECT properties.`customer%2Essn` AS x FROM events"),
+            (
+                "json_extract_in_where",
+                "SELECT count() FROM events WHERE JSONExtractString(properties, 'customer%2Essn') = '1'",
+            ),
+        ]
+    )
+    def test_denied_dotted_property_is_stripped_under_its_encoded_name(self, _name: str, query: str) -> None:
+        # The native table stores the flat key `customer.ssn` under the path `customer%2Essn`.
+        dotted_prop = PropertyDefinition.objects.create(
+            team=self.team, name="customer.ssn", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=dotted_prop, access_level=PropertyAccessLevel.NONE.value
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            user=self.user,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
+        )
+        sql, _ = prepare_and_print_ast(parse_select(query), context=context, dialect="clickhouse")
+        assert "getSubcolumn" not in sql
 
     def test_allowed_property_not_affected(self):
         PropertyAccessControl.objects.create(
@@ -223,6 +254,11 @@ class TestRestrictPropertiesInHogQL(BaseTest):
     def test_role_override_allows_access(self):
         from products.access_control.backend.models.role import Role, RoleMembership
 
+        self.organization.available_product_features = [
+            {"name": feature, "key": feature}
+            for feature in (AvailableFeature.PROPERTY_ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
+        ]
+        self.organization.save()
         role = Role.objects.create(name="Analyst", organization=self.organization)
         RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
 
@@ -617,3 +653,44 @@ class TestRestrictedPropertyWithMaterializedColumn(ClickhouseTestMixin, BaseTest
         with materialized("events", "secret_field", is_nullable=False):
             sql = self._compile_select("SELECT properties.secret_field FROM events")
         assert "mat_secret_field" not in sql, f"restricted property leaked via materialized column: {sql}"
+
+
+class TestRestrictedPersonPropertiesBlobQuery(ClickhouseTestMixin, BaseTest):
+    def test_empty_person_properties_row_does_not_fail_the_masked_query(self):
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        person_prop = PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=person_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        create_event(
+            event_uuid=uuid.uuid4(),
+            event="$pageview",
+            team=self.team,
+            distinct_id="with-person-properties",
+            person_properties={"email": "user@example.com", "name": "Example"},
+        )
+        create_event(
+            event_uuid=uuid.uuid4(), event="$pageview", team=self.team, distinct_id="without-person-properties"
+        )
+
+        response = execute_hogql_query(
+            "SELECT distinct_id, person.properties FROM events ORDER BY distinct_id",
+            team=self.team,
+            user=self.user,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                useNewEventsSchema=False,
+            ),
+        )
+
+        assert response.results == [("with-person-properties", '{"name":"Example"}'), ("without-person-properties", "")]

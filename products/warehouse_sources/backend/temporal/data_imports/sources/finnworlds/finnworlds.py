@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.settings import (
     FINNWORLDS_ENDPOINTS,
+    FanoutDimension,
     FinnworldsEndpointConfig,
     ResponseMode,
 )
@@ -28,6 +29,9 @@ REQUEST_TIMEOUT_SECONDS = 60
 # the outbound fan-out (and the credit burn) a single config can trigger. 500 comfortably covers a large
 # watchlist like the S&P 500 while rejecting paste-the-whole-exchange configs.
 MAX_TICKERS = 500
+
+# Macroeconomic indicators fan out over countries the same way, and Finnworlds covers 196 of them.
+MAX_COUNTRIES = 200
 
 
 class FinnworldsRetryableError(Exception):
@@ -60,6 +64,28 @@ def parse_tickers(raw: str | None) -> list[str]:
     if len(tickers) > MAX_TICKERS:
         raise ValueError(f"Too many tickers: at most {MAX_TICKERS} are allowed per source.")
     return tickers
+
+
+def parse_countries(raw: str | None) -> list[str]:
+    """Split the user's country list into the underscore-joined names the macro endpoint expects.
+
+    Only commas and newlines separate entries, so a space inside a name is kept as part of it and
+    written the way the API spells it ("United Kingdom" becomes "United_Kingdom"). Matching is
+    case-insensitive for de-duplication, but the user's spelling is what gets sent.
+    """
+    if not raw:
+        return []
+    seen: set[str] = set()
+    countries: list[str] = []
+    for token in re.split(r"[,\n]", raw):
+        country = "_".join(token.split())
+        if not country or country.casefold() in seen:
+            continue
+        seen.add(country.casefold())
+        countries.append(country)
+    if len(countries) > MAX_COUNTRIES:
+        raise ValueError(f"Too many countries: at most {MAX_COUNTRIES} are allowed per source.")
+    return countries
 
 
 def _build_url(path: str, params: dict[str, str]) -> str:
@@ -120,6 +146,79 @@ def _raise_if_auth_error(error_message: str) -> None:
         raise FinnworldsAuthError(f"Finnworlds authentication failed: {error_message}")
 
 
+def _flatten_nested(row: dict[str, Any]) -> dict[str, Any]:
+    """Merge one level of nested objects into the row, prefixing their keys with the object name."""
+    flat: dict[str, Any] = {}
+    for key, value in row.items():
+        if isinstance(value, dict):
+            for nested_key, nested_value in value.items():
+                flat[f"{key}_{nested_key}"] = nested_value
+        else:
+            flat[key] = value
+    return flat
+
+
+def _insider_owner_fields(owner: dict[str, Any]) -> dict[str, Any]:
+    owner_id = owner.get("owner_id")
+    owner_id = owner_id if isinstance(owner_id, dict) else {}
+    role = owner.get("owner_role")
+    role = role if isinstance(role, dict) else {}
+    return {
+        "owner_cik": owner_id.get("owner_cik"),
+        "owner_name": owner_id.get("name"),
+        "owner_is_director": role.get("is_director"),
+        "owner_is_officer": role.get("is_officer"),
+        "owner_is_ten_percent_owner": role.get("is_ten_percent_owner"),
+        "owner_is_other": role.get("is_other"),
+        "owner_title": role.get("insider"),
+    }
+
+
+def _insider_filing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Expand SEC Form 4 filings into one row per reported transaction line.
+
+    A date range can return either one filing object or a list of them, so both are accepted. Joint
+    filers report the same lines, so a line is emitted once per reporting owner. The line index runs
+    across the whole response, because the API exposes no filing identifier to separate two filings
+    that share a period and an owner.
+    """
+    result = payload.get("result")
+    filings = result if isinstance(result, list) else [result]
+
+    rows: list[dict[str, Any]] = []
+    index = 0
+    for filing in filings:
+        if not isinstance(filing, dict):
+            continue
+        owners = [owner for owner in filing.get("reporting_owner") or [] if isinstance(owner, dict)] or [{}]
+        period_of_report = filing.get("period_of_report")
+
+        for table in ("non_derivative_table", "derivative_table"):
+            entries = filing.get(table)
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                # Derivative lines wrap the transaction in a "derivatives" object; non-derivative ones don't.
+                inner = entry.get("derivatives", entry)
+                if not isinstance(inner, dict):
+                    continue
+                line = _flatten_nested(inner)
+                index += 1
+                rows.extend(
+                    {
+                        **line,
+                        **_insider_owner_fields(owner),
+                        "period_of_report": period_of_report,
+                        "transaction_table": table.removesuffix("_table"),
+                        "transaction_index": index,
+                    }
+                    for owner in owners
+                )
+    return rows
+
+
 def _extract_rows(payload: dict[str, Any], config: FinnworldsEndpointConfig) -> list[dict[str, Any]]:
     result = payload.get("result", {})
     result = result if isinstance(result, dict) else {}
@@ -136,6 +235,8 @@ def _extract_rows(payload: dict[str, Any], config: FinnworldsEndpointConfig) -> 
         rows = output if isinstance(output, list) else []
     elif config.response_mode == ResponseMode.RESULT_KEY:
         rows = result.get(config.data_key, []) if config.data_key else []
+    elif config.response_mode == ResponseMode.INSIDER_FILING:
+        rows = _insider_filing_rows(payload)
     else:  # TOP_LEVEL
         rows = payload.get(config.data_key, []) if config.data_key else []
 
@@ -145,16 +246,16 @@ def _extract_rows(payload: dict[str, Any], config: FinnworldsEndpointConfig) -> 
 
 
 def _normalize_row(
-    row: dict[str, Any], config: FinnworldsEndpointConfig, ticker: str | None, period: str | None
+    row: dict[str, Any], config: FinnworldsEndpointConfig, identifier: str | None, period: str | None
 ) -> dict[str, Any]:
     """Flatten configured nested objects and inject the identifiers the primary key relies on."""
     for nested_key in config.flatten_keys:
         nested = row.pop(nested_key, None)
         if isinstance(nested, dict):
-            # Injected ticker/period below take precedence, so merge the nested object first.
+            # Injected identifier/period below take precedence, so merge the nested object first.
             row = {**nested, **row}
-    if config.requires_ticker and ticker is not None:
-        row["ticker"] = ticker
+    if config.fanout != FanoutDimension.NONE and identifier is not None:
+        row[config.fanout.value] = identifier
     if config.include_period:
         row["period"] = period or "annual"
     return row
@@ -164,12 +265,12 @@ def _fetch_endpoint_rows(
     session: requests.Session,
     config: FinnworldsEndpointConfig,
     api_key: str,
-    ticker: str | None,
+    identifier: str | None,
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
     params: dict[str, str] = {"key": api_key}
-    if ticker is not None:
-        params["ticker"] = ticker
+    if identifier is not None:
+        params[config.fanout.value] = identifier
     url = _build_url(config.path, params)
 
     payload = _fetch(session, url, logger)
@@ -180,7 +281,7 @@ def _fetch_endpoint_rows(
         # A non-auth error usually means "no data for this identifier" or a tier-gated endpoint; skip
         # the identifier rather than failing the whole sync.
         logger.warning(
-            f"Finnworlds {config.name}: skipping ticker={ticker} due to API error: {error_message}",
+            f"Finnworlds {config.name}: skipping {config.fanout.value}={identifier} due to API error: {error_message}",
         )
         return []
 
@@ -193,18 +294,19 @@ def _fetch_endpoint_rows(
             # The primary key for fundamentals is (ticker, period, date); without a real period every row
             # falls back to "annual", which would silently merge quarterly rows. Surface it when it happens.
             logger.warning(
-                f"Finnworlds {config.name}: no period in response for ticker={ticker}; "
+                f"Finnworlds {config.name}: no period in response for ticker={identifier}; "
                 "defaulting to 'annual' (quarterly rows may collide on the primary key)",
             )
 
     rows = _extract_rows(payload, config)
-    return [_normalize_row(row, config, ticker, period) for row in rows]
+    return [_normalize_row(row, config, identifier, period) for row in rows]
 
 
 def get_rows(
     api_key: str,
     endpoint: str,
     tickers: list[str],
+    countries: list[str],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     config = FINNWORLDS_ENDPOINTS[endpoint]
@@ -212,16 +314,20 @@ def get_rows(
     # rides in the query string, so redact it from logged URLs and captured samples.
     session = make_tracked_session(redact_values=(api_key,))
 
-    if not config.requires_ticker:
+    if config.fanout == FanoutDimension.NONE:
         rows = _fetch_endpoint_rows(session, config, api_key, None, logger)
         if rows:
             yield rows
         return
 
-    for ticker in tickers:
-        rows = _fetch_endpoint_rows(session, config, api_key, ticker, logger)
+    identifiers = tickers if config.fanout == FanoutDimension.TICKER else countries
+    if not identifiers:
+        logger.warning(f"Finnworlds {config.name}: no {config.fanout.value} configured, so nothing to sync")
+
+    for identifier in identifiers:
+        rows = _fetch_endpoint_rows(session, config, api_key, identifier, logger)
         if rows:
-            # Yield one batch per ticker; the pipeline buffers and re-batches across tickers.
+            # Yield one batch per identifier; the pipeline buffers and re-batches across them.
             yield rows
 
 
@@ -259,13 +365,14 @@ def finnworlds_source(
     api_key: str,
     endpoint: str,
     tickers: list[str],
+    countries: list[str],
     logger: FilteringBoundLogger,
 ) -> SourceResponse:
     config = FINNWORLDS_ENDPOINTS[endpoint]
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(api_key=api_key, endpoint=endpoint, tickers=tickers, logger=logger),
+        items=lambda: get_rows(api_key=api_key, endpoint=endpoint, tickers=tickers, countries=countries, logger=logger),
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

@@ -115,6 +115,11 @@ FIELDS: dict[str, FieldOrTable] = {
     # ci_job_history's consumers already do. Appended, because the column order is the saved-query
     # schema contract.
     "created_at_raw": StringDatabaseField(name="created_at_raw", nullable=True),
+    "ci_engine": StringDatabaseField(name="ci_engine", nullable=True),
+    "native_run_id": StringDatabaseField(name="native_run_id", nullable=True),
+    "native_workflow_run_id": StringDatabaseField(name="native_workflow_run_id", nullable=True),
+    "native_job_id": StringDatabaseField(name="native_job_id", nullable=True),
+    "native_attempt_id": StringDatabaseField(name="native_attempt_id", nullable=True),
 }
 
 
@@ -142,7 +147,11 @@ def _run_passthrough_aliases() -> str:
 
 
 def build_query(
-    *, jobs_table: str, runs_table: str, include_run_columns: bool = False, created_floor: bool = False
+    *,
+    jobs_table: workflow_jobs.JobsTable,
+    runs_table: str,
+    include_run_columns: bool = False,
+    created_floor: bool = False,
 ) -> str:
     """The per-job cost SELECT for one GitHub source: curated jobs LEFT JOIN curated runs.
 
@@ -207,7 +216,8 @@ def build_query(
             {render_estimated_cost_usd("provider", "os", "vcpu", "is_rerun_copy", "billed_seconds")} AS estimated_cost_usd,
             is_merge_queue,
             is_rerun_copy,
-            created_at_raw{run_columns}
+            created_at_raw,
+            ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id{run_columns}
         FROM (
             SELECT
                 repo_owner,
@@ -230,6 +240,7 @@ def build_query(
                 is_merge_queue,
                 is_rerun_copy,
                 created_at_raw,
+                ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                 {render_provider("depot_label", "hosted_label")} AS provider,
                 {render_os("depot_label", "hosted_label")} AS os,
                 {render_vcpu("depot_label", "hosted_label")} AS vcpu{run_columns}
@@ -255,6 +266,7 @@ def build_query(
                     is_merge_queue,
                     is_rerun_copy,
                     created_at_raw,
+                    ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                     {render_depot_label("labels_arr")} AS depot_label,
                     {render_hosted_label("labels_arr")} AS hosted_label{run_columns}
                 FROM (
@@ -268,7 +280,7 @@ def build_query(
                         j.name AS job_name,
                         j.run_id AS run_id,
                         j.run_attempt AS run_attempt,
-                        j.head_branch AS head_branch,
+                        {workflow_jobs.branch("j", "r")} AS head_branch,
                         j.status AS status,
                         j.conclusion AS conclusion,
                         j.runner_name AS runner_name,
@@ -283,9 +295,14 @@ def build_query(
                         r.is_merge_queue AS is_merge_queue,
                         j.is_rerun_copy AS is_rerun_copy,
                         j.created_at_raw AS created_at_raw,
+                        j.ci_engine AS ci_engine,
+                        j.native_run_id AS native_run_id,
+                        j.native_workflow_run_id AS native_workflow_run_id,
+                        j.native_job_id AS native_job_id,
+                        j.native_attempt_id AS native_attempt_id,
                         {labels_array} AS labels_arr{inner_run_columns}
                     FROM ({jobs}) AS j
-                    LEFT JOIN ({runs}) AS r ON j.run_id = r.id
+                    LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.ci_engine = r.ci_engine
                 )
             )
         )

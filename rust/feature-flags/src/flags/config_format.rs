@@ -26,12 +26,6 @@ impl ConfigFormat {
     }
 }
 
-fn config_format(version: Option<&Value>) -> ConfigFormat {
-    version.map_or(ConfigFormat::V1, |value| {
-        ConfigFormat::from_number(value.as_f64())
-    })
-}
-
 struct FilterDocument<const BUILD_DOCUMENT: bool> {
     format: ConfigFormat,
     document: Map<String, Value>,
@@ -62,9 +56,7 @@ impl<'de, const BUILD_DOCUMENT: bool> Deserialize<'de> for FilterDocument<BUILD_
                         if BUILD_DOCUMENT {
                             let mut version =
                                 serde_json::from_str(raw.get()).unwrap_or(Value::Null);
-                            // Keep is_v1's Value-based check consistent with raw-token
-                            // dispatch. serialize_filters also writes this normalized
-                            // discriminator back to the cache.
+                            // serialize_filters writes this normalized value back to the cache.
                             if format == ConfigFormat::V1 && version.as_f64() != Some(1.0) {
                                 version = serde_json::json!(1.0);
                             }
@@ -87,7 +79,7 @@ impl<'de, const BUILD_DOCUMENT: bool> Deserialize<'de> for FilterDocument<BUILD_
 
 impl FlagFilters {
     pub(crate) fn is_v1(&self) -> bool {
-        self.non_v1.is_none() && config_format(self.extra.get("version")) == ConfigFormat::V1
+        self.non_v1.is_none()
     }
 
     pub(crate) fn require_v1(&self) -> Result<(), FlagError> {
@@ -188,18 +180,14 @@ where
         .map_err(serde::de::Error::custom)
 }
 
-/// Derived serialization adds v1 fields to opaque documents. Stored JSON must use
-/// the retained raw document, or the passthrough map for manually constructed filters.
+/// Derived serialization adds v1 fields to opaque documents, so those keep their raw JSON.
 pub(crate) fn serialize_filters<S>(filters: &FlagFilters, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    if let Some(config) = &filters.non_v1 {
-        config.document.serialize(serializer)
-    } else if filters.is_v1() {
-        filters.serialize(serializer)
-    } else {
-        filters.extra.serialize(serializer)
+    match &filters.non_v1 {
+        Some(config) => config.document.serialize(serializer),
+        None => filters.serialize(serializer),
     }
 }
 

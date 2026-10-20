@@ -2,301 +2,29 @@
 
 from __future__ import annotations
 
+import threading
 from contextlib import contextmanager
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from types import TracebackType
 from typing import Any, Literal
+from uuid import uuid4
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, call, patch
 
+from django.db import connection
+
 import psycopg
+from asgiref.sync import sync_to_async
+from psycopg.conninfo import make_conninfo
 
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
 from posthog.temporal.warehouse_sources_queue_partition_management.activities import (
     RETENTION_STRANDED_ERROR,
-    _cleanup_old_s3_extractions,
     _terminalize_stranded_runs,
     manage_warehouse_sources_queue_partitions,
 )
-
-TODAY = date(2026, 5, 22)
-BUCKET = "data-warehouse"
-BASE = f"{BUCKET}/data_pipelines_extract"
-
-
-def _build_s3_mock(
-    entries: list[str],
-    *,
-    ls_raises: Exception | None = None,
-    delete_raises: dict[str, Exception] | None = None,
-) -> MagicMock:
-    s3 = MagicMock()
-    if ls_raises is not None:
-        s3.ls.side_effect = ls_raises
-    else:
-        s3.ls.return_value = entries
-
-    if delete_raises:
-
-        def _delete(path: str, recursive: bool) -> None:
-            if path in delete_raises:
-                raise delete_raises[path]
-
-        s3.delete.side_effect = _delete
-    return s3
-
-
-@contextmanager
-def _patched_s3(
-    entries: list[str],
-    *,
-    ls_raises: Exception | None = None,
-    delete_raises: dict[str, Exception] | None = None,
-    bucket: str = BUCKET,
-):
-    s3 = _build_s3_mock(entries, ls_raises=ls_raises, delete_raises=delete_raises)
-    with (
-        patch("products.data_warehouse.backend.s3.get_s3_client", return_value=s3),
-        patch.object(activities_module.settings, "DATAWAREHOUSE_BUCKET", bucket),
-    ):
-        yield s3
-
-
-# Cutoff arithmetic
-
-
-@pytest.mark.parametrize(
-    ("partition_date", "should_delete", "note"),
-    [
-        (date(2026, 5, 15), False, "exactly at cutoff -> keep (guards against `<=` flip)"),
-        (date(2026, 5, 14), True, "one day before cutoff -> delete"),
-        (date(2026, 5, 16), False, "one day after cutoff -> keep"),
-        (date(2026, 5, 22), False, "today -> keep"),
-        (date(2026, 6, 1), False, "future-dated -> keep (defense against clock skew)"),
-        (date(2020, 1, 1), True, "far old -> delete"),
-    ],
-)
-def test_cutoff_boundaries(partition_date: date, should_delete: bool, note: str) -> None:
-    name = f"dt={partition_date.isoformat()}"
-    entries = [f"{BASE}/{name}"]
-    errors: list[str] = []
-
-    with _patched_s3(entries) as s3:
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert errors == []
-    if should_delete:
-        assert deleted == [name]
-        s3.delete.assert_called_once_with(entries[0], recursive=True)
-    else:
-        assert deleted == []
-        s3.delete.assert_not_called()
-
-
-# Name parsing / filtering safety
-
-
-def test_skips_entries_without_dt_prefix() -> None:
-    entries = [
-        f"{BASE}/README.md",
-        f"{BASE}/_temp",
-        f"{BASE}/year=2024",
-        f"{BASE}/dt=2020-01-01",
-    ]
-    errors: list[str] = []
-
-    with _patched_s3(entries) as s3:
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert deleted == ["dt=2020-01-01"]
-    assert errors == []
-    s3.delete.assert_called_once_with(f"{BASE}/dt=2020-01-01", recursive=True)
-
-
-@pytest.mark.parametrize(
-    "bad_entry",
-    [
-        "dt=invalid",
-        "dt=2026-13-40",
-        "dt=",
-        "dt=2026/05/15",
-        "dt=2020-01-01-extra",
-    ],
-)
-def test_skips_dt_entries_with_unparseable_date(bad_entry: str) -> None:
-    entries = [f"{BASE}/{bad_entry}"]
-    errors: list[str] = []
-
-    with _patched_s3(entries) as s3:
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert deleted == []
-    assert errors == []
-    s3.delete.assert_not_called()
-
-
-def test_handles_entries_with_and_without_trailing_slash() -> None:
-    entries = [
-        f"{BASE}/dt=2020-01-01/",
-        f"{BASE}/dt=2020-02-02",
-    ]
-    errors: list[str] = []
-
-    with _patched_s3(entries) as s3:
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert set(deleted) == {"dt=2020-01-01", "dt=2020-02-02"}
-    assert errors == []
-    assert s3.delete.call_count == 2
-    s3.delete.assert_any_call(f"{BASE}/dt=2020-01-01/", recursive=True)
-    s3.delete.assert_any_call(f"{BASE}/dt=2020-02-02", recursive=True)
-
-
-def test_uses_basename_for_date_parsing_not_full_path() -> None:
-    entries = ["s3://other-bucket/data_pipelines_extract/dt=2020-01-01/"]
-    errors: list[str] = []
-
-    with _patched_s3(entries) as s3:
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert deleted == ["dt=2020-01-01"]
-    assert errors == []
-    s3.delete.assert_called_once_with(entries[0], recursive=True)
-
-
-# S3 listing edges
-
-
-def test_returns_empty_when_prefix_does_not_exist() -> None:
-    errors: list[str] = []
-
-    with _patched_s3([], ls_raises=FileNotFoundError()) as s3:
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert deleted == []
-    assert errors == []
-    s3.delete.assert_not_called()
-
-
-def test_returns_empty_when_prefix_has_no_entries() -> None:
-    errors: list[str] = []
-
-    with _patched_s3([]) as s3:
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert deleted == []
-    assert errors == []
-    s3.delete.assert_not_called()
-
-
-def test_returns_empty_when_no_entries_old_enough() -> None:
-    entries = [
-        f"{BASE}/dt=2026-05-20",
-        f"{BASE}/dt=2026-05-21",
-        f"{BASE}/dt=2026-05-22",
-    ]
-    errors: list[str] = []
-
-    with _patched_s3(entries) as s3:
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert deleted == []
-    assert errors == []
-    s3.delete.assert_not_called()
-
-
-# Per-entry failure isolation
-
-
-def test_continues_after_individual_delete_failure() -> None:
-    entries = [
-        f"{BASE}/dt=2020-01-01",
-        f"{BASE}/dt=2020-01-02",
-        f"{BASE}/dt=2020-01-03",
-    ]
-    errors: list[str] = []
-
-    with _patched_s3(entries, delete_raises={f"{BASE}/dt=2020-01-02": OSError("boom")}) as s3:
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert set(deleted) == {"dt=2020-01-01", "dt=2020-01-03"}
-    assert errors == ["Failed to delete S3 partition dt=2020-01-02: boom"]
-    assert s3.delete.call_count == 3
-
-
-def test_appends_error_for_each_failed_delete() -> None:
-    entries = [
-        f"{BASE}/dt=2020-01-01",
-        f"{BASE}/dt=2020-01-02",
-    ]
-    errors: list[str] = []
-    delete_raises: dict[str, Exception] = {
-        f"{BASE}/dt=2020-01-01": OSError("first"),
-        f"{BASE}/dt=2020-01-02": OSError("second"),
-    }
-
-    with _patched_s3(entries, delete_raises=delete_raises):
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert deleted == []
-    assert errors == [
-        "Failed to delete S3 partition dt=2020-01-01: first",
-        "Failed to delete S3 partition dt=2020-01-02: second",
-    ]
-
-
-def test_failure_does_not_mark_unrelated_skipped_entries() -> None:
-    entries = [
-        f"{BASE}/dt=2020-01-01",
-        f"{BASE}/dt=2026-05-22",
-        f"{BASE}/not-a-partition",
-        f"{BASE}/dt=invalid",
-    ]
-    errors: list[str] = []
-
-    with _patched_s3(entries, delete_raises={f"{BASE}/dt=2020-01-01": OSError("x")}) as s3:
-        deleted = _cleanup_old_s3_extractions(TODAY, errors)
-
-    assert deleted == []
-    assert errors == ["Failed to delete S3 partition dt=2020-01-01: x"]
-    s3.delete.assert_called_once_with(f"{BASE}/dt=2020-01-01", recursive=True)
-
-
-# Call shape
-
-
-def test_calls_delete_with_recursive_true() -> None:
-    entries = [f"{BASE}/dt=2020-01-01"]
-    errors: list[str] = []
-
-    with _patched_s3(entries) as s3:
-        _cleanup_old_s3_extractions(TODAY, errors)
-
-    # without recursive=True we'd leak every parquet file under the prefix
-    _, kwargs = s3.delete.call_args
-    assert kwargs == {"recursive": True}
-
-
-def test_uses_full_entry_path_when_deleting() -> None:
-    full_path = "s3://some-bucket/data_pipelines_extract/dt=2020-01-01"
-    entries = [full_path]
-    errors: list[str] = []
-
-    with _patched_s3(entries) as s3:
-        _cleanup_old_s3_extractions(TODAY, errors)
-
-    s3.delete.assert_called_once_with(full_path, recursive=True)
-
-
-def test_uses_configured_bucket_prefix() -> None:
-    errors: list[str] = []
-
-    with _patched_s3([], bucket="my-special-bucket") as s3:
-        _cleanup_old_s3_extractions(TODAY, errors)
-
-    s3.ls.assert_called_once_with("my-special-bucket/data_pipelines_extract")
-
 
 # Activity-level integration
 
@@ -305,13 +33,29 @@ class _FakePgConn:
     """Minimal psycopg.Connection stand-in: context manager + .execute returning a cursor.
 
     ``partitions`` (parent table -> partition names) feeds the pg_inherits
-    listing so the drop loop has something to drop; executed DROPs are recorded
-    in ``dropped``.
+    listing. Executed CREATEs add to it and executed DROPs remove from it, so
+    the listing after the run reflects what the activity did. DROPs are also
+    recorded in ``dropped``. ``default_rows`` (default partition -> row
+    ``created_at`` values) works the same way for DELETEs.
     """
 
-    def __init__(self, partitions: dict[str, list[str]] | None = None) -> None:
-        self.partitions = partitions or {}
+    def __init__(
+        self,
+        partitions: dict[str, list[str]] | None = None,
+        *,
+        default_rows: dict[str, list[datetime]] | None = None,
+        denied_creates: frozenset[str] = frozenset(),
+        denied_drops: frozenset[str] = frozenset(),
+        denied_deletes: frozenset[str] = frozenset(),
+    ) -> None:
+        self.partitions = partitions if partitions is not None else {}
+        self.default_rows = default_rows if default_rows is not None else {}
+        self.denied_creates = denied_creates
+        self.denied_drops = denied_drops
+        self.denied_deletes = denied_deletes
         self.dropped: list[str] = []
+        self.deleted: list[tuple[str, datetime]] = []
+        self.execute_threads: set[int] = set()
 
     def __enter__(self) -> _FakePgConn:
         return self
@@ -320,62 +64,123 @@ class _FakePgConn:
         return False
 
     def execute(self, sql: Any, params: Any = None) -> MagicMock:
+        self.execute_threads.add(threading.get_ident())
         cursor = MagicMock()
         cursor.fetchall.return_value = []
+        cursor.rowcount = 0
         if "pg_inherits" in sql and params:
             cursor.fetchall.return_value = [(name,) for name in self.partitions.get(params[0], [])]
+        elif sql.startswith("CREATE TABLE IF NOT EXISTS "):
+            tokens = sql.split()
+            partition_name, table = tokens[5], tokens[8]
+            if partition_name in self.denied_creates:
+                raise psycopg.errors.InsufficientPrivilege(f"must be owner of table {table}")
+            if partition_name not in self.partitions.setdefault(table, []):
+                self.partitions[table].append(partition_name)
         elif sql.startswith("DROP TABLE IF EXISTS "):
-            self.dropped.append(sql.removeprefix("DROP TABLE IF EXISTS "))
+            partition_name = sql.removeprefix("DROP TABLE IF EXISTS ")
+            if partition_name in self.denied_drops:
+                raise psycopg.errors.InsufficientPrivilege(f"must be owner of table {partition_name}")
+            self.dropped.append(partition_name)
+            for names in self.partitions.values():
+                if partition_name in names:
+                    names.remove(partition_name)
+        elif sql.strip().startswith("DELETE FROM "):
+            partition_name, created_before = sql.split()[2], params["created_before"]
+            if partition_name in self.denied_deletes:
+                raise psycopg.errors.InsufficientPrivilege(f"permission denied for table {partition_name}")
+            self.deleted.append((partition_name, created_before))
+            rows = self.default_rows.get(partition_name, [])
+            self.default_rows[partition_name] = [r for r in rows if r >= created_before]
+            cursor.rowcount = len(rows) - len(self.default_rows[partition_name])
+        elif sql.startswith("SELECT EXISTS "):
+            partition_name = sql.split()[5]
+            cursor.fetchone.return_value = (any(r < params[0] for r in self.default_rows.get(partition_name, [])),)
         return cursor
 
 
 @contextmanager
 def _patched_pg(partitions: dict[str, list[str]] | None = None):
-    # _verify_partitions is stubbed because the fake connection returns no rows, which would
-    # otherwise flood `errors` with bogus "partition missing" messages — orthogonal to the
-    # S3-cleanup wiring these integration tests cover.
     conn = _FakePgConn(partitions)
-    with (
-        patch.object(activities_module.psycopg.Connection, "connect", return_value=conn),
-        patch.object(activities_module, "_verify_partitions"),
-    ):
+    with patch.object(activities_module.psycopg.Connection, "connect", return_value=conn):
         yield conn
 
 
-@pytest.mark.asyncio
-async def test_activity_result_includes_s3_deleted(activity_environment) -> None:
-    # Use a date guaranteed to be older than 7 days from real `date.today()` so we don't have
-    # to patch the date module — the cutoff math itself is exhaustively tested above.
-    entries = [f"{BASE}/dt=2000-01-01"]
+ALERT_TODAY = date(2026, 9, 22)
 
-    with _patched_pg(), _patched_s3(entries):
-        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
 
-    assert result["s3_deleted"] == ["dt=2000-01-01"]
-    assert result["errors"] == []
-    assert result["success"] is True
+def _day(offset: int) -> str:
+    return (ALERT_TODAY + timedelta(days=offset)).strftime("%Y%m%d")
 
 
 @pytest.mark.asyncio
-async def test_activity_s3_failure_marks_success_false_and_triggers_slack(activity_environment) -> None:
-    entries = [f"{BASE}/dt=2000-01-01"]
-    delete_raises: dict[str, Exception] = {f"{BASE}/dt=2000-01-01": OSError("kaboom")}
+@pytest.mark.parametrize(
+    ("partitions", "default_rows", "denied_creates", "denied_retention", "expected_alert"),
+    [
+        ({}, {}, {f"sourcebatch_{_day(1)}"}, set(), "`sourcebatch`: 2026-09-23"),
+        ({}, {}, {f"sourcebatch_{_day(0)}"}, set(), None),
+        ({}, {}, {f"sourcebatch_{_day(6)}"}, set(), None),
+        ({"sourcebatch": [f"sourcebatch_{_day(-9)}"]}, {}, set(), {f"sourcebatch_{_day(-9)}"}, "oldest 2026-09-13"),
+        ({"sourcebatch": [f"sourcebatch_{_day(-8)}"]}, {}, set(), {f"sourcebatch_{_day(-8)}"}, None),
+        (
+            {"sourcebatch": ["sourcebatch_default"]},
+            {"sourcebatch_default": [datetime(2026, 9, 13, 12, tzinfo=UTC)]},
+            set(),
+            {"sourcebatch_default"},
+            "`sourcebatch_default`: rows created before 2026-09-14",
+        ),
+        (
+            {"sourcebatch": ["sourcebatch_default"]},
+            {"sourcebatch_default": [datetime(2026, 9, 14, 12, tzinfo=UTC)]},
+            set(),
+            {"sourcebatch_default"},
+            None,
+        ),
+    ],
+    ids=[
+        "tomorrow_missing",
+        "only_today_missing",
+        "newest_partition_first_failure",
+        "drop_overdue_a_day",
+        "first_drop_failure",
+        "default_rows_overdue_a_day",
+        "first_default_expiry_failure",
+    ],
+)
+async def test_activity_posts_to_slack_only_when_someone_must_act(
+    activity_environment,
+    partitions: dict[str, list[str]],
+    default_rows: dict[str, list[datetime]],
+    denied_creates: set[str],
+    denied_retention: set[str],
+    expected_alert: str | None,
+) -> None:
+    conn = _FakePgConn(
+        {table: list(names) for table, names in partitions.items()},
+        default_rows={name: list(rows) for name, rows in default_rows.items()},
+        denied_creates=frozenset(denied_creates),
+        denied_drops=frozenset(denied_retention),
+        denied_deletes=frozenset(denied_retention),
+    )
 
     with (
-        _patched_pg(),
-        _patched_s3(entries, delete_raises=delete_raises),
+        time_machine.travel("2026-09-22T08:00:00Z", tick=False),
+        patch.object(activities_module.psycopg.Connection, "connect", return_value=conn),
+        patch.object(activities_module.settings, "WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL", ""),
         patch.object(
             activities_module.settings, "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", "https://hooks/x"
         ),
         patch.object(activities_module.requests, "post") as post,
+        patch.object(activities_module, "_terminalize_stranded_runs"),
     ):
-        post.return_value.raise_for_status = MagicMock()
         result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
 
     assert result["success"] is False
-    assert result["errors"] == ["Failed to delete S3 partition dt=2000-01-01: kaboom"]
-    assert result["s3_deleted"] == []
-    post.assert_called_once()
+    if expected_alert is None:
+        post.assert_not_called()
+    else:
+        post.assert_called_once()
+        assert expected_alert in str(post.call_args.kwargs["json"])
 
 
 # Terminalizing stranded runs before partition drops
@@ -465,7 +270,6 @@ async def test_activity_terminalizes_only_sourcebatch_partitions_then_drops(acti
 
     with (
         _patched_pg(partitions) as conn,
-        _patched_s3([]),
         patch.object(activities_module, "_terminalize_stranded_runs") as terminalize,
     ):
         result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
@@ -475,6 +279,20 @@ async def test_activity_terminalizes_only_sourcebatch_partitions_then_drops(acti
     assert OLD_BATCH_PART in result["dropped"]
     assert OLD_STATUS_PART in result["dropped"]
     assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_activity_runs_queue_database_statements_on_a_pool_thread(activity_environment) -> None:
+    shared_thread_sensitive_ident = await sync_to_async(threading.get_ident)()
+
+    with (
+        _patched_pg({"sourcebatch": [OLD_BATCH_PART]}) as conn,
+        patch.object(activities_module, "_terminalize_stranded_runs"),
+    ):
+        await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    assert conn.dropped == [OLD_BATCH_PART]
+    assert conn.execute_threads.isdisjoint({threading.get_ident(), shared_thread_sensitive_ident})
 
 
 @pytest.mark.asyncio
@@ -490,7 +308,6 @@ async def test_activity_keeps_partition_when_terminalization_fails(activity_envi
 
     with (
         _patched_pg(partitions) as conn,
-        _patched_s3([]),
         patch.object(activities_module, "_terminalize_stranded_runs", side_effect=_boom),
     ):
         result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
@@ -503,25 +320,95 @@ async def test_activity_keeps_partition_when_terminalization_fails(activity_envi
     assert any(OLD_BATCH_PART in e for e in result["errors"])
 
 
+PARTITION_ROLE_URL = "postgres://migrator@db.example.com/queue"
+WORKER_ROLE_URL = "postgres://worker@db.example.com/queue"
+
+
 @pytest.mark.asyncio
-async def test_activity_logs_s3_deleted_count(activity_environment) -> None:
-    entries = [
-        f"{BASE}/dt=2000-01-01",
-        f"{BASE}/dt=2000-01-02",
-    ]
+@pytest.mark.parametrize(
+    ("partition_url", "expected_urls", "expect_dropped"),
+    [
+        (PARTITION_ROLE_URL, [PARTITION_ROLE_URL, WORKER_ROLE_URL], True),
+        ("", [WORKER_ROLE_URL], False),
+    ],
+)
+async def test_activity_uses_partition_role_and_drops_worker_owned_partitions_as_worker(
+    activity_environment, partition_url: str, expected_urls: list[str], expect_dropped: bool
+) -> None:
+    ddl_conn = _FakePgConn({"sourcebatchstatus": [OLD_STATUS_PART]}, denied_drops=frozenset({OLD_STATUS_PART}))
+    owner_conn = _FakePgConn(ddl_conn.partitions)
 
     with (
-        _patched_pg(),
-        _patched_s3(entries),
-        patch.object(activities_module.logger, "info") as log_info,
+        patch.object(activities_module.settings, "WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL", partition_url),
+        patch.object(activities_module.settings, "WAREHOUSE_SOURCES_DATABASE_URL", WORKER_ROLE_URL),
+        patch.object(activities_module.psycopg.Connection, "connect", side_effect=[ddl_conn, owner_conn]) as connect,
     ):
-        await activity_environment.run(manage_warehouse_sources_queue_partitions)
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
 
-    completion_calls = [
-        call for call in log_info.call_args_list if call.args and call.args[0] == "Partition management completed"
-    ]
-    assert len(completion_calls) == 1
-    assert completion_calls[0].kwargs["s3_deleted_count"] == 2
+    assert [c.args[0] for c in connect.call_args_list] == expected_urls
+    assert (OLD_STATUS_PART in result["dropped"]) is expect_dropped
+    assert owner_conn.dropped == ([OLD_STATUS_PART] if expect_dropped else [])
+    assert result["success"] is expect_dropped
+
+
+@pytest.mark.asyncio
+async def test_activity_expires_old_default_partition_rows_instead_of_dropping(activity_environment) -> None:
+    partitions = {"sourcebatch": ["sourcebatch_default"], "sourcebatchstatus": ["sourcebatchstatus_default"]}
+    cutoff = datetime(2026, 9, 15, tzinfo=UTC)
+
+    with (
+        time_machine.travel("2026-09-22T12:00:00Z", tick=False),
+        _patched_pg(partitions) as conn,
+        patch.object(activities_module, "_terminalize_stranded_runs") as terminalize,
+    ):
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    terminalize.assert_called_once_with(conn, "sourcebatch_default", created_before=cutoff)
+    assert conn.deleted == [("sourcebatch_default", cutoff), ("sourcebatchstatus_default", cutoff)]
+    assert conn.dropped == []
+    assert result["success"] is True
+
+
+def _test_database_conninfo() -> str:
+    settings_dict = connection.settings_dict
+    params = {
+        "host": settings_dict["HOST"],
+        "port": str(settings_dict["PORT"] or ""),
+        "user": settings_dict["USER"],
+        "password": settings_dict["PASSWORD"],
+        "dbname": settings_dict["NAME"],
+    }
+    return make_conninfo(**{key: value for key, value in params.items() if value})
+
+
+@pytest.mark.django_db
+def test_expire_default_partition_rows_deletes_only_rows_older_than_cutoff_in_batches() -> None:
+    table = f"expiry_test_{uuid4().hex[:12]}"
+    cutoff = date(2026, 9, 15)
+    errors: list[str] = []
+
+    with psycopg.Connection.connect(_test_database_conninfo(), autocommit=True) as conn:
+        try:
+            conn.execute(f"CREATE TABLE {table} (id int, created_at timestamptz) PARTITION BY RANGE (created_at)")
+            conn.execute(f"CREATE TABLE {table}_default PARTITION OF {table} DEFAULT")
+            conn.execute(
+                f"""
+                INSERT INTO {table}
+                SELECT g, timestamptz '2026-09-14 23:59:59+00' - g * interval '1 hour' FROM generate_series(1, 5) g
+                UNION ALL
+                SELECT 100 + g, timestamptz '2026-09-15 00:00:00+00' + g * interval '1 hour' FROM generate_series(0, 1) g
+                """
+            )
+
+            with patch.object(activities_module, "DEFAULT_PARTITION_DELETE_BATCH_SIZE", 2):
+                activities_module._expire_default_partition_rows(conn, table, f"{table}_default", cutoff, errors)
+
+            remaining = [row[0] for row in conn.execute(f"SELECT id FROM {table} ORDER BY id").fetchall()]
+        finally:
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+    assert errors == []
+    assert remaining == [100, 101]
 
 
 def _connect_refused(*args: Any, **kwargs: Any) -> None:
@@ -556,3 +443,47 @@ async def test_connect_failure_keeps_database_url_out_of_traceback_locals() -> N
 
     hits = _frames_holding(exc_info.value.__traceback__, _SECRET)
     assert hits == []
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "existing_options, expect_alter",
+    [
+        ("", True),
+        ("autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.02", True),
+        (", ".join(activities_module._PARTITION_AUTOVACUUM_OPTIONS), False),
+    ],
+)
+def test_tune_partition_autovacuum_sets_options_once(existing_options: str, expect_alter: bool) -> None:
+    table = f"autovacuum_test_{uuid4().hex[:12]}"
+    partition = f"{table}_20261002"
+    errors: list[str] = []
+
+    with psycopg.Connection.connect(_test_database_conninfo(), autocommit=True) as conn:
+        try:
+            conn.execute(f"CREATE TABLE {table} (id int, created_at timestamptz) PARTITION BY RANGE (created_at)")
+            conn.execute(
+                f"CREATE TABLE {partition} PARTITION OF {table} FOR VALUES FROM ('2026-10-02') TO ('2026-10-03')"
+            )
+            if existing_options:
+                conn.execute(f"ALTER TABLE {partition} SET ({existing_options})")
+
+            statements: list[str] = []
+            real_execute = conn.execute
+
+            def recording_execute(query: Any, *args: Any, **kwargs: Any) -> Any:
+                statements.append(str(query))
+                return real_execute(query, *args, **kwargs)
+
+            with patch.object(conn, "execute", side_effect=recording_execute):
+                activities_module._tune_partition_autovacuum(conn, partition, errors)
+
+            row = conn.execute("SELECT reloptions FROM pg_class WHERE oid = %s::regclass", [partition]).fetchone()
+            assert row is not None
+            options = row[0]
+        finally:
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+    assert errors == []
+    assert set(options) >= set(activities_module._PARTITION_AUTOVACUUM_OPTIONS)
+    assert any(statement.startswith("ALTER TABLE") for statement in statements) is expect_alter

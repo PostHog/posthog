@@ -156,6 +156,27 @@ describe('ui-apps', () => {
             expect(registration._meta['openai/widgetCSP'].resource_domains).toContain('https://mcp.posthog.com')
         })
 
+        it('allows Visual Review artifacts without widening other app CSPs', async () => {
+            const { registerUiAppResources } = await import('@/resources/ui-apps')
+            const server = createMockServer()
+            const context = createMockContext({ MCP_APPS_BASE_URL: 'https://mcp.posthog.com' })
+
+            await registerUiAppResources(server as any, context as any)
+
+            const visualReviewRegistration = server.registerResource.mock.calls.find(
+                (call: unknown[]) => call[1] === URI_MAP['visual-review-snapshots']
+            )
+            const debugRegistration = server.registerResource.mock.calls.find(
+                (call: unknown[]) => call[1] === URI_MAP.debug
+            )
+            const artifactSource =
+                'https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/'
+
+            expect(visualReviewRegistration![2]._meta.ui.csp.resourceDomains).toContain(artifactSource)
+            expect(visualReviewRegistration![2]._meta['openai/widgetCSP'].resource_domains).toContain(artifactSource)
+            expect(debugRegistration![2]._meta.ui.csp.resourceDomains).not.toContain(artifactSource)
+        })
+
         it('includes analytics URL in CSP when set', async () => {
             const { registerUiAppResources } = await import('@/resources/ui-apps')
             const server = createMockServer()

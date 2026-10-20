@@ -12,18 +12,69 @@ import {
 } from '~/types'
 
 // Deep link used in error tracking alert messages. Routes through the fingerprint redirect page
-// (/error_tracking/fingerprint/<fingerprint>) so links stay valid even after issues are merged.
+// (/error-tracking/fingerprint/<fingerprint>) so links stay valid even after issues are merged.
 // Also used by the onboarding alert setup (onboardingErrorTrackingAlertsLogic) — keep the format
 // in one place so URL changes can't drift between the two surfaces.
 // encodeURLComponent mirrors JS encodeURIComponent, which leaves `(` and `)` unescaped — a `)` in a
 // fingerprint would close the surrounding markdown link `[text](url)` early, so encode them too.
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
-    `{project.url}/error_tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
+    `{project.url}/error-tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
+
+// PagerDuty has no high, medium or low severity, so the issue severity maps onto its scale.
+// The template sends error for an issue without a severity.
+const ERROR_TRACKING_PAGERDUTY_SEVERITY =
+    "{event.properties.severity == 'critical' ? 'critical' : event.properties.severity == 'high' ? 'error' : event.properties.severity == 'medium' ? 'warning' : event.properties.severity == 'low' ? 'info' : ''}"
+
+// Every PagerDuty alert also runs on the resolved event, so resolving the issue resolves the incident
+// that the alert opened. One dedup key per issue joins the two events.
+const ERROR_TRACKING_ISSUE_RESOLVED_EVENT = '$error_tracking_issue_resolved'
+
+const errorTrackingPagerDutyFilters = (triggerEvent: string): HogFunctionSubTemplateType['filters'] => ({
+    source: 'internal-events',
+    events: [
+        { id: triggerEvent, type: 'events' },
+        { id: ERROR_TRACKING_ISSUE_RESOLVED_EVENT, type: 'events' },
+    ],
+})
+
+const errorTrackingPagerDutyInputs = (
+    summary: string,
+    extraDetails: Record<string, string> = {}
+): HogFunctionSubTemplateType['inputs'] => ({
+    event_action: { value: `{event.event == '${ERROR_TRACKING_ISSUE_RESOLVED_EVENT}' ? 'resolve' : 'trigger'}` },
+    dedup_key: { value: 'posthog-error-tracking-issue-{event.distinct_id}' },
+    summary: { value: summary },
+    source: { value: '{project.name}' },
+    severity: { value: ERROR_TRACKING_PAGERDUTY_SEVERITY },
+    component: { value: 'error tracking' },
+    custom_details: {
+        value: {
+            description: '{substring(event.properties.description, 1, 500)}',
+            status: '{event.properties.status}',
+            first_seen: '{event.properties.first_seen}',
+            severity: '{event.properties.severity}',
+            ...extraDetails,
+        },
+    },
+    links: {
+        value: [{ href: errorTrackingIssueLinkHogTemplate('pagerduty'), text: 'View issue in PostHog' }],
+    },
+})
 
 // In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
-// actually invoked rides on $mcp_exec_tool_call_name, so fall back the same way the backend does.
-const MCP_EFFECTIVE_TOOL_EXPR =
-    'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : event.properties.$mcp_tool_name'
+// actually invoked rides on $mcp_exec_tool_call_name. Rejected calls only carry the target.
+const MCP_EFFECTIVE_TOOL_EXPR = `(() -> {
+    if (event.properties.$mcp_exec_tool_call_name) {
+        return event.properties.$mcp_exec_tool_call_name;
+    }
+    if (event.properties.$mcp_tool_name = 'exec'
+        and event.properties.$mcp_exec_verb = 'call'
+        and event.properties.$mcp_exec_target_tool
+        and event.properties.$mcp_exec_target_tool != 'unrecognized') {
+        return event.properties.$mcp_exec_target_tool;
+    }
+    return event.properties.$mcp_tool_name;
+})()`
 
 // How long one failing tool stays deduped. Long enough to collapse a retry loop, short enough that
 // a breakage that is still happening reappears in the channel.
@@ -69,6 +120,12 @@ const BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS = 60 * 60
 // batch_export_id, but HogMaskerService skips masking on falsy hashes, so fall back defensively.
 const BATCH_EXPORT_ALERT_MASKING_HASH =
     "{event.properties.batch_export_id ? event.properties.batch_export_id : 'unknown-batch-export'}"
+
+// A sync that runs every few minutes would post a message per run, so limit each table to one
+// completed-sync message per hour. HogMaskerService skips masking on falsy hashes, so fall back
+// defensively.
+const DWH_SYNC_COMPLETED_MASKING_TTL_SECONDS = 60 * 60
+const DWH_SYNC_COMPLETED_MASKING_HASH = "{event.properties.schema_id ? event.properties.schema_id : 'unknown-table'}"
 
 // The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
 const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
@@ -243,6 +300,48 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
             threshold: null,
         },
         flag: FEATURE_FLAGS.BATCH_EXPORT_ALERTS,
+    },
+    'data-warehouse-sync-failed': {
+        sub_template_id: 'data-warehouse-sync-failed',
+        type: 'internal_destination',
+        context_id: 'data-warehouse-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$data_warehouse_sync_failed', type: 'events' }] },
+        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
+    },
+    'data-warehouse-sync-recovered': {
+        sub_template_id: 'data-warehouse-sync-recovered',
+        type: 'internal_destination',
+        context_id: 'data-warehouse-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$data_warehouse_sync_recovered', type: 'events' }] },
+        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
+    },
+    'data-warehouse-sync-completed': {
+        sub_template_id: 'data-warehouse-sync-completed',
+        type: 'internal_destination',
+        context_id: 'data-warehouse-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$data_warehouse_sync_completed', type: 'events' }] },
+        masking: {
+            hash: DWH_SYNC_COMPLETED_MASKING_HASH,
+            ttl: DWH_SYNC_COMPLETED_MASKING_TTL_SECONDS,
+            threshold: null,
+        },
+        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
+    },
+    'data-warehouse-billing-limit-reached': {
+        sub_template_id: 'data-warehouse-billing-limit-reached',
+        type: 'internal_destination',
+        context_id: 'data-warehouse-alerts',
+        filters: {
+            source: 'internal-events',
+            events: [{ id: '$data_warehouse_billing_limit_reached', type: 'events' }],
+        },
+        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
+    },
+    'replay-vision-request-completed': {
+        sub_template_id: 'replay-vision-request-completed',
+        type: 'internal_destination',
+        context_id: 'replay-vision-requests',
+        filters: { source: 'internal-events', events: [{ id: '$replay_vision_request_completed', type: 'events' }] },
     },
 }
 
@@ -619,6 +718,53 @@ function notificationVariants({
 const BATCH_EXPORT_NAME_SLACK = `{${slackEscapeExpr('event.properties.batch_export_name')}}`
 const BATCH_EXPORT_ERROR_SLACK = `{${slackEscapeExpr('event.properties.error', 1000)}}`
 
+// source_type, schema_name and error come from the source system, so they get the same escaping and
+// bounds as the other producer-controlled notification fields.
+interface DwhMessageFields {
+    sourceType: string
+    table: string
+    error: string
+}
+
+const DWH_SLACK_FIELDS: DwhMessageFields = {
+    sourceType: `{${slackEscapeExpr('event.properties.source_type', 100)}}`,
+    table: `{${slackEscapeExpr('event.properties.schema_name', 200)}}`,
+    error: `{${slackEscapeExpr('event.properties.error', 1000)}}`,
+}
+const DWH_MARKDOWN_FIELDS: DwhMessageFields = {
+    sourceType: `{${markdownEscapeExpr('event.properties.source_type', 100)}}`,
+    table: `{${markdownEscapeExpr('event.properties.schema_name', 200)}}`,
+    error: `{${markdownEscapeExpr('event.properties.error', 1000)}}`,
+}
+
+const DWH_TABLE_URL = '{event.properties.schema_url}'
+const DWH_SOURCE_URL = '{event.properties.source_url}'
+const DWH_MARKDOWN_TABLE_LINK = `[View table](${DWH_TABLE_URL})`
+const DWH_MARKDOWN_SOURCE_LINK = `[View source](${DWH_SOURCE_URL})`
+
+function dwhSyncFailedMessage(fields: DwhMessageFields, bold: string): string {
+    return (
+        `${bold}Sync failed${bold} for table ${bold}${fields.table}${bold} from ${fields.sourceType}.` +
+        `{event.properties.paused ? ' The table is paused.' : ''}\n` +
+        `${bold}Error:${bold} ${fields.error}`
+    )
+}
+
+function dwhSyncRecoveredMessage(fields: DwhMessageFields, bold: string): string {
+    return `Table ${bold}${fields.table}${bold} from ${fields.sourceType} is syncing again.`
+}
+
+function dwhSyncCompletedMessage(fields: DwhMessageFields, bold: string): string {
+    return `Table ${bold}${fields.table}${bold} from ${fields.sourceType} finished a sync. Rows synced: {event.properties.rows_synced}.`
+}
+
+function dwhBillingLimitMessage(fields: DwhMessageFields, bold: string): string {
+    return (
+        `{event.properties.kind == 'too_low' ? 'The billing limit is too low to sync' : 'The billing limit was reached, so this sync did not run for'} ` +
+        `table ${bold}${fields.table}${bold} from ${fields.sourceType}.`
+    )
+}
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'mcp-tool-error': notificationVariants({
         subTemplateId: 'mcp-tool-error',
@@ -629,6 +775,46 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackFallbackText: 'An MCP tool call failed',
         markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
         slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-tool-error'] },
+    }),
+    'data-warehouse-sync-failed': notificationVariants({
+        subTemplateId: 'data-warehouse-sync-failed',
+        nameSuffix: 'when a table sync fails',
+        description: 'Know when a table stops syncing and why',
+        webhookDescription: 'Send failed table syncs to your own endpoint',
+        slackMessage: dwhSyncFailedMessage(DWH_SLACK_FIELDS, '*'),
+        slackFallbackText: 'A table sync failed',
+        markdownMessage: `${dwhSyncFailedMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_TABLE_LINK}`,
+        slackButton: { url: DWH_TABLE_URL, label: 'View table' },
+    }),
+    'data-warehouse-sync-recovered': notificationVariants({
+        subTemplateId: 'data-warehouse-sync-recovered',
+        nameSuffix: 'when a table sync recovers',
+        description: 'Know when a table that failed is syncing again',
+        webhookDescription: 'Send recovered table syncs to your own endpoint',
+        slackMessage: dwhSyncRecoveredMessage(DWH_SLACK_FIELDS, '*'),
+        slackFallbackText: 'A table sync recovered',
+        markdownMessage: `${dwhSyncRecoveredMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_TABLE_LINK}`,
+        slackButton: { url: DWH_TABLE_URL, label: 'View table' },
+    }),
+    'data-warehouse-sync-completed': notificationVariants({
+        subTemplateId: 'data-warehouse-sync-completed',
+        nameSuffix: 'when a table sync completes',
+        description: 'Know when a table finishes syncing, at most once an hour for each table',
+        webhookDescription: 'Send completed table syncs to your own endpoint',
+        slackMessage: dwhSyncCompletedMessage(DWH_SLACK_FIELDS, '*'),
+        slackFallbackText: 'A table sync completed',
+        markdownMessage: `${dwhSyncCompletedMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_TABLE_LINK}`,
+        slackButton: { url: DWH_TABLE_URL, label: 'View table' },
+    }),
+    'data-warehouse-billing-limit-reached': notificationVariants({
+        subTemplateId: 'data-warehouse-billing-limit-reached',
+        nameSuffix: 'when the billing limit stops a sync',
+        description: 'Know when the Sources billing limit stops a table from syncing',
+        webhookDescription: 'Send billing limit events to your own endpoint',
+        slackMessage: dwhBillingLimitMessage(DWH_SLACK_FIELDS, '*'),
+        slackFallbackText: 'The billing limit stopped a table sync',
+        markdownMessage: `${dwhBillingLimitMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_SOURCE_LINK}`,
+        slackButton: { url: DWH_SOURCE_URL, label: 'View source' },
     }),
     'pa-rageclick': notificationVariants({
         subTemplateId: 'pa-rageclick',
@@ -1088,6 +1274,15 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
             },
         },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
+            template_id: 'template-pagerduty',
+            name: 'PagerDuty incident on issue created',
+            description:
+                'Triggers a PagerDuty incident when an issue is created and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_created'),
+            inputs: errorTrackingPagerDutyInputs('🔴 New issue: {event.properties.name}'),
+        },
     ],
     'error-tracking-issue-reopened': [
         {
@@ -1157,6 +1352,15 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: 'Issue reopened: {event.properties.name}',
                 },
             },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            template_id: 'template-pagerduty',
+            name: 'PagerDuty incident on issue reopened',
+            description:
+                'Triggers a PagerDuty incident when an issue is reopened and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_reopened'),
+            inputs: errorTrackingPagerDutyInputs('🔄 Issue reopened: {event.properties.name}'),
         },
     ],
     'error-tracking-issue-spiking': [
@@ -1241,6 +1445,17 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: 'Issue spiking: {event.properties.name}',
                 },
             },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-pagerduty',
+            name: 'PagerDuty incident on issue spiking',
+            description:
+                'Triggers a PagerDuty incident when an issue is spiking and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_spiking'),
+            inputs: errorTrackingPagerDutyInputs('📈 Issue spiking: {event.properties.name}', {
+                exceptions_in_last_5_minutes: '{event.properties.current_bucket_value}',
+            }),
         },
     ],
     'experiment-significant': [
@@ -1695,6 +1910,42 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'replay-vision-request-completed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['replay-vision-request-completed'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook when a Replay vision request completes',
+            description: 'Send a webhook when every session in a scan request has finished',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['replay-vision-request-completed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack when a Replay vision request completes',
+            description: 'Post to a Slack channel when every session in a scan request has finished',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                // verbatim stops Slack turning a caller's `@channel` in the reference into a ping.
+                                verbatim: true,
+                                text: 'Replay vision request {event.properties.label_mrkdwn} finished: *{event.properties.succeeded_count}* of {event.properties.session_count} sessions succeeded.',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'Replay vision request {event.properties.request_id} finished: {event.properties.succeeded_count} of {event.properties.session_count} sessions succeeded',
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1734,6 +1985,11 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'health-alerts'
         case '$batch_export_run_failed':
             return 'batch-export-alerts'
+        case '$data_warehouse_sync_failed':
+        case '$data_warehouse_sync_recovered':
+        case '$data_warehouse_sync_completed':
+        case '$data_warehouse_billing_limit_reached':
+            return 'data-warehouse-alerts'
         case '$billing_alert_firing':
         case '$billing_alert_resolved':
         case '$billing_alert_errored':
@@ -1745,6 +2001,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$replay_vision_alert_auto_disabled':
         case '$replay_vision_alert_match':
             return 'replay-vision-alerts'
+        case '$replay_vision_request_completed':
+            return 'replay-vision-requests'
         default:
             return 'standard'
     }

@@ -13,9 +13,11 @@ from __future__ import annotations
 import math
 import time
 import typing
+import threading
 import contextlib
 import collections
 import collections.abc
+import concurrent.futures
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -64,6 +66,10 @@ from posthog.models.integration.google_cloud import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    normalize_column_name,
+    normalize_table_column_names,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
@@ -81,6 +87,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -103,7 +110,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQuerySourceConfig,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType, PartitionSettings
 
 __all__ = [
     "BIGQUERY_API_VERSION_V2",
@@ -267,6 +274,11 @@ class BigQueryAuthResolutionError(Exception):
     """Carries a user-safe explanation of why a source's credentials could not be resolved."""
 
 
+def is_bigquery_auth_error(error: BaseException) -> bool:
+    """Whether `resolve_bigquery_auth` raised `error` with a message safe to show the user."""
+    return isinstance(error, BigQueryAuthResolutionError | BigQueryInvalidTokenUriError)
+
+
 # BigQuery occasionally fails a query job with a transient `jobInternalError`, surfaced from the
 # `jobs.getQueryResults` REST call as a 400 BadRequest whose message ends "The job encountered an
 # error during execution. Retrying the job may solve the problem.". The client's default job-retry
@@ -331,6 +343,122 @@ def _query_should_retry(exc: Exception) -> bool:
         or _is_transient_queued_jobs_quota_exceeded(exc)
         or _job_should_retry(exc)
     )
+
+
+# Limits on the waits of one import. The BigQuery client passes `timeout=None` to its HTTP session
+# by default, and a streaming read has no limit between two pages, so without these a connection
+# that goes silent holds its worker until the activity ends.
+#
+# Each REST request, as (connect, read) seconds. The read limit is on one silent socket read, and
+# the server answers a wait for a query job every few seconds, so a job that runs for a long time
+# never reaches it.
+BIGQUERY_HTTP_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 120.0)
+# The exact count of a filtered read. Its result feeds the progress display and the billing limit
+# check only, so a count that is not done by this time gives 0 (unknown).
+BIGQUERY_ROW_COUNT_JOB_TIMEOUT_SECONDS = 120
+# The query job that copies the rows to a temporary table before the first row is read. It sorts
+# the full result of an incremental read, so it gets a long limit.
+BIGQUERY_COPY_JOB_TIMEOUT_SECONDS = 2 * 60 * 60
+# The wait for one page of the Storage Read API stream. A read that keeps returning pages starts
+# a new wait with each page.
+BIGQUERY_READ_ROWS_IDLE_TIMEOUT_SECONDS = 10 * 60
+
+# HTTP/2 keepalive pings let gRPC find a connection that a proxy or NAT dropped without a reset.
+_BIGQUERY_STORAGE_KEEPALIVE_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("grpc.keepalive_time_ms", 60 * 1000),
+    ("grpc.keepalive_timeout_ms", 20 * 1000),
+    ("grpc.keepalive_permit_without_calls", 0),
+)
+
+# Stable prefixes, matched by `BigQuerySource.get_retryable_errors`.
+BIGQUERY_JOB_TIMEOUT_ERROR = "BigQuery did not finish the query job"
+BIGQUERY_READ_TIMEOUT_ERROR = "BigQuery sent no rows"
+
+
+class BigQueryJobTimeoutError(Exception):
+    """A query job was not done at its limit. A later attempt can succeed."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__(f"{BIGQUERY_JOB_TIMEOUT_ERROR} within {timeout_seconds:g} seconds, so PostHog ended it")
+
+
+class BigQueryReadTimeoutError(Exception):
+    """The Storage Read API stream sent no page before the limit. A later attempt can succeed."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__(f"{BIGQUERY_READ_TIMEOUT_ERROR} for {timeout_seconds:g} seconds, so PostHog ended the read")
+
+
+class _DeadlineAuthorizedSession(AuthorizedSession):
+    """An authorized session whose requests always have a timeout.
+
+    A default on the session is not sufficient, because the BigQuery client passes an explicit
+    `timeout=None` for each call that the caller gave no timeout.
+    """
+
+    def request(  # type: ignore[override]
+        self,
+        method: str,
+        url: str,
+        data: Any = None,
+        headers: Any = None,
+        max_allowed_time: float | None = None,
+        timeout: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        return super().request(
+            method,
+            url,
+            data=data,
+            headers=headers,
+            max_allowed_time=max_allowed_time,
+            timeout=BIGQUERY_HTTP_TIMEOUT_SECONDS if timeout is None else timeout,
+            **kwargs,
+        )
+
+
+def _wait_for_job(job: Any, *, timeout_seconds: float, **result_kwargs: Any) -> Any:
+    """Wait for a query job, and raise `BigQueryJobTimeoutError` when it is not done in time."""
+    try:
+        return job.result(timeout=timeout_seconds, **result_kwargs)
+    except concurrent.futures.TimeoutError as e:
+        try:
+            # The job would run on, and bill the customer, with nothing to read its result.
+            job.cancel(timeout=BIGQUERY_HTTP_TIMEOUT_SECONDS[1])
+        except Exception as cancel_error:
+            structlog.get_logger().debug("Could not cancel a BigQuery job at its limit", error=str(cancel_error))
+        raise BigQueryJobTimeoutError(timeout_seconds) from e
+
+
+def _pages_with_idle_timeout(
+    pages: Iterator[_T], *, timeout_seconds: float, end_read: Callable[[], None]
+) -> Iterator[_T]:
+    """Yield `pages`, and raise `BigQueryReadTimeoutError` when one does not come in time.
+
+    A gRPC deadline covers the stream as a whole, so it cannot tell a silent stream from a long
+    one. At the limit a timer thread calls `end_read`, which must make the blocked read raise.
+    """
+    while True:
+        expired = threading.Event()
+
+        def _expire(expired: threading.Event = expired) -> None:
+            expired.set()
+            end_read()
+
+        timer = threading.Timer(timeout_seconds, _expire)
+        timer.daemon = True
+        timer.start()
+        try:
+            page = next(pages)
+        except StopIteration:
+            return
+        except Exception as e:
+            if expired.is_set():
+                raise BigQueryReadTimeoutError(timeout_seconds) from e
+            raise
+        finally:
+            timer.cancel()
+        yield page
 
 
 # `job_retry` recovers a failed query *job* (a retryable reason surfaced from `jobs.getQueryResults`);
@@ -520,7 +648,7 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
     """
     # Imported here so the source registry — which the API imports on every request path — does not
     # pull in the batch-export Temporal module.
-    from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (  # noqa: PLC0415 — keeps the batch-export Temporal module off the source registry's import path
+    from products.batch_exports.backend.facade.destinations.bigquery import (  # noqa: PLC0415 — keeps the batch-export Temporal module off the source registry's import path
         MissingRequiredPermissionsError,
         ServiceAccountNotFoundError,
         ServiceAccountOwnershipError,
@@ -645,7 +773,7 @@ def bigquery_client(
     # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
     # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
     # call is logged and metered alongside the other warehouse sources.
-    authed_session = AuthorizedSession(credentials, auth_request=GoogleAuthRequest(auth_request_session))
+    authed_session = _DeadlineAuthorizedSession(credentials, auth_request=GoogleAuthRequest(auth_request_session))
     tracked_adapter = TrackedHTTPAdapter(max_retries=DEFAULT_RETRY)
     authed_session.mount("https://", tracked_adapter)
     authed_session.mount("http://", tracked_adapter)
@@ -702,6 +830,7 @@ def bigquery_storage_read_client(credentials: google_auth_credentials.Credential
         options=[
             ("grpc.max_send_message_length", -1),
             ("grpc.max_receive_message_length", -1),
+            *_BIGQUERY_STORAGE_KEEPALIVE_OPTIONS,
         ],
     )
     tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
@@ -839,6 +968,17 @@ def classify_bigquery_validation_error(e: Exception) -> str:
         return BIGQUERY_INVALID_KEY_FILE_ERROR
     if "invalid_grant" in message:
         return BIGQUERY_CREDENTIALS_REJECTED_ERROR
+    if "iam.serviceAccounts.getAccessToken" in message and "denied" in message:
+        # Raised as a `RefreshError` when Google rejects the impersonated-credentials token
+        # refresh: the ownership check only needs `iam.serviceAccounts.get`, so this can fail
+        # even though that check passed. Same remediation (grant Token Creator) as
+        # `BIGQUERY_IMPERSONATION_PERMISSION_ERROR`, so reuse its wording. Doesn't match the
+        # generic "Access Denied"/"PermissionDenied"/"permission denied" wording below (this
+        # message reads "Permission '...' denied on resource"), so it would otherwise fall
+        # through to the generic message and get captured as unexpected noise. Requiring
+        # "denied" alongside the permission name keeps this from matching an opaque
+        # `RefreshError` that merely mentions the permission without actually denying it.
+        return BIGQUERY_IMPERSONATION_PERMISSION_ERROR
     if (
         "Invalid project ID" in message
         or "Invalid dataset ID" in message
@@ -956,6 +1096,29 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     return primary_keys
 
 
+def _get_merge_keys(
+    stored_keys: list[str] | None,
+    detected_keys: list[str] | None,
+    table: bigquery.Table,
+    enabled_columns: list[str] | None,
+    incremental_field: str | None,
+) -> list[str] | None:
+    """The source columns an incremental merge matches rows on, or None when it has none.
+
+    The pipeline picks the key the same way (`resolve_primary_keys`). The Delta writer then keeps only the key
+    columns the read carries, under the names `normalize_table_column_names` gives them.
+    """
+    schema_columns = [field.name for field in table.schema]
+    merge_keys = resolve_merge_keys(stored_keys, detected_keys, schema_columns)
+    if not merge_keys:
+        return None
+    read_columns = compute_projected_columns(enabled_columns, detected_keys, incremental_field) or schema_columns
+    batch_columns = normalize_table_column_names(pa.table({name: pa.nulls(0) for name in read_columns}))
+    read_column_by_batch_name = dict(zip(batch_columns.column_names, read_columns))
+    merge_columns = (read_column_by_batch_name.get(normalize_column_name(key)) for key in merge_keys)
+    return list(dict.fromkeys(column for column in merge_columns if column is not None)) or None
+
+
 # Stable wording BigQuery puts in a `resourcesExceeded` query failure's message. Shared between
 # `_is_bigquery_resource_exceeded` and `BigQuerySource.get_non_retryable_errors` so the two sites
 # stay in lockstep if BigQuery ever adjusts the phrasing.
@@ -993,19 +1156,28 @@ def _is_bigquery_view_parse_failure(error: BadRequest) -> bool:
     return "failed to parse view" in str(error)
 
 
-def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
+def _has_duplicate_primary_keys(
+    table: bigquery.Table,
+    client: bigquery.Client,
+    primary_keys: list[str] | None,
+    row_filters: list[ValidatedRowFilter] | None = None,
+) -> bool:
     if not primary_keys or len(primary_keys) == 0:
         return False
 
     try:
+        key_columns = ", ".join(_BQ_QUOTER.quote(key) for key in primary_keys)
+        filter_conditions, query_parameters = _bq_row_filter_conditions(row_filters, table)
+        where_clause = f"WHERE {' AND '.join(filter_conditions)}" if filter_conditions else ""
         query = f"""
-            SELECT {", ".join(primary_keys)}
+            SELECT {key_columns}
             FROM `{table.dataset_id}`.`{table.table_id}`
-            GROUP BY {", ".join(primary_keys)}
+            {where_clause}
+            GROUP BY {key_columns}
             HAVING COUNT(*) > 1
         """
 
-        job_config = QueryJobConfig()
+        job_config = QueryJobConfig(query_parameters=query_parameters)
         job = client.query(query, job_config=job_config, project=table.project)
 
         for _ in job.result():
@@ -1090,7 +1262,14 @@ def _get_rows_to_sync(
         query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
         job_config = QueryJobConfig(query_parameters=query_parameters)
-        rows = _query_result_with_job_retry(client, query, job_config=job_config, project=table.project, page_size=1)
+        rows = _query_result_with_job_retry(
+            client,
+            query,
+            job_config=job_config,
+            project=table.project,
+            page_size=1,
+            timeout_seconds=BIGQUERY_ROW_COUNT_JOB_TIMEOUT_SECONDS,
+        )
         row = next(rows, None)
 
         if row and len(row) > 0 and row[0] is not None:
@@ -1103,7 +1282,7 @@ def _get_rows_to_sync(
         return 0
     except Exception as e:
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-        if not _is_missing_table_or_dataset(e):
+        if not _is_missing_table_or_dataset(e) and not isinstance(e, BigQueryJobTimeoutError):
             capture_exception(e)
 
         return 0
@@ -1341,7 +1520,7 @@ def _run_destination_query_with_job_retry(
 
     def _run() -> None:
         job = client.query(query, job_config=job_config, project=project, retry=BIGQUERY_QUERY_CREATE_RETRY)
-        job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY)
+        _wait_for_job(job, timeout_seconds=BIGQUERY_COPY_JOB_TIMEOUT_SECONDS, job_retry=BIGQUERY_QUERY_JOB_RETRY)
 
     _with_job_not_found_retry(_run)
 
@@ -1353,6 +1532,7 @@ def _query_result_with_job_retry(
     job_config: QueryJobConfig,
     project: str,
     page_size: int | None = None,
+    timeout_seconds: float | None = None,
 ) -> RowIterator:
     """Run a read-only query and return its row iterator, retrying the transient job-metadata race.
 
@@ -1364,7 +1544,11 @@ def _query_result_with_job_retry(
 
     def _run() -> RowIterator:
         job = client.query(query, job_config=job_config, project=project, retry=BIGQUERY_QUERY_CREATE_RETRY)
-        return job.result(page_size=page_size, job_retry=BIGQUERY_QUERY_JOB_RETRY)
+        if timeout_seconds is None:
+            return job.result(page_size=page_size, job_retry=BIGQUERY_QUERY_JOB_RETRY)
+        return _wait_for_job(
+            job, timeout_seconds=timeout_seconds, page_size=page_size, job_retry=BIGQUERY_QUERY_JOB_RETRY
+        )
 
     return _with_job_not_found_retry(_run)
 
@@ -1725,7 +1909,13 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             bq_table = bq_client.get_table(fully_qualified_table_name)
             primary_keys = _get_primary_keys_for_table(bq_table, bq_client)
             partition_settings = _get_partition_settings(bq_table, bq_client, partition_size_bytes=partition_size_bytes)
-            has_duplicate_keys = _has_duplicate_primary_keys(bq_table, bq_client, primary_keys)
+            # Only an incremental sync merges, so it is the only sync that reads the probe result.
+            merge_keys = (
+                _get_merge_keys(inputs.primary_keys, primary_keys, bq_table, enabled_columns, incremental_field)
+                if inputs.sync_type == ExternalDataSchemaSyncType.INCREMENTAL
+                else None
+            )
+            has_duplicate_keys = _has_duplicate_primary_keys(bq_table, bq_client, merge_keys, row_filters)
             rows_to_sync = _get_rows_to_sync(
                 bq_table,
                 bq_client,
@@ -1845,7 +2035,12 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
                     record_batches = []
                     table_size_bytes = 0
-                    for page in rows_iterator.pages:
+                    pages = _pages_with_idle_timeout(
+                        iter(rows_iterator.pages),
+                        timeout_seconds=BIGQUERY_READ_ROWS_IDLE_TIMEOUT_SECONDS,
+                        end_read=bq_storage.transport.close,
+                    )
+                    for page in pages:
                         record_batch = page.to_arrow()
                         # TODO: Perhaps we should support slicing record batches like we do in batch exports.
                         table_size_bytes += record_batch.get_total_buffer_size()

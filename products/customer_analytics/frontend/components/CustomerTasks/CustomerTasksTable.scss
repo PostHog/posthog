@@ -7,13 +7,63 @@
     display: none;
 }
 
+.CustomerTasksTable__narrow-controls {
+    display: none;
+}
+
+// Collapse a hidden column to zero width instead of removing its cells. LemonTable's loader row spans
+// every column, so a removed cell would shift the cells after it into the wrong columns.
+@mixin collapsed-cell {
+    padding: 0 !important;
+    overflow: hidden;
+    visibility: hidden;
+    border: 0 !important;
+}
+
 @container (max-width: 720px) {
     .CustomerTasksTable__updated,
     .CustomerTasksTable__assignee {
-        display: none;
+        @include collapsed-cell;
     }
 
     .CustomerTasksTable__narrow-assignee {
         display: block;
+    }
+
+    // LemonTable renders one <col> per column, so these must follow the column order in CustomerTasksTable.tsx.
+    // Account: Assignee (3) and Updated (5). Inbox adds Account at 3: Assignee (4) and Updated (6).
+    .CustomerTasksTable--account .LemonTable colgroup col:nth-child(3),
+    .CustomerTasksTable--account .LemonTable colgroup col:nth-child(5),
+    .CustomerTasksTable--inbox .LemonTable colgroup col:nth-child(4),
+    .CustomerTasksTable--inbox .LemonTable colgroup col:nth-child(6) {
+        width: 0 !important;
+    }
+}
+
+@container (max-width: 560px) {
+    .CustomerTasksTable--account {
+        // Also collapses the Status (2) and Due (4) <col> elements.
+        .CustomerTasksTable__status,
+        .CustomerTasksTable__due {
+            @include collapsed-cell;
+        }
+
+        .LemonTable colgroup col:nth-child(2),
+        .LemonTable colgroup col:nth-child(4) {
+            width: 0 !important;
+        }
+
+        .CustomerTasksTable__narrow-controls {
+            display: flex;
+
+            // LemonCalendarSelectInput always renders full width, which pushes the due date onto its own line.
+            .LemonButton--full-width {
+                width: auto;
+            }
+        }
+
+        .LemonTable colgroup col:first-child {
+            width: auto !important;
+        }
     }
 }

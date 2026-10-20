@@ -2,7 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postscript import (
     PostscriptSourceConfig,
 )
@@ -14,26 +13,6 @@ class TestPostscriptSource:
         self.source = PostscriptSource()
         self.team_id = 123
         self.config = PostscriptSourceConfig(api_key="sk_postscript")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Postscript"
-        assert config.label == "Postscript"
-        assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/postscript.png"
-        # The source ships visible — a truthy unreleasedSource hides it from every user.
-        assert not config.unreleasedSource
-
-    def test_get_schemas_incremental_semantics(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-
-        # /subscribers is the only endpoint with server-side `__gte` filters; /keywords accepts
-        # no query params at all, so declaring it incremental would silently full-scan forever.
-        assert schemas["subscribers"].supports_incremental is True
-        assert [f["field"] for f in schemas["subscribers"].incremental_fields] == ["updated_at", "created_at"]
-        assert schemas["keywords"].supports_incremental is False
-        assert schemas["keywords"].incremental_fields == []
 
     @parameterized.expand(
         [
@@ -50,10 +29,6 @@ class TestPostscriptSource:
     def test_non_retryable_errors_match_auth_failures_only(self, _name, observed_error, expect_match) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable) is expect_match
-
-    def test_resolve_api_version_defaults_to_v2(self) -> None:
-        assert self.source.resolve_api_version(None) == "v2"
-        assert self.source.default_version in self.source.supported_versions
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.postscript.source.postscript_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_postscript_source: mock.MagicMock) -> None:

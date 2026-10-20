@@ -24,10 +24,10 @@ import AlphaRelease from '../_snippets/alpha-release.mdx'
 <AlphaRelease />
 
 [Fireworks AI](https://fireworks.ai) is an inference and fine-tuning platform for open models.
-Linking it as a source syncs your platform data — models, datasets, deployments, fine-tuning jobs,
-batch inference jobs, evaluations, and account users — into the PostHog Data warehouse, so you can
-join it with your product data (for example, correlating training runs or deployment fleet state
-with in-product usage).
+Linking it as a source syncs your platform data into the PostHog Data warehouse: models, datasets,
+deployments, routers, fine-tuning jobs, batch inference jobs, evaluations, account users, and your
+token and spend usage. You can then join it with your product data, for example to compare what a
+feature costs you in inference against how much it gets used.
 
 ## Prerequisites
 
@@ -51,11 +51,17 @@ To connect Fireworks AI, you need:
 
 <SyncModes />
 
-Fireworks AI's list endpoints paginate with an opaque page token and don't expose a verified
-server-side "updated since" filter, so every table syncs as a **full refresh** — each sync
-re-reads the collection and merges on the primary key. These collections are small per account,
-so a full refresh is cheap. Schedule syncs at a cadence that fits how often your Fireworks AI
-activity changes.
+Most Fireworks AI endpoints list a collection and page with an opaque page token. They don't expose
+a verified server-side "updated since" filter, so those tables sync as a **full refresh**: each sync
+re-reads the collection and merges on the primary key. The collections are small per account, so a
+full refresh is cheap.
+
+`account_usage` is the exception. It comes from the billing usage report, which takes a date range,
+so it supports **incremental** sync and each run only asks for the days it hasn't loaded yet. The
+first sync loads the past year. Fireworks keeps restating a day's usage until that day closes, so
+every run re-reads the most recent day and merges the updated numbers into the existing rows.
+
+Schedule syncs at a cadence that fits how often your Fireworks AI activity changes.
 
 ## Configuration
 

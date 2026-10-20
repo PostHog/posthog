@@ -12,6 +12,10 @@ from products.ai_observability.backend.api.offline_experiment_parser import (
     OfflineEvaluationRequestTooLarge,
 )
 
+# Since Python 3.14, json.loads nesting is bounded by the C stack size instead of a fixed count,
+# so the case uses the deepest body that fits under the size limit rather than a guessed depth.
+DEEPEST_NESTING = (MAX_UPLOAD_BODY_BYTES - len(b'{"items":0}')) // 2
+
 
 class TestOfflineEvaluationJSONParser(SimpleTestCase):
     @parameterized.expand([("missing", None), ("understated", "1"), ("overstated", str(MAX_UPLOAD_BODY_BYTES * 2))])
@@ -45,7 +49,7 @@ class TestOfflineEvaluationJSONParser(SimpleTestCase):
             ("negative_underflow", b'{"value":-1e-999}'),
             ("huge_exponent", b'{"value":1e-999999999999999999999999}'),
             ("nested_nonfinite", b'{"items":[{"payload":{"input":{"value":NaN}}}]}'),
-            ("excessive_nesting", b'{"items":' + b"[" * 100_000 + b"0" + b"]" * 100_000 + b"}"),
+            ("excessive_nesting", b'{"items":' + b"[" * DEEPEST_NESTING + b"0" + b"]" * DEEPEST_NESTING + b"}"),
         ]
     )
     def test_invalid_json_and_unrepresentable_numbers_are_parse_errors(self, _name: str, body: bytes) -> None:

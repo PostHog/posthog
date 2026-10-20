@@ -1,25 +1,31 @@
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import field
+from typing import Any, Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class HyperspellEndpointConfig:
     name: str
     path: str
     # Key that wraps the list of rows in the JSON response body (e.g. {"items": [...]}).
-    data_key: str
+    # None when the response body is the list itself.
+    data_key: Optional[str]
     primary_keys: list[str]
     # Endpoints whose data is scoped to a Hyperspell user. When the source is configured with
     # user IDs, these endpoints are fetched once per user via the X-As-User header and every
     # row is stamped with a `user_id` column (empty string when querying as the app).
     user_scoped: bool = False
-    # Cursor-paginated endpoints return {..., "next_cursor": "..."} and accept a `cursor` param.
-    paginated: bool = True
+    # "cursor": returns {..., "next_cursor": "..."} and accepts a `cursor` param.
+    # "offset": accepts `offset` and returns a `total` row count. "none": one response.
+    pagination: Literal["cursor", "offset", "none"] = "cursor"
     # Query param that controls page size ("size" or "limit", varies per endpoint).
     page_size_param: Optional[str] = "size"
     page_size: int = 100
+    # Query params sent on every request, independent of pagination.
+    static_params: dict[str, Any] = field(default_factory=dict)
     # Stable datetime field to partition on. Never use a field that changes after creation.
     partition_key: Optional[str] = None
     # Nullable fields that participate in the primary key, mapped to the value that replaces
@@ -48,7 +54,7 @@ HYPERSPELL_ENDPOINTS: dict[str, HyperspellEndpointConfig] = {
         data_key="connections",
         primary_keys=["user_id", "id"],
         user_scoped=True,
-        paginated=False,
+        pagination="none",
     ),
     # GET /integrations/list — app-level catalog of available integrations, not paginated.
     "integrations": HyperspellEndpointConfig(
@@ -56,7 +62,7 @@ HYPERSPELL_ENDPOINTS: dict[str, HyperspellEndpointConfig] = {
         path="/integrations/list",
         data_key="integrations",
         primary_keys=["id"],
-        paginated=False,
+        pagination="none",
     ),
     # GET /vault/list — collections of manually added documents.
     "vaults": HyperspellEndpointConfig(
@@ -96,6 +102,50 @@ HYPERSPELL_ENDPOINTS: dict[str, HyperspellEndpointConfig] = {
         primary_keys=["document_id"],
         page_size_param="limit",
         partition_key="created_at",
+    ),
+    # GET /users — the app's users (distinct document owners), app-level and offset paginated.
+    "users": HyperspellEndpointConfig(
+        name="users",
+        path="/users",
+        data_key="users",
+        primary_keys=["user_id"],
+        pagination="offset",
+        page_size_param="limit",
+        page_size=200,  # /users caps `limit` at 200
+    ),
+    # GET /integrations/{integration_id}/channels?connection_id=... — fanned out over each
+    # user's connections whose integration supports channel selection. Channel ids are only
+    # unique within a provider workspace, so the connection is part of the key.
+    "integration_channels": HyperspellEndpointConfig(
+        name="integration_channels",
+        path="/integrations/{integration_id}/channels",
+        data_key="channels",
+        primary_keys=["user_id", "connection_id", "id"],
+        user_scoped=True,
+        pagination="none",
+    ),
+    # GET /connections/{connection_id}/folders?parent_id=... — one level of folders per request,
+    # walked down the tree for each of the user's connections whose integration supports
+    # folder selection. Folder ids come from the provider, so the connection is part of the key.
+    "connection_folders": HyperspellEndpointConfig(
+        name="connection_folders",
+        path="/connections/{connection_id}/folders",
+        data_key="folders",
+        primary_keys=["user_id", "connection_id", "provider_folder_id"],
+        user_scoped=True,
+        pagination="none",
+    ),
+    # GET /emotional-state/recent — a bare JSON array of the newest emotional states, newest
+    # first. The API has no pagination and caps `limit` at 20, so the table holds the 20 most
+    # recent states per user, not the full history.
+    "emotional_states": HyperspellEndpointConfig(
+        name="emotional_states",
+        path="/emotional-state/recent",
+        data_key=None,
+        primary_keys=["user_id", "resource_id"],
+        user_scoped=True,
+        pagination="none",
+        static_params={"limit": 20},
     ),
 }
 

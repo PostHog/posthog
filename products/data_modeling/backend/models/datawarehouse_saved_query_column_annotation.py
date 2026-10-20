@@ -31,7 +31,7 @@ class DataWarehouseSavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFi
     # Empty string = view-level annotation; otherwise the column this describes.
     column_name = models.CharField(max_length=400, blank=True, default="")
     description = models.TextField()
-    description_source = models.CharField(max_length=32, choices=DescriptionSource)
+    description_source = models.CharField(max_length=32, choices=DescriptionSource.choices)
     ai_model = models.CharField(max_length=128, null=True, blank=True)
     is_user_edited = models.BooleanField(default=False)
 

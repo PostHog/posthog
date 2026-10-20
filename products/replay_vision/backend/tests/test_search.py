@@ -25,6 +25,7 @@ from products.replay_vision.backend.search import (
     parse_date_bound,
     query_vector_for,
     rank_observations,
+    warm_query_vectors,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
@@ -297,3 +298,9 @@ class TestQueryVectorCache(APIBaseTest):
         self.assertEqual(query_vector_for(self.team, "confused users"), [0.1, 0.2])
         query_vector_for(self.team, "happy users")
         self.assertEqual(mock_embed.call_count, 2)
+
+        for future in warm_query_vectors(self.team, ["confused users", "gave up at checkout"]):
+            future.result(timeout=5)
+        self.assertEqual(mock_embed.call_count, 3)
+        query_vector_for(self.team, "gave up at checkout")
+        self.assertEqual(mock_embed.call_count, 3)

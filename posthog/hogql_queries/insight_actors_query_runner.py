@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, Optional, cast
 
 from posthog.schema import (
@@ -24,9 +25,8 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner, query_node_modifiers
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.types import InsightActorsQueryNode
 
@@ -63,7 +63,7 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             modifiers=modifiers,
             limit_context=limit_context,
             query_id=query_id,
-            extract_modifiers=lambda query: query.source.modifiers if hasattr(query.source, "modifiers") else None,
+            extract_modifiers=lambda query: query_node_modifiers(query.source),
             user=user,
         )
 

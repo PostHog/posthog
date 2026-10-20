@@ -40,6 +40,7 @@ import {
     ListStorage,
     QuickFilterItem,
     META_GROUP_TYPES,
+    withoutSearchOnlyGroups,
     OPEN_AS_SELF_ON_REOPEN,
     SelectedProperties,
     SimpleOption,
@@ -59,6 +60,7 @@ import {
     getMCPPropertyFilterOptions,
     includesMCPAnalyticsEvents,
 } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { isEmailLikeSearch, isUrlLikeSearch } from 'lib/components/TaxonomicFilter/utils/valueSearchQuery'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -202,11 +204,15 @@ function resolveSuggestedFiltersGroup(
     substantiveGroupCount: number
 ): TaxonomicFilterGroupType[] {
     if (substantiveGroupCount === 1) {
-        const suggestedIdx = groupTypes.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
-        if (suggestedIdx === -1) {
+        if (!availableGroupTypes.has(TaxonomicFilterGroupType.SuggestedFilters)) {
             return groupTypes
         }
-        return [...groupTypes.slice(0, suggestedIdx), ...groupTypes.slice(suggestedIdx + 1)]
+        const withoutSuggested: TaxonomicFilterGroupType[] = groupTypes.filter(
+            (type) => type !== TaxonomicFilterGroupType.SuggestedFilters
+        )
+        const substantiveIdx = withoutSuggested.findIndex((type) => !META_GROUP_TYPES.has(type))
+        withoutSuggested.splice(substantiveIdx + 1, 0, TaxonomicFilterGroupType.SuggestedFilters)
+        return withoutSuggested
     }
 
     const shouldLeadWithSuggested =
@@ -522,6 +528,7 @@ export interface taxonomicFilterLogicValues {
     allowNonCapturedEvents: boolean
     anyGroupLoading: boolean
     anyGroupStale: boolean
+    categoryGroupTypes: TaxonomicFilterGroupType[]
     cohortGroupOptions: {
         hideBehavioralCohorts: boolean
         showCohortFlagTargeting: boolean
@@ -554,6 +561,7 @@ export interface taxonomicFilterLogicValues {
     infiniteListResultCounts: {
         [k: string]: number
     }
+    intentPromotedGroupType: TaxonomicFilterGroupType | null
     loadingGroupTypes: TaxonomicFilterGroupType[]
     maxContextOptions: any
     metaGroupTypes: Set<string>
@@ -563,11 +571,13 @@ export interface taxonomicFilterLogicValues {
     }
     metadataSource: AnyDataNode
     mouseInteractionsEnabled: boolean
+    ownsSearchInput: boolean
     propertyAllowList: TaxonomicFilterGroupValueMap | undefined
     propertyFilters: {
         excludedProperties: TaxonomicFilterGroupValueMap
         includeHiddenEvents: boolean | undefined
         propertyAllowList: TaxonomicFilterGroupValueMap | undefined
+        showNumericalPropsOnly: boolean | undefined
     }
     redistributedTopMatchItems: TopMatchItem[]
     revealBarrierOpen: boolean
@@ -649,6 +659,9 @@ export interface taxonomicFilterLogicActions {
     setIncludeStaleEvents: (includeStaleEvents: boolean) => {
         includeStaleEvents: boolean
     }
+    setIntentPromotedGroupType: (groupType: TaxonomicFilterGroupType | null) => {
+        groupType: TaxonomicFilterGroupType | null
+    }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
     }
@@ -665,6 +678,7 @@ export interface taxonomicFilterLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         selectedItemMeta: (arg: any) => any
+        ownsSearchInput: (arg: any) => boolean
         showNumericalPropsOnly: (arg: any) => any
         taxonomicFilterLogicKey: (taxonomicFilterLogicKey: string) => string
         eventNames: (arg: any) => any
@@ -688,11 +702,13 @@ export interface taxonomicFilterLogicMeta {
         propertyFilters: (
             excludedProperties: TaxonomicFilterGroupValueMap,
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined,
-            arg: any
+            arg: any,
+            arg2: any
         ) => {
             excludedProperties: TaxonomicFilterGroupValueMap
             includeHiddenEvents: boolean | undefined
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined
+            showNumericalPropsOnly: boolean | undefined
         }
         allowNonCapturedEvents: (arg: any) => boolean
         hideBehavioralCohorts: (arg: any) => boolean
@@ -737,6 +753,7 @@ export interface taxonomicFilterLogicMeta {
                 excludedProperties: TaxonomicFilterGroupValueMap
                 includeHiddenEvents: boolean | undefined
                 propertyAllowList: TaxonomicFilterGroupValueMap | undefined
+                showNumericalPropsOnly: boolean | undefined
             },
             metadataPropertyDefinitionsByType: {
                 event: PropertyDefinition[]
@@ -763,6 +780,10 @@ export interface taxonomicFilterLogicMeta {
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             taxonomicGroups: TaxonomicFilterGroup[],
             eventNames: any
+        ) => TaxonomicFilterGroupType[]
+        categoryGroupTypes: (
+            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            metaGroupTypes: Set<string>
         ) => TaxonomicFilterGroupType[]
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
@@ -795,17 +816,15 @@ export interface taxonomicFilterLogicMeta {
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             metaGroupTypes: Set<string>
         ) => TaxonomicFilterGroupType
-        currentTabIndex: (
-            taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            activeTab: TaxonomicFilterGroupType
-        ) => number
+        currentTabIndex: (categoryGroupTypes: TaxonomicFilterGroupType[], activeTab: TaxonomicFilterGroupType) => number
         searchPlaceholder: (
             taxonomicGroups: TaxonomicFilterGroup[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[]
         ) => string
         suggestedFilterGroupOrder: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            metaGroupTypes: Set<string>
+            metaGroupTypes: Set<string>,
+            intentPromotedGroupType: TaxonomicFilterGroupType | null
         ) => TaxonomicFilterGroupType[]
         redistributedTopMatchItems: (
             topMatchItems: (TaxonomicDefinitionTypes & {
@@ -893,6 +912,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         }),
         openRevealBarrier: true,
         setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
+        setIntentPromotedGroupType: (groupType: TaxonomicFilterGroupType | null) => ({ groupType }),
     })),
     reducers(({ props }) => ({
         searchQuery: [
@@ -977,9 +997,23 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 setActiveTab: () => false,
             },
         ],
+        intentPromotedGroupType: [
+            // Set by taxonomicSearchIntentLogic in the promote arm of its experiment. Every new
+            // search clears it, so a promotion never outlives the search it was made for.
+            null as TaxonomicFilterGroupType | null,
+            {
+                setIntentPromotedGroupType: (_, { groupType }) => groupType,
+                setSearchQuery: () => null,
+            },
+        ],
     })),
     selectors({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
+        // A host that renders its own search input owns the query, so the picker cannot clear it.
+        ownsSearchInput: [
+            () => [(_, props) => props.hideSearchInput],
+            (hideSearchInput: boolean | undefined): boolean => !hideSearchInput,
+        ],
         showNumericalPropsOnly: [
             () => [(_, props) => props.showNumericalPropsOnly],
             (showNumericalPropsOnly) => showNumericalPropsOnly ?? false,
@@ -1068,14 +1102,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         // Combined so `taxonomicGroups` stays under kea's 16-dep tuple type limit.
         propertyFilters: [
-            (s) => [s.excludedProperties, s.propertyAllowList, (_, props) => props.includeHiddenEvents],
+            (s) => [
+                s.excludedProperties,
+                s.propertyAllowList,
+                (_, props) => props.includeHiddenEvents,
+                (_, props) => props.showNumericalPropsOnly,
+            ],
             (
                 excludedProperties: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap,
                 propertyAllowList:
                     | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                     | undefined,
-                includeHiddenEvents: boolean | undefined
-            ) => ({ excludedProperties, propertyAllowList, includeHiddenEvents }),
+                includeHiddenEvents: boolean | undefined,
+                showNumericalPropsOnly: boolean | undefined
+            ) => ({ excludedProperties, propertyAllowList, includeHiddenEvents, showNumericalPropsOnly }),
             { resultEqualityCheck: objectsEqual },
         ],
         allowNonCapturedEvents: [
@@ -1163,6 +1203,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                         | undefined
                     includeHiddenEvents: boolean | undefined
+                    showNumericalPropsOnly: boolean | undefined
                 },
                 {
                     event: eventMetadataPropertyDefinitions,
@@ -1189,7 +1230,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
                     eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
-                const { excludedProperties, propertyAllowList, includeHiddenEvents } = propertyFilters
+                const { excludedProperties, propertyAllowList, includeHiddenEvents, showNumericalPropsOnly } =
+                    propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
@@ -1204,7 +1246,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         excludedProperties: [
                             ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
-                            ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                            ...hiddenEventNames(currentTeam?.flag_evaluations_mode, includeHiddenEvents),
                         ],
                         ...withKeywordShortcuts<Record<string, any>>(
                             {
@@ -1336,9 +1378,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Autocapture elements',
                         searchPlaceholder: 'autocapture elements',
                         type: TaxonomicFilterGroupType.Elements,
-                        options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
-                            name: option,
-                        })) as SimpleOption[],
+                        options: (['tag_name', 'text', 'href', 'selector'] as const)
+                            .filter(
+                                (option) => !excludedProperties[TaxonomicFilterGroupType.Elements]?.includes(option)
+                            )
+                            .map((option) => ({
+                                name: option,
+                            })) as SimpleOption[],
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Autocapture Element',
@@ -1865,6 +1911,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             isQuickFilterItem(option) ? option.filterValue : option.name,
                         getPopoverHeader: () => `Pageview URL`,
                         minSearchQueryLength: 3,
+                        shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                            ? isUrlLikeSearch
+                            : undefined,
+                        searchQueryHint: 'Search for a URL, domain, or path.',
                         searchDescription: 'URLs seen on pageview events',
                     },
                     {
@@ -1877,6 +1927,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Pageview event`,
                         minSearchQueryLength: 3,
+                        shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                            ? isUrlLikeSearch
+                            : undefined,
+                        searchQueryHint: 'Search for a URL, domain, or path.',
                         searchDescription: 'pageview events filtered by URL',
                     },
                     // Screens returns a screen name value, used in paths and property filters.
@@ -1916,6 +1970,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Email address`,
                         minSearchQueryLength: 5,
+                        shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                            ? isEmailLikeSearch
+                            : undefined,
+                        searchQueryHint: 'Search for an email address or domain.',
                         searchDescription: 'email addresses seen in person properties',
                     },
                     {
@@ -2173,15 +2231,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             // Promoted properties for any event in context come first — if a team
                             // has marked a property as the one that summarises this event, it's
                             // the property they almost certainly want to filter or break down by.
-                            ...primaryPropertiesForContextEvents.map((name) => ({
-                                name,
-                                group: TaxonomicFilterGroupType.EventProperties,
-                            })),
+                            ...primaryPropertiesForContextEvents
+                                .filter(
+                                    (name) =>
+                                        !showNumericalPropsOnly &&
+                                        !excludedProperties[TaxonomicFilterGroupType.EventProperties]?.includes(name) &&
+                                        (propertyAllowList?.[TaxonomicFilterGroupType.EventProperties] === undefined ||
+                                            propertyAllowList[TaxonomicFilterGroupType.EventProperties]?.includes(name))
+                                )
+                                .map((name) => ({
+                                    name,
+                                    group: TaxonomicFilterGroupType.EventProperties,
+                                })),
                             ...(eventNames.includes('$autocapture')
-                                ? (['text', 'selector'] as const).map((name) => ({
-                                      name,
-                                      group: TaxonomicFilterGroupType.Elements,
-                                  }))
+                                ? (['text', 'selector'] as const)
+                                      .filter(
+                                          (name) =>
+                                              !excludedProperties[TaxonomicFilterGroupType.Elements]?.includes(name)
+                                      )
+                                      .map((name) => ({
+                                          name,
+                                          group: TaxonomicFilterGroupType.Elements,
+                                      }))
                                 : []),
                             ...(eventNames.includes(MCP_TOOL_CALL_EVENT)
                                 ? MCP_TOOL_CALL_SUGGESTED_PROPERTIES.map((name) => ({
@@ -2238,6 +2309,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     return withMetaGroups
                 }
                 return promoteShortcutGroups(withMetaGroups, eventNames)
+            },
+            { resultEqualityCheck: objectsEqual },
+        ],
+        categoryGroupTypes: [
+            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
+            (groupTypes: TaxonomicFilterGroupType[], metaGroupTypes: Set<string>): TaxonomicFilterGroupType[] => {
+                const categories = groupTypes.filter(
+                    (type) =>
+                        type !== TaxonomicFilterGroupType.RecentFilters &&
+                        type !== TaxonomicFilterGroupType.PinnedFilters
+                )
+                return withoutSearchOnlyGroups(
+                    categories,
+                    (type) => type,
+                    (type) => metaGroupTypes.has(type) || META_GROUP_TYPES.has(type)
+                )
             },
             { resultEqualityCheck: objectsEqual },
         ],
@@ -2417,6 +2504,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 ) {
                     return propsGroupType
                 }
+                const substantiveGroupTypes = groupTypes.filter((type) => !META_GROUP_TYPES.has(type))
+                if (substantiveGroupTypes.length === 1) {
+                    return substantiveGroupTypes[0]
+                }
                 // Otherwise lead with the All (Suggested filters) surface so reopening on an
                 // existing selection still shows recents/pinned + a cross-category search,
                 // rather than jumping to the selected item's category.
@@ -2430,7 +2521,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
         currentTabIndex: [
-            (s) => [s.taxonomicGroupTypes, s.activeTab],
+            (s) => [s.categoryGroupTypes, s.activeTab],
             (groupTypes: TaxonomicFilterGroupType[], activeTab: TaxonomicFilterGroupType) =>
                 Math.max(groupTypes.indexOf(activeTab || ''), 0),
         ],
@@ -2444,32 +2535,40 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             !type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
                     )
                 }
-                const names = searchGroupTypes
-                    .map((type) => {
-                        const taxonomicGroup = allTaxonomicGroups.find(
-                            (tGroup) => tGroup.type == type
-                        ) as TaxonomicFilterGroup
-                        return taxonomicGroup.searchPlaceholder
-                    })
-                    .filter(Boolean)
-                return names
-                    .filter((a) => !!a)
+                // Meta groups such as "all", "recent" and "pinned" repeat the other groups, so they only name
+                // the search when nothing else can.
+                const contentGroupTypes = searchGroupTypes.filter((type) => !META_GROUP_TYPES.has(type))
+                const names = (contentGroupTypes.length > 0 ? contentGroupTypes : searchGroupTypes)
                     .map(
-                        (name, index) =>
-                            `${index !== 0 ? (index === searchGroupTypes.length - 1 ? ' or ' : ', ') : ''}${name}`
+                        (type) =>
+                            (allTaxonomicGroups.find((tGroup) => tGroup.type == type) as TaxonomicFilterGroup)
+                                .searchPlaceholder
                     )
-                    .join('')
+                    .filter(Boolean)
+                // A long list gets cut off in the search input, so name the first two groups only.
+                if (names.length > 3) {
+                    return `${names[0]}, ${names[1]}, and more`
+                }
+                return names.length > 1
+                    ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+                    : names.join('')
             },
         ],
         suggestedFilterGroupOrder: [
             // The order the cross-category "All" list renders its groups in. Every consumer of that
             // list must read this, so the skeleton rows and the revealed rows land in the same place.
-            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
+            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes, s.intentPromotedGroupType],
             (
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
-                metaGroupTypes: Set<string>
-            ): TaxonomicFilterGroupType[] =>
-                demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))),
+                metaGroupTypes: Set<string>,
+                intentPromotedGroupType: TaxonomicFilterGroupType | null
+            ): TaxonomicFilterGroupType[] => {
+                const order = demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t)))
+                if (!intentPromotedGroupType || !order.includes(intentPromotedGroupType)) {
+                    return order
+                }
+                return [intentPromotedGroupType, ...order.filter((t) => t !== intentPromotedGroupType)]
+            },
         ],
         redistributedTopMatchItems: [
             (s) => [s.topMatchItems, s.suggestedFilterGroupOrder],
@@ -2545,6 +2644,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         // 5s reveal-barrier timer as a normal keystroke would — the `setSearchQuery`
         // listener doesn't run on mount because no action was dispatched.
         if ((props.initialSearchQuery ?? '').trim()) {
+            cache.searchStartedAt = performance.now()
             cache.disposables.add(() => {
                 const timerId = window.setTimeout(() => actions.openRevealBarrier(), REVEAL_BARRIER_TIMEOUT_MS)
                 return () => window.clearTimeout(timerId)
@@ -2699,7 +2799,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         tabLeft: () => {
-            const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
+            const { currentTabIndex, categoryGroupTypes: taxonomicGroupTypes, infiniteListCounts } = values
             for (let i = 1; i < taxonomicGroupTypes.length; i++) {
                 const newIndex = (currentTabIndex - i + taxonomicGroupTypes.length) % taxonomicGroupTypes.length
                 if (infiniteListCounts[taxonomicGroupTypes[newIndex]] > 0) {
@@ -2710,7 +2810,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         tabRight: () => {
-            const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
+            const { currentTabIndex, categoryGroupTypes: taxonomicGroupTypes, infiniteListCounts } = values
             for (let i = 1; i < taxonomicGroupTypes.length; i++) {
                 const newIndex = (currentTabIndex + i) % taxonomicGroupTypes.length
                 if (infiniteListCounts[taxonomicGroupTypes[newIndex]] > 0) {
@@ -2733,11 +2833,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             // key auto-disposes the previous timer; we only need to explicitly dispose when
             // the query clears (no fresh timer to schedule).
             if ((searchQuery ?? '').trim()) {
+                cache.searchStartedAt = performance.now()
                 cache.disposables.add(() => {
                     const timerId = window.setTimeout(() => actions.openRevealBarrier(), REVEAL_BARRIER_TIMEOUT_MS)
                     return () => window.clearTimeout(timerId)
                 }, 'revealBarrierTimer')
             } else {
+                cache.searchStartedAt = null
                 cache.disposables.dispose('revealBarrierTimer')
             }
 
@@ -2757,6 +2859,30 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     excludeStale: !values.includeStaleEvents,
                 })
             }
+        },
+
+        openRevealBarrier: () => {
+            // The All tab runs no fetch of its own, so `infiniteListResultsReceived` never reports its
+            // latency. Its rows appear when this barrier opens, so the wait the user sees ends here.
+            // A group that still loads at this point means the timeout opened the barrier.
+            const startedAt = cache.searchStartedAt
+            cache.searchStartedAt = null
+            if (
+                typeof startedAt !== 'number' ||
+                values.activeTab !== TaxonomicFilterGroupType.SuggestedFilters ||
+                !values.searchQuery
+            ) {
+                return
+            }
+            posthog.capture('taxonomic filter search latency', {
+                surface: legacyTaxonomicSurface(),
+                groupType: TaxonomicFilterGroupType.SuggestedFilters,
+                searchQuery: values.searchQuery,
+                time_to_see_data_ms: Math.floor(performance.now() - startedAt),
+                resultCount: values.infiniteListCounts[TaxonomicFilterGroupType.SuggestedFilters],
+                revealedBy: values.anyGroupLoading ? 'timeout' : 'all_groups_settled',
+                pendingGroupTypes: values.loadingGroupTypes,
+            })
         },
 
         setIncludeStaleEvents: ({ includeStaleEvents }) => {

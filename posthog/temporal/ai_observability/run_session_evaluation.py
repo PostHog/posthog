@@ -174,6 +174,7 @@ def _sum_session_payload_bytes(
             team=team,
             user=user,
             query_type="SessionEvaluationPayloadBytes",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )
@@ -228,6 +229,7 @@ def _count_session_events(
             team=team,
             user=user,
             query_type="SessionEvaluationEventCount",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )
@@ -439,6 +441,7 @@ class ExecuteSessionEvaluationInputs:
     # Upper bound of the fetch, ISO. Unset on a live run, which reads up to now; a backfilled run
     # sets it so an old unit is graded over the same span the live path would have covered.
     window_end: str | None = None
+    backfill_id: str | None = None
 
     @property
     def window_end_datetime(self) -> datetime | None:
@@ -476,9 +479,9 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     if not prompt:
         raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
-    if evaluation["output_type"] not in ("boolean", "numeric"):
+    if evaluation["output_type"] not in ("boolean", "numeric", "categorical"):
         raise ApplicationError(
-            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean', 'numeric'.",
+            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean', 'numeric', 'categorical'.",
             non_retryable=True,
         )
 
@@ -506,6 +509,7 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
         ),
         user_prompt=transcript,
         allows_na=allows_na,
+        backfill=inputs.backfill_id is not None,
     )
 
 
@@ -562,6 +566,7 @@ class SessionHogTestResult:
     input_preview: str
     output_preview: str
     score: float | None = None
+    categories: list[str] | None = None
     applicable: bool | None = None
 
 
@@ -699,6 +704,7 @@ def run_hog_eval_over_recent_sessions(
                 session_id=session_id,
                 verdict=hog_result.get("verdict"),
                 score=hog_result.get("score"),
+                categories=hog_result.get("categories"),
                 applicable=hog_result.get("applicable"),
                 reasoning=hog_result.get("reasoning") or "",
                 error=hog_result.get("error"),

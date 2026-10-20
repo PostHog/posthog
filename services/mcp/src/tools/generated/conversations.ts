@@ -12,6 +12,50 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const ConversationsTicketsComposeCreateSchema = () => {
+    const ConversationsTicketsComposeCreateBody = orvalSchemas.ConversationsTicketsComposeCreateBody()
+    return ConversationsTicketsComposeCreateBody
+}
+
+const conversationsTicketsComposeCreate = (): ToolBase<
+    ReturnType<typeof ConversationsTicketsComposeCreateSchema>,
+    Schemas.ComposeTicketResponse
+> => ({
+    name: 'conversations-tickets-compose-create',
+    schema: ConversationsTicketsComposeCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsTicketsComposeCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.recipient_email !== undefined) {
+            body['recipient_email'] = params.recipient_email
+        }
+        if (params.recipient_distinct_id !== undefined) {
+            body['recipient_distinct_id'] = params.recipient_distinct_id
+        }
+        if (params.email_subject !== undefined) {
+            body['email_subject'] = params.email_subject
+        }
+        if (params.email_config_id !== undefined) {
+            body['email_config_id'] = params.email_config_id
+        }
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.rich_content !== undefined) {
+            body['rich_content'] = params.rich_content
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.ComposeTicketResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/compose/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ConversationsTicketsListSchema = () => {
     const ConversationsTicketsListQueryParams = orvalSchemas.ConversationsTicketsListQueryParams()
     return ConversationsTicketsListQueryParams
@@ -99,6 +143,38 @@ const conversationsTicketsMessagesRetrieve = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const ConversationsTicketsNotesCreateSchema = () => {
+    const ConversationsTicketsNotesCreateBody = orvalSchemas.ConversationsTicketsNotesCreateBody()
+    const ConversationsTicketsNotesCreateParams = orvalSchemas.ConversationsTicketsNotesCreateParams()
+    return ConversationsTicketsNotesCreateParams.omit({ project_id: true }).extend(
+        ConversationsTicketsNotesCreateBody.shape
+    )
+}
+
+const conversationsTicketsNotesCreate = (): ToolBase<
+    ReturnType<typeof ConversationsTicketsNotesCreateSchema>,
+    Schemas.TicketMessage
+> => ({
+    name: 'conversations-tickets-notes-create',
+    schema: ConversationsTicketsNotesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsTicketsNotesCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.rich_content !== undefined) {
+            body['rich_content'] = params.rich_content
+        }
+        const result = await context.api.request<Schemas.TicketMessage>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/notes/`,
+            body,
         })
         return result
     },
@@ -435,8 +511,10 @@ const conversationsViewsUpdate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'conversations-tickets-compose-create': conversationsTicketsComposeCreate,
     'conversations-tickets-list': conversationsTicketsList,
     'conversations-tickets-messages-retrieve': conversationsTicketsMessagesRetrieve,
+    'conversations-tickets-notes-create': conversationsTicketsNotesCreate,
     'conversations-tickets-notes-destroy': conversationsTicketsNotesDestroy,
     'conversations-tickets-notes-partial-update': conversationsTicketsNotesPartialUpdate,
     'conversations-tickets-reply-create': conversationsTicketsReplyCreate,

@@ -60,13 +60,16 @@ class TestExternalDataSchemaAdmin(BaseTest):
     def test_reset_streaming_cdc_flips_to_snapshot_non_billable(self) -> None:
         schema = self._schema(
             sync_type=ExternalDataSchema.SyncType.CDC,
-            sync_type_config={"cdc_mode": "streaming", "cdc_last_log_position": "0/ABC", "cdc_deferred_runs": [{}]},
+            sync_type_config={"cdc_mode": "streaming", "cdc_last_log_position": "0/ABC"},
             initial_sync_complete=True,
         )
 
         with (
             patch(f"{_ADMIN_MODULE}.sync_connect"),
             patch(f"{_SHARED_MODULE}.is_schedule_paused", return_value=True),
+            # No sync of the table can hand over, so the reset is staged here. The real check reads
+            # the load queue, which lives in a database this test does not create.
+            patch(f"{_SHARED_MODULE}.cancel_sync_that_could_hand_over", return_value=False),
             patch(f"{_SHARED_MODULE}.start_external_data_workflow") as mock_start,
         ):
             response = self.admin.trigger_sync_view(self._request("post", {"reset_pipeline": "on"}), schema.id)
@@ -76,7 +79,6 @@ class TestExternalDataSchemaAdmin(BaseTest):
         assert schema.cdc_mode == "snapshot"
         assert schema.initial_sync_complete is False
         assert "cdc_last_log_position" not in schema.sync_type_config
-        assert "cdc_deferred_runs" not in schema.sync_type_config
 
         # The re-snapshot must persist before the workflow starts (the source reloads cdc_mode), and
         # the job must be non-billable so the initial full refresh isn't charged to the customer.

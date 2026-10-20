@@ -18,6 +18,14 @@ CI_STATUSES = ("passing", "failing", "pending", "none")
 # skips the JSONB scan while a query repeats the predicate verbatim, so readers filtering on the
 # prefix must use this constant rather than a literal of their own.
 GITHUB_PR_URL_PREFIX = "https://github.com/"
+ARTIFACT_OPEN_NETWORK_WRITER_KEY = "written_with_open_network"
+ARTIFACT_SCRIPT_SHA256_KEY = "script_sha256"
+
+
+def is_html_artifact(name: str, content_type: str) -> bool:
+    mime_type = content_type.split(";", 1)[0].strip().lower()
+    return mime_type == "text/html" or name.lower().endswith((".html", ".htm"))
+
 
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
@@ -43,6 +51,7 @@ REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 # runtime, so the effective audience is teams with both this flag and
 # PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.
 AGENT_PEER_MESSAGING_FEATURE_FLAG = "tasks-agent-peer-messaging"
+PI_ACP_FEATURE_FLAG = "pi-acp"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
 
 ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"
@@ -55,8 +64,14 @@ TASK_ANALYSIS_ACTIVITIES_STATE_KEY = "task_analysis_activities"
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
+# TaskRun.state marker for runs completed by the inactivity timeout; kept out of
+# error_message so a normal completion never reads as a failure.
+TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
+AGENT_INSTRUCTIONS_STATE_KEY = "agent_instructions"
+# Matches the cap PostHog Code applies to its local personalization.
+AGENT_INSTRUCTIONS_MAX_LENGTH = 20_000
 SAME_RUN_RESUME_STATE_KEY = "same_run_resume"
 SAME_RUN_RESUME_IDLE_STATE_KEY = "same_run_resume_idle"
 _LEGACY_SAME_RUN_RESUME_STATE_KEY = "handoff_resumed"

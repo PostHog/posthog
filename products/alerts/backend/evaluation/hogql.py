@@ -34,7 +34,7 @@ _HOGQL_SUBJECT = "The SQL insight value"
 # Any-row alerts fail loud past this many rows: silently truncating could skip the breaching row
 # (a false negative), which is worse than asking the user to add a LIMIT or aggregate the query.
 # Deliberately conservative to start — easy to raise if users ask for more. Mirrored in the
-# frontend preview as ``HOGQL_ANY_ROW_MAX_ROWS`` (frontend/src/lib/components/Alerts/alertFormLogic.ts);
+# frontend preview as ``HOGQL_ANY_ROW_MAX_ROWS`` (products/alerts/frontend/logic/hogqlAlertPreview.ts);
 # keep the two in sync.
 ANY_ROW_MAX_ROWS = 50
 # last_row reads the tail, so a result truncated at HogQL's hard cap can't be trusted (the real
@@ -175,7 +175,7 @@ class HogQLExtractor:
 
     PREVIEW MIRROR CONTRACT: the configure-time preview re-implements this extractor's decision
     rules in TypeScript (``deriveHogQLAlertPreview`` in
-    frontend/src/lib/components/Alerts/alertFormLogic.ts) so the modal can preview instantly from
+    products/alerts/frontend/logic/hogqlAlertPreview.ts) so the modal can preview instantly from
     the already-loaded result. The mirror is advisory only — this extractor is the sole authority
     at evaluation time — but if you change any of these rules, update the mirror to match:
       1. value-column resolution: explicit ``column`` -> single column -> single numeric column

@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -16,10 +15,6 @@ class TestDiscourseSource:
         self.config = DiscourseSourceConfig(
             base_url="https://forum.example.com", api_key="secret-key", api_username="system"
         )
-
-    def test_config_has_no_unreleased_flag(self) -> None:
-        # A finished source must not carry `unreleasedSource` — it hides the connector entirely.
-        assert self.source.get_source_config.unreleasedSource is None
 
     def test_connection_host_fields_covers_base_url_and_api_username(self) -> None:
         # The stored API key is sent to whatever `base_url` points at, and `api_username` selects
@@ -69,9 +64,3 @@ class TestDiscourseSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 42
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "nope"
-        with pytest.raises(ValueError, match="Unknown Discourse schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

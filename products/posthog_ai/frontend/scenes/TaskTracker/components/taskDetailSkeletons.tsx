@@ -1,6 +1,9 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Skeleton } from '@posthog/quill-primitives'
 
 import { ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
+
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
 
 /** Skeleton for the scene side panel's task-info block — mirrors the four labelled rows. */
 export function TaskPanelSkeleton(): JSX.Element {
@@ -30,6 +33,15 @@ export function TaskPanelSkeleton(): JSX.Element {
 
 /** Skeleton for the title-bar action buttons (Open in PostHog Desktop / View PR / Run). */
 export function TaskHeaderActionsSkeleton(): JSX.Element {
+    const skin = useThreadSkin()
+    if (skin === 'quill') {
+        return (
+            <div data-quill className="flex items-center gap-1">
+                <Skeleton className="hidden h-7 w-44 lg:block" />
+                <Skeleton className="size-7" />
+            </div>
+        )
+    }
     return (
         <div className="flex items-center gap-2">
             <LemonSkeleton className="h-7 w-40" />

@@ -13,8 +13,6 @@ from posthog.hogql.database.schema.util.uuid import uuid_uint128_expr_to_timesta
 from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
 from posthog.hogql.parser import parse_expr, parse_select
 
-from .marketing_sessions_precompute import MAX_PRECOMPUTED_SESSION_SECONDS, SESSION_READ_REACHBACK_DAYS
-
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
@@ -31,9 +29,10 @@ _DIMENSION_FIELDS = {
 }
 
 
-def _exceptional_dimensions(
-    modifiers: HogQLQueryModifiers, columns: set[str], start: datetime, end: datetime
-) -> ast.SelectQuery:
+SEARCH_SESSION_COLUMNS = ("entry_url", "has_gclid", "has_msclkid")
+
+
+def _raw_session_source(modifiers: HogQLQueryModifiers) -> tuple[str, ast.Expr]:
     is_v3 = modifiers.sessionTableVersion == SessionTableVersion.V3
     table = "raw_sessions_v3" if is_v3 else "raw_sessions"
     timestamp = (
@@ -41,42 +40,34 @@ def _exceptional_dimensions(
         if is_v3
         else uuid_uint128_expr_to_timestamp_expr_v2(ast.Field(chain=[table, "session_id_v7"]))
     )
-    # Use the live join's ID timestamp window so both paths count the same sessions.
-    bounds: dict[str, ast.Expr] = {
-        "start": ast.Constant(value=start),
-        "end": ast.Constant(value=end),
-        "reachback": ast.Constant(value=start - timedelta(days=SESSION_READ_REACHBACK_DAYS)),
-        "max_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
-    }
-    # Split the duration budget around the ID timestamp to keep long sessions even when IDs and first events disagree.
-    # An earlier start either has an older ID with overlapping activity or crosses the earlier limit.
-    candidates = parse_select(
-        """
-        SELECT DISTINCT session_id_v7 FROM {table}
-        WHERE {timestamp} >= {lower} AND {timestamp} <= {upper}
-            AND ((max_timestamp >= {start} AND {timestamp} < {start})
-                OR min_timestamp < {timestamp} - toIntervalDay({reachback_days})
-                OR max_timestamp > {timestamp} + toIntervalSecond({remaining_budget}))
-        """,
-        placeholders={
-            "table": ast.Field(chain=[table]),
-            "timestamp": timestamp,
-            "lower": ast.Constant(value=start - timedelta(days=SESSION_BUFFER_DAYS)),
-            "upper": ast.Constant(value=end + timedelta(days=SESSION_BUFFER_DAYS)),
-            "start": bounds["start"],
-            "reachback_days": ast.Constant(value=SESSION_READ_REACHBACK_DAYS),
-            "remaining_budget": ast.Constant(
-                value=MAX_PRECOMPUTED_SESSION_SECONDS - int(timedelta(days=SESSION_READ_REACHBACK_DAYS).total_seconds())
-            ),
-        },
-    )
+    return table, timestamp
+
+
+def _raw_dimensions(
+    modifiers: HogQLQueryModifiers,
+    columns: set[str],
+    start: datetime,
+    end: datetime,
+    candidates: ast.SelectQuery,
+) -> ast.SelectQuery:
+    table, timestamp = _raw_session_source(modifiers)
     fields = [
         "$start_timestamp",
         "$end_timestamp",
         *[field for column, field in _DIMENSION_FIELDS.items() if column in columns],
     ]
+    if "entry_url" in columns or "has_msclkid" in columns:
+        fields.append("$entry_current_url")
+    if "has_gclid" in columns:
+        fields.append("$entry_gclid")
+    if "has_msclkid" in columns:
+        fields.append("$entry_msclkid")
     context = HogQLContext(modifiers=modifiers)
-    select_sessions = select_from_sessions_table_v3 if is_v3 else select_from_sessions_table_v2
+    select_sessions = (
+        select_from_sessions_table_v3
+        if modifiers.sessionTableVersion == SessionTableVersion.V3
+        else select_from_sessions_table_v2
+    )
     source = select_sessions(
         {field: [field] for field in fields}, ast.SelectQuery(select=[ast.Constant(value=1)]), context
     )
@@ -100,14 +91,6 @@ def _exceptional_dimensions(
             ),
         ]
     )
-    source.having = parse_expr(
-        """
-        $end_timestamp >= {start} AND $start_timestamp <= {end}
-        AND ($start_timestamp < {reachback}
-            OR $end_timestamp > $start_timestamp + toIntervalSecond({max_seconds}))
-        """,
-        placeholders=bounds,
-    )
     # Empty slots preserve tuple positions without reading unused entry properties.
     dimensions: list[ast.Expr] = [
         parse_expr("toStartOfHour(toTimeZone($start_timestamp, 'UTC'))"),
@@ -122,6 +105,14 @@ def _exceptional_dimensions(
             dimensions.append(
                 parse_expr("toString(ifNull({field}, ''))", placeholders={"field": ast.Field(chain=[field])})
             )
+    search_dimensions = {
+        "entry_url": parse_expr("cutQueryStringAndFragment(ifNull($entry_current_url, ''))"),
+        "has_gclid": parse_expr("notEmpty(ifNull($entry_gclid, ''))"),
+        "has_msclkid": parse_expr(
+            "notEmpty(ifNull($entry_msclkid, '')) OR notEmpty(extractURLParameter(ifNull($entry_current_url, ''), 'msclkid'))"
+        ),
+    }
+    dimensions.extend(search_dimensions[column] for column in SEARCH_SESSION_COLUMNS if column in columns)
     query = parse_select(
         """
         SELECT session_id_v7, {dimensions} AS dimensions, now() AS computed_at, 1 AS source_priority
@@ -130,43 +121,27 @@ def _exceptional_dimensions(
         placeholders={"source": source, "dimensions": ast.Tuple(exprs=dimensions)},
     )
     assert isinstance(query, ast.SelectQuery)
+    query.where = parse_expr("toUnixTimestamp($start_timestamp) > 0")
     return query
 
 
-def session_dimensions(
-    modifiers: HogQLQueryModifiers, columns: set[str], job_ids: list[str], start: datetime, end: datetime
+def _live_dimensions(
+    modifiers: HogQLQueryModifiers, columns: set[str], start: datetime, end: datetime
 ) -> ast.SelectQuery:
-    # A cached session can grow after materialization, so live exceptions must replace its old dimensions.
+    candidates = parse_select("SELECT DISTINCT session_id_v7 FROM attribution_session_identities")
+    assert isinstance(candidates, ast.SelectQuery)
+    return _raw_dimensions(modifiers, columns, start, end, candidates)
+
+
+def session_dimensions(
+    modifiers: HogQLQueryModifiers,
+    columns: set[str],
+    start: datetime,
+    end: datetime,
+) -> ast.SelectQuery:
     query = parse_select(
-        """
-        SELECT d.session_id_v7,
-            argMax(d.dimensions, tuple(d.source_priority, d.computed_at)) AS latest,
-            max(d.computed_at) AS computed_at
-        FROM (
-            SELECT session_id_v7,
-                {cached_dimensions} AS dimensions,
-                computed_at, 0 AS source_priority
-            FROM posthog.web_sessions_dimensional_preaggregated
-            WHERE job_id IN {jobs}
-            UNION ALL
-            SELECT * FROM {live}
-        ) AS d
-        GROUP BY d.session_id_v7
-        """,
-        placeholders={
-            "jobs": ast.Tuple(exprs=[ast.Constant(value=job) for job in job_ids]),
-            "cached_dimensions": ast.Tuple(
-                exprs=[
-                    ast.Field(chain=["period_bucket"]),
-                    ast.Field(chain=["start_timestamp"]),
-                    *[
-                        ast.Field(chain=[column]) if column in columns else ast.Constant(value="")
-                        for column in _DIMENSION_FIELDS
-                    ],
-                ]
-            ),
-            "live": _exceptional_dimensions(modifiers, columns, start, end),
-        },
+        "SELECT session_id_v7, dimensions AS latest, computed_at FROM {live}",
+        placeholders={"live": _live_dimensions(modifiers, columns, start, end)},
     )
     assert isinstance(query, ast.SelectQuery)
     return query

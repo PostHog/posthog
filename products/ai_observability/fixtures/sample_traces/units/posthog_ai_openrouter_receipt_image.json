@@ -1,0 +1,93 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Extracting fields from a photographed receipt",
+  "scenario": "ReceiptScan's mobile app sends a photo of a paper receipt to a vision model over OpenRouter, which returns the store name with a confidence score plus a short list of field-level warnings (blurry date, obscured currency, a total that does not add up).",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "openrouter"
+    ],
+    "frameworks": [],
+    "models": [
+      "meta-llama/llama-4-scout"
+    ],
+    "content_types": [
+      "file",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_input_tokens": 1981,
+        "$ai_lib": "posthog-ai",
+        "$ai_provider": "openrouter",
+        "$lib_version": "5.8.8",
+        "call_id": "c9f7af89-d17f-71de-afa1-38929742dbfd",
+        "user_email": "j.doe.here@example.com",
+        "$ai_http_status": 200,
+        "used_cache_layer": false,
+        "$ai_base_url": "",
+        "requesting_app_id": "receiptscan-ios-4.2",
+        "$lib": "posthog-edge",
+        "$geoip_disable": true,
+        "$ai_lib_version": "6.4.1",
+        "$ai_trace_id": "71e190797c1928e4874486e3b462ef3b",
+        "conversation_ref": "chat_apIQhdIRqx",
+        "$ai_model_parameters": {},
+        "resolved_model_short_name": "llama-4-scout",
+        "$ai_latency": 6.279,
+        "$ai_model": "meta-llama/llama-4-scout",
+        "$ai_output_tokens": 102,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are the receipt extraction model behind ReceiptScan's mobile app. Users photograph paper receipts and you turn them into structured data plus a short list of anything you were not confident about.\n\nRules:\n- Read the attached photo carefully. Lighting and crumpled paper are common; do not guess at a digit or word you cannot actually make out.\n- Return extracted_text with the most salient line from the receipt (usually the store name) and a rough confidence score: \"high\", \"medium\", or \"low\".\n- Return field_warnings as a list of objects, each with a severity and a short message. Severity values in the wild are inconsistent across our older and newer validators: sometimes a word like \"info\" or \"moderate\", sometimes a bare number like \"3\". Pass through whatever severity format applies rather than trying to normalize it yourself.\n- Flag a warning whenever a field is blurry, partly cropped out of frame, or arithmetically inconsistent with the rest of the receipt (a total that does not match the sum of the line items, for example).\n- Keep every warning message short, ideally under ten words, since it is shown as a small badge in the app rather than a paragraph.\n- Do not invent a field value you cannot see. A missing or unreadable field should be flagged, not filled in with a guess.\n",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Here's my receipt:",
+                "type": "text"
+              },
+              {
+                "file": "data:application/octet-stream;base64,⟦media:posthog_ai_openrouter_receipt_image__M3753942.png⟧",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "text": "Please pull out the key fields.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "{\"extracted_text\": {\"text\": \"Store: Fenwick Hardware Supply\", \"score\": \"medium\"}, \"field_warnings\": [{\"severity\": \"info\", \"message\": \"Low conf\"}, {\"severity\": \"moderate\", \"message\": \"Partly obscured\"}, {\"severity\": \"3\", \"message\": \"Total does not match line sum\"}]}",
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

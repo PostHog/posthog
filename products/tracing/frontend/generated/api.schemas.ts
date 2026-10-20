@@ -894,7 +894,7 @@ export interface _SymbolStatsResponseApi {
 }
 
 export interface _TracingTraceRequestApi {
-    /** Date range for the query. Defaults to last 24 hours. */
+    /** Date range for the query. Omit it to search all retained spans for this trace. */
     dateRange?: _TracingDateRangeApi
     /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
@@ -1028,8 +1028,12 @@ export interface _TracingTraceAiEventApi {
 }
 
 export interface _TracingTraceAiEventsResponseApi {
-    /** AI events in the trace, earliest start first. */
+    /** AI events in the trace, earliest start first, up to `limit` of them. */
     results: _TracingTraceAiEventApi[]
+    /** The most AI events the lookup returns for one trace. */
+    limit: number
+    /** Whether the trace has more AI events than `results` holds. The full list is in AI observability under the events' `ai_trace_id`. */
+    has_more: boolean
 }
 
 export interface _TracingTreeQueryBodyApi {

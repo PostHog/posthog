@@ -28,6 +28,15 @@ class PolicyEvaluationError(ApprovalException):
     pass
 
 
+class ApprovalDetectionFailed(ApprovalException):
+    """Raised when the gate cannot tell whether a change needs approval.
+
+    Detection reads the change through each action's ``detect``. When one of those raises, the
+    answer is unknown, not "no policy applies". Treating it as the latter lets a bug in one action
+    silently disable the policy it implements, so the write is refused instead.
+    """
+
+
 class ApprovalRequired(ApprovalException):
     """
     Raised when an action requires approval.

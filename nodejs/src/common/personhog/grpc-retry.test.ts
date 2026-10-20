@@ -35,6 +35,7 @@ describe('withRetry', () => {
         ['Aborted', Code.Aborted],
         ['Internal', Code.Internal],
         ['Unknown', Code.Unknown],
+        ['Canceled', Code.Canceled],
     ])('retries on %s', async (_name, code) => {
         let callCount = 0
         await withRetry(
@@ -61,7 +62,6 @@ describe('withRetry', () => {
         ['FailedPrecondition', Code.FailedPrecondition],
         ['OutOfRange', Code.OutOfRange],
         ['DataLoss', Code.DataLoss],
-        ['Canceled', Code.Canceled],
     ])('does not retry on %s', async (_name, code) => {
         let callCount = 0
         const error: unknown = await withRetry(

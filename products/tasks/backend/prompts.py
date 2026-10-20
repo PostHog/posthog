@@ -29,7 +29,7 @@ dependencies, a `posthog-setup-report.md` summary. It'll also possibly contain a
 `.posthog-events.json` plan and some skills definitions under a harness skills folder such as
 `.claude/skills/*` or `.agents/skills/*`.
 
-The wizard's full console output is saved to `/tmp/wizard-cloud-run/wizard-output.log` (outside the
+The wizard's full console output is saved to `/tmp/workspace/.posthog/wizard-cloud-run/wizard-output.log` (outside the
 repository, so it can never be committed). Read it whenever you need to understand what the wizard
 actually did - which files it touched, any warnings it printed, or why something in the working tree
 looks the way it does.
@@ -171,7 +171,7 @@ This PR adds PostHog analytics to the app using the `posthog-js` SDK (installed 
 
 1. Deploy this branch (or run it locally after setting the env vars from the section below).
 2. Open the app and click around.
-3. In PostHog, open [Activity](https://app.posthog.com/activity/explore) - you should see
+3. In PostHog, open [Activity](https://app.posthog.com/activity/events) - you should see
    `$pageview` events arriving within a minute.
 
 ## Environment variables

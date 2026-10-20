@@ -1,5 +1,7 @@
 import { Counter, Histogram } from 'prom-client'
 
+export type ClickHousePasswordFallbackReason = 'unreadable' | 'empty' | 'expired'
+
 export class RecordingApiMetrics {
     private static readonly getBlockDuration = new Histogram({
         name: 'recording_api_get_block_duration_seconds',
@@ -62,5 +64,15 @@ export class RecordingApiMetrics {
 
     public static incrementCleanupFailure(step: 'kafka' | 'postgres' | 'activity_log'): void {
         this.cleanupFailures.labels({ step }).inc()
+    }
+
+    private static readonly clickhousePasswordFallbacks = new Counter({
+        name: 'recording_api_clickhouse_password_fallback_total',
+        help: 'ClickHouse queries that sent the static password instead of the token file',
+        labelNames: ['reason'],
+    })
+
+    public static incrementClickhousePasswordFallback(reason: ClickHousePasswordFallbackReason): void {
+        this.clickhousePasswordFallbacks.labels({ reason }).inc()
     }
 }

@@ -11,7 +11,9 @@ from posthog.schema import (
     AttributionMode,
     BaseMathType,
     ConversionGoalFilter1,
+    ConversionGoalFilter2,
     EventPropertyFilter,
+    HogQLPropertyFilter,
     PropertyOperator,
     RevenueCurrencyPropertyConfig,
 )
@@ -23,6 +25,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models import PropertyDefinition
 
+from products.actions.backend.models.action import Action
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 
@@ -174,6 +177,69 @@ class TestConversionGoalProcessorRefactor(BaseTest):
                 processor._should_use_precompute(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
                 is expected
             )
+
+    @parameterized.expand(
+        [
+            ("revenue_math_property", {"math_property": "$virt_revenue"}, False),
+            (
+                "revenue_currency_property",
+                {
+                    "math_property": "amount",
+                    "math_property_revenue_currency": RevenueCurrencyPropertyConfig(property="$virt_mrr"),
+                },
+                False,
+            ),
+            (
+                "revenue_property_filter",
+                {"properties": [EventPropertyFilter(key="$virt_mrr", operator=PropertyOperator.GT, value=0)]},
+                False,
+            ),
+            (
+                "revenue_hogql_filter",
+                {"properties": [HogQLPropertyFilter(key="person.properties.$virt_mrr > 0")]},
+                False,
+            ),
+            (
+                "other_virtual_property",
+                {
+                    "properties": [
+                        EventPropertyFilter(key="$virt_is_bot", operator=PropertyOperator.EXACT, value="false")
+                    ]
+                },
+                True,
+            ),
+        ]
+    )
+    def test_revenue_analytics_properties_are_not_precomputable(self, _name: str, goal_overrides: dict, expected: bool):
+        # The precompute INSERT has no revenue analytics join, so a goal on a revenue virtual property
+        # fails to print there on every warm and must never be treated as precomputable.
+        assert self._processor(**goal_overrides).is_goal_precomputable() is expected
+
+    def test_action_step_on_revenue_property_is_not_precomputable(self):
+        # An action goal pulls its steps' filters into the INSERT, so they must be checked too.
+        action = Action.objects.create(
+            team=self.team,
+            name="Paying purchase",
+            steps_json=[
+                {
+                    "event": "purchase",
+                    "properties": [{"key": "$virt_revenue", "type": "person", "value": 0, "operator": "gt"}],
+                }
+            ],
+        )
+        goal = ConversionGoalFilter2(
+            kind="ActionsNode",
+            id=str(action.id),
+            conversion_goal_id="goal_action",
+            conversion_goal_name="Action goal",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(
+            goal=goal, index=0, team=self.team, config=MarketingAnalyticsConfig(), filter_test_accounts=False
+        )
+
+        assert processor.is_goal_precomputable() is False
 
     def test_tracked_fields_match_touchpoints_table_schema(self):
         from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import (

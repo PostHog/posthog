@@ -27,6 +27,9 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
+    BoundaryCheckpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -362,7 +365,9 @@ def get_rows(
             headers = _get_headers(api_key)
             raise HubspotRetryableError(f"Hubspot API 401 - refreshed token, retrying: url={page_url}")
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 is a transient request timeout on HubSpot's side; retry it like 429/5xx rather
+        # than failing the whole sync.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             raise HubspotRetryableError(f"Hubspot API error (retryable): status={response.status_code}, url={page_url}")
 
         if not response.ok:
@@ -467,7 +472,9 @@ def _batch_read_associations(
             headers.update(_get_headers(new_api_key))
             raise HubspotRetryableError(f"Hubspot v4 associations 401 - refreshed token, retrying: url={url}")
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 is a transient request timeout on HubSpot's side; retry it like 429/5xx rather
+        # than failing the whole sync.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             raise HubspotRetryableError(
                 f"Hubspot v4 associations error (retryable): status={response.status_code}, url={url}"
             )
@@ -642,7 +649,9 @@ def get_rows_via_search(
             headers.update(_get_headers(api_key))
             raise HubspotRetryableError(f"Hubspot search 401 - refreshed token, retrying: url={search_url}")
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 is a transient request timeout on HubSpot's side; retry it like 429/5xx rather
+        # than failing the whole sync.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             raise HubspotRetryableError(
                 f"Hubspot search error (retryable): status={response.status_code}, url={search_url}"
             )
@@ -657,14 +666,13 @@ def get_rows_via_search(
         except RequestsJSONDecodeError as e:
             raise HubspotRetryableError(f"Hubspot search malformed JSON response (retryable): url={search_url}") from e
 
+    def progress() -> HubspotResumeConfig:
+        return HubspotResumeConfig(sync_start_ms=sync_start_ms, sync_end_ms=sync_end_ms, last_cursor_ms=last_cursor_ms)
+
     def save_progress() -> None:
-        resumable_source_manager.save_state(
-            HubspotResumeConfig(
-                sync_start_ms=sync_start_ms,
-                sync_end_ms=sync_end_ms,
-                last_cursor_ms=last_cursor_ms,
-            )
-        )
+        resumable_source_manager.save_state(progress())
+
+    window_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
 
     def _process_results(results: list[dict[str, Any]]) -> Iterator[Any]:
         """Flatten, batch, and yield `results`, tracking cursor progress as a side effect."""
@@ -850,7 +858,8 @@ def get_rows_via_search(
         current_lower = window_upper + 1
         if last_cursor_ms < window_upper:
             last_cursor_ms = window_upper
-        save_progress()
+        # The batcher can hold rows of this window, and a cursor at the window end skips them.
+        yield from window_checkpoint.save(progress())
 
     if batcher.should_yield(include_incomplete_chunk=True):
         py_table = batcher.get_table()

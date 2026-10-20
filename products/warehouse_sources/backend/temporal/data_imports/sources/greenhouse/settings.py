@@ -8,7 +8,7 @@ GREENHOUSE_V1 = "v1"
 GREENHOUSE_V3 = "v3"
 
 
-@dataclass
+@dataclass(frozen=True)
 class GreenhouseEndpointConfig:
     name: str
     path: str
@@ -25,6 +25,8 @@ class GreenhouseEndpointConfig:
     incremental_filter_params: dict[str, str] = field(default_factory=dict)
     # Harvest v3 path, where v3 renamed the collection. ``None`` means v3 kept the v1 name.
     v3_path: Optional[str] = None
+    # Harvest v1 has no top-level list for the resource, or lacks the timestamps it is keyed on.
+    v3_only: bool = False
 
     def path_for_version(self, api_version: str) -> str:
         if api_version == GREENHOUSE_V3 and self.v3_path is not None:
@@ -48,6 +50,8 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
 # reference endpoints (departments, offices, sources, rejection/close reasons) have no
 # timestamp filter and ship full refresh. Per-parent fan-out streams (activity feeds,
 # per-application interviews/scorecards) are intentionally deferred to a later pass.
+# The v3-only lookups (stages, openings, roles, custom fields) filter on `updated_at` /
+# `created_at` server-side and ship incremental.
 GREENHOUSE_ENDPOINTS: dict[str, GreenhouseEndpointConfig] = {
     "candidates": GreenhouseEndpointConfig(
         name="candidates",
@@ -191,9 +195,71 @@ GREENHOUSE_ENDPOINTS: dict[str, GreenhouseEndpointConfig] = {
         path="/close_reasons",
         primary_keys=["id"],
     ),
+    "job_interview_stages": GreenhouseEndpointConfig(
+        name="job_interview_stages",
+        path="/job_interview_stages",
+        v3_only=True,
+        primary_keys=["id"],
+        partition_key="created_at",
+        incremental_fields=[
+            _datetime_incremental_field("updated_at"),
+            _datetime_incremental_field("created_at"),
+        ],
+    ),
+    "openings": GreenhouseEndpointConfig(
+        name="openings",
+        path="/openings",
+        v3_only=True,
+        primary_keys=["id"],
+        partition_key="created_at",
+        incremental_fields=[
+            _datetime_incremental_field("updated_at"),
+            _datetime_incremental_field("created_at"),
+        ],
+    ),
+    "user_roles": GreenhouseEndpointConfig(
+        name="user_roles",
+        path="/user_roles",
+        v3_only=True,
+        primary_keys=["id"],
+        partition_key="created_at",
+        incremental_fields=[
+            _datetime_incremental_field("updated_at"),
+            _datetime_incremental_field("created_at"),
+        ],
+    ),
+    "custom_fields": GreenhouseEndpointConfig(
+        name="custom_fields",
+        path="/custom_fields",
+        v3_only=True,
+        primary_keys=["id"],
+        partition_key="created_at",
+        incremental_fields=[
+            _datetime_incremental_field("updated_at"),
+            _datetime_incremental_field("created_at"),
+        ],
+    ),
+    "custom_field_options": GreenhouseEndpointConfig(
+        name="custom_field_options",
+        path="/custom_field_options",
+        v3_only=True,
+        primary_keys=["id"],
+        partition_key="created_at",
+        incremental_fields=[
+            _datetime_incremental_field("updated_at"),
+            _datetime_incremental_field("created_at"),
+        ],
+    ),
 }
 
 ENDPOINTS = tuple(GREENHOUSE_ENDPOINTS.keys())
+
+
+def endpoints_for_version(api_version: str) -> tuple[str, ...]:
+    if api_version == GREENHOUSE_V3:
+        return ENDPOINTS
+    return tuple(name for name, config in GREENHOUSE_ENDPOINTS.items() if not config.v3_only)
+
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in GREENHOUSE_ENDPOINTS.items()

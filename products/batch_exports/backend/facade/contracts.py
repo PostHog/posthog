@@ -3,9 +3,8 @@ Contract types for batch_exports.
 
 Stable, framework-free dataclasses defining what this product hands to the rest of the
 codebase. No Django or DRF imports, and enums are flattened to their ``str`` value, so a
-consumer never needs a model class to read a batch export. The ``StrEnum`` classes name
-those values for a consumer that writes them. They copy the model's ``TextChoices``, and
-``tests/test_facade.py`` fails when the two copies differ.
+consumer never needs a model class to read a batch export. A consumer that writes one of
+those values imports the enum from ``facade/enums.py``.
 
 The fields are the ones consumers read today and nothing more. An encrypted model field
 never crosses whole, because reading one decrypts it; ``BatchExportDetail`` documents the
@@ -22,7 +21,6 @@ from dataclasses import (
     dataclass as stdlib_dataclass,
     field,
 )
-from enum import StrEnum
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -31,54 +29,35 @@ from pydantic.dataclasses import dataclass
 BATCH_EXPORT_MODEL_LABEL = "batch_exports.BatchExport"
 
 
-class DestinationType(StrEnum):
-    S3 = "S3"
-    AWS_S3 = "AwsS3"
-    S3_COMPATIBLE = "S3Compatible"
-    SNOWFLAKE = "Snowflake"
-    POSTGRES = "Postgres"
-    REDSHIFT = "Redshift"
-    BIGQUERY = "BigQuery"
-    DATABRICKS = "Databricks"
-    AZURE_BLOB = "AzureBlob"
-    WORKFLOWS = "Workflows"
-    HTTP = "HTTP"
-    NOOP = "NoOp"
-    FILE_DOWNLOAD = "FileDownload"
+class InvalidBatchExportFilters(ValueError):
+    """Raised when event filters are not a list of filters a batch export can apply."""
 
 
-class BatchExportModel(StrEnum):
-    """The data model an export reads, for scheduled and on-demand exports alike."""
-
-    EVENTS = "events"
-    PERSONS = "persons"
-    SESSIONS = "sessions"
-    HOGQL = "hogql"
+class UnsupportedDestinationTestError(ValueError):
+    """Raised when a destination type has no connection test."""
 
 
-class BatchExportRunStatus(StrEnum):
-    CANCELLED = "Cancelled"
-    COMPLETED = "Completed"
-    CONTINUED_AS_NEW = "ContinuedAsNew"
-    FAILED = "Failed"
-    FAILED_RETRYABLE = "FailedRetryable"
-    FAILED_BILLING = "FailedBilling"
-    TERMINATED = "Terminated"
-    TIMEDOUT = "TimedOut"
-    RUNNING = "Running"
-    STARTING = "Starting"
+class UnsupportedHogQLQueryError(Exception):
+    """Raised when a HogQL query cannot be used to power a batch export."""
 
 
-class BatchExportBackfillStatus(StrEnum):
-    CANCELLED = "Cancelled"
-    COMPLETED = "Completed"
-    CONTINUED_AS_NEW = "ContinuedAsNew"
-    FAILED = "Failed"
-    FAILED_RETRYABLE = "FailedRetryable"
-    TERMINATED = "Terminated"
-    TIMEDOUT = "TimedOut"
-    RUNNING = "Running"
-    STARTING = "Starting"
+class FileDownloadNotFoundError(LookupError):
+    """Raised when a file download run, or the file a request names, does not exist for the team.
+
+    The message, when there is one, says which file index is out of range.
+    """
+
+
+class InvalidFileDownloadRequestError(ValueError):
+    """Raised when a file download cannot do what was asked, for example download a run that has not finished."""
+
+
+class TooManyConcurrentFileDownloadsError(Exception):
+    """Raised when a team already has the maximum number of file downloads starting or running."""
+
+
+class FileDownloadStartError(Exception):
+    """Raised when the workflow of a new file download does not start. The run is saved as failed."""
 
 
 @dataclass(frozen=True)
@@ -163,6 +142,70 @@ class TeamTotal:
 
     team_id: int
     total: int
+
+
+@dataclass(frozen=True)
+class DestinationTestStepResult:
+    """The outcome of one destination test step. ``message`` explains a failure."""
+
+    status: str
+    message: str | None
+
+
+@dataclass(frozen=True)
+class DestinationTestStep:
+    """One check in a destination's connection test. ``result`` is None until the step runs."""
+
+    name: str
+    description: str
+    result: DestinationTestStepResult | None
+
+
+@dataclass(frozen=True)
+class DestinationTest:
+    """The ordered checks that test a connection to a destination.
+
+    Each step depends on the steps before it, so a client runs them in order.
+    """
+
+    steps: tuple[DestinationTestStep, ...]
+
+
+@dataclass(frozen=True)
+class FileDownloadRequest:
+    """What to export to a downloadable file, as a person asked for it.
+
+    ``include_events`` and ``exclude_events`` apply to the ``events`` model only. ``hogql_query``
+    and ``hogql_modifiers`` apply to the ``hogql`` model only, and that model needs only the
+    interval bounds its query references.
+    """
+
+    model: str
+    format: str
+    compression: str | None
+    max_size_mb: int | None
+    data_interval_start: dt.datetime | None
+    data_interval_end: dt.datetime | None
+    include_events: tuple[str, ...] | None = None
+    exclude_events: tuple[str, ...] | None = None
+    hogql_query: str | None = None
+    hogql_modifiers: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class FileDownloadRun:
+    """A file download run, with the status a person sees.
+
+    ``files`` holds the ids of the downloadable files, in download order. It is None until the
+    run completes and its files are ready. A completed run that exported rows reports
+    ``Running`` until then, because its files are written after the run completes.
+    """
+
+    id: UUID
+    status: str
+    error: str | None
+    files: tuple[UUID, ...] | None
+    records_completed: int | None
 
 
 @stdlib_dataclass(frozen=True)

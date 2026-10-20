@@ -76,13 +76,13 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
 export function AgentsTab(): JSX.Element {
     const { dataSourceSetupSource } = useValues(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { loadSources, loadSourceConfigs, loadToolDataEvents, closeDataSourceSetup, onDataSourceSetupComplete } =
+    const { loadSources, loadSourceConfigs, loadProductDataEvents, closeDataSourceSetup, onDataSourceSetupComplete } =
         useActions(signalSourcesLogic)
 
     useEffect(() => {
         loadSources()
         loadSourceConfigs()
-        loadToolDataEvents()
+        loadProductDataEvents()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     let agentsBody: JSX.Element

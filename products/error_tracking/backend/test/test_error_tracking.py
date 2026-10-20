@@ -68,7 +68,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         assert latest_issue_state_watermark(self.team.id) == source_stamp
 
         with time_machine.travel("2022-01-10T12:05:00", tick=False):
-            assert target.merge(issue_ids=[source.id])[0] == ErrorTrackingIssueMergeResult.MERGED
+            assert target.merge(issue_ids=[source.id]).result == ErrorTrackingIssueMergeResult.MERGED
 
         target.refresh_from_db()
         assert target.state_updated_at == datetime(2022, 1, 10, 12, 5, tzinfo=UTC)
@@ -96,6 +96,31 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         assert override
         assert override.version == 1
 
+    @parameterized.expand(
+        [
+            ("resolved", "active", "active"),
+            ("pending_release", "active", "active"),
+            ("archived", "active", "active"),
+            # A suppressed issue stays suppressed, which is what ingestion does on a direct link.
+            ("suppressed", "active", "suppressed"),
+            ("active", "active", "active"),
+            # No source is seeing the error any more, so the target has no recurrence to report.
+            ("resolved", "resolved", "resolved"),
+        ]
+    )
+    def test_merge_reopens_a_dormant_target(self, target_status: str, source_status: str, expected_status: str):
+        source = self.create_issue(["fingerprint_one"])
+        target = self.create_issue(["fingerprint_two"])
+        ErrorTrackingIssue.objects.filter(id=source.id).update(status=source_status)
+        target.status = target_status
+        target.save(update_fields=["status"])
+
+        target.merge(issue_ids=[source.id])
+
+        assert target.status == expected_status
+        target.refresh_from_db()
+        assert target.status == expected_status
+
     def test_merging_multiple_issues_at_once(self):
         issue_one = self.create_issue(["fingerprint_one"])
         issue_two = self.create_issue(["fingerprint_two"])
@@ -111,10 +136,9 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         stale_issue_id = self.create_issue(["fingerprint_three"]).id
         ErrorTrackingIssue.objects.filter(id=stale_issue_id).delete()
 
-        assert issue_two.merge(issue_ids=[issue_one.id, stale_issue_id]) == (
-            ErrorTrackingIssueMergeResult.MERGED,
-            [issue_one.id],
-        )
+        outcome = issue_two.merge(issue_ids=[issue_one.id, stale_issue_id])
+        assert outcome.result == ErrorTrackingIssueMergeResult.MERGED
+        assert outcome.merged_issue_ids == [issue_one.id]
 
         # The still-present source is merged into the target even though a sibling source was stale
         assert not ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
@@ -126,7 +150,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         stale_issue_id = self.create_issue(["fingerprint_three"]).id
         ErrorTrackingIssue.objects.filter(id=stale_issue_id).delete()
 
-        assert issue_two.merge(issue_ids=[stale_issue_id]) == (ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES, [])
+        assert issue_two.merge(issue_ids=[stale_issue_id]).result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
 
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_two.id).count() == 1
 
@@ -135,7 +159,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         issue_two = self.create_issue(["fingerprint_two"])
         ErrorTrackingIssue.objects.filter(id=issue_two.id).delete()
 
-        assert issue_two.merge(issue_ids=[issue_one.id]) == (ErrorTrackingIssueMergeResult.STALE_ISSUES, [])
+        assert issue_two.merge(issue_ids=[issue_one.id]).result == ErrorTrackingIssueMergeResult.STALE_ISSUES
 
         # The source is left untouched when the target the frontend picked is gone
         assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
@@ -146,13 +170,16 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         issue_two = self.create_issue(["fingerprint_two"])
         issue_three = self.create_issue(["fingerprint_three"])
 
-        assert issue_two.merge(
-            issue_ids=[issue_one.id],
-            expected_fingerprint_issue_ids={
-                "fingerprint_one": issue_three.id,
-                "fingerprint_two": issue_two.id,
-            },
-        ) == (ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS, [])
+        assert (
+            issue_two.merge(
+                issue_ids=[issue_one.id],
+                expected_fingerprint_issue_ids={
+                    "fingerprint_one": issue_three.id,
+                    "fingerprint_two": issue_two.id,
+                },
+            ).result
+            == ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
+        )
 
         assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
         assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
@@ -167,7 +194,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
             patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            assert issue_two.merge(issue_ids=[issue_one.id])[0] == ErrorTrackingIssueMergeResult.MERGED
+            assert issue_two.merge(issue_ids=[issue_one.id]).result == ErrorTrackingIssueMergeResult.MERGED
 
         sync_issues_to_clickhouse.assert_called_once_with(issue_ids=[issue_two.id], team_id=self.team.id)
 
@@ -418,7 +445,7 @@ class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBa
                 cursor.execute("SET lock_timeout = '10s'")
                 cursor.execute("SET statement_timeout = '15s'")
             start_barrier.wait(timeout=5)
-            return ErrorTrackingIssue.objects.get(id=target_issue_id).merge(issue_ids=source_issue_ids)[0]
+            return ErrorTrackingIssue.objects.get(id=target_issue_id).merge(issue_ids=source_issue_ids).result
         finally:
             close_old_connections()
 

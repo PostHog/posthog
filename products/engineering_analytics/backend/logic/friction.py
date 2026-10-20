@@ -53,6 +53,14 @@ GROUP_WEIGHTS: dict[FrictionGroup, float] = {
 # CI time below this per push, and merge-queue time below its own threshold, is the normal cost of a push.
 CI_WAIT_FREE_SECONDS = 10 * 60
 QUEUE_FREE_SECONDS = 30 * 60
+# Waiting hurts in steps: past a few hours the author has moved on, and the data cannot tell a longer wait
+# from a pull request left alone overnight or over a weekend. So time counts only up to these caps, and
+# one stuck pull request cannot put its author at the top of the ranking.
+CI_WAIT_CAP_SECONDS = 2 * 3600
+QUEUE_CAP_SECONDS = 4 * 3600
+# The same holds for counted events: the fourth red stretch or kickout on one pull request tells little
+# more than the third, and a re-run loop can add dozens that the author did not start.
+COUNT_CAP = 3
 APPROVAL_WAIT_REFERENCE_HOURS = 8
 APPROVAL_SLOW_HOURS = 24
 BOOTSTRAP_ROUNDS = 20
@@ -103,12 +111,18 @@ def _slow_approval(pr: PullRequestFriction) -> float | None:
 
 
 def _ci_wait_minutes(pr: PullRequestFriction) -> float:
-    return sum(max(0.0, seconds - CI_WAIT_FREE_SECONDS) for seconds in pr.ci_wait_seconds) / 60
+    return (
+        sum(max(0.0, min(seconds, CI_WAIT_CAP_SECONDS) - CI_WAIT_FREE_SECONDS) for seconds in pr.ci_wait_seconds) / 60
+    )
 
 
 def _queue_minutes(pr: PullRequestFriction) -> float:
     # A pull request that never entered the queue met no queue friction, so it still counts, as zero.
-    return max(0.0, (pr.queue_seconds or 0.0) - QUEUE_FREE_SECONDS) / 60
+    return max(0.0, min(pr.queue_seconds or 0.0, QUEUE_CAP_SECONDS) - QUEUE_FREE_SECONDS) / 60
+
+
+def _capped(count: int) -> float:
+    return float(min(count, COUNT_CAP))
 
 
 def _optional(value: int | None) -> float | None:
@@ -128,17 +142,29 @@ class FrictionMetric:
 METRICS: tuple[FrictionMetric, ...] = (
     # Each red stretch counts once, whatever its length: a red pull request left alone hardly affects anyone.
     FrictionMetric(
-        key="flake_red", group=FrictionGroup.CI, weight=1, external=True, value=lambda pr: pr.flake_red_count
+        key="flake_red", group=FrictionGroup.CI, weight=1, external=True, value=lambda pr: _capped(pr.flake_red_count)
     ),
     FrictionMetric(
-        key="master_red", group=FrictionGroup.CI, weight=1, external=True, value=lambda pr: pr.master_red_count
+        key="master_red",
+        group=FrictionGroup.CI,
+        weight=1,
+        external=True,
+        value=lambda pr: _capped(pr.master_red_count),
     ),
     FrictionMetric(
-        key="unknown_red", group=FrictionGroup.CI, weight=0.5, external=False, value=lambda pr: pr.unknown_red_count
+        key="unknown_red",
+        group=FrictionGroup.CI,
+        weight=0.5,
+        external=False,
+        value=lambda pr: _capped(pr.unknown_red_count),
     ),
     FrictionMetric(key="ci_wait", group=FrictionGroup.CI, weight=1, external=False, value=_ci_wait_minutes),
     FrictionMetric(
-        key="futile_reruns", group=FrictionGroup.CI, weight=1.5, external=True, value=lambda pr: pr.futile_rerun_count
+        key="futile_reruns",
+        group=FrictionGroup.CI,
+        weight=1.5,
+        external=True,
+        value=lambda pr: _capped(pr.futile_rerun_count),
     ),
     FrictionMetric(
         key="first_approval_wait", group=FrictionGroup.REVIEW, weight=1, external=False, value=_log_approval_wait
@@ -152,10 +178,10 @@ METRICS: tuple[FrictionMetric, ...] = (
         group=FrictionGroup.QUEUE,
         weight=1.5,
         external=True,
-        value=lambda pr: pr.kickout_count or 0,
+        value=lambda pr: _capped(pr.kickout_count or 0),
     ),
     FrictionMetric(
-        key="own_red", group=FrictionGroup.REWORK, weight=1, external=False, value=lambda pr: pr.own_red_count
+        key="own_red", group=FrictionGroup.REWORK, weight=1, external=False, value=lambda pr: _capped(pr.own_red_count)
     ),
     FrictionMetric(
         key="extra_pushes",

@@ -30,6 +30,7 @@ from social_django.models import UserSocialAuth
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
+from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
@@ -38,10 +39,10 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant,
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.user import default_ui_configuration_for_new_users
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -92,6 +93,7 @@ class TestUserAPI(APIBaseTest):
 
     # RETRIEVING USER
 
+    @covers_authentication(SessionAuthentication)
     def test_retrieve_current_user(self):
         response = self.client.get("/api/users/@me/")
 
@@ -116,6 +118,10 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(response_data["organization"]["name"], self.organization.name)
         self.assertEqual(response_data["organization"]["membership_level"], 1)
+        self.assertEqual(
+            response_data["organization"]["membership_joined_at"],
+            self.organization_membership.joined_at.isoformat(),
+        )
         self.assertEqual(response_data["organization"]["teams"][0]["id"], self.team.id)
         self.assertEqual(response_data["organization"]["teams"][0]["name"], self.team.name)
         self.assertNotIn(
@@ -271,13 +277,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json() == {"a bag": "of data"}
 
     def test_can_update_ui_configuration(self):
-        configuration = {
-            "version": 1,
-            "sidebar": {
-                "sections": {"recents": {"visible": False}},
-                "items": {"data": {"visible": False}},
-            },
-        }
+        configuration = {"version": 1, "sql_editor": {"vim_mode_enabled": True, "vimrc": "imap jj <Esc>"}}
 
         response = self.client.patch("/api/users/@me/", {"ui_configuration": configuration})
 
@@ -291,7 +291,7 @@ class TestUserAPI(APIBaseTest):
 
         response = self.client.patch(
             "/api/users/@me/",
-            {"ui_configuration": {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}},
+            {"ui_configuration": {"version": 1, "sql_editor": {"vim_mode_enabled": "nope"}}},
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -593,6 +593,31 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.json(), self.method_not_allowed_response("POST"))
 
         self.assertEqual(User.objects.count(), count)
+
+    @parameterized.expand(
+        [
+            ("same_project", [False, False], 1),
+            ("switched_project", [False, True], 2),
+            ("switched_back_to_earlier_project", [False, True, False], 3),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_retrieve_current_user_refreshes_person_properties_once_per_project(
+        self, _name, use_new_project_per_request, expected_refreshes, mock_capture
+    ):
+        for use_new_project in use_new_project_per_request:
+            if use_new_project:
+                User.objects.filter(pk=self.user.pk).update(
+                    current_organization=self.new_org, current_team=self.new_project
+                )
+            else:
+                User.objects.filter(pk=self.user.pk).update(
+                    current_organization=self.organization, current_team=self.team
+                )
+            self.client.get("/api/users/@me/")
+
+        refreshes = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "update user properties"]
+        assert len(refreshes) == expected_refreshes
 
     # UPDATING USER
 
@@ -1188,12 +1213,22 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "alpha+legacy@example.com"
         assert self.user.first_name == "Newname"
 
-    def test_email_change_rejected_when_another_account_holds_the_aliased_form(self):
+    @parameterized.expand(
+        [
+            ("plus_alias", "beta+old@example.com", "beta@example.com"),
+            ("gmail_dots", "beta@gmail.com", "b.e.t.a@gmail.com"),
+            ("gmail_stored_dots_and_alias", "b.e.t.a+old@gmail.com", "beta@gmail.com"),
+            ("googlemail", "beta@gmail.com", "b.e.t.a@googlemail.com"),
+        ]
+    )
+    def test_email_change_rejected_when_another_account_holds_the_same_mailbox(
+        self, _name: str, other_email: str, new_email: str
+    ) -> None:
         self.user.email = "alpha@example.com"
         self.user.save()
-        User.objects.create(email="beta+old@example.com", first_name="Beta")
+        User.objects.create(email=other_email, first_name="Beta")
 
-        response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+        response = self.client.patch("/api/users/@me/", {"email": new_email})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "unique"
@@ -1258,17 +1293,26 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
 
+    @parameterized.expand(
+        [
+            ("plus_alias", "alpha+legacy@example.com", "alpha@example.com"),
+            ("gmail_dots", "a.l.p.h.a@gmail.com", "alpha@gmail.com"),
+            ("googlemail", "alpha@googlemail.com", "a.l.p.h.a@gmail.com"),
+        ]
+    )
     @patch("posthog.api.user.is_email_available", return_value=False)
-    def test_email_change_allowed_when_dropping_own_plus_alias(self, _mock_is_email_available):
+    def test_email_change_allowed_within_own_mailbox(
+        self, _name: str, current_email: str, new_email: str, _mock_is_email_available: mock.Mock
+    ) -> None:
         # The collision check must skip the editor's own row, or a legacy alias holder can never clean it up.
-        self.user.email = "alpha+legacy@example.com"
+        self.user.email = current_email
         self.user.save()
 
-        response = self.client.patch("/api/users/@me/", {"email": "alpha@example.com"})
+        response = self.client.patch("/api/users/@me/", {"email": new_email})
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
-        assert self.user.email == "alpha@example.com"
+        assert self.user.email == new_email
 
     @parameterized.expand(
         [
@@ -2469,11 +2513,14 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "ai_evaluation_disabled": True,
+                "workflow_suggestions": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "data_catalog_weekly_digest": True,
+                "approval_requested": True,
+                "approval_resolved": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2494,11 +2541,14 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "ai_evaluation_disabled": True,
+                "workflow_suggestions": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "data_catalog_weekly_digest": True,
+                "approval_requested": True,
+                "approval_resolved": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2767,11 +2817,14 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "ai_evaluation_disabled": True,  # Default value
+                "workflow_suggestions": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
                 "materialized_view_sync_failed_daily": True,  # Default value
                 "materialized_view_sync_failed_immediate": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
                 "data_catalog_weekly_digest": True,  # Default value
+                "approval_requested": True,  # Default value
+                "approval_resolved": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value
                 "pipeline_notifications_disabled": {},  # Default value
@@ -2783,12 +2836,10 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("not_an_object", ["version"]),
-            ("missing_version", {"sidebar": {}}),
-            ("unknown_section", {"version": 1, "sidebar": {"sections": {"bogus": {"visible": False}}}}),
-            ("unknown_item", {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}),
-            ("activity_not_customizable", {"version": 1, "sidebar": {"items": {"activity": {"visible": False}}}}),
-            ("non_boolean_visible", {"version": 1, "sidebar": {"items": {"home": {"visible": "nope"}}}}),
-            ("unknown_node_key", {"version": 1, "sidebar": {"items": {"home": {"visible": False, "size": 1}}}}),
+            ("missing_version", {"sql_editor": {}}),
+            ("non_boolean_vim_mode", {"version": 1, "sql_editor": {"vim_mode_enabled": "nope"}}),
+            ("non_string_vimrc", {"version": 1, "sql_editor": {"vimrc": ["imap jj <Esc>"]}}),
+            ("vimrc_too_long", {"version": 1, "sql_editor": {"vimrc": "x" * 10001}}),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2802,9 +2853,9 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("null", None),
             ("minimal", {"version": 1}),
             ("unknown_top_level_key", {"version": 1, "surprise": True}),
-            ("unknown_sidebar_key", {"version": 1, "sidebar": {"density": "compact", "surprise": True}}),
             (
-                "full",
+                # Sidebar settings an older client stored. Rejecting them would block every later save.
+                "stored_sidebar_settings",
                 {
                     "version": 1,
                     "sidebar": {
@@ -2822,7 +2873,13 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
                     },
                 },
             ),
-            ("new_user_default", default_ui_configuration_for_new_users()),
+            (
+                "sql_editor",
+                {
+                    "version": 1,
+                    "sql_editor": {"vim_mode_enabled": True, "vimrc": "imap jj <Esc>\nset cursorblink"},
+                },
+            ),
         ]
     )
     def test_valid_ui_configuration_is_accepted(self, _name, value):
@@ -3568,14 +3625,17 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("verified", True, "new-address@posthog.com"),
-            ("legacy_never_verified", None, "new-address@posthog.com"),
-            ("staged_before_normalization", True, "New-Address@PostHog.com"),
+            ("verified", True, "new-address@posthog.com", "old@example.com"),
+            ("legacy_never_verified", None, "new-address@posthog.com", "old@example.com"),
+            ("staged_before_normalization", True, "New-Address@PostHog.com", "old@example.com"),
+            ("own_gmail_dots", True, "alpha@gmail.com", "a.l.p.h.a@gmail.com"),
+            ("own_googlemail", True, "alpha@gmail.com", "a.l.p.h.a@googlemail.com"),
         ]
     )
     def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(
-        self, _name, is_email_verified, staged_email
-    ):
+        self, _name: str, is_email_verified: bool | None, staged_email: str, current_email: str
+    ) -> None:
+        self.user.email = current_email
         self.user.is_email_verified = is_email_verified
         self.user.pending_email = staged_email
         self.user.save()
@@ -3590,20 +3650,24 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.user.refresh_from_db()
-        assert self.user.email == "new-address@posthog.com"
+        assert self.user.email == staged_email.lower()
         assert self.user.pending_email is None
 
     @parameterized.expand(
         [
             # A case variant passes the unique index on `email`, so only the fold check catches it.
-            ("active_case_variant", "New-Address@posthog.com", True),
+            ("active_case_variant", "New-Address@posthog.com", True, "new-address@posthog.com"),
             # An exact match reaches the write, because the fold check reads active accounts only.
-            ("deactivated_exact_match", "new-address@posthog.com", False),
+            ("deactivated_exact_match", "new-address@posthog.com", False, "new-address@posthog.com"),
+            ("gmail_dots", "b.e.t.a@gmail.com", True, "beta@gmail.com"),
+            ("googlemail", "beta@gmail.com", True, "b.e.t.a@googlemail.com"),
         ]
     )
-    def test_pending_address_taken_while_the_change_waited_is_not_promoted(self, _name, other_email, other_is_active):
+    def test_pending_address_taken_while_the_change_waited_is_not_promoted(
+        self, _name: str, other_email: str, other_is_active: bool, staged_email: str
+    ) -> None:
         self.user.is_email_verified = True
-        self.user.pending_email = "new-address@posthog.com"
+        self.user.pending_email = staged_email
         self.user.save()
         account_email = self.user.email
 
@@ -3621,7 +3685,7 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.email == account_email
         # The staged address stays, so a repeat request cannot read as a completed change.
-        assert self.user.pending_email == "new-address@posthog.com"
+        assert self.user.pending_email == staged_email
 
         repeat = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
 

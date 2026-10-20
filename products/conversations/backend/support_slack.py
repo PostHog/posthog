@@ -21,6 +21,9 @@ SUPPORT_SLACK_FILE_READ_SCOPE = "files:read"
 SUPPORT_SLACK_FILE_WRITE_SCOPE = "files:write"
 SUPPORT_SLACK_FILE_SCOPES = frozenset({SUPPORT_SLACK_FILE_READ_SCOPE, SUPPORT_SLACK_FILE_WRITE_SCOPE})
 
+# Posting under a name and avatar other than the bot's own needs this.
+SUPPORT_SLACK_CUSTOM_IDENTITY_SCOPE = "chat:write.customize"
+
 
 def get_support_slack_settings() -> dict:
     return get_instance_settings(
@@ -45,6 +48,20 @@ def supporthog_missing_file_scopes(team: "Team") -> list[str]:
     settings = team.conversations_settings
     granted = settings.get("slack_scopes") if isinstance(settings, dict) else None
     return sorted(SUPPORT_SLACK_FILE_SCOPES.difference(granted or []))
+
+
+def supporthog_lacks_custom_identity_scope(team: "Team") -> bool:
+    """Whether this install is *known* to be unable to post under a custom name and avatar.
+
+    False when scopes were never recorded: the scope has been requested for as long as we've
+    recorded them, so an unrecorded install most likely has it, and refusing on that guess
+    would block installs that work. Slack still rejects the post if it really is missing.
+    """
+    settings = team.conversations_settings
+    granted = settings.get("slack_scopes") if isinstance(settings, dict) else None
+    if not granted:
+        return False
+    return SUPPORT_SLACK_CUSTOM_IDENTITY_SCOPE not in granted
 
 
 def get_support_slack_bot_token(team: "Team") -> str:

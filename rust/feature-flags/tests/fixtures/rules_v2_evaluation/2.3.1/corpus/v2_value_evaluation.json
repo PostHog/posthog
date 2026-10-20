@@ -1,0 +1,3080 @@
+{
+  "corpus_version": "1.0.0",
+  "config_version": 2,
+  "description": "Person string, number and object ordered evaluation with the legacy rendering of each result. Expected terminal fields and legacy cells are exhaustive. Parser rows run at the parser boundary.",
+  "cases": [
+    {
+      "id": "v2_value.string.target",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "compact"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "compact",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "compact",
+        "value": "compact",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.string.rollout_hit",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": "compact",
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "compact",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "percentage_rollout",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "compact",
+        "value": "compact",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.string.miss_return_default",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": "compact",
+            "rollout_percentage": 0,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "wide"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "standard",
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "percentage_rollout",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "standard",
+        "value": "standard",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.string.miss_return_default_null",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": "compact",
+            "rollout_percentage": 0,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "wide"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": null,
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "percentage_rollout",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": false,
+        "variant": null,
+        "value": false,
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.string.miss_continue",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": "compact",
+            "rollout_percentage": 0,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "wide"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "wide",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "targeted_release",
+          "index": 1
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "wide",
+        "value": "wide",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.string.no_match_default",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": "compact"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "standard",
+        "reason": "no_rule_match"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "standard",
+        "value": "standard",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.string.no_match_null",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": "compact"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": null,
+        "reason": "no_rule_match"
+      },
+      "legacy": {
+        "enabled": false,
+        "variant": null,
+        "value": false,
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.string.order_first_match",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "pro"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": "compact"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "wide"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "compact",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "compact",
+        "value": "compact",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.string.order_targeting_miss",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": "compact"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "pro"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": "wide"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "wide",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "targeted_release",
+          "index": 1
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "wide",
+        "value": "wide",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.number.target",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": 0,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": 1.25
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 1.25,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 1.25
+      }
+    },
+    {
+      "id": "v2_value.number.rollout_hit",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": 0,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": 1.25,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 1.25,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "percentage_rollout",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 1.25
+      }
+    },
+    {
+      "id": "v2_value.number.miss_return_default",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": 0,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": 1.25,
+            "rollout_percentage": 0,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": -40
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 0,
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "percentage_rollout",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 0
+      }
+    },
+    {
+      "id": "v2_value.number.miss_return_default_null",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": 1.25,
+            "rollout_percentage": 0,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": -40
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": null,
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "percentage_rollout",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": false,
+        "variant": null,
+        "value": false,
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.number.miss_continue",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": 0,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": 1.25,
+            "rollout_percentage": 0,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": -40
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": -40,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "targeted_release",
+          "index": 1
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": -40
+      }
+    },
+    {
+      "id": "v2_value.number.no_match_default",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": 0,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": 1.25
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 0,
+        "reason": "no_rule_match"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 0
+      }
+    },
+    {
+      "id": "v2_value.number.no_match_null",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": 1.25
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": null,
+        "reason": "no_rule_match"
+      },
+      "legacy": {
+        "enabled": false,
+        "variant": null,
+        "value": false,
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.number.order_first_match",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": 0,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "pro"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": 1.25
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": -40
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 1.25,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 1.25
+      }
+    },
+    {
+      "id": "v2_value.number.order_targeting_miss",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": 0,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": 1.25
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "pro"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": -40
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": -40,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "targeted_release",
+          "index": 1
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": -40
+      }
+    },
+    {
+      "id": "v2_value.object.target",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {
+          "layout": "standard"
+        },
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "layout": "compact",
+              "options": [
+                1,
+                true,
+                null
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "layout": "compact",
+          "options": [
+            1,
+            true,
+            null
+          ]
+        },
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "layout": "compact",
+          "options": [
+            1,
+            true,
+            null
+          ]
+        }
+      }
+    },
+    {
+      "id": "v2_value.object.rollout_hit",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {
+          "layout": "standard"
+        },
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "layout": "compact",
+              "options": [
+                1,
+                true,
+                null
+              ]
+            },
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "layout": "compact",
+          "options": [
+            1,
+            true,
+            null
+          ]
+        },
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "percentage_rollout",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "layout": "compact",
+          "options": [
+            1,
+            true,
+            null
+          ]
+        }
+      }
+    },
+    {
+      "id": "v2_value.object.miss_return_default",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {
+          "layout": "standard"
+        },
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "layout": "compact",
+              "options": [
+                1,
+                true,
+                null
+              ]
+            },
+            "rollout_percentage": 0,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "layout": "wide"
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "layout": "standard"
+        },
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "percentage_rollout",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "layout": "standard"
+        }
+      }
+    },
+    {
+      "id": "v2_value.object.miss_return_default_null",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "layout": "compact",
+              "options": [
+                1,
+                true,
+                null
+              ]
+            },
+            "rollout_percentage": 0,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "layout": "wide"
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": null,
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "percentage_rollout",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": false,
+        "variant": null,
+        "value": false,
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.object.miss_continue",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {
+          "layout": "standard"
+        },
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "layout": "compact",
+              "options": [
+                1,
+                true,
+                null
+              ]
+            },
+            "rollout_percentage": 0,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "layout": "wide"
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "layout": "wide"
+        },
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "targeted_release",
+          "index": 1
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "layout": "wide"
+        }
+      }
+    },
+    {
+      "id": "v2_value.object.no_match_default",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {
+          "layout": "standard"
+        },
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": {
+              "layout": "compact",
+              "options": [
+                1,
+                true,
+                null
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "layout": "standard"
+        },
+        "reason": "no_rule_match"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "layout": "standard"
+        }
+      }
+    },
+    {
+      "id": "v2_value.object.no_match_null",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": {
+              "layout": "compact",
+              "options": [
+                1,
+                true,
+                null
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": null,
+        "reason": "no_rule_match"
+      },
+      "legacy": {
+        "enabled": false,
+        "variant": null,
+        "value": false,
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.object.order_first_match",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {
+          "layout": "standard"
+        },
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "pro"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": {
+              "layout": "compact",
+              "options": [
+                1,
+                true,
+                null
+              ]
+            }
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "layout": "wide"
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "layout": "compact",
+          "options": [
+            1,
+            true,
+            null
+          ]
+        },
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "layout": "compact",
+          "options": [
+            1,
+            true,
+            null
+          ]
+        }
+      }
+    },
+    {
+      "id": "v2_value.object.order_targeting_miss",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {
+          "layout": "standard"
+        },
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": {
+              "layout": "compact",
+              "options": [
+                1,
+                true,
+                null
+              ]
+            }
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "pro"
+                  ],
+                  "negation": false
+                }
+              ]
+            },
+            "value": {
+              "layout": "wide"
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "layout": "wide"
+        },
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "targeted_release",
+          "index": 1
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "layout": "wide"
+        }
+      }
+    },
+    {
+      "id": "v2_value.string.unicode",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "Grüße 👋"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "Grüße 👋",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "Grüße 👋",
+        "value": "Grüße 👋",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.string.looks_boolean",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "false"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "false",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "false",
+        "value": "false",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_value.number.zero",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": 0
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 0,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 0
+      }
+    },
+    {
+      "id": "v2_value.number.negative_decimal",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": -2.5
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": -2.5,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": -2.5
+      }
+    },
+    {
+      "id": "v2_value.number.short_decimal",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": 0.1
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 0.1,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 0.1
+      }
+    },
+    {
+      "id": "v2_value.number.exponent",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": 1.5e-07
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 1.5e-07,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 1.5e-07
+      }
+    },
+    {
+      "id": "v2_value.number.max_safe_integer",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": 9007199254740991
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 9007199254740991,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 9007199254740991
+      }
+    },
+    {
+      "id": "v2_value.number.min_safe_integer",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": -9007199254740991
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": -9007199254740991,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": -9007199254740991
+      }
+    },
+    {
+      "id": "v2_value.object.empty",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {}
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {},
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {}
+      }
+    },
+    {
+      "id": "v2_value.object.nested",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "theme": {
+                "colors": [
+                  "#000000",
+                  "#ffffff"
+                ],
+                "radius": 4.5
+              },
+              "flags": [
+                true,
+                false,
+                null
+              ],
+              "label": "Ünïcode"
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "theme": {
+            "colors": [
+              "#000000",
+              "#ffffff"
+            ],
+            "radius": 4.5
+          },
+          "flags": [
+            true,
+            false,
+            null
+          ],
+          "label": "Ünïcode"
+        },
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "theme": {
+            "colors": [
+              "#000000",
+              "#ffffff"
+            ],
+            "radius": 4.5
+          },
+          "flags": [
+            true,
+            false,
+            null
+          ],
+          "label": "Ünïcode"
+        }
+      }
+    },
+    {
+      "id": "v2_value.object.max_depth",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "child": {
+                "child": {
+                  "child": {
+                    "child": {
+                      "child": {
+                        "child": {
+                          "child": {
+                            "child": {
+                              "child": {
+                                "child": {
+                                  "child": {
+                                    "child": {
+                                      "child": {
+                                        "child": {
+                                          "child": {
+                                            "child": {
+                                              "child": {
+                                                "child": {
+                                                  "child": {
+                                                    "leaf": true
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "child": {
+            "child": {
+              "child": {
+                "child": {
+                  "child": {
+                    "child": {
+                      "child": {
+                        "child": {
+                          "child": {
+                            "child": {
+                              "child": {
+                                "child": {
+                                  "child": {
+                                    "child": {
+                                      "child": {
+                                        "child": {
+                                          "child": {
+                                            "child": {
+                                              "child": {
+                                                "leaf": true
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "child": {
+            "child": {
+              "child": {
+                "child": {
+                  "child": {
+                    "child": {
+                      "child": {
+                        "child": {
+                          "child": {
+                            "child": {
+                              "child": {
+                                "child": {
+                                  "child": {
+                                    "child": {
+                                      "child": {
+                                        "child": {
+                                          "child": {
+                                            "child": {
+                                              "child": {
+                                                "leaf": true
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "v2_value.parser.string_empty_value",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": ""
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_value.parser.string_empty_default",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "compact"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_value.parser.string_value_mismatch",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": true
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_value.parser.number_value_mismatch",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": 0,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "1.25"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_value.parser.number_default_mismatch",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": true,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": 1.25
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_value.parser.number_above_safe_integer",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": 0,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": 9007199254740992.0
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_value.parser.number_below_safe_integer",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": 0,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": -9007199254740992.0
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_value.parser.object_array_value",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": [
+              {
+                "layout": "compact"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_value.parser.object_default_mismatch",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "layout": "compact"
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_value.parser.object_too_deep",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "child": {
+                "child": {
+                  "child": {
+                    "child": {
+                      "child": {
+                        "child": {
+                          "child": {
+                            "child": {
+                              "child": {
+                                "child": {
+                                  "child": {
+                                    "child": {
+                                      "child": {
+                                        "child": {
+                                          "child": {
+                                            "child": {
+                                              "child": {
+                                                "child": {
+                                                  "child": {
+                                                    "child": {
+                                                      "leaf": true
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_value.parser.object_nested_number_above_safe_integer",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": {
+              "limit": 9007199254740992.0
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    }
+  ]
+}

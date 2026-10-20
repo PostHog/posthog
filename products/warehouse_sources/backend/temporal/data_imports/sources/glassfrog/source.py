@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GlassfrogSource(SimpleSource[GlassfrogSourceConfig]):
+    codebase_detection = detect(env=("^GLASSFROG_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -49,7 +52,7 @@ class GlassfrogSource(SimpleSource[GlassfrogSourceConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="GlassFrog",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your GlassFrog API key to sync your organization's circles, roles, people, projects, metrics, and checklist items into the PostHog Data warehouse.
+            caption="""Enter your GlassFrog API key to sync your organization's circles, roles, people, projects, actions, tensions, proposals, governance meetings, metrics, and checklist items into the PostHog Data warehouse.
 
 You can create a v3 API key in GlassFrog under [Profile & Settings > API](https://app.glassfrog.com/). The key grants access at your user's permission level.""",
             iconPath="/static/services/glassfrog.png",

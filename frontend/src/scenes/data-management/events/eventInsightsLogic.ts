@@ -3,13 +3,10 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { InsightsResult, SavedInsightFilters, cleanFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 
 export interface EventInsightsLogicProps {
     event: string
@@ -86,7 +83,6 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
     key(({ event }) => event),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-        logic: [eventUsageLogic],
     })),
     actions({
         setFilters: (filters: Partial<SavedInsightFilters>) => ({ filters }),
@@ -120,7 +116,7 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
                 return {
                     ...response,
                     filters,
-                    results: (response?.results ?? []).map((rawInsight: any) => getQueryBasedInsightModel(rawInsight)),
+                    results: response?.results ?? [],
                 } as InsightsResult
             },
         },

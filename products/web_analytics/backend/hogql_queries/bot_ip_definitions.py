@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from functools import cache
-from ipaddress import IPv6Address, collapse_addresses, ip_network
+from ipaddress import IPv4Network, IPv6Address, IPv6Network, collapse_addresses, ip_network
 
 from products.web_analytics.backend.hogql_queries.bot_ip_networks import (
     AHREFSBOT_NETWORKS,
@@ -154,6 +154,6 @@ def bot_ip_prefix_groups_by_definition() -> tuple[tuple[str, tuple[tuple[int, tu
 def merged_bot_ip_prefix_groups() -> tuple[tuple[int, tuple[str, ...]], ...]:
     """(prefixlen, network addresses) groups across all definitions, for the boolean is-bot check."""
     all_networks = [ip_network(cidr) for definition in BOT_IP_DEFINITIONS.values() for cidr in definition.networks]
-    v4 = collapse_addresses(n for n in all_networks if n.version == 4)
-    v6 = collapse_addresses(n for n in all_networks if n.version == 6)
+    v4 = collapse_addresses(n for n in all_networks if isinstance(n, IPv4Network))
+    v6 = collapse_addresses(n for n in all_networks if isinstance(n, IPv6Network))
     return ipv6_prefix_groups(tuple(str(n) for n in [*v4, *v6]))

@@ -462,10 +462,9 @@ class TestSQLV2Run(APIBaseTest):
     )
     @override_settings(DEBUG=False)
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
-    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
     @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
-    def test_widget_only_access(self, _name, payload, expected_status, start_workflow, enqueue, _widget, _python):
+    def test_hogql_access_without_full_compute(self, _name, payload, expected_status, start_workflow, enqueue, _python):
         response = self.client.post(self.run_url, data={"node_id": "n1", **payload}, format="json")
         assert response.status_code == expected_status
         assert enqueue.call_count == (1 if expected_status == 200 else 0)
@@ -1891,6 +1890,8 @@ class TestSQLV2Activities(APIBaseTest):
         claims = verify_data_plane_token(payload["data_plane_token"])
         self.assertEqual((claims.notebook_short_id, claims.team_id), (self.notebook.short_id, self.team.id))
         self.assertIn("/internal/notebooks/data_plane/query/", payload["data_plane_url"])
+        # Without it the kernel sends no heartbeat, and the watchdog fails any cell that runs past its budget.
+        self.assertIn("/api/notebooks/sandbox/heartbeat/", payload["heartbeat_url"])
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
 
     def test_mark_failed_activity(self):
@@ -1942,20 +1943,19 @@ class TestSQLV2DataPlaneToken(SimpleTestCase):
 class TestNotebookFlagResolution(SimpleTestCase):
     @parameterized.expand(
         [
-            ("neither", False, False, True, False),
-            ("python_only", True, False, True, True),
-            ("widgets_only", False, True, True, False),
-            ("both", True, True, True, True),
-            ("anonymous", True, True, False, False),
+            ("disabled", False, True, False),
+            ("enabled", True, True, True),
+            ("anonymous", True, False, False),
         ]
     )
     def test_full_compute_requires_python_flag(
-        self, _name: str, python_enabled: bool, widgets_enabled: bool, has_user: bool, expected: bool
+        self, _name: str, python_enabled: bool, has_user: bool, expected: bool
     ) -> None:
-        enabled = {"revamped-py-notebooks": python_enabled, "notebook-generated-widgets": widgets_enabled}
         user = Mock(spec=User, distinct_id="example-user", organization=None) if has_user else None
         with patch("products.notebooks.backend.sql_v2.posthoganalytics.feature_enabled") as feature_enabled:
-            feature_enabled.side_effect = lambda flag, *_args, **_kwargs: enabled.get(flag, False)
+            feature_enabled.side_effect = lambda flag, *_args, **_kwargs: (
+                flag == "revamped-py-notebooks" and python_enabled
+            )
             assert is_sql_v2_enabled(user) is expected
 
     @parameterized.expand([("enabled", True), ("disabled", False)])
@@ -2030,14 +2030,23 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
             # dispatch, a two-input cell outruns the 20 minute budget while working correctly,
             # and the watchdog fails it. A fetch is the kernel's only sign of life mid-run, so
             # it has to move the clock.
-            ("running_run_stays_alive", NotebookNodeRun.Status.RUNNING, False, NotebookNodeRun.Status.RUNNING),
+            ("running_run_stays_alive", "query", NotebookNodeRun.Status.RUNNING, False, NotebookNodeRun.Status.RUNNING),
             # And the guard on the other side: a fetch arriving after the run already finished
             # must not revive its clock, or a late straggler would resurrect a settled row.
-            ("finished_run_is_not_revived", NotebookNodeRun.Status.DONE, False, NotebookNodeRun.Status.DONE),
+            ("finished_run_is_not_revived", "query", NotebookNodeRun.Status.DONE, False, NotebookNodeRun.Status.DONE),
+            # A cell that trains a model for hours fetches nothing; its heartbeat is the only sign of life.
+            (
+                "heartbeat_keeps_running_run_alive",
+                "heartbeat",
+                NotebookNodeRun.Status.RUNNING,
+                False,
+                NotebookNodeRun.Status.RUNNING,
+            ),
+            ("heartbeat_does_not_revive", "heartbeat", NotebookNodeRun.Status.DONE, False, NotebookNodeRun.Status.DONE),
         ]
     )
-    def test_a_data_plane_fetch_resets_the_run_watchdog_clock(
-        self, _name, initial_status, expect_expired, expected_status
+    def test_a_data_plane_request_resets_the_run_watchdog_clock(
+        self, _name, endpoint, initial_status, expect_expired, expected_status
     ):
         with time_machine.travel("2026-07-01T00:00:00Z", tick=False), team_scope(self.team.id):
             run = NotebookNodeRun.objects.create(
@@ -2048,13 +2057,63 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
                 status=initial_status,
             )
         token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id, str(run.id))
-        self.assertEqual(self._post({"query": "select 1"}, token=token).status_code, 202)
+        if endpoint == "query":
+            self.assertEqual(self._post({"query": "select 1"}, token=token).status_code, 202)
+        else:
+            response = self.client.post("/api/notebooks/sandbox/heartbeat/", HTTP_AUTHORIZATION=f"Bearer {token}")
+            self.assertEqual(response.status_code, 204)
 
         from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run
 
         run.refresh_from_db()
         self.assertEqual(expire_stale_kernel_run(run), expect_expired)
         self.assertEqual(run.status, expected_status)
+
+    @parameterized.expand(
+        [
+            (
+                "running_run_is_checked_again",
+                NotebookNodeRun.Status.RUNNING,
+                5 * 60,
+                15 * 60,
+                NotebookNodeRun.Status.RUNNING,
+            ),
+            (
+                "quiet_run_fails_and_ends_the_watch",
+                NotebookNodeRun.Status.RUNNING,
+                21 * 60,
+                None,
+                NotebookNodeRun.Status.FAILED,
+            ),
+            ("finished_run_ends_the_watch", NotebookNodeRun.Status.DONE, 5 * 60, None, NotebookNodeRun.Status.DONE),
+        ]
+    )
+    def test_watchdog_activity_schedules_the_next_check(
+        self, _name, initial_status, quiet_seconds, expected_wait, expected_status
+    ):
+        from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput, expire_sql_v2_run_activity
+
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False), team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                status=initial_status,
+            )
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False) as traveller:
+            traveller.shift(quiet_seconds)
+            wait = expire_sql_v2_run_activity(
+                SQLV2RunInput(team_id=self.team.id, run_id=str(run.id), notebook_short_id=self.notebook.short_id)
+            )
+
+        self.assertEqual(wait, expected_wait)
+        run.refresh_from_db()
+        self.assertEqual(run.status, expected_status)
+
+    def test_heartbeat_rejects_a_bad_token(self):
+        response = self.client.post("/api/notebooks/sandbox/heartbeat/", HTTP_AUTHORIZATION="Bearer nope")
+        self.assertEqual(response.status_code, 401)
 
     def test_a_fetch_without_a_run_claim_touches_no_run(self):
         # Tokens minted before the run claim existed stay valid across the deploy that adds
@@ -3377,3 +3436,69 @@ class TestDispatchNodeRunDirectly(APIBaseTest):
 
         mock_enqueue.assert_not_called()
         self.assertFalse(NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=stranger).exists())
+
+
+@patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+class TestKernelIntrospection(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbintro1")
+
+    def _create_runtime(self) -> KernelRuntime:
+        return KernelRuntime.objects.create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id="sbx-1",
+            server_url="http://localhost:12345",
+            server_connect_token="connect-tok",
+        )
+
+    def _post(self, route: str, **data):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/kernel/{route}/",
+            {"code": "df.he", "cursor_pos": 5, **data},
+            format="json",
+        )
+
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_without_running_kernel_answers_empty_and_never_calls_a_sandbox(self, mock_post, _mock_enabled):
+        response = self._post("complete")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"matches": [], "cursor_start": 5, "cursor_end": 5})
+        self.assertEqual(self._post("inspect").json(), {"found": False, "text": ""})
+        mock_post.assert_not_called()
+
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_proxies_to_kernel_with_a_command_token_the_sandbox_accepts(self, mock_post, _mock_enabled):
+        runtime = self._create_runtime()
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "matches": [{"text": "df.head", "type": "function"}],
+            "cursor_start": 0,
+            "cursor_end": 5,
+        }
+        response = self._post("complete")
+        self.assertEqual(response.json()["matches"], [{"text": "df.head", "type": "function"}])
+        self.assertTrue(mock_post.call_args.args[0].endswith("/complete"))
+        sent = mock_post.call_args.kwargs["json"]
+        self.assertEqual((sent["code"], sent["cursor_pos"]), ("df.he", 5))
+        self.assertTrue(
+            kernel_auth.verify_command_token(
+                kernel_server_secret(str(runtime.id)),
+                sent["run_id"],
+                mock_post.call_args.kwargs["headers"]["X-Command-Token"],
+            )
+        )
+
+    @parameterized.expand([("route_missing", 404), ("kernel_error", 500)])
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_kernel_that_cannot_answer_gives_no_matches(self, _name, status, mock_post, _mock_enabled):
+        self._create_runtime()
+        mock_post.return_value.status_code = status
+        response = self._post("complete")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["matches"], [])

@@ -23,6 +23,11 @@ LOGS_LIST_DEFAULT_LIMIT = 50
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10
 
+MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH = 10_000
+MAX_GROUP_TITLES = 100
+MAX_GROUP_KEY_LENGTH = 100
+MAX_GROUP_TITLE_LENGTH = 200
+
 # Upper bound on pinned recordings pulled from a collection to scope a session replay widget. Bounds the
 # session_ids IN clause sent to ClickHouse and the Python list we materialize, matching the saved-filter
 # cap (MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST). The widget itself only ever shows MAX_WIDGET_RESULT_LIMIT.

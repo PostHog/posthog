@@ -7,7 +7,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.api import RulesCommand
-from products.slack_app.backend.models import SlackSettings
+from products.slack_app.backend.models import ChannelWelcomeMode, SlackSettings
 from products.slack_app.backend.services.commands import (
     SLASH_COMMAND_PREFIX,
     _handle_project_set_workspace,
@@ -171,3 +171,56 @@ class TestHandleHelp:
         self._help_text()
         assert self.slack.client.chat_postMessage.call_count == 0
         assert self.slack.client.chat_postEphemeral.call_args.kwargs["user"] == "U1"
+
+
+class TestWelcomeCommand:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        self.organization = Organization.objects.create(name="Org")
+        self.team = Team.objects.create(organization=self.organization, name="Team A")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb-a"},
+        )
+        self.user = User.objects.create_and_join(self.organization, "welcome@example.com", "pw")
+        self.slack = MagicMock()
+
+    def _dispatch(self, command: RulesCommand) -> str:
+        dispatch_rules_command(
+            command,
+            self.slack,
+            self.integration,
+            channel="C1",
+            thread_ts="111.1",
+            slack_user_id="U1",
+            slack_workspace_id="T_WS",
+            user_id=self.user.id,
+            command_prefix=SLASH_COMMAND_PREFIX,
+        )
+        return self.slack.client.chat_postEphemeral.call_args.kwargs["text"]
+
+    @pytest.mark.parametrize(
+        "is_admin,expected_mode,expected_text",
+        [
+            (True, ChannelWelcomeMode.OFF.value, "don't send a welcome"),
+            (False, None, "admins or owners"),
+        ],
+    )
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
+    def test_set_is_limited_to_admins(self, mock_info, is_admin, expected_mode, expected_text):
+        mock_info.return_value = _slack_user_info(is_admin=is_admin)
+
+        text = self._dispatch(RulesCommand(action="welcome_set", welcome_mode=ChannelWelcomeMode.OFF))
+
+        row = SlackSettings.objects.filter(slack_workspace_id="T_WS", slack_user_id__isnull=True).first()
+        assert (row.channel_welcome_mode if row else None) == expected_mode
+        assert expected_text in text
+
+    def test_show_reports_the_stored_mode(self):
+        SlackSettings.objects.create(slack_workspace_id="T_WS", slack_user_id=None, channel_welcome_mode="inviter")
+
+        text = self._dispatch(RulesCommand(action="welcome_show"))
+
+        assert "only to that person" in text

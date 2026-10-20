@@ -1,10 +1,11 @@
 import { serve } from '@hono/node-server'
 import Redis from 'ioredis'
+import { once } from 'node:events'
 import type { AddressInfo } from 'node:net'
 
 import { createApp } from '@/hono/app'
 
-import { startSkillArchiveServer } from './skill-archive'
+import { startContextMillArchiveServer, startSkillArchiveServer, type ArchiveServer } from './skill-archive'
 import type { IntegrationEnv, IntegrationHarness } from './types'
 
 // Pinned test DB so we don't collide with the dev Redis (DB 0). Must be in
@@ -39,42 +40,38 @@ async function startTestRedis(): Promise<InstanceType<typeof Redis>> {
 export async function startHonoHarness(env: IntegrationEnv): Promise<IntegrationHarness> {
     process.env.POSTHOG_API_BASE_URL = env.apiBaseUrl
 
-    // Start a temporary listener on port 0 to discover a free port, then
-    // set MCP_APPS_BASE_URL before creating the app so the ResourceCatalog
-    // (which snapshots env at construction time) sees the correct URL.
-    const probe = serve({ fetch: () => new Response(), port: 0 })
-    const probePort = (probe.address() as AddressInfo).port
-    await new Promise<void>((resolve) => probe.close(() => resolve()))
-
-    const baseUrl = new URL(`http://127.0.0.1:${probePort}`)
+    // ResourceCatalog snapshots this URL at construction. Keep the listener
+    // bound during warmup so another process cannot claim its port.
+    let fetchHandler: Parameters<typeof serve>[0]['fetch'] = () => new Response(null, { status: 503 })
+    const server = serve({ fetch: (...args) => fetchHandler(...args), port: 0, hostname: '127.0.0.1' })
+    await once(server, 'listening')
+    const baseUrl = new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
     process.env.MCP_APPS_BASE_URL = baseUrl.toString().replace(/\/$/, '')
 
-    const redis = await startTestRedis()
+    let redis: Awaited<ReturnType<typeof startTestRedis>> | undefined
+    let skillArchive: ArchiveServer | undefined
+    let contextMillArchive: ArchiveServer | undefined
+    const stop = async (): Promise<void> => {
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+        await skillArchive?.stop().catch(() => undefined)
+        await contextMillArchive?.stop().catch(() => undefined)
+        await redis?.quit().catch(() => undefined)
+    }
 
-    // The dispatcher reads this when `createApp` constructs it.
-    const skillArchive = await startSkillArchiveServer().catch(async (err: unknown) => {
-        await redis.quit().catch(() => undefined)
-        throw err
-    })
-    process.env.POSTHOG_MCP_SKILLS_URL = skillArchive.url
-
-    const { app, warmup } = createApp(redis as unknown as Parameters<typeof createApp>[0])
     try {
+        redis = await startTestRedis()
+        skillArchive = await startSkillArchiveServer()
+        // The dispatcher reads both archive URLs when `createApp` constructs it.
+        process.env.POSTHOG_MCP_SKILLS_URL = skillArchive.url
+        contextMillArchive = await startContextMillArchiveServer()
+        process.env.POSTHOG_MCP_LOCAL_SKILLS_URL = contextMillArchive.url
+        const { app, warmup } = createApp(redis as unknown as Parameters<typeof createApp>[0])
         await warmup()
+        fetchHandler = app.fetch
     } catch (err) {
-        await skillArchive.stop().catch(() => undefined)
-        await redis.quit().catch(() => undefined)
+        await stop()
         throw err
     }
 
-    const server = serve({ fetch: app.fetch, port: probePort })
-
-    return {
-        baseUrl,
-        stop: async () => {
-            await new Promise<void>((resolve) => server.close(() => resolve()))
-            await skillArchive.stop().catch(() => undefined)
-            await redis.quit().catch(() => undefined)
-        },
-    }
+    return { baseUrl, stop }
 }

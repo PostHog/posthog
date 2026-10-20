@@ -14,7 +14,6 @@ jest.mock('../generated/api', () => ({
     metricsAttributeValuesRetrieve: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
-    metricsExplainCreate: jest.fn(),
     metricsHasMetricsRetrieve: jest.fn(),
     metricsOverviewRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
@@ -62,6 +61,23 @@ describe('metricsOverviewLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadOverviewSuccess']).toMatchValues({
             overview: OVERVIEW_FIXTURE,
         })
+    })
+
+    it('flags a failed load and clears the flag when a retry succeeds', async () => {
+        jest.mocked(metricsOverviewRetrieve).mockRejectedValueOnce(new Error('network down'))
+        logic = metricsOverviewLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadOverviewFailure']).toMatchValues({
+            overview: null,
+            overviewLoadFailed: true,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadOverview()
+        })
+            .toDispatchActions(['loadOverviewSuccess'])
+            .toMatchValues({ overview: OVERVIEW_FIXTURE, overviewLoadFailed: false })
     })
 
     // The row click is the overview -> viewer handoff. Asserting the chip alone is not

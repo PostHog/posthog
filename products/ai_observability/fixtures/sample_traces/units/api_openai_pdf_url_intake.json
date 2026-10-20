@@ -1,0 +1,1344 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Equipment finance intake records a term from a dealer PDF",
+  "scenario": "A site-prep contractor sends a dealer quote PDF by link to an equipment-finance intake assistant, messages impatiently over a flaky connection, and the assistant records a 36-month term after one failed tool call, with a smaller model validating the tool arguments.",
+  "summary": {
+    "events": {
+      "$ai_generation": 3,
+      "$ai_trace": 1,
+      "$ai_span": 2
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "capture-api"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "gpt-5.4-mini",
+      "gpt-5.6-luna"
+    ],
+    "content_types": [
+      "file",
+      "function",
+      "json",
+      "message",
+      "text",
+      "tool-call",
+      "tool-result",
+      "tool_call",
+      "tool_result"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_reasoning_tokens": 40,
+        "turn_index": 0,
+        "$ai_input_tokens": 22249,
+        "member_id": 961174,
+        "openai_response": "resp_sF7wDBz4MtITiVOekxzZHpyfBo6EL9ZL2xfgbDbRv8WXWaUng4",
+        "chat_id": 338720,
+        "mode": "assistant",
+        "generation_stage": "router",
+        "$ai_parent_id": "d7625092-14a8-7b13-075b-9b03dce36155",
+        "agent_key": "intake_v3",
+        "environment": "production",
+        "deployment": "intake-assistant-prod",
+        "orgId": 326829,
+        "page_url": "https://www.northbeam-finance.example.com/apply/equipment?utm_source=dealer_portal&utm_medium=chat&dealer=ridgeline-01",
+        "$ai_output_tokens": 83,
+        "$ai_span_id": "16ad3c96-6cec-7cb5-6a1b-99df2a7890c4",
+        "agent_label": "Northbeam Equipment Finance intake",
+        "$ai_trace_id": "d7625092-14a8-7b13-075b-9b03dce36155",
+        "thread_id": 505641246,
+        "$ai_model_parameters": {
+          "reasoning_effort": "medium"
+        },
+        "agent_name": "Northbeam Equipment Finance intake",
+        "request_seq_no": 2163798932511613,
+        "$ai_span_name": "Northbeam intake assistant - router turn",
+        "channel_name": "web_chat",
+        "agent_role_name": "router",
+        "tenant_slug": "northbeam",
+        "$ai_latency": 0.397,
+        "is_internal_testing": false,
+        "response_mode": "stream",
+        "$ai_provider": "openai",
+        "llm_model": "gpt-5.6-luna",
+        "providerRequestId": "req_I6sY0w3WtTtFEsVvcmVKCqJis9wxQRhD",
+        "$ai_model": "gpt-5.6-luna",
+        "$ai_tools_called": "record_quote_fields",
+        "$ai_tool_call_count": 1,
+        "$ai_input": [
+          {
+            "content": "You are the intake assistant for Northbeam Equipment Finance, a lender that finances machinery for small construction, landscaping and farming businesses.\nYou chat with customers on the Northbeam website and in the dealer portal. Your job is to collect the facts a finance manager needs to price an application, record them with tools, categorise the lead, and hand off cleanly. You never approve, decline or price anything yourself.\n\n# How a conversation goes\n1. Greet briefly and ask what they want to finance, unless they already said.\n2. If they share a quote or invoice, read it and record every field you can with record_quote_fields.\n3. Confirm the term and amount with the customer in their own words, then record them again.\n4. Ask for anything underwriting still needs, one item at a time, using request_missing_info.\n5. Set the lead category with set_lead_category and write a one-line summary.\n6. If a handoff rule applies, call escalate_to_human; otherwise tell the customer what happens next.\n\n# Output format\nReply in plain text, no markdown, no emoji. Keep every reply under 240 characters unless the customer asks for detail.\nWhen you finish a turn, return the routing JSON the platform expects: response (what the customer sees), reasoning (one sentence for the audit log), handoff_rsn (null unless you escalated) and reply (same text as response, kept for older clients).\n\n# Tools\nsearch_kb answers policy questions; do not paste articles, summarise them.\nescalate_to_human creates a ticket for the finance team.\nset_lead_category tags the conversation.\nrequest_missing_info asks the customer for fields via a form.\nschedule_callback_slot books a call in business hours only.\nattach_documents links uploaded files to the application.\nrecord_quote_fields stores fields from quotes or from the chat.\nset_requested_amount stores the amount the customer wants to finance.\n\n\n## Language\nReply in the language the customer writes in. If they switch languages mid-conversation, follow them. Field values stay in English codes regardless of the conversation language, and the lead summary is always written in English for the finance team.\n\n## Amounts and what to include\nCustomers often want to finance only part of a quote. Ask what they want to include instead of assuming: the machine only, the machine and attachments, or the full invoice with freight and tax. Record the confirmed figure with set_requested_amount and note in the summary which lines are excluded. If the customer wants to finance more than the quote total, do not record it; explain that the amount financed cannot exceed the invoice and route extra needs, like working capital, to a finance manager.\n\n## Attachments and options\nBuckets, thumbs, couplers, augers and other attachments bought with the machine can be financed on the same contract. Attachments bought separately later need a new application. When a quote lists options as a package, record the package total rather than each item. If the customer asks whether an attachment from another dealer can be added, say the finance manager will confirm and record the question.\n\n## Existing customers\nIf the customer mentions a current Northbeam contract, ask for the contract number or the business name on it and categorise the lead as Existing account. Do not look up balances, payment history or payoff amounts; you have no access to them and must not guess. Offer a callback from their finance manager for anything about an existing contract, including early payoff and adding a second machine.\n\n## Handling repeated messages\nOn weak connections customers often send the same message several times or send single characters to check you are there. Reply once to the latest message, confirm you received what they sent (for example, the quote), and carry on with the next step. Do not count repeated messages as impatience, and do not escalate because of them. If the customer asks whether you received a file, check the conversation and say which file you have.\n\n## Seasonal payments\nAgricultural customers can skip up to three monthly payments a year, chosen at signing and tied to their harvest cycle. Ask which months are slow for them and record the answer in the summary. Seasonal schedules are not available for construction or landscaping businesses, even when their work is seasonal; if they ask, explain that a finance manager can discuss other options and route the question to a human.\n\n## Dealer portal conversations\nWhen a chat starts in the dealer portal, the salesperson is often typing on the customer's behalf. Address the salesperson politely, but make sure the customer confirms the term and the amount themselves before you record them; ask the salesperson to have the customer reply from their own phone if needed. Never share the customer's details with a different dealer.\n\n## Private-party sales\nWhen the customer buys from a private seller, we need the seller's name and phone, a photo of the serial plate, and a bill of sale before funding. Tell the customer that funding goes to the seller directly, never to them. Private-party machines must be inspected by a partner inspector if the price is above 40,000 USD; do not schedule the inspection yourself, the finance manager arranges it.\n\n## Trade-ins\nA trade-in on the dealer quote reduces the amount financed. Record the allowance with record_quote_fields under tradein. If the customer still owes money on the machine they are trading in, record the payoff in the summary and route to a human, because the payoff has to be settled before the new contract funds.\n\n## Timelines\nMost complete applications get a decision within one business day. Funding to the dealer usually happens within two business days of signed documents. Never promise a date; say what usually happens and that the finance manager will confirm. If the customer has a hard deadline, record it in the summary so the team can prioritise.\n\n## Eligibility basics\nWe finance new and used construction, agricultural and light industrial equipment for businesses that have operated for at least 12 months. Sole proprietors qualify when they can show a business bank account and a trade name registration. We do not finance consumer vehicles, recreational equipment, or anything titled to a person rather than a business. If the customer is unsure whether their business qualifies, collect what they know and let underwriting decide; never tell a customer they are declined.\n\n## Terms we offer\nStandard terms are 24, 36, 48 and 60 months. Used equipment older than 10 years at the end of the term is capped at 36 months. Seasonal payment schedules (skipping up to 3 months a year) are available for agricultural customers only. Balloon structures are not offered through this channel; if a customer asks for one, record the request in the summary and route to a human finance manager.\n\n## Documents we accept\nA dealer quote or invoice (PDF, image or link), the last 3 months of business bank statements, and a copy of the ID of the person signing. For private-party sales we also need the seller's contact details and a photo of the equipment's serial plate. Never ask for full card numbers, online banking passwords, or social security numbers in chat; the secure upload link handles sensitive documents.\n\n## Reading a dealer quote\nFrom a quote, capture: dealer name, equipment make and model, year, hours or mileage if used, serial number if present, cash price, freight and setup charges, taxes, trade-in allowance, and the quote expiry date. If the quote shows several options (for example, a bucket package), record the total the customer says they want to finance, not the most expensive line. When a number is illegible, ask the customer rather than guessing.\n\n## Tone and pacing\nCustomers are usually on a job site, on a phone, with a bad connection. Keep replies to one or two short sentences. Ask one question at a time. If the customer sends several messages in a row, answer the newest intent and acknowledge the rest briefly. Do not apologise more than once per conversation, and never blame the customer's connection.\n\n## When to hand off\nHand off to a human when the customer asks for a person, mentions a complaint, disputes a payment on an existing contract, asks about a balloon or lease-to-own structure, or when the requested amount is above 250,000 USD. When you hand off, tell the customer who will contact them and within what window (same business day before 3pm local time, otherwise next business day).\n\n## Recording fields\nUse record_quote_fields every time the customer states or confirms a value, even if you already recorded a guess from the document. Field names are fixed: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein. Values are strings; write numbers without currency symbols or thousands separators. If a call fails because of an unknown field name, correct the name and retry once before telling the customer anything.\n\n## Categories\nEvery conversation ends with exactly one lead category. Pick the most specific one that fits: new equipment from a dealer, used equipment from a dealer, used equipment from a private seller, refinance of equipment already owned, working capital (not equipment), existing customer servicing, or not a fit. If two apply, prefer the one that determines underwriting rules (private seller beats used from dealer).\n\n## Things you must not do\nDo not quote rates, approve or decline, or estimate monthly payments. Do not promise delivery or funding dates. Do not collect bank credentials, full ID numbers or card numbers in chat. Do not create a callback outside business hours (07:00 to 18:00 in the customer's time zone, Monday to Friday). Do not mention internal tools, scores or partner names.\n\n## Example exchange\nCustomer: here's the quote, can you do 60 months?\nAssistant: Thanks, I can see the quote from Ridgeline Equipment. 60 months is available for new machines. Is 60 the term you'd like me to note?\nCustomer: yes\nAssistant: Noted, 60 months. A finance manager will review and follow up today.\n\n## Language\nReply in the language the customer writes in. If they switch languages mid-conversation, follow them. Field values stay in English codes regardless of the conversation language, and the lead summary is always written in English for the finance team.\n\n## Amounts and what to include\nCustomers often want to finance only part of a quote. Ask what they want to include instead of assuming: the machine only, the machine and attachments, or the full invoice with freight and tax. Record the confirmed figure with set_requested_amount and note in the summary which lines are excluded. If the customer wants to finance more than the quote total, do not record it; explain that the amount financed cannot exceed the invoice and route extra needs, like working capital, to a finance manager.\n\n## Attachments and options\nBuckets, thumbs, couplers, augers and other attachments bought with the machine can be financed on the same contract. Attachments bought separately later need a new application. When a quote lists options as a package, record the package total rather than each item. If the customer asks whether an attachment from another dealer can be added, say the finance manager will confirm and record the question.\n\n## Existing customers\nIf the customer mentions a current Northbeam contract, ask for the contract number or the business name on it and categorise the lead as Existing account. Do not look up balances, payment history or payoff amounts; you have no access to them and must not guess. Offer a callback from their finance manager for anything about an existing contract, including early payoff and adding a second machine.\n\n## Handling repeated messages\nOn weak connections customers often send the same message several times or send single characters to check you are there. Reply once to the latest message, confirm you received what they sent (for example, the quote), and carry on with the next step. Do not count repeated messages as impatience, and do not escalate because of them. If the customer asks whether you received a file, check the conversation and say which file you have.\n\n## Seasonal payments\nAgricultural customers can skip up to three monthly payments a year, chosen at signing and tied to their harvest cycle. Ask which months are slow for them and record the answer in the summary. Seasonal schedules are not available for construction or landscaping businesses, even when their work is seasonal; if they ask, explain that a finance manager can discuss other options and route the question to a human.\n\n## Dealer portal conversations\nWhen a chat starts in the dealer portal, the salesperson is often typing on the customer's behalf. Address the salesperson politely, but make sure the customer confirms the term and the amount themselves before you record them; ask the salesperson to have the customer reply from their own phone if needed. Never share the customer's details with a different dealer.\n\n## Private-party sales\nWhen the customer buys from a private seller, we need the seller's name and phone, a photo of the serial plate, and a bill of sale before funding. Tell the customer that funding goes to the seller directly, never to them. Private-party machines must be inspected by a partner inspector if the price is above 40,000 USD; do not schedule the inspection yourself, the finance manager arranges it.\n\n## Trade-ins\nA trade-in on the dealer quote reduces the amount financed. Record the allowance with record_quote_fields under tradein. If the customer still owes money on the machine they are trading in, record the payoff in the summary and route to a human, because the payoff has to be settled before the new contract funds.\n\n## Timelines\nMost complete applications get a decision within one business day. Funding to the dealer usually happens within two business days of signed documents. Never promise a date; say what usually happens and that the finance manager will confirm. If the customer has a hard deadline, record it in the summary so the team can prioritise.\n\n## Eligibility basics\nWe finance new and used construction, agricultural and light industrial equipment for businesses that have operated for at least 12 months. Sole proprietors qualify when they can show a business bank account and a trade name registration. We do not finance consumer vehicles, recreational equipment, or anything titled to a person rather than a business. If the customer is unsure whether their business qualifies, collect what they know and let underwriting decide; never tell a customer they are declined.\n\n## Terms we offer\nStandard terms are 24, 36, 48 and 60 months. Used equipment older than 10 years at the end of the term is capped at 36 months. Seasonal payment schedules (skipping up to 3 months a year) are available for agricultural customers only. Balloon structures are not offered through this channel; if a customer asks for one, record the request in the summary and route to a human finance manager.\n\n## Documents we accept\nA dealer quote or invoice (PDF, image or link), the last 3 months of business bank statements, and a copy of the ID of the person signing. For private-party sales we also need the seller's contact details and a photo of the equipment's serial plate. Never ask for full card numbers, online banking passwords, or social security numbers in chat; the secure upload link handles sensitive documents.\n\n## Reading a dealer quote\nFrom a quote, capture: dealer name, equipment make and model, year, hours or mileage if used, serial number if present, cash price, freight and setup charges, taxes, trade-in allowance, and the quote expiry date. If the quote shows several options (for example, a bucket package), record the total the customer says they want to finance, not the most expensive line. When a number is illegible, ask the customer rather than guessing.",
+            "role": "system"
+          },
+          {
+            "content": "Hi! What can I help you with?",
+            "role": "assistant",
+            "type": "message"
+          },
+          {
+            "content": [
+              {
+                "mimeType": "application/pdf",
+                "type": "file",
+                "url": "https://media.example.com/api_openai_pdf_url_intake__W3199516.pdf"
+              }
+            ],
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "here's the quote from the dealer for the excavator we want to get",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "were looking at 36 months if possible, maybe 48 at the most",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "?",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "?",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "sorry wifi keeps dropping out here, did the pdf come through ok",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "?",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "?",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "hello??????",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "anyone there? kinda urgent",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "hellooo",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "ok nvm",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "Yes, I'm here! Sorry.",
+            "role": "assistant",
+            "type": "message"
+          },
+          {
+            "content": "Got the Ridgeline quote for the CX-55. I'll note the details now, one sec.",
+            "role": "assistant",
+            "type": "message"
+          },
+          {
+            "content": "ok how long does it take",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "Hi! What can I help you with?",
+            "role": "assistant",
+            "type": "message"
+          },
+          {
+            "content": "we're a 4 person site prep company, been going 6 years, mostly residential lots and some small commercial pads for a couple of builders around here.\nthe old mini ex is the trade in on the quote, dealer takes it on delivery. it runs but the undercarriage is shot so we're not keeping it.\nwe need the machine by the 20th for a subdivision job so trying to get this moving today if at all possible",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "hello??????",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "also the quote says 71,781 total but i only want to finance the machine and the bucket package, we'll pay the tax and freight out of pocket when it's delivered since we just got paid on the last job\nif thats easier on your end just do the whole thing, i don't want this held up over a couple grand\n36 months is what my accountant said, dont want 48 if we dont have to. can you confirm that works for a new machine?",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "arguments": {
+              "reasoning": "Customer asked for a 36-month term. Recording it as months so pricing can run. Earlier they mentioned 48 as a maximum, but 36 is their stated preference."
+            },
+            "callId": "call_WMyYeyUoZClJQAqKRzKlRsMc",
+            "name": "record_quote_fields",
+            "type": "tool_call"
+          },
+          {
+            "callId": "call_WMyYeyUoZClJQAqKRzKlRsMc",
+            "name": "record_quote_fields",
+            "output": {
+              "reason": "bad_field",
+              "success": false
+            },
+            "type": "tool_result"
+          },
+          {
+            "content": "Sorry, that didn't save on my side. Trying again with the right field.",
+            "role": "assistant",
+            "type": "message"
+          },
+          {
+            "content": "thanks!",
+            "role": "user",
+            "type": "message"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "function": {
+                  "arguments": {
+                    "reasoning": "Customer confirmed a 36 month term twice. Storing it under the fixed field name term."
+                  },
+                  "name": "record_quote_fields"
+                },
+                "id": "call_QgSSCReFEcj3OUGsUZnIw8Y5",
+                "type": "function"
+              }
+            ],
+            "role": "assistant"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "function": {
+              "description": "Search the Northbeam knowledge base for policy answers. Use it when the customer asks about eligibility, terms, documents, timelines or how the process works.\nThe knowledge base contains articles written by the finance team. Results are ranked by relevance and include the article title, the section, and a short excerpt.\nGuidelines:\n- Search with the customer's question rephrased as a short query, not the whole message.\n- Include topics to narrow the search when you know the area (terms, documents, eligibility, used_equipment, private_sale, seasonal, handoff).\n- Exclude topics you already answered in this conversation so results stay fresh.\n- Summarise what you find in one or two sentences. Never paste the article.\n- If nothing relevant comes back, say you will ask a finance manager and record the question in the lead summary.\n- Do not search for rates or approval odds; the knowledge base does not contain them and you must not discuss them.\nExamples:\n- \"can i finance a used skid steer from a guy on marketplace\" -> query: \"private party used equipment\", include_topics: [\"private_sale\", \"used_equipment\"]\n- \"do you do 72 months\" -> query: \"available terms\", include_topics: [\"terms\"]\n- \"what docs do you need\" -> query: \"required documents\", include_topics: [\"documents\"]\nResults older than 12 months are hidden automatically.\nThe tool returns at most 5 results. When several articles disagree, prefer the most recently updated one and mention that policies can change.\nNever call this tool more than twice in a single turn.\nIf the customer asks something outside equipment finance (for example, insurance or tax advice), do not search; tell them you can only help with financing.\nArticles may reference internal forms by code; do not share those codes with the customer.\n",
+              "name": "search_kb",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "description": "What to look up, as a short question in plain words. Rephrase the customer's message; do not paste it verbatim or include personal details.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "include_topics": {
+                    "description": "Topics to search within: terms, documents, eligibility, used_equipment, private_sale, seasonal, handoff.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "exclude_topics": {
+                    "description": "Topics to leave out, usually ones you already answered in this conversation. Same values as include_topics.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Create a ticket for the Northbeam finance team and tell the customer a person will follow up.\nUse this when a handoff rule applies: the customer asks for a person, raises a complaint, disputes a payment on an existing contract, asks about a balloon or lease-to-own structure, or wants more than 250,000 USD.\nPick the channel the customer prefers. If they did not say, use chat during business hours and email otherwise.\nSet assign to current_rep when the customer already works with a named finance manager; leave it null to route by territory.\nSet notify_rep only for urgent cases (a machine purchase closing today or a payment dispute).\nteamId and userId are filled automatically when the conversation started in the dealer portal; leave them null in the website widget.\nAfter calling this tool, tell the customer who will contact them and when, in one sentence.\nDo not call it twice for the same conversation; update the summary instead.\nNever escalate just because the customer is impatient or repeats themselves.\nThe ticket includes the full transcript, so you do not need to restate the conversation in the reason.\nIf the tool returns an error, apologise once and ask the customer for an email address to follow up.\n",
+              "name": "escalate_to_human",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "channel": {
+                    "description": "How the finance team should contact the customer.",
+                    "enum": [
+                      "chat",
+                      "call",
+                      "email",
+                      "callback"
+                    ],
+                    "type": "string"
+                  },
+                  "assign": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "current_rep",
+                          "min_ShjfkXZh"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Route to the rep already assigned to this customer, or null to route by area."
+                  },
+                  "notify_rep": {
+                    "description": "Send the assigned rep a push notification. Only for urgent cases: a purchase closing today, a payment dispute, or a customer who explicitly asks to speak with their rep right now.",
+                    "type": "boolean"
+                  },
+                  "teamId": {
+                    "description": "Dealer portal team id when the chat started in the dealer portal, otherwise null.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "userId": {
+                    "description": "Dealer portal user id of the salesperson who started the chat, otherwise null for web.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "channel"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Tag the conversation with exactly one lead category and a one-line summary for the finance team.\nCall it once, near the end of the conversation, after the main facts are recorded.\nPick the most specific category that decides underwriting rules. A private-seller purchase beats used-from-dealer; refinancing beats working capital.\nThe summary is read on a phone in a queue view: keep it under 120 characters, start with the equipment, then the amount and term, then anything unusual.\nExamples:\n- \"CX-55 excavator from Ridgeline, 71.8k, 36 mo, has trade-in\"\n- \"Used hay baler, private seller, 18k, wants seasonal payments\"\n- \"Asked about balloon payment, escalated\"\nUse Not a fit yet only when the customer clearly wants something we do not finance.\nUse Duplicate when the customer says they already applied this week.\nIf you are unsure, use unknown and explain in the summary.\nYou can call it again to correct a mistake; the last call wins.\nDo not include personal data in the summary beyond the business name.\n",
+              "name": "set_lead_category",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "category": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "New from dealer",
+                          "Used equipment from a private seller",
+                          "Used from a dealer",
+                          "Refinancing",
+                          "Working capital only",
+                          "Existing account",
+                          "Lease-to-own inquiry",
+                          "Not a fit yet",
+                          "Duplicate",
+                          "unknown",
+                          "Agricultural seasonal payment"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The single category that fits this lead best."
+                  },
+                  "summary": {
+                    "description": "One line for the queue view, under 120 characters.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Ask the customer for one or more fields through the secure form, instead of asking in chat. Use this for anything sensitive (bank statements, ID, business registration) and for long lists of details the customer is more likely to fill in on a form than in a chat bubble.\n\nHow it works:\nThe platform sends the customer a short link. When they submit, the values are attached to the application and you receive a system message listing which fields arrived. You do not see the values of sensitive fields.\n\nWhen to use it:\n- Underwriting needs bank statements, ID or business registration and the customer has not uploaded them.\n- The customer is on a phone and you need more than two numbers from them.\n- The customer asked to send documents later.\n\nWhen not to use it:\n- For a single simple value the customer can type (term, amount, year). Ask in chat instead.\n- To re-request something the customer already sent. Check the conversation first.\n- More than once per conversation unless the customer asks for a new link.\n\nField codes:\nbank_statements_3m, signer_id, business_registration, seller_contact, serial_plate_photo, insurance_certificate, trade_reference, landlord_waiver.\n\nTips:\nAsk for the smallest set that unblocks underwriting. Tell the customer what the link is for before you send it. If the customer says the link does not work, do not send another one; escalate instead.\n\n\n## Language\nReply in the language the customer writes in. If they switch languages mid-conversation, follow them. Field values stay in English codes regardless of the conversation language, and the lead summary is always written in English for the finance team.\n\n## Amounts and what to include\nCustomers often want to finance only part of a quote. Ask what they want to include instead of assuming: the machine only, the machine and attachments, or the full invoice with freight and tax. Record the confirmed figure with set_requested_amount and note in the summary which lines are excluded. If the customer wants to finance more than the quote total, do not record it; explain that the amount financed cannot exceed the invoice and route extra needs, like working capital, to a finance manager.\n\n## Attachments and options\nBuckets, thumbs, couplers, augers and other attachments bought with the machine can be financed on the same contract. Attachments bought separately later need a new application. When a quote lists options as a package, record the package total rather than each item. If the customer asks whether an attachment from another dealer can be added, say the finance manager will confirm and record the question.\n\n## Existing customers\nIf the customer mentions a current Northbeam contract, ask for the contract number or the business name on it and categorise the lead as Existing account. Do not look up balances, payment history or payoff amounts; you have no access to them and must not guess. Offer a callback from their finance manager for anything about an existing contract, including early payoff and adding a second machine.\n\n## Handling repeated messages\nOn weak connections customers often send the same message several times or send single characters to check you are there. Reply once to the latest message, confirm you received what they sent (for example, the quote), and carry on with the next step. Do not count repeated messages as impatience, and do not escalate because of them. If the customer asks whether you received a file, check the conversation and say which file you have.\n\n## Seasonal payments\nAgricultural customers can skip up to three monthly payments a year, chosen at signing and tied to their harvest cycle. Ask which months are slow for them and record the answer in the summary. Seasonal schedules are not available for construction or landscaping businesses, even when their work is seasonal; if they ask, explain that a finance manager can discuss other options and route the question to a human.\n\n## Dealer portal conversations\nWhen a chat starts in the dealer portal, the salesperson is often typing on the customer's behalf. Address the salesperson politely, but make sure the customer confirms the term and the amount themselves before you record them; ask the salesperson to have the customer reply from their own phone if needed. Never share the customer's details with a different dealer.",
+              "name": "request_missing_info",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "fields": {
+                    "description": "Field codes to request through the form.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Offer the customer a callback time. Only business hours, customer's time zone, 15 minute slots.",
+              "name": "schedule_callback_slot",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "preferred_at": {
+                    "description": "ISO 8601 start time in the customer's time zone, business hours only.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "preferred_at"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Link files the customer uploaded in this conversation to their application.\nUse the document ids from the upload messages. Call it after the customer confirms the files are the ones they meant to send.\nDo not attach the same document twice; the tool ignores duplicates but logs a warning.\nSupported types: PDF, JPEG, PNG, HEIC. Files over 20 MB are rejected by the upload widget before they reach you.\nIf the customer sent a link instead of a file, do not attach it; record the link in record_quote_fields under dealer if it is a dealer page.\nThe finance team sees attached documents in the application view in the order you attach them, so attach the quote first.\nIf a document is unreadable, attach it anyway and ask the customer for a clearer copy.\nNever describe the contents of ID documents back to the customer.\n",
+              "name": "attach_documents",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "document_ids": {
+                    "description": "Ids of the uploaded documents to link, from the upload messages in this conversation.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "document_ids"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Store one or more fields from the customer or from an uploaded quote on the application.\nField names are fixed: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein.\nValues are strings. Write numbers without currency symbols or separators.\nCall it every time the customer states or confirms a value, even if you recorded a guess before.\nIf it fails with bad_field, fix the name and retry once.\nInclude a short reasoning so the audit log shows where each value came from.\n",
+              "name": "record_quote_fields",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "fields": {
+                    "description": "One entry per field to store on the application, in any order.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "description": "Field name: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein.",
+                          "type": "string"
+                        },
+                        "value": {
+                          "description": "Value as a string, digits only for numbers.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "value"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Store the total amount the customer wants to finance, in US dollars.\nUse the number the customer confirms, not the largest number on the quote. If the customer says to include freight and tax, add them; if they say to exclude the trade-in, subtract it.\nSet it to null when the customer is still deciding; the finance manager will ask.\nAmounts above 250,000 trigger the handoff rule, so escalate right after setting them.\nRound to whole dollars.\nDo not call it for refinancing requests; record the payoff amount with record_quote_fields instead.\nIf the customer gives a range, record the upper bound and mention the range in the lead summary.\n",
+              "name": "set_requested_amount",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "amount_usd": {
+                    "description": "Amount in whole US dollars, or null when the customer has not decided.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "amount_usd"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "is_internal_testing": false,
+        "$ai_span_name": "Northbeam Equipment Finance intake",
+        "thread_id": 505641246,
+        "agent_role_name": "router",
+        "tools_bound": [
+          "search_kb",
+          "escalate_to_human",
+          "set_lead_category",
+          "request_missing_info",
+          "schedule_callback_slot",
+          "attach_documents",
+          "record_quote_fields",
+          "set_requested_amount"
+        ],
+        "tenant_slug": "northbeam",
+        "agent_key": "intake_v3",
+        "router_model": "gpt-5.6-luna",
+        "mode": "assistant",
+        "providerRequestId": "req_I6sY0w3WtTtFEsVvcmVKCqJis9wxQRhD",
+        "root_agent_role": "router",
+        "$ai_trace_id": "d7625092-14a8-7b13-075b-9b03dce36155",
+        "agent_name": "Northbeam Equipment Finance intake",
+        "$ai_span_id": "d7625092-14a8-7b13-075b-9b03dce36155",
+        "orgId": 326829,
+        "$ai_latency": 8.888,
+        "tags": [
+          "intake_v3",
+          "assistant",
+          "equipment_fi",
+          "quote_uploaded"
+        ],
+        "page_url": "https://www.northbeam-finance.example.com/apply/equipment?utm_source=dealer_portal&utm_medium=chat&dealer=ridgeline-01",
+        "channel_name": "web_chat",
+        "member_id": 961174,
+        "openai_response": "resp_sF7wDBz4MtITiVOekxzZHpyfBo6EL9ZL2xfgbDbRv8WXWaUng4",
+        "llm_model": "gpt-5.6-luna",
+        "deployment": "intake-assistant-prod",
+        "request_seq_no": 2163798932511613,
+        "chat_id": 338720,
+        "agent_label": "Northbeam Equipment Finance intake",
+        "stream_setting": "stream",
+        "environment": "production",
+        "response_mode": "stream",
+        "$ai_input_state": "thanks!",
+        "$ai_output_state": "{\"response\": \"Noted: 36 months. Thanks!\", \"reasoning\": \"Term recorded after one retry; amount and category still open, no handoff rule applies yet.\", \"handoff_rsn\": null, \"reply\": \"Noted: 36 months. Thanks!\"}"
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 3082,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_model": "gpt-5.4-mini",
+        "is_internal_testing": false,
+        "$ai_input_tokens": 13442,
+        "channel_name": "web_chat",
+        "$ai_provider": "openai",
+        "deployment": "intake-assistant-prod",
+        "$ai_model_parameters": {
+          "reasoning_effort": "low"
+        },
+        "$ai_latency": 2.721,
+        "tool_reasoning_summary": "Customer confirmed a 36 month term twice. Storing it under the fixed field name term.",
+        "agent_name": "Northbeam Equipment Finance intake",
+        "page_url": "https://www.northbeam-finance.example.com/apply/equipment?utm_source=dealer_portal&utm_medium=chat&dealer=ridgeline-01",
+        "$ai_parent_id": "d7f24d95-0ee1-702b-9c10-1406f9c3ce06",
+        "thread_id": 505641246,
+        "chat_id": 338720,
+        "orgId": 326829,
+        "environment": "production",
+        "$ai_span_name": "record_quote_fields - argument validation",
+        "$ai_cache_read_input_tokens": 0,
+        "is_subroutine": true,
+        "member_id": 961174,
+        "$ai_span_id": "e2124cf4-1d95-7a72-6f75-e015a8f08445",
+        "openai_response": "resp_sF7wDBz4MtITiVOekxzZHpyfBo6EL9ZL2xfgbDbRv8WXWaUng4",
+        "generation_stage": "sub",
+        "providerRequestId": "req_I6sY0w3WtTtFEsVvcmVKCqJis9wxQRhD",
+        "response_mode": "stream",
+        "agent_key": "intake_v3",
+        "mode": "assistant",
+        "agent_label": "Northbeam Equipment Finance intake",
+        "$ai_trace_id": "d7625092-14a8-7b13-075b-9b03dce36155",
+        "$ai_output_tokens": 48,
+        "$ai_reasoning_tokens": 19,
+        "llm_model": "gpt-5.6-luna",
+        "agent_role_name": "router",
+        "request_seq_no": 2163798932511613,
+        "tenant_slug": "northbeam",
+        "$ai_input": [
+          {
+            "content": "You validate tool arguments for the Northbeam intake assistant before they reach the application service.\nYou receive the full conversation, the tool the assistant wants to call and the arguments it proposed. Check the arguments against the tool schema and against what the customer actually said.\n\nRules:\n- Field names must be one of: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein.\n- Values are strings without currency symbols or thousands separators.\n- term must be a whole number of months between 12 and 84.\n- A value must appear in the customer's messages or in the attached document; reject values that were invented.\n- Reply with JSON only: {\"success\": true} when the call may proceed, {\"success\": false, \"reason\": \"<code>\"} otherwise.\n\nReason codes: bad_field, bad_value, not_stated, duplicate, schema_error.\n\n\n## Language\nReply in the language the customer writes in. If they switch languages mid-conversation, follow them. Field values stay in English codes regardless of the conversation language, and the lead summary is always written in English for the finance team.\n\n## Amounts and what to include\nCustomers often want to finance only part of a quote. Ask what they want to include instead of assuming: the machine only, the machine and attachments, or the full invoice with freight and tax. Record the confirmed figure with set_requested_amount and note in the summary which lines are excluded. If the customer wants to finance more than the quote total, do not record it; explain that the amount financed cannot exceed the invoice and route extra needs, like working capital, to a finance manager.\n\n## Attachments and options\nBuckets, thumbs, couplers, augers and other attachments bought with the machine can be financed on the same contract. Attachments bought separately later need a new application. When a quote lists options as a package, record the package total rather than each item. If the customer asks whether an attachment from another dealer can be added, say the finance manager will confirm and record the question.\n\n## Existing customers\nIf the customer mentions a current Northbeam contract, ask for the contract number or the business name on it and categorise the lead as Existing account. Do not look up balances, payment history or payoff amounts; you have no access to them and must not guess. Offer a callback from their finance manager for anything about an existing contract, including early payoff and adding a second machine.\n\n## Handling repeated messages\nOn weak connections customers often send the same message several times or send single characters to check you are there. Reply once to the latest message, confirm you received what they sent (for example, the quote), and carry on with the next step. Do not count repeated messages as impatience, and do not escalate because of them. If the customer asks whether you received a file, check the conversation and say which file you have.\n\n## Seasonal payments\nAgricultural customers can skip up to three monthly payments a year, chosen at signing and tied to their harvest cycle. Ask which months are slow for them and record the answer in the summary. Seasonal schedules are not available for construction or landscaping businesses, even when their work is seasonal; if they ask, explain that a finance manager can discuss other options and route the question to a human.\n\n## Dealer portal conversations\nWhen a chat starts in the dealer portal, the salesperson is often typing on the customer's behalf. Address the salesperson politely, but make sure the customer confirms the term and the amount themselves before you record them; ask the salesperson to have the customer reply from their own phone if needed. Never share the customer's details with a different dealer.\n\n## Private-party sales\nWhen the customer buys from a private seller, we need the seller's name and phone, a photo of the serial plate, and a bill of sale before funding. Tell the customer that funding goes to the seller directly, never to them. Private-party machines must be inspected by a partner inspector if the price is above 40,000 USD; do not schedule the inspection yourself, the finance manager arranges it.\n\n## Trade-ins\nA trade-in on the dealer quote reduces the amount financed. Record the allowance with record_quote_fields under tradein. If the customer still owes money on the machine they are trading in, record the payoff in the summary and route to a human, because the payoff has to be settled before the new contract funds.\n\n## Timelines\nMost complete applications get a decision within one business day. Funding to the dealer usually happens within two business days of signed documents. Never promise a date; say what usually happens and that the finance manager will confirm. If the customer has a hard deadline, record it in the summary so the team can prioritise.\n\n## Eligibility basics\nWe finance new and used construction, agricultural and light industrial equipment for businesses that have operated for at least 12 months. Sole proprietors qualify when they can show a business bank account and a trade name registration. We do not finance consumer vehicles, recreational equipment, or anything titled to a person rather than a business. If the customer is unsure whether their business qualifies, collect what they know and let underwriting decide; never tell a customer they are declined.\n\n## Terms we offer\nStandard terms are 24, 36, 48 and 60 months. Used equipment older than 10 years at the end of the term is capped at 36 months. Seasonal payment schedules (skipping up to 3 months a year) are available for agricultural customers only. Balloon structures are not offered through this channel; if a customer asks for one, record the request in the summary and route to a human finance manager.\n\n## Documents we accept\nA dealer quote or invoice (PDF, image or link), the last 3 months of business bank statements, and a copy of the ID of the person signing. For private-party sales we also need the seller's contact details and a photo of the equipment's serial plate. Never ask for full card numbers, online banking passwords, or social security numbers in chat; the secure upload link handles sensitive documents.\n\n## Reading a dealer quote\nFrom a quote, capture: dealer name, equipment make and model, year, hours or mileage if used, serial number if present, cash price, freight and setup charges, taxes, trade-in allowance, and the quote expiry date. If the quote shows several options (for example, a bucket package), record the total the customer says they want to finance, not the most expensive line. When a number is illegible, ask the customer rather than guessing.\n\n## Tone and pacing\nCustomers are usually on a job site, on a phone, with a bad connection. Keep replies to one or two short sentences. Ask one question at a time. If the customer sends several messages in a row, answer the newest intent and acknowledge the rest briefly. Do not apologise more than once per conversation, and never blame the customer's connection.\n\n## When to hand off\nHand off to a human when the customer asks for a person, mentions a complaint, disputes a payment on an existing contract, asks about a balloon or lease-to-own structure, or when the requested amount is above 250,000 USD. When you hand off, tell the customer who will contact them and within what window (same business day before 3pm local time, otherwise next business day).\n\n## Recording fields\nUse record_quote_fields every time the customer states or confirms a value, even if you already recorded a guess from the document. Field names are fixed: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein. Values are strings; write numbers without currency symbols or thousands separators. If a call fails because of an unknown field name, correct the name and retry once before telling the customer anything.\n\n## Categories\nEvery conversation ends with exactly one lead category. Pick the most specific one that fits: new equipment from a dealer, used equipment from a dealer, used equipment from a private seller, refinance of equipment already owned, working capital (not equipment), existing customer servicing, or not a fit. If two apply, prefer the one that determines underwriting rules (private seller beats used from dealer).\n\n## Things you must not do\nDo not quote rates, approve or decline, or estimate monthly payments. Do not promise delivery or funding dates. Do not collect bank credentials, full ID numbers or card numbers in chat. Do not create a callback outside business hours (07:00 to 18:00 in the customer's time zone, Monday to Friday). Do not mention internal tools, scores or partner names.\n\n## Example exchange\nCustomer: here's the quote, can you do 60 months?\nAssistant: Thanks, I can see the quote from Ridgeline Equipment. 60 months is available for new machines. Is 60 the term you'd like me to note?\nCustomer: yes\nAssistant: Noted, 60 months. A finance manager will review and follow up today.\n\n## Language\nReply in the language the customer writes in. If they switch languages mid-conversation, follow them. Field values stay in English codes regardless of the conversation language, and the lead summary is always written in English for the finance team.\n\n## Amounts and what to include\nCustomers often want to finance only part of a quote. Ask what they want to include instead of assuming: the machine only, the machine and attachments, or the full invoice with freight and tax. Record the confirmed figure with set_requested_amount and note in the summary which lines are excluded. If the customer wants to finance more than the quote total, do not record it; explain that the amount financed cannot exceed the invoice and route extra needs, like working capital, to a finance manager.\n\n## Attachments and options\nBuckets, thumbs, couplers, augers and other attachments bought with the machine can be financed on the same contract. Attachments bought separately later need a new application. When a quote lists options as a package, record the package total rather than each item. If the customer asks whether an attachment from another dealer can be added, say the finance manager will confirm and record the question.\n\n## Existing customers\nIf the customer mentions a current Northbeam contract, ask for the contract number or the business name on it and categorise the lead as Existing account. Do not look up balances, payment history or payoff amounts; you have no access to them and must not guess. Offer a callback from their finance manager for anything about an existing contract, including early payoff and adding a second machine.\n\n## Handling repeated messages\nOn weak connections customers often send the same message several times or send single characters to check you are there. Reply once to the latest message, confirm you received what they sent (for example, the quote), and carry on with the next step. Do not count repeated messages as impatience, and do not escalate because of them. If the customer asks whether you received a file, check the conversation and say which file you have.\n\n## Seasonal payments\nAgricultural customers can skip up to three monthly payments a year, chosen at signing and tied to their harvest cycle. Ask which months are slow for them and record the answer in the summary. Seasonal schedules are not available for construction or landscaping businesses, even when their work is seasonal; if they ask, explain that a finance manager can discuss other options and route the question to a human.\n\n## Dealer portal conversations\nWhen a chat starts in the dealer portal, the salesperson is often typing on the customer's behalf. Address the salesperson politely, but make sure the customer confirms the term and the amount themselves before you record them; ask the salesperson to have the customer reply from their own phone if needed. Never share the customer's details with a different dealer.\n\n## Private-party sales\nWhen the customer buys from a private seller, we need the seller's name and phone, a photo of the serial plate, and a bill of sale before funding. Tell the customer that funding goes to the seller directly, never to them. Private-party machines must be inspected by a partner inspector if the price is above 40,000 USD; do not schedule the inspection yourself, the finance manager arranges it.\n\n## Trade-ins\nA trade-in on the dealer quote reduces the amount financed. Record the allowance with record_quote_fields under tradein. If the customer still owes money on the machine they are trading in, record the payoff in the summary and route to a human, because the payoff has to be settled before the new contract funds.\n\n## Timelines\nMost complete applications get a decision within one business day. Funding to the dealer usually happens within two business days of signed documents. Never promise a date; say what usually happens and that the finance manager will confirm. If the customer has a hard deadline, record it in the summary so the team can prioritise.\n\n## Eligibility basics\nWe finance new and used construction, agricultural and light industrial equipment for businesses that have operated for at least 12 months. Sole proprietors qualify when they can show a business bank account and a trade name registration. We do not finance consumer vehicles, recreational equipment, or anything titled to a person rather than a business. If the customer is unsure whether their business qualifies, collect what they know and let underwriting decide; never tell a customer they are declined.\n\n## Terms we offer\nStandard terms are 24, 36, 48 and 60 months. Used equipment older than 10 years at the end of the term is capped at 36 months. Seasonal payment schedules (skipping up to 3 months a year) are available for agricultural customers only. Balloon structures are not offered through this channel; if a customer asks for one, record the request in the summary and route to a human finance manager.\n\n## Documents we accept\nA dealer quote or invoice (PDF, image or link), the last 3 months of business bank statements, and a copy of the ID of the person signing. For private-party sales we also need the seller's contact details and a photo of the equipment's serial plate. Never ask for full card numbers, online banking passwords, or social security numbers in chat; the secure upload link handles sensitive documents.\n\n## Reading a dealer quote\nFrom a quote, capture: dealer name, equipment make and model, year, hours or mileage if used, serial number if present, cash price, freight and setup charges, taxes, trade-in allowance, and the quote expiry date. If the quote shows several options (for example, a bucket package), record the total the customer says they want to finance, not the most expensive line. When a number is illegible, ask the customer rather than guessing.\n\n## Tone and pacing\nCustomers are usually on a job site, on a phone, with a bad connection. Keep replies to one or two short sentences. Ask one question at a time. If the customer sends several messages in a row, answer the newest intent and acknowledge the rest briefly. Do not apologise more than once per conversation, and never blame the customer's connection.",
+            "role": "system"
+          },
+          {
+            "content": "Hi! What can I help you with?",
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "data": "https://media.example.com/api_openai_pdf_url_intake__W3199516.pdf",
+                "mediaType": "application/pdf",
+                "type": "file"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": "here's the quote from the dealer for the excavator we want to get",
+            "role": "user"
+          },
+          {
+            "content": "were looking at 36 months if possible, maybe 48 at the most",
+            "role": "user"
+          },
+          {
+            "content": "?",
+            "role": "user"
+          },
+          {
+            "content": "?",
+            "role": "user"
+          },
+          {
+            "content": "sorry wifi keeps dropping out here, did the pdf come through ok",
+            "role": "user"
+          },
+          {
+            "content": "?",
+            "role": "user"
+          },
+          {
+            "content": "?",
+            "role": "user"
+          },
+          {
+            "content": "hello??????",
+            "role": "user"
+          },
+          {
+            "content": "anyone there? kinda urgent",
+            "role": "user"
+          },
+          {
+            "content": "hellooo",
+            "role": "user"
+          },
+          {
+            "content": "ok nvm",
+            "role": "user"
+          },
+          {
+            "content": "Yes, I'm here! Sorry.",
+            "role": "assistant"
+          },
+          {
+            "content": "Got the Ridgeline quote for the CX-55. I'll note the details now, one sec.",
+            "role": "assistant"
+          },
+          {
+            "content": "ok how long does it take",
+            "role": "user"
+          },
+          {
+            "content": "Hi! What can I help you with?",
+            "role": "assistant"
+          },
+          {
+            "content": "we're a 4 person site prep company, been going 6 years, mostly residential lots and some small commercial pads for a couple of builders around here.\nthe old mini ex is the trade in on the quote, dealer takes it on delivery. it runs but the undercarriage is shot so we're not keeping it.\nwe need the machine by the 20th for a subdivision job so trying to get this moving today if at all possible",
+            "role": "user"
+          },
+          {
+            "content": "hello??????",
+            "role": "user"
+          },
+          {
+            "content": "also the quote says 71,781 total but i only want to finance the machine and the bucket package, we'll pay the tax and freight out of pocket when it's delivered since we just got paid on the last job\nif thats easier on your end just do the whole thing, i don't want this held up over a couple grand\n36 months is what my accountant said, dont want 48 if we dont have to. can you confirm that works for a new machine?",
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "reasoning": "Customer asked for a 36-month term. Recording it as months so pricing can run. Earlier they mentioned 48 as a maximum, but 36 is their stated preference."
+                },
+                "toolCallId": "call_WMyYeyUoZClJQAqKRzKlRsMc",
+                "toolName": "record_quote_fields",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "reason": "bad_field",
+                    "success": false
+                  }
+                },
+                "toolCallId": "call_WMyYeyUoZClJQAqKRzKlRsMc",
+                "toolName": "record_quote_fields",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": "Sorry, that didn't save on my side. Trying again with the right field.",
+            "role": "assistant"
+          },
+          {
+            "content": "thanks!",
+            "role": "user"
+          },
+          {
+            "content": "Validate the proposed record_quote_fields arguments. Reply only with JSON: success true or false.",
+            "role": "system"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "{\"success\": true}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "function": {
+              "description": "Store one or more fields from the customer or from an uploaded quote on the application.\nField names are fixed: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein.\nValues are strings. Write numbers without currency symbols or separators.\nCall it every time the customer states or confirms a value, even if you recorded a guess before.\nIf it fails with bad_field, fix the name and retry once.\nInclude a short reasoning so the audit log shows where each value came from.\n",
+              "name": "record_quote_fields",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "fields": {
+                    "description": "One entry per field to store on the application, in any order.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "description": "Field name: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein.",
+                          "type": "string"
+                        },
+                        "value": {
+                          "description": "Value as a string, digits only for numbers.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "value"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 3082,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_name": "tool: record_quote_fields",
+        "providerRequestId": "req_I6sY0w3WtTtFEsVvcmVKCqJis9wxQRhD",
+        "openai_response": "resp_sF7wDBz4MtITiVOekxzZHpyfBo6EL9ZL2xfgbDbRv8WXWaUng4",
+        "chat_id": 338720,
+        "$ai_trace_id": "d7625092-14a8-7b13-075b-9b03dce36155",
+        "response_mode": "stream",
+        "$ai_latency": 2.721,
+        "tool_description": "Store one or more fields from the customer or from an uploaded quote on the application.\nField names are fixed: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein.\nValues are strings. Write numbers without currency symbols or separators.\nCall it every time the customer states or confirms a value, even if you recorded a guess before.\nIf it fails with bad_field, fix the name and retry once.\nInclude a short reasoning so the audit log shows where each value came from.\n",
+        "request_seq_no": 2163798932511613,
+        "tenant_slug": "northbeam",
+        "tool_reasoning_summary": "Customer confirmed a 36 month term twice. Storing it under the fixed field name term.",
+        "tool_call_name": "quote_capture",
+        "success": true,
+        "thread_id": 505641246,
+        "mode": "assistant",
+        "llm_model": "gpt-5.6-luna",
+        "page_url": "https://www.northbeam-finance.example.com/apply/equipment?utm_source=dealer_portal&utm_medium=chat&dealer=ridgeline-01",
+        "agent_role_name": "router",
+        "agent_name": "Northbeam Equipment Finance intake",
+        "agent_label": "Northbeam Equipment Finance intake",
+        "orgId": 326829,
+        "member_id": 961174,
+        "$ai_span_id": "d7f24d95-0ee1-702b-9c10-1406f9c3ce06",
+        "deployment": "intake-assistant-prod",
+        "is_internal_testing": false,
+        "environment": "production",
+        "channel_name": "web_chat",
+        "agent_key": "intake_v3",
+        "$ai_parent_id": "d7625092-14a8-7b13-075b-9b03dce36155",
+        "$ai_input_state": "{\"reasoning\": \"Customer confirmed a 36 month term twice. Storing it under the fixed field name term.\"}",
+        "$ai_output_state": "{\"success\": true}"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 5778,
+      "distinct_id": "user-1",
+      "properties": {
+        "agent_key": "intake_v3",
+        "agent_label": "Northbeam Equipment Finance intake",
+        "$ai_parent_id": "e2124cf4-1d95-7a72-6f75-e015a8f08445",
+        "deployment": "intake-assistant-prod",
+        "agent_role_name": "router",
+        "llm_model": "gpt-5.6-luna",
+        "member_id": 961174,
+        "is_internal_testing": false,
+        "$ai_span_id": "dc44e97a-2ba0-76ae-b7e7-79e78005ea7a",
+        "$ai_span_name": "tool: record_quote_fields",
+        "response_mode": "stream",
+        "page_url": "https://www.northbeam-finance.example.com/apply/equipment?utm_source=dealer_portal&utm_medium=chat&dealer=ridgeline-01",
+        "chat_id": 338720,
+        "orgId": 326829,
+        "tenant_slug": "northbeam",
+        "openai_response": "resp_sF7wDBz4MtITiVOekxzZHpyfBo6EL9ZL2xfgbDbRv8WXWaUng4",
+        "$ai_latency": 0.025,
+        "providerRequestId": "req_I6sY0w3WtTtFEsVvcmVKCqJis9wxQRhD",
+        "agent_name": "Northbeam Equipment Finance intake",
+        "mode": "assistant",
+        "request_seq_no": 2163798932511613,
+        "thread_id": 505641246,
+        "environment": "production",
+        "channel_name": "web_chat",
+        "$ai_trace_id": "d7625092-14a8-7b13-075b-9b03dce36155",
+        "$ai_input_state": "{\"fields\": [{\"name\": \"term\", \"value\": \"36\"}]}",
+        "$ai_output_state": "{\"success\": true}"
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 5803,
+      "distinct_id": "user-1",
+      "properties": {
+        "orgId": 326829,
+        "response_mode": "stream",
+        "$ai_span_name": "Northbeam intake assistant - router turn",
+        "agent_role_name": "router",
+        "$ai_latency": 3.085,
+        "chat_id": 338720,
+        "providerRequestId": "req_I6sY0w3WtTtFEsVvcmVKCqJis9wxQRhD",
+        "$ai_provider": "openai",
+        "$ai_input_tokens": 22349,
+        "agent_key": "intake_v3",
+        "environment": "production",
+        "openai_response": "resp_sF7wDBz4MtITiVOekxzZHpyfBo6EL9ZL2xfgbDbRv8WXWaUng4",
+        "$ai_cache_read_input_tokens": 22246,
+        "mode": "assistant",
+        "agent_name": "Northbeam Equipment Finance intake",
+        "generation_stage": "router",
+        "agent_label": "Northbeam Equipment Finance intake",
+        "request_seq_no": 2163798932511613,
+        "$ai_span_id": "59e53251-bcb2-7357-1479-e24b07d35df0",
+        "llm_model": "gpt-5.6-luna",
+        "$ai_output_tokens": 49,
+        "$ai_model_parameters": {
+          "reasoning_effort": "medium"
+        },
+        "member_id": 961174,
+        "$ai_trace_id": "d7625092-14a8-7b13-075b-9b03dce36155",
+        "deployment": "intake-assistant-prod",
+        "page_url": "https://www.northbeam-finance.example.com/apply/equipment?utm_source=dealer_portal&utm_medium=chat&dealer=ridgeline-01",
+        "$ai_model": "gpt-5.6-luna",
+        "channel_name": "web_chat",
+        "thread_id": 505641246,
+        "turn_index": 1,
+        "tenant_slug": "northbeam",
+        "$ai_parent_id": "d7625092-14a8-7b13-075b-9b03dce36155",
+        "$ai_reasoning_tokens": 0,
+        "is_internal_testing": false,
+        "$ai_input": [
+          {
+            "content": "You are the intake assistant for Northbeam Equipment Finance, a lender that finances machinery for small construction, landscaping and farming businesses.\nYou chat with customers on the Northbeam website and in the dealer portal. Your job is to collect the facts a finance manager needs to price an application, record them with tools, categorise the lead, and hand off cleanly. You never approve, decline or price anything yourself.\n\n# How a conversation goes\n1. Greet briefly and ask what they want to finance, unless they already said.\n2. If they share a quote or invoice, read it and record every field you can with record_quote_fields.\n3. Confirm the term and amount with the customer in their own words, then record them again.\n4. Ask for anything underwriting still needs, one item at a time, using request_missing_info.\n5. Set the lead category with set_lead_category and write a one-line summary.\n6. If a handoff rule applies, call escalate_to_human; otherwise tell the customer what happens next.\n\n# Output format\nReply in plain text, no markdown, no emoji. Keep every reply under 240 characters unless the customer asks for detail.\nWhen you finish a turn, return the routing JSON the platform expects: response (what the customer sees), reasoning (one sentence for the audit log), handoff_rsn (null unless you escalated) and reply (same text as response, kept for older clients).\n\n# Tools\nsearch_kb answers policy questions; do not paste articles, summarise them.\nescalate_to_human creates a ticket for the finance team.\nset_lead_category tags the conversation.\nrequest_missing_info asks the customer for fields via a form.\nschedule_callback_slot books a call in business hours only.\nattach_documents links uploaded files to the application.\nrecord_quote_fields stores fields from quotes or from the chat.\nset_requested_amount stores the amount the customer wants to finance.\n\n\n## Language\nReply in the language the customer writes in. If they switch languages mid-conversation, follow them. Field values stay in English codes regardless of the conversation language, and the lead summary is always written in English for the finance team.\n\n## Amounts and what to include\nCustomers often want to finance only part of a quote. Ask what they want to include instead of assuming: the machine only, the machine and attachments, or the full invoice with freight and tax. Record the confirmed figure with set_requested_amount and note in the summary which lines are excluded. If the customer wants to finance more than the quote total, do not record it; explain that the amount financed cannot exceed the invoice and route extra needs, like working capital, to a finance manager.\n\n## Attachments and options\nBuckets, thumbs, couplers, augers and other attachments bought with the machine can be financed on the same contract. Attachments bought separately later need a new application. When a quote lists options as a package, record the package total rather than each item. If the customer asks whether an attachment from another dealer can be added, say the finance manager will confirm and record the question.\n\n## Existing customers\nIf the customer mentions a current Northbeam contract, ask for the contract number or the business name on it and categorise the lead as Existing account. Do not look up balances, payment history or payoff amounts; you have no access to them and must not guess. Offer a callback from their finance manager for anything about an existing contract, including early payoff and adding a second machine.\n\n## Handling repeated messages\nOn weak connections customers often send the same message several times or send single characters to check you are there. Reply once to the latest message, confirm you received what they sent (for example, the quote), and carry on with the next step. Do not count repeated messages as impatience, and do not escalate because of them. If the customer asks whether you received a file, check the conversation and say which file you have.\n\n## Seasonal payments\nAgricultural customers can skip up to three monthly payments a year, chosen at signing and tied to their harvest cycle. Ask which months are slow for them and record the answer in the summary. Seasonal schedules are not available for construction or landscaping businesses, even when their work is seasonal; if they ask, explain that a finance manager can discuss other options and route the question to a human.\n\n## Dealer portal conversations\nWhen a chat starts in the dealer portal, the salesperson is often typing on the customer's behalf. Address the salesperson politely, but make sure the customer confirms the term and the amount themselves before you record them; ask the salesperson to have the customer reply from their own phone if needed. Never share the customer's details with a different dealer.\n\n## Private-party sales\nWhen the customer buys from a private seller, we need the seller's name and phone, a photo of the serial plate, and a bill of sale before funding. Tell the customer that funding goes to the seller directly, never to them. Private-party machines must be inspected by a partner inspector if the price is above 40,000 USD; do not schedule the inspection yourself, the finance manager arranges it.\n\n## Trade-ins\nA trade-in on the dealer quote reduces the amount financed. Record the allowance with record_quote_fields under tradein. If the customer still owes money on the machine they are trading in, record the payoff in the summary and route to a human, because the payoff has to be settled before the new contract funds.\n\n## Timelines\nMost complete applications get a decision within one business day. Funding to the dealer usually happens within two business days of signed documents. Never promise a date; say what usually happens and that the finance manager will confirm. If the customer has a hard deadline, record it in the summary so the team can prioritise.\n\n## Eligibility basics\nWe finance new and used construction, agricultural and light industrial equipment for businesses that have operated for at least 12 months. Sole proprietors qualify when they can show a business bank account and a trade name registration. We do not finance consumer vehicles, recreational equipment, or anything titled to a person rather than a business. If the customer is unsure whether their business qualifies, collect what they know and let underwriting decide; never tell a customer they are declined.\n\n## Terms we offer\nStandard terms are 24, 36, 48 and 60 months. Used equipment older than 10 years at the end of the term is capped at 36 months. Seasonal payment schedules (skipping up to 3 months a year) are available for agricultural customers only. Balloon structures are not offered through this channel; if a customer asks for one, record the request in the summary and route to a human finance manager.\n\n## Documents we accept\nA dealer quote or invoice (PDF, image or link), the last 3 months of business bank statements, and a copy of the ID of the person signing. For private-party sales we also need the seller's contact details and a photo of the equipment's serial plate. Never ask for full card numbers, online banking passwords, or social security numbers in chat; the secure upload link handles sensitive documents.\n\n## Reading a dealer quote\nFrom a quote, capture: dealer name, equipment make and model, year, hours or mileage if used, serial number if present, cash price, freight and setup charges, taxes, trade-in allowance, and the quote expiry date. If the quote shows several options (for example, a bucket package), record the total the customer says they want to finance, not the most expensive line. When a number is illegible, ask the customer rather than guessing.\n\n## Tone and pacing\nCustomers are usually on a job site, on a phone, with a bad connection. Keep replies to one or two short sentences. Ask one question at a time. If the customer sends several messages in a row, answer the newest intent and acknowledge the rest briefly. Do not apologise more than once per conversation, and never blame the customer's connection.\n\n## When to hand off\nHand off to a human when the customer asks for a person, mentions a complaint, disputes a payment on an existing contract, asks about a balloon or lease-to-own structure, or when the requested amount is above 250,000 USD. When you hand off, tell the customer who will contact them and within what window (same business day before 3pm local time, otherwise next business day).\n\n## Recording fields\nUse record_quote_fields every time the customer states or confirms a value, even if you already recorded a guess from the document. Field names are fixed: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein. Values are strings; write numbers without currency symbols or thousands separators. If a call fails because of an unknown field name, correct the name and retry once before telling the customer anything.\n\n## Categories\nEvery conversation ends with exactly one lead category. Pick the most specific one that fits: new equipment from a dealer, used equipment from a dealer, used equipment from a private seller, refinance of equipment already owned, working capital (not equipment), existing customer servicing, or not a fit. If two apply, prefer the one that determines underwriting rules (private seller beats used from dealer).\n\n## Things you must not do\nDo not quote rates, approve or decline, or estimate monthly payments. Do not promise delivery or funding dates. Do not collect bank credentials, full ID numbers or card numbers in chat. Do not create a callback outside business hours (07:00 to 18:00 in the customer's time zone, Monday to Friday). Do not mention internal tools, scores or partner names.\n\n## Example exchange\nCustomer: here's the quote, can you do 60 months?\nAssistant: Thanks, I can see the quote from Ridgeline Equipment. 60 months is available for new machines. Is 60 the term you'd like me to note?\nCustomer: yes\nAssistant: Noted, 60 months. A finance manager will review and follow up today.\n\n## Language\nReply in the language the customer writes in. If they switch languages mid-conversation, follow them. Field values stay in English codes regardless of the conversation language, and the lead summary is always written in English for the finance team.\n\n## Amounts and what to include\nCustomers often want to finance only part of a quote. Ask what they want to include instead of assuming: the machine only, the machine and attachments, or the full invoice with freight and tax. Record the confirmed figure with set_requested_amount and note in the summary which lines are excluded. If the customer wants to finance more than the quote total, do not record it; explain that the amount financed cannot exceed the invoice and route extra needs, like working capital, to a finance manager.\n\n## Attachments and options\nBuckets, thumbs, couplers, augers and other attachments bought with the machine can be financed on the same contract. Attachments bought separately later need a new application. When a quote lists options as a package, record the package total rather than each item. If the customer asks whether an attachment from another dealer can be added, say the finance manager will confirm and record the question.\n\n## Existing customers\nIf the customer mentions a current Northbeam contract, ask for the contract number or the business name on it and categorise the lead as Existing account. Do not look up balances, payment history or payoff amounts; you have no access to them and must not guess. Offer a callback from their finance manager for anything about an existing contract, including early payoff and adding a second machine.\n\n## Handling repeated messages\nOn weak connections customers often send the same message several times or send single characters to check you are there. Reply once to the latest message, confirm you received what they sent (for example, the quote), and carry on with the next step. Do not count repeated messages as impatience, and do not escalate because of them. If the customer asks whether you received a file, check the conversation and say which file you have.\n\n## Seasonal payments\nAgricultural customers can skip up to three monthly payments a year, chosen at signing and tied to their harvest cycle. Ask which months are slow for them and record the answer in the summary. Seasonal schedules are not available for construction or landscaping businesses, even when their work is seasonal; if they ask, explain that a finance manager can discuss other options and route the question to a human.\n\n## Dealer portal conversations\nWhen a chat starts in the dealer portal, the salesperson is often typing on the customer's behalf. Address the salesperson politely, but make sure the customer confirms the term and the amount themselves before you record them; ask the salesperson to have the customer reply from their own phone if needed. Never share the customer's details with a different dealer.\n\n## Private-party sales\nWhen the customer buys from a private seller, we need the seller's name and phone, a photo of the serial plate, and a bill of sale before funding. Tell the customer that funding goes to the seller directly, never to them. Private-party machines must be inspected by a partner inspector if the price is above 40,000 USD; do not schedule the inspection yourself, the finance manager arranges it.\n\n## Trade-ins\nA trade-in on the dealer quote reduces the amount financed. Record the allowance with record_quote_fields under tradein. If the customer still owes money on the machine they are trading in, record the payoff in the summary and route to a human, because the payoff has to be settled before the new contract funds.\n\n## Timelines\nMost complete applications get a decision within one business day. Funding to the dealer usually happens within two business days of signed documents. Never promise a date; say what usually happens and that the finance manager will confirm. If the customer has a hard deadline, record it in the summary so the team can prioritise.\n\n## Eligibility basics\nWe finance new and used construction, agricultural and light industrial equipment for businesses that have operated for at least 12 months. Sole proprietors qualify when they can show a business bank account and a trade name registration. We do not finance consumer vehicles, recreational equipment, or anything titled to a person rather than a business. If the customer is unsure whether their business qualifies, collect what they know and let underwriting decide; never tell a customer they are declined.\n\n## Terms we offer\nStandard terms are 24, 36, 48 and 60 months. Used equipment older than 10 years at the end of the term is capped at 36 months. Seasonal payment schedules (skipping up to 3 months a year) are available for agricultural customers only. Balloon structures are not offered through this channel; if a customer asks for one, record the request in the summary and route to a human finance manager.\n\n## Documents we accept\nA dealer quote or invoice (PDF, image or link), the last 3 months of business bank statements, and a copy of the ID of the person signing. For private-party sales we also need the seller's contact details and a photo of the equipment's serial plate. Never ask for full card numbers, online banking passwords, or social security numbers in chat; the secure upload link handles sensitive documents.\n\n## Reading a dealer quote\nFrom a quote, capture: dealer name, equipment make and model, year, hours or mileage if used, serial number if present, cash price, freight and setup charges, taxes, trade-in allowance, and the quote expiry date. If the quote shows several options (for example, a bucket package), record the total the customer says they want to finance, not the most expensive line. When a number is illegible, ask the customer rather than guessing.",
+            "role": "system"
+          },
+          {
+            "content": "Hi! What can I help you with?",
+            "role": "assistant",
+            "type": "message"
+          },
+          {
+            "content": [
+              {
+                "mimeType": "application/pdf",
+                "type": "file",
+                "url": "https://media.example.com/api_openai_pdf_url_intake__W3199516.pdf"
+              }
+            ],
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "here's the quote from the dealer for the excavator we want to get",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "were looking at 36 months if possible, maybe 48 at the most",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "?",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "?",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "sorry wifi keeps dropping out here, did the pdf come through ok",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "?",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "?",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "hello??????",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "anyone there? kinda urgent",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "hellooo",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "ok nvm",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "Yes, I'm here! Sorry.",
+            "role": "assistant",
+            "type": "message"
+          },
+          {
+            "content": "Got the Ridgeline quote for the CX-55. I'll note the details now, one sec.",
+            "role": "assistant",
+            "type": "message"
+          },
+          {
+            "content": "ok how long does it take",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "Hi! What can I help you with?",
+            "role": "assistant",
+            "type": "message"
+          },
+          {
+            "content": "we're a 4 person site prep company, been going 6 years, mostly residential lots and some small commercial pads for a couple of builders around here.\nthe old mini ex is the trade in on the quote, dealer takes it on delivery. it runs but the undercarriage is shot so we're not keeping it.\nwe need the machine by the 20th for a subdivision job so trying to get this moving today if at all possible",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "hello??????",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": "also the quote says 71,781 total but i only want to finance the machine and the bucket package, we'll pay the tax and freight out of pocket when it's delivered since we just got paid on the last job\nif thats easier on your end just do the whole thing, i don't want this held up over a couple grand\n36 months is what my accountant said, dont want 48 if we dont have to. can you confirm that works for a new machine?",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "arguments": {
+              "reasoning": "Customer asked for a 36-month term. Recording it as months so pricing can run. Earlier they mentioned 48 as a maximum, but 36 is their stated preference."
+            },
+            "callId": "call_WMyYeyUoZClJQAqKRzKlRsMc",
+            "name": "record_quote_fields",
+            "type": "tool_call"
+          },
+          {
+            "callId": "call_WMyYeyUoZClJQAqKRzKlRsMc",
+            "name": "record_quote_fields",
+            "output": {
+              "reason": "bad_field",
+              "success": false
+            },
+            "type": "tool_result"
+          },
+          {
+            "content": "Sorry, that didn't save on my side. Trying again with the right field.",
+            "role": "assistant",
+            "type": "message"
+          },
+          {
+            "content": "thanks!",
+            "role": "user",
+            "type": "message"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "{\"response\": \"Noted: 36 months. Thanks!\", \"reasoning\": \"Term recorded after one retry; amount and category still open, no handoff rule applies yet.\", \"handoff_rsn\": null}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "function": {
+              "description": "Search the Northbeam knowledge base for policy answers. Use it when the customer asks about eligibility, terms, documents, timelines or how the process works.\nThe knowledge base contains articles written by the finance team. Results are ranked by relevance and include the article title, the section, and a short excerpt.\nGuidelines:\n- Search with the customer's question rephrased as a short query, not the whole message.\n- Include topics to narrow the search when you know the area (terms, documents, eligibility, used_equipment, private_sale, seasonal, handoff).\n- Exclude topics you already answered in this conversation so results stay fresh.\n- Summarise what you find in one or two sentences. Never paste the article.\n- If nothing relevant comes back, say you will ask a finance manager and record the question in the lead summary.\n- Do not search for rates or approval odds; the knowledge base does not contain them and you must not discuss them.\nExamples:\n- \"can i finance a used skid steer from a guy on marketplace\" -> query: \"private party used equipment\", include_topics: [\"private_sale\", \"used_equipment\"]\n- \"do you do 72 months\" -> query: \"available terms\", include_topics: [\"terms\"]\n- \"what docs do you need\" -> query: \"required documents\", include_topics: [\"documents\"]\nResults older than 12 months are hidden automatically.\nThe tool returns at most 5 results. When several articles disagree, prefer the most recently updated one and mention that policies can change.\nNever call this tool more than twice in a single turn.\nIf the customer asks something outside equipment finance (for example, insurance or tax advice), do not search; tell them you can only help with financing.\nArticles may reference internal forms by code; do not share those codes with the customer.\n",
+              "name": "search_kb",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "description": "What to look up, as a short question in plain words. Rephrase the customer's message; do not paste it verbatim or include personal details.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "include_topics": {
+                    "description": "Topics to search within: terms, documents, eligibility, used_equipment, private_sale, seasonal, handoff.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "exclude_topics": {
+                    "description": "Topics to leave out, usually ones you already answered in this conversation. Same values as include_topics.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Create a ticket for the Northbeam finance team and tell the customer a person will follow up.\nUse this when a handoff rule applies: the customer asks for a person, raises a complaint, disputes a payment on an existing contract, asks about a balloon or lease-to-own structure, or wants more than 250,000 USD.\nPick the channel the customer prefers. If they did not say, use chat during business hours and email otherwise.\nSet assign to current_rep when the customer already works with a named finance manager; leave it null to route by territory.\nSet notify_rep only for urgent cases (a machine purchase closing today or a payment dispute).\nteamId and userId are filled automatically when the conversation started in the dealer portal; leave them null in the website widget.\nAfter calling this tool, tell the customer who will contact them and when, in one sentence.\nDo not call it twice for the same conversation; update the summary instead.\nNever escalate just because the customer is impatient or repeats themselves.\nThe ticket includes the full transcript, so you do not need to restate the conversation in the reason.\nIf the tool returns an error, apologise once and ask the customer for an email address to follow up.\n",
+              "name": "escalate_to_human",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "channel": {
+                    "description": "How the finance team should contact the customer.",
+                    "enum": [
+                      "chat",
+                      "call",
+                      "email",
+                      "callback"
+                    ],
+                    "type": "string"
+                  },
+                  "assign": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "current_rep",
+                          "min_ShjfkXZh"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Route to the rep already assigned to this customer, or null to route by area."
+                  },
+                  "notify_rep": {
+                    "description": "Send the assigned rep a push notification. Only for urgent cases: a purchase closing today, a payment dispute, or a customer who explicitly asks to speak with their rep right now.",
+                    "type": "boolean"
+                  },
+                  "teamId": {
+                    "description": "Dealer portal team id when the chat started in the dealer portal, otherwise null.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "userId": {
+                    "description": "Dealer portal user id of the salesperson who started the chat, otherwise null for web.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "channel"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Tag the conversation with exactly one lead category and a one-line summary for the finance team.\nCall it once, near the end of the conversation, after the main facts are recorded.\nPick the most specific category that decides underwriting rules. A private-seller purchase beats used-from-dealer; refinancing beats working capital.\nThe summary is read on a phone in a queue view: keep it under 120 characters, start with the equipment, then the amount and term, then anything unusual.\nExamples:\n- \"CX-55 excavator from Ridgeline, 71.8k, 36 mo, has trade-in\"\n- \"Used hay baler, private seller, 18k, wants seasonal payments\"\n- \"Asked about balloon payment, escalated\"\nUse Not a fit yet only when the customer clearly wants something we do not finance.\nUse Duplicate when the customer says they already applied this week.\nIf you are unsure, use unknown and explain in the summary.\nYou can call it again to correct a mistake; the last call wins.\nDo not include personal data in the summary beyond the business name.\n",
+              "name": "set_lead_category",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "category": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "New from dealer",
+                          "Used equipment from a private seller",
+                          "Used from a dealer",
+                          "Refinancing",
+                          "Working capital only",
+                          "Existing account",
+                          "Lease-to-own inquiry",
+                          "Not a fit yet",
+                          "Duplicate",
+                          "unknown",
+                          "Agricultural seasonal payment"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The single category that fits this lead best."
+                  },
+                  "summary": {
+                    "description": "One line for the queue view, under 120 characters.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Ask the customer for one or more fields through the secure form, instead of asking in chat. Use this for anything sensitive (bank statements, ID, business registration) and for long lists of details the customer is more likely to fill in on a form than in a chat bubble.\n\nHow it works:\nThe platform sends the customer a short link. When they submit, the values are attached to the application and you receive a system message listing which fields arrived. You do not see the values of sensitive fields.\n\nWhen to use it:\n- Underwriting needs bank statements, ID or business registration and the customer has not uploaded them.\n- The customer is on a phone and you need more than two numbers from them.\n- The customer asked to send documents later.\n\nWhen not to use it:\n- For a single simple value the customer can type (term, amount, year). Ask in chat instead.\n- To re-request something the customer already sent. Check the conversation first.\n- More than once per conversation unless the customer asks for a new link.\n\nField codes:\nbank_statements_3m, signer_id, business_registration, seller_contact, serial_plate_photo, insurance_certificate, trade_reference, landlord_waiver.\n\nTips:\nAsk for the smallest set that unblocks underwriting. Tell the customer what the link is for before you send it. If the customer says the link does not work, do not send another one; escalate instead.\n\n\n## Language\nReply in the language the customer writes in. If they switch languages mid-conversation, follow them. Field values stay in English codes regardless of the conversation language, and the lead summary is always written in English for the finance team.\n\n## Amounts and what to include\nCustomers often want to finance only part of a quote. Ask what they want to include instead of assuming: the machine only, the machine and attachments, or the full invoice with freight and tax. Record the confirmed figure with set_requested_amount and note in the summary which lines are excluded. If the customer wants to finance more than the quote total, do not record it; explain that the amount financed cannot exceed the invoice and route extra needs, like working capital, to a finance manager.\n\n## Attachments and options\nBuckets, thumbs, couplers, augers and other attachments bought with the machine can be financed on the same contract. Attachments bought separately later need a new application. When a quote lists options as a package, record the package total rather than each item. If the customer asks whether an attachment from another dealer can be added, say the finance manager will confirm and record the question.\n\n## Existing customers\nIf the customer mentions a current Northbeam contract, ask for the contract number or the business name on it and categorise the lead as Existing account. Do not look up balances, payment history or payoff amounts; you have no access to them and must not guess. Offer a callback from their finance manager for anything about an existing contract, including early payoff and adding a second machine.\n\n## Handling repeated messages\nOn weak connections customers often send the same message several times or send single characters to check you are there. Reply once to the latest message, confirm you received what they sent (for example, the quote), and carry on with the next step. Do not count repeated messages as impatience, and do not escalate because of them. If the customer asks whether you received a file, check the conversation and say which file you have.\n\n## Seasonal payments\nAgricultural customers can skip up to three monthly payments a year, chosen at signing and tied to their harvest cycle. Ask which months are slow for them and record the answer in the summary. Seasonal schedules are not available for construction or landscaping businesses, even when their work is seasonal; if they ask, explain that a finance manager can discuss other options and route the question to a human.\n\n## Dealer portal conversations\nWhen a chat starts in the dealer portal, the salesperson is often typing on the customer's behalf. Address the salesperson politely, but make sure the customer confirms the term and the amount themselves before you record them; ask the salesperson to have the customer reply from their own phone if needed. Never share the customer's details with a different dealer.",
+              "name": "request_missing_info",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "fields": {
+                    "description": "Field codes to request through the form.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Offer the customer a callback time. Only business hours, customer's time zone, 15 minute slots.",
+              "name": "schedule_callback_slot",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "preferred_at": {
+                    "description": "ISO 8601 start time in the customer's time zone, business hours only.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "preferred_at"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Link files the customer uploaded in this conversation to their application.\nUse the document ids from the upload messages. Call it after the customer confirms the files are the ones they meant to send.\nDo not attach the same document twice; the tool ignores duplicates but logs a warning.\nSupported types: PDF, JPEG, PNG, HEIC. Files over 20 MB are rejected by the upload widget before they reach you.\nIf the customer sent a link instead of a file, do not attach it; record the link in record_quote_fields under dealer if it is a dealer page.\nThe finance team sees attached documents in the application view in the order you attach them, so attach the quote first.\nIf a document is unreadable, attach it anyway and ask the customer for a clearer copy.\nNever describe the contents of ID documents back to the customer.\n",
+              "name": "attach_documents",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "document_ids": {
+                    "description": "Ids of the uploaded documents to link, from the upload messages in this conversation.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "document_ids"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Store one or more fields from the customer or from an uploaded quote on the application.\nField names are fixed: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein.\nValues are strings. Write numbers without currency symbols or separators.\nCall it every time the customer states or confirms a value, even if you recorded a guess before.\nIf it fails with bad_field, fix the name and retry once.\nInclude a short reasoning so the audit log shows where each value came from.\n",
+              "name": "record_quote_fields",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "fields": {
+                    "description": "One entry per field to store on the application, in any order.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "description": "Field name: term, amount, make, model, year, hours, dealer, expiry, freight, tax, tradein.",
+                          "type": "string"
+                        },
+                        "value": {
+                          "description": "Value as a string, digits only for numbers.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "value"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "description": "Store the total amount the customer wants to finance, in US dollars.\nUse the number the customer confirms, not the largest number on the quote. If the customer says to include freight and tax, add them; if they say to exclude the trade-in, subtract it.\nSet it to null when the customer is still deciding; the finance manager will ask.\nAmounts above 250,000 trigger the handoff rule, so escalate right after setting them.\nRound to whole dollars.\nDo not call it for refinancing requests; record the payoff amount with record_quote_fields instead.\nIf the customer gives a range, record the upper bound and mention the range in the lead summary.\n",
+              "name": "set_requested_amount",
+              "parameters": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "additionalProperties": false,
+                "properties": {
+                  "amount_usd": {
+                    "description": "Amount in whole US dollars, or null when the customer has not decided.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "amount_usd"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [
+    "core"
+  ],
+  "why": "PDF by URL: a dealer quote attached as a file URL, with a tool retry and a validating sub-generation"
+}
