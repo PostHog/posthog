@@ -47,7 +47,7 @@ ONBOARDING_SESSION_TITLE = "Getting set up"
 ONBOARDING_SESSION_PAID_MODEL = "claude-opus-4-8"
 ONBOARDING_SESSION_FREE_MODEL = "zai-org/glm-5.3-flash"
 ONBOARDING_SESSION_EFFORT = "medium"
-ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
+ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write", "inbox:write"]
 
 SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
 ONBOARDING_TEST_TOOLS_FLAG = "posthog-desktop-onboarding-test-tools"
