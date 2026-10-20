@@ -5,14 +5,7 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import (
-    RetryCallState,
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    stop_any,
-    wait_exponential_jitter,
-)
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
@@ -101,7 +94,12 @@ def _wait_for_retry(retry_state: RetryCallState) -> float:
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
-def _retry_after_exceeds_limit(retry_state: RetryCallState) -> bool:
+_stop_after_attempts = stop_after_attempt(8)
+
+
+def _stop_retrying(retry_state: RetryCallState) -> bool:
+    if _stop_after_attempts(retry_state):
+        return True
     # A server that asks for a longer wait than the limit is not going to answer soon. The error goes
     # to the activity, whose own retry comes back later, and the worker stays free.
     exc = retry_state.outcome.exception() if retry_state.outcome else None
@@ -118,7 +116,7 @@ def _retry_after_exceeds_limit(retry_state: RetryCallState) -> bool:
             requests.exceptions.ChunkedEncodingError,
         )
     ),
-    stop=stop_any(stop_after_attempt(8), _retry_after_exceeds_limit),
+    stop=_stop_retrying,
     wait=_wait_for_retry,
     reraise=True,
 )
