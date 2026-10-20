@@ -139,7 +139,6 @@ class CreateWizardRunInput:
     program_id: str
     wizard_version: str | None = None
     idempotency_key: str | None = None
-    one_active_run_per_project: bool = False
 
 
 @frozen
@@ -153,8 +152,6 @@ class StartWizardInstallInput:
     repository: str
     branch: str | None = None
     idempotency_key: str | None = None
-    # Runs created with an OAuth access token count against a separate daily limit per user.
-    counts_against_token_daily_limit: bool = False
 
 
 @frozen

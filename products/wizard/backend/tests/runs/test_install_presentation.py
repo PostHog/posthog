@@ -11,7 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import PersonalAPIKey, User
+from posthog.models import PersonalAPIKey
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -139,31 +139,13 @@ class TestWizardInstallViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
 
-    def test_start_allows_one_active_run_per_project(self) -> None:
-        self._start(idempotency_key="first-user")
-        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
-        self.client.force_login(teammate)
+    def test_start_refuses_a_second_active_run_for_the_same_user(self) -> None:
+        self._start(idempotency_key="first-run")
 
-        response = self._start(idempotency_key="second-user")
+        response = self._start(idempotency_key="second-run")
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(response.json()["code"], "run_already_active")
-        self.assertEqual(WizardRun.objects.for_team(self.team.id).count(), 1)
-
-    def test_oauth_runs_have_a_daily_cap_that_retries_do_not_spend(self) -> None:
-        self._authenticate_oauth("task:write")
-        first = self._start(idempotency_key="cap-first")
-        replay = self._start(idempotency_key="cap-first")
-        WizardRun.objects.for_team(self.team.id).update(status=WizardRunStatus.COMPLETED.value)
-
-        with patch("products.wizard.backend.logic.installs.rate_limits.TOKEN_DAILY_RUN_LIMIT", 1):
-            capped = self._start(idempotency_key="cap-second")
-
-        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(replay.status_code, status.HTTP_200_OK)
-        self.assertEqual(replay.json()["run_id"], first.json()["run_id"])
-        self.assertEqual(capped.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(capped.json()["detail"], "You've reached the daily limit for setup runs. Try again tomorrow.")
         self.assertEqual(WizardRun.objects.for_team(self.team.id).count(), 1)
 
     def test_idempotency_key_reuse_for_another_repository_conflicts(self) -> None:
@@ -189,7 +171,7 @@ class TestWizardInstallViewSet(APIBaseTest):
         self.assertEqual(response.json()["attr"], "branch")
 
     def test_unreachable_repository_refreshes_the_repository_cache_once(self) -> None:
-        self.accessible.side_effect = [False, True, True]
+        self.accessible.side_effect = [False, True]
 
         with patch("posthog.models.integration.GitHubIntegration.sync_repository_cache") as sync:
             response = self._start(idempotency_key="fresh-install")

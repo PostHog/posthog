@@ -13,7 +13,6 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models import User
 from posthog.utils import absolute_uri
 
@@ -77,7 +76,7 @@ class WizardInstallViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Start the setup agent in the cloud on a GitHub repository of this project. "
             "It adds PostHog to the code and opens a pull request. "
-            "One setup run can be active per project at a time."
+            "Each user can have one setup run active per project at a time."
         ),
     )
     # POST /projects/:projectId/wizard/installs
@@ -94,9 +93,6 @@ class WizardInstallViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     repository=request.validated_data["repository"],
                     branch=request.validated_data.get("branch"),
                     idempotency_key=request.validated_data.get("idempotency_key"),
-                    counts_against_token_daily_limit=isinstance(
-                        request.successful_authenticator, OAuthAccessTokenAuthentication
-                    ),
                 )
             )
         except WIZARD_INSTALL_START_ERRORS as error:

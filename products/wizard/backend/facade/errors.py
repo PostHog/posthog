@@ -67,11 +67,3 @@ class WizardRunHourlyLimitError(Exception):
 
 class WizardRunDailyLimitError(Exception):
     pass
-
-
-class ProjectActiveWizardRunError(Exception):
-    pass
-
-
-class WizardInstallDailyLimitError(Exception):
-    pass

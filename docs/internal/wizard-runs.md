@@ -10,7 +10,6 @@ The lock covers the active-run check, rolling hourly and daily limits, and run i
 Concurrent requests for the same project and user wait until the first transaction commits or rolls back.
 The lock does not lock the `Team` row or serialize different users or projects.
 Local runs do not take this lock. Cloud dispatch starts after commit.
-Runs started through the install endpoint first take a second advisory lock for the project, so they also see active runs of other users.
 
 ## Environments and workspaces
 
@@ -104,11 +103,7 @@ The status response returns `status`, `stage`, `error_code`, `error_message`, `p
 Both endpoints accept browser sessions and OAuth access tokens, not personal API keys.
 Start needs `task:write` and status needs `task:read`.
 Both return `404` unless cloud execution is enabled and the `wizard-mcp-install` feature flag is on for the user and organization.
-Start applies these guardrails on top of the per-user limits of the runs endpoint:
-
-- One active cloud run per project, across all users.
-- At most 15 runs a day per user from OAuth access tokens, counted in the cache across all projects. Retries that return an existing run do not count.
-- The AI gateway access rules are checked with the caller's IP, the same as browser-started cloud runs.
+Start uses the same per-user admission limits as browser-started cloud runs, and checks the AI gateway access rules with the caller's IP.
 
 ## Cloud execution
 

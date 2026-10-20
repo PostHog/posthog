@@ -10,9 +10,7 @@ from products.wizard.backend.facade.errors import (
     InvalidRepositoryError,
     InvalidWorkspaceEnvironmentError,
     MissingGitHubIntegrationError,
-    ProjectActiveWizardRunError,
     RepositoryNotAccessibleError,
-    WizardInstallDailyLimitError,
     WizardProgramEnvironmentNotSupportedError,
     WizardProgramNotAvailableError,
     WizardRunDailyLimitError,
@@ -26,9 +24,7 @@ WizardInstallStartError = (
     | InvalidRepositoryError
     | InvalidWorkspaceEnvironmentError
     | MissingGitHubIntegrationError
-    | ProjectActiveWizardRunError
     | RepositoryNotAccessibleError
-    | WizardInstallDailyLimitError
     | WizardProgramEnvironmentNotSupportedError
     | WizardProgramNotAvailableError
     | WizardRunDailyLimitError
@@ -42,9 +38,7 @@ WIZARD_INSTALL_START_ERRORS = (
     InvalidRepositoryError,
     InvalidWorkspaceEnvironmentError,
     MissingGitHubIntegrationError,
-    ProjectActiveWizardRunError,
     RepositoryNotAccessibleError,
-    WizardInstallDailyLimitError,
     WizardProgramEnvironmentNotSupportedError,
     WizardProgramNotAvailableError,
     WizardRunDailyLimitError,
@@ -70,9 +64,9 @@ def install_start_api_error(error: WizardInstallStartError) -> APIException:
                 "access, then try again.",
                 code="repository_not_accessible",
             )
-        case ProjectActiveWizardRunError() | ActiveWizardRunError():
+        case ActiveWizardRunError():
             return Conflict(
-                "A setup run is already in progress for this project. Wait for it to finish, then try again.",
+                "You already have a setup run in progress for this project. Wait for it to finish, then try again.",
                 code="run_already_active",
             )
         case WizardRunIdempotencyConflictError():
@@ -82,7 +76,7 @@ def install_start_api_error(error: WizardInstallStartError) -> APIException:
             )
         case WizardRunHourlyLimitError():
             return Throttled(detail="You've reached the hourly limit for setup runs. Try again in an hour.")
-        case WizardRunDailyLimitError() | WizardInstallDailyLimitError():
+        case WizardRunDailyLimitError():
             return Throttled(detail="You've reached the daily limit for setup runs. Try again tomorrow.")
         case (
             WizardProgramNotAvailableError()
