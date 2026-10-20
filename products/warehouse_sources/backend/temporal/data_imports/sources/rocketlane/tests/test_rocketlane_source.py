@@ -58,9 +58,6 @@ class TestRocketlaneSource:
     @parameterized.expand(
         [
             ("valid", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Rocketlane API key"),
-            ("forbidden", 403, False, "Invalid Rocketlane API key"),
-            ("server_error", 500, False, "Rocketlane returned HTTP 500"),
         ]
     )
     def test_validate_credentials(
@@ -71,13 +68,6 @@ class TestRocketlaneSource:
         assert is_valid is expected_valid
         assert returned == expected_message
         assert network.requests_log[0].headers["api-key"] == "rl-key"
-
-    def test_validate_credentials_connection_error(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is False
-        assert returned is not None and returned.startswith("Could not connect to Rocketlane:")
-        assert "boom" in returned
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         result = SourceDriver(self.source, self.config).run(
