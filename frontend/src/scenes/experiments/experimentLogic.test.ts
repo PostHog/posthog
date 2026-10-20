@@ -2671,6 +2671,28 @@ describe('experimentLogic', () => {
             expect(checkedEvents).toHaveLength(1)
         })
 
+        it('sends no health request for an experiment the server cannot find', async () => {
+            const healthRequest = jest.fn(() => [200, { findings: [] }])
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id': () => [404, { detail: 'Not found.' }],
+                    [healthUrl]: healthRequest,
+                },
+            })
+            const keyedLogic = mountKeyedLogic()
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+
+            await expectLogic(keyedLogic, () => {
+                keyedLogic.actions.loadExperiment()
+            })
+                .toDispatchActions(['setExperimentMissing', 'loadExperimentSuccess', 'loadExperimentHealthSuccess'])
+                .toMatchValues({ experimentHealth: null })
+
+            expect(healthRequest).not.toHaveBeenCalled()
+            const checkedEvents = captureSpy.mock.calls.filter(([event]) => event === 'experiment health checked')
+            expect(checkedEvents).toHaveLength(0)
+        })
+
         it('shows a reader with the flag neither warnings nor findings until the health answers', async () => {
             setHealthFindingsFlag(true)
             let release: () => void = () => {}
