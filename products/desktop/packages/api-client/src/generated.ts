@@ -10979,6 +10979,7 @@ export namespace Schemas {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -11668,6 +11669,7 @@ export namespace Schemas {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -12049,6 +12051,7 @@ export namespace Schemas {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -12376,6 +12379,7 @@ export namespace Schemas {
         | "Attio"
         | "SnapchatAds"
         | "Linear"
+        | "LiteLLM"
         | "Intercom"
         | "Amplitude"
         | "Mixpanel"
@@ -13065,6 +13069,7 @@ export namespace Schemas {
         | "LambdaLabs"
         | "LangSmith"
         | "Linode"
+        | "Listmonk"
         | "LlamaCloud"
         | "Mem0"
         | "Metriport"
@@ -13446,6 +13451,7 @@ export namespace Schemas {
         | "LoopReturns"
         | "Mastodon"
         | "Meetup"
+        | "Megaphone"
         | "Memberful"
         | "MercadoPago"
         | "Meteostat"
@@ -13781,6 +13787,7 @@ export namespace Schemas {
          * * `Attio` - Attio
          * * `SnapchatAds` - SnapchatAds
          * * `Linear` - Linear
+         * * `LiteLLM` - LiteLLM
          * * `Intercom` - Intercom
          * * `Amplitude` - Amplitude
          * * `Mixpanel` - Mixpanel
@@ -14470,6 +14477,7 @@ export namespace Schemas {
          * * `LambdaLabs` - LambdaLabs
          * * `LangSmith` - LangSmith
          * * `Linode` - Linode
+         * * `Listmonk` - Listmonk
          * * `LlamaCloud` - LlamaCloud
          * * `Mem0` - Mem0
          * * `Metriport` - Metriport
@@ -14851,6 +14859,7 @@ export namespace Schemas {
          * * `LoopReturns` - LoopReturns
          * * `Mastodon` - Mastodon
          * * `Meetup` - Meetup
+         * * `Megaphone` - Megaphone
          * * `Memberful` - Memberful
          * * `MercadoPago` - MercadoPago
          * * `Meteostat` - Meteostat

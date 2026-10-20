@@ -245,7 +245,8 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04)
-        runs-on: depot-ubuntu-24.04
+        # Master runs mypy cold after a dependency change, which needs more than 8 GB.
+        runs-on: ${{ github.event_name == 'pull_request' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:

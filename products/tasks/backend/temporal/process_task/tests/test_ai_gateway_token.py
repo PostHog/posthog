@@ -18,11 +18,16 @@ from posthog.constants import AvailableFeature
 from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Organization, Team, User
 from posthog.security.outbound_proxy import internal_requests
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
-from products.tasks.backend.exceptions import GatewayTokenUnavailableError, ProcessTaskTransientError
+from products.tasks.backend.exceptions import (
+    GatewayTokenUnavailableError,
+    ProcessTaskFatalError,
+    ProcessTaskTransientError,
+)
 from products.tasks.backend.facade.billing import get_task_run_cost
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.logic.services.desktop_gateway_token import valid_caps
@@ -537,7 +542,7 @@ class TestMintableGate:
         # Resolves to posthog_code, which is unrouted here.
         with (
             patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint,
-            pytest.raises(GatewayTokenUnavailableError),
+            pytest.raises(ProcessTaskFatalError, match="isn't configured"),
         ):
             ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=False)
         mint.assert_not_called()
@@ -1488,7 +1493,7 @@ def test_account_audit_cost_routing_requires_server_provenance(
             env = ai_gateway_env_vars(
                 team_id=123, origin_product=origin, internal=internal, model="claude-sonnet-5", runtime="acp"
             )
-        except GatewayTokenUnavailableError:
+        except ProcessTaskFatalError:
             refused, env = True, {}
     assert refused is resolves_to_posthog_code
     assert ("AI_GATEWAY_TOKEN" in env) is mints
@@ -1666,7 +1671,7 @@ class TestPosthogCodeSandboxMint:
                 "signals_scout",
                 None,
                 "phe_abc",
-                GatewayTokenUnavailableError,
+                ProcessTaskFatalError,
                 "isn't configured",
                 "not_configured",
             ),
@@ -1699,6 +1704,8 @@ class TestPosthogCodeSandboxMint:
             pytest.raises(error_type) as raised,
         ):
             ai_gateway_env_vars(team_id=team.id, origin_product="user_created", model=model)
+        assert is_expected_activity_failure(raised.value) is (error_type is GatewayTokenUnavailableError)
+        assert raised.value.non_retryable is (error_type is not ProcessTaskTransientError)
         assert message in str(raised.value)
         assert "Retrying" not in str(raised.value)
         client.metrics.count.assert_called_once_with(
@@ -1716,11 +1723,13 @@ class TestPosthogCodeSandboxMint:
         with (
             patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint,
             patch.object(utils, "logger") as log,
-            pytest.raises(GatewayTokenUnavailableError, match="isn't configured"),
+            pytest.raises(ProcessTaskFatalError, match="isn't configured") as raised,
         ):
             ai_gateway_env_vars(team_id=team.id, origin_product="user_created", model="claude-opus-5")
         mint.assert_not_called()
         log.error.assert_called_once()
+        assert is_expected_activity_failure(raised.value) is False
+        assert raised.value.non_retryable is True
 
     def test_a_routing_crash_fails_a_posthog_code_run_and_degrades_other_products(self, mint_settings):
         ctx = MagicMock(

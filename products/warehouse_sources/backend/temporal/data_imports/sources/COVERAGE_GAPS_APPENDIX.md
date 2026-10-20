@@ -1937,9 +1937,9 @@ Diffed against: <https://docs.bugherd.com/api/openapi.yaml>
 - [x] `GET /api_v2/projects/{project_id}/columns.json` — lookup resolving the board column/status a task sits in (high)
 - [x] `GET /api_v2/projects/{project_id}/tasks/archive.json` — archived (closed-out) tasks live behind a separate endpoint, so completed work is entirely missing from the tasks table (high)
 - [x] `GET /api_v2/projects/{project_id}/tasks/feedback.json` — the unsorted feedback inbox — tasks not yet promoted to the board (medium)
-- [ ] `GET /api_v2/projects/{project_id}/tasks/{task_id}/attachments.json` — screenshots and files attached to a task, joinable to tasks (medium)
-- [ ] `GET /api_v2/users/{user_id}/projects.json` — membership join between users and projects; neither existing table carries the relationship (medium)
-- [ ] `GET /api_v2/users/members.json and GET /api_v2/users/guests.json` — splits the flat users list into members vs guests, which is how BugHerd seats are licensed (medium)
+- [x] `GET /api_v2/projects/{project_id}/tasks/{task_id}/attachments.json` — screenshots and files attached to a task, joinable to tasks (medium)
+- [x] `GET /api_v2/users/{user_id}/projects.json` — membership join between users and projects; neither existing table carries the relationship (medium)
+- [x] `GET /api_v2/users/members.json and GET /api_v2/users/guests.json` — splits the flat users list into members vs guests, which is how BugHerd seats are licensed (medium)
 - [ ] `GET /api_v2/projects/active.json` — distinguishes active from archived projects without inspecting each project (low)
 
 Note: docs.bugherd.com/api is a Scalar shell; the real spec is at /api/openapi.yaml (70KB, 27 paths). Note that the connector's Tasks stream hits /api_v2/projects/{id}/tasks.json, which is a separate endpoint from the archived and feedback task lists — archived tasks are therefore not synced at all, not merely filtered.
@@ -2021,11 +2021,11 @@ Diffed against: <https://buildkite.com/docs/llms.txt>
 - [x] `organizations/{org}/teams/{team}/pipelines` — membership table joining teams to pipelines, needed to attribute build cost per team (high)
 - [x] `organizations/{org}/members` — lookup resolving the user IDs that appear as build creators and job agents (high)
 - [x] `organizations/{org}/clusters/{cluster}/queues` — lookup resolving the queue an agent or job ran on — required for agent capacity and cost analysis (medium)
-- [ ] `organizations/{org}/clusters` — lookup resolving cluster IDs carried on agents and queues (medium)
-- [ ] `organizations/{org}/pipelines/{pipeline}/builds/{number}/artifacts` — artifact inventory and sizes per build, useful for storage and output tracking (medium)
-- [ ] `organizations/{org}/teams/{team}/members` — membership table joining users to teams (medium)
+- [x] `organizations/{org}/clusters` — lookup resolving cluster IDs carried on agents and queues (medium)
+- [x] `organizations/{org}/pipelines/{pipeline}/builds/{number}/artifacts` — artifact inventory and sizes per build, useful for storage and output tracking (medium)
+- [x] `organizations/{org}/teams/{team}/members` — membership table joining users to teams (medium)
 - [x] `organizations/{org}/pipelines/{pipeline}/schedules` — explains which builds are scheduled vs triggered — a common breakdown dimension on build volume (medium)
-- [ ] `organizations/{org}/pipelines/{pipeline}/builds/{number}/annotations` — build annotations carry test summaries and custom CI reporting output (low)
+- [x] `organizations/{org}/pipelines/{pipeline}/builds/{number}/annotations` — build annotations carry test summaries and custom CI reporting output (low)
 
 Note: Buildkite publishes a complete machine-readable docs index at /docs/llms.txt with one line per REST resource; every endpoint below is named there.
 
@@ -2127,10 +2127,10 @@ Diffed against: <https://stoplight.io/api/v1/projects/cHJqOjY4NTM/table-of-conte
 - [x] `List Routing Form Submissions (/routing_form_submissions)` — submissions for the routing_forms we already sync, including questions/answers, tracking, and which event type they routed to (high)
 - [x] `List Contacts (/contacts)` — the person lookup table Calendly resolves invitee emails against (high)
 - [x] `List Event Type Hosts (/event_type_memberships)` — membership table joining the event_types we sync to their hosting users (high)
-- [ ] `List Group Relationships (/group_relationships)` — lookup joining the groups we already sync to users and event types (medium)
-- [ ] `List activity log entries (/activity_log_entries)` — state/transition history for org and user changes; the audit trail for who changed what (medium)
-- [ ] `List Recaps and Get Transcript (Notetaker)` — meeting recaps and transcripts tied to scheduled events, for content analysis of calls (medium)
-- [ ] `List outgoing communications (/outgoing_communications)` — SMS and email sent per event — reminder/notification delivery data (medium)
+- [x] `List Group Relationships (/group_relationships)` — lookup joining the groups we already sync to users and event types (medium)
+- [x] `List activity log entries (/activity_log_entries)` — state/transition history for org and user changes; the audit trail for who changed what (medium)
+- [x] `List Recaps and Get Transcript (Notetaker)` — meeting recaps and transcripts tied to scheduled events, for content analysis of calls (medium)
+- [x] `List outgoing communications (/outgoing_communications)` — SMS and email sent per event — reminder/notification delivery data (medium)
 - [ ] `List User Availability Schedules (/user_availability_schedules)` — availability rules per user, needed to compute utilization against bookable hours (medium)
 - [ ] `Get Invitee No Show (/invitee_no_shows)` — no-show records; a headline meeting-quality metric (also surfaced on the invitee object) (medium)
 - [ ] `List Organization Invitations (/organizations/{uuid}/invitations)` — seat onboarding funnel — who was invited, when, and whether they accepted (low)
@@ -7170,9 +7170,9 @@ Diffed against: <https://app.launchdarkly.com/api/v2/openapi.json>
 - [x] `GET /api/v2/segments/{projectKey}/{environmentKey}` — segments referenced by the flag targeting rules already synced - without them rule targets are unresolvable ids (high)
 - [x] `GET /api/v2/flag-statuses/{projectKey}/{environmentKey}` — per-flag status and last-requested timestamp, the basis for stale-flag and adoption reporting (high)
 - [x] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/holdouts` — holdout groups tied to experiment measurement (medium)
-- [ ] `GET /api/v2/projects/{projectKey}/metric-groups` — lookup grouping the metrics already synced, and what experiments actually attach to (medium)
-- [ ] `GET /api/v2/teams (+ /teams/{teamKey}/maintainers, /teams/{teamKey}/roles)` — team membership and maintainer mapping for the members table already synced (medium)
-- [ ] `GET /api/v2/code-refs/statistics/{projectKey} and /api/v2/code-refs/repositories` — flag code-reference counts per repo - how you prove a flag is safe to remove (medium)
+- [x] `GET /api/v2/projects/{projectKey}/metric-groups` — lookup grouping the metrics already synced, and what experiments actually attach to (medium)
+- [x] `GET /api/v2/teams (+ /teams/{teamKey}/maintainers, /teams/{teamKey}/roles)` — team membership and maintainer mapping for the members table already synced (medium)
+- [x] `GET /api/v2/code-refs/statistics/{projectKey} and /api/v2/code-refs/repositories` — flag code-reference counts per repo - how you prove a flag is safe to remove (medium)
 - [ ] `GET /api/v2/engineering-insights/flag-events` — flag change event stream, a real transition history to complement the audit log (medium)
 - [ ] `GET /api/v2/engineering-insights/deployments` — deployment records used for lead-time and release-frequency analysis (medium)
 - [ ] `GET /api/v2/approval-requests` — approval request lifecycle for flag changes - governance and change-velocity reporting (medium)
@@ -8388,7 +8388,7 @@ Today (4): `archive`, `crypto`, `latest`, `sources`
 
 Diffed against: <https://newsdata.io/llms.txt>
 
-- [ ] `/api/1/market` — stock-market and financial news with ticker-symbol filtering - a distinct corpus from latest/crypto and the obvious peer of the crypto table already synced (high)
+- [x] `/api/1/market` — stock-market and financial news with ticker-symbol filtering - a distinct corpus from latest/crypto and the obvious peer of the crypto table already synced (high)
 - [ ] `/api/1/count` — pre-aggregated article counts per hour/day for a query, useful for coverage/share-of-voice trends without paging every article (low)
 - [ ] `/api/1/crypto/count` — same aggregation over the crypto corpus already synced (low)
 - [ ] `/api/1/market/count` — same aggregation over the market corpus (low)

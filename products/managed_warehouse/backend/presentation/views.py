@@ -657,8 +657,8 @@ def update_team(
 
 
 def push_team_earliest_event_date(organization_id: UUID | str, team_id: int, earliest: date | None) -> bool:
-    """Persist a team's resolved earliest event date (incl. the no-history sentinel) onto
-    its duckgres team row — the read source for the backfill sensors.
+    """Persist a team's resolved earliest event date onto its duckgres team row — the
+    read source for the backfill sensors.
 
     A failure is logged and swallowed; returns True when the control plane accepted the
     value, so callers (the provisioning-time task, the full-backfill sensor) can leave

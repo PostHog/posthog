@@ -19276,6 +19276,16 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `summarize_recording` - Summarize recording
+     */
+    export type BuiltInScanKeyEnum = typeof BuiltInScanKeyEnum[keyof typeof BuiltInScanKeyEnum];
+
+
+    export const BuiltInScanKeyEnum = {
+      SummarizeRecording: 'summarize_recording',
+    } as const;
+
     export interface BulkOptOutEntry {
       /**
          * The recipient identifier to opt out (e.g. email address).
@@ -26527,12 +26537,16 @@ export namespace Schemas {
      * A question asked inline, without saving a scanner first.
      */
     export interface InlineScanConfig {
+      /** Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.
+       *
+       * * `summarize_recording` - Summarize recording */
+      built_in?: BuiltInScanKeyEnum;
       /**
-         * What to look for in these sessions, in plain language. The same instruction a saved scanner carries.
+         * What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.
          * @maxLength 20000
          */
-      prompt: string;
-      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.
+      prompt?: string;
+      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.
        *
        * * `monitor` - Monitor
        * * `classifier` - Classifier
@@ -31218,6 +31232,7 @@ export namespace Schemas {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -31907,6 +31922,7 @@ export namespace Schemas {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -32288,6 +32304,7 @@ export namespace Schemas {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -32618,6 +32635,7 @@ export namespace Schemas {
       Attio: 'Attio',
       SnapchatAds: 'SnapchatAds',
       Linear: 'Linear',
+      LiteLLM: 'LiteLLM',
       Intercom: 'Intercom',
       Amplitude: 'Amplitude',
       Mixpanel: 'Mixpanel',
@@ -33307,6 +33325,7 @@ export namespace Schemas {
       LambdaLabs: 'LambdaLabs',
       LangSmith: 'LangSmith',
       Linode: 'Linode',
+      Listmonk: 'Listmonk',
       LlamaCloud: 'LlamaCloud',
       Mem0: 'Mem0',
       Metriport: 'Metriport',
@@ -33688,6 +33707,7 @@ export namespace Schemas {
       LoopReturns: 'LoopReturns',
       Mastodon: 'Mastodon',
       Meetup: 'Meetup',
+      Megaphone: 'Megaphone',
       Memberful: 'Memberful',
       MercadoPago: 'MercadoPago',
       Meteostat: 'Meteostat',
@@ -34032,6 +34052,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -34721,6 +34742,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -35102,6 +35124,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -36735,6 +36758,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -37424,6 +37448,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -37805,6 +37830,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -38489,13 +38515,15 @@ export namespace Schemas {
          */
       goal: string;
       /**
-         * Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
+         * Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.
          * @minimum 1
          * @maximum 100000000
          */
       monthly_credit_budget?: number;
+      /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
+      free_only?: boolean;
       /**
-         * Goal-based flow only: a launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`.
+         * A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.
          * @minimum 1
          * @maximum 2147483647
          */
@@ -38538,30 +38566,32 @@ export namespace Schemas {
       rationale: string;
       /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
       query: unknown;
-      /** Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the legacy flow, and null when the costing estimate failed — the wizard keeps its defaults.
+      /** The quality pre-filter the draft chose for the goal. Null when the costing estimate failed, in which case the wizard keeps its defaults.
        *
        * * `focused` - Focused
        * * `balanced` - Balanced
        * * `comprehensive` - Comprehensive */
       sampling_mode: SamplingModeEnum | null;
       /**
-         * Goal-based flow only: the random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+         * The random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
          * @nullable
          */
       sampling_rate: number | null;
-      /** Goal-based flow only: the observation model the draft chose for the goal, by how much judgment it needs. Null on the legacy flow, where the wizard keeps its default model.
+      /** The observation model the draft chose for the goal, by how much judgment it needs.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model: ScannerModelEnum | null;
       /**
-         * Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.
+         * The monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null for a free-only draft.
          * @nullable
          */
       credit_limit: number | null;
+      /** Whether the draft runs only on the organization's free monthly credits. Pass it on to create. */
+      free_only: boolean;
       /**
-         * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+         * Recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
          * @nullable
          */
       estimated_monthly_observations: number | null;
@@ -48875,6 +48905,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -49564,6 +49595,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -49945,6 +49977,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -50309,6 +50342,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -50998,6 +51032,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -51379,6 +51414,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -53007,6 +53043,22 @@ export namespace Schemas {
       upvotes: string | null;
       created_at: string | null;
     }
+
+    /**
+     * * `not_a_real_problem` - Not a real problem
+     * * `already_known` - Already known
+     * * `not_my_area` - Not my area
+     * * `other` - Other
+     */
+    export type FeedDismissalReasonEnum = typeof FeedDismissalReasonEnum[keyof typeof FeedDismissalReasonEnum];
+
+
+    export const FeedDismissalReasonEnum = {
+      NotARealProblem: 'not_a_real_problem',
+      AlreadyKnown: 'already_known',
+      NotMyArea: 'not_my_area',
+      Other: 'other',
+    } as const;
 
     /**
      * Structured element metadata (inferred selectors, attributes, component hints).
@@ -54946,6 +54998,48 @@ export namespace Schemas {
          * @nullable
          */
       math_property?: string | null;
+    }
+
+    /**
+     * * `single` - Single
+     * * `by_result_labels` - By result labels
+     */
+    export type GroupingModeEnum = typeof GroupingModeEnum[keyof typeof GroupingModeEnum];
+
+
+    export const GroupingModeEnum = {
+      Single: 'single',
+      ByResultLabels: 'by_result_labels',
+    } as const;
+
+    /**
+     * * `degrade_visible` - Degrade visible
+     */
+    export type OnOverflowEnum = typeof OnOverflowEnum[keyof typeof OnOverflowEnum];
+
+
+    export const OnOverflowEnum = {
+      DegradeVisible: 'degrade_visible',
+    } as const;
+
+    export interface Grouping {
+      /** single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.
+       *
+       * * `single` - Single
+       * * `by_result_labels` - By result labels */
+      mode: GroupingModeEnum;
+      /** Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message. */
+      keys?: string[];
+      /**
+         * Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.
+         * @minimum 1
+         * @maximum 100
+         */
+      max_instances?: number;
+      /** What happens to groups past max_instances. degrade_visible names how many were left out.
+       *
+       * * `degrade_visible` - Degrade visible */
+      on_overflow?: OnOverflowEnum;
     }
 
     export interface HandsFreeToken {
@@ -61167,15 +61261,19 @@ export namespace Schemas {
     }
 
     /**
-     * Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at.
+     * Body of POST /vision/scanners/inline_scan/ - a prompt or built-in scan plus the sessions to point it at.
      */
     export interface InlineScanRequest {
+      /** Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.
+       *
+       * * `summarize_recording` - Summarize recording */
+      built_in?: BuiltInScanKeyEnum;
       /**
-         * What to look for in these sessions, in plain language. The same instruction a saved scanner carries.
+         * What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.
          * @maxLength 20000
          */
-      prompt: string;
-      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.
+      prompt?: string;
+      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.
        *
        * * `monitor` - Monitor
        * * `classifier` - Classifier
@@ -65245,6 +65343,94 @@ export namespace Schemas {
       StoredPatterns: 'stored_patterns',
       BodyMining: 'body_mining',
     } as const;
+
+    export type ThresholdOperator = typeof ThresholdOperator[keyof typeof ThresholdOperator];
+
+
+    export const ThresholdOperator = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export type WindowMinutesEnum = typeof WindowMinutesEnum[keyof typeof WindowMinutesEnum];
+
+
+    export const WindowMinutesEnum = {
+      Number5: 5,
+      Number10: 10,
+      Number15: 15,
+      Number30: 30,
+      Number60: 60,
+    } as const;
+
+    export interface LogsPlatformAlertCondition {
+      /**
+         * Number of matching log entries in the window that breaches the threshold. Use 0 with the above operator to fire on any matching log.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      threshold_count: number;
+      /** Whether the alert fires when the count is above or below the threshold. */
+      threshold_operator: ThresholdOperator;
+      /** Time window in minutes over which logs are counted. */
+      window_minutes: WindowMinutesEnum;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type LogsPlatformAlertConfigurationEditSourceKind = typeof LogsPlatformAlertConfigurationEditSourceKind[keyof typeof LogsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const LogsPlatformAlertConfigurationEditSourceKind = {
+      Logs: 'logs',
+    } as const;
+
+    export interface LogsPlatformAlertSourceConfig {
+      /** The logs the alert counts: severityLevels, serviceNames, or a filterGroup of property filters. An enabled alert needs at least one. */
+      filters: LogsAlertFilters;
+      /** The bound the count is checked against. */
+      condition: LogsPlatformAlertCondition;
+    }
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface LogsPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: LogsPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a logs alert. The bound the alert is evaluated against is under condition. */
+      source_config: LogsPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+    }
 
     export interface LogsRetentionRule {
       /** Unique identifier for this retention rule. */
@@ -69494,6 +69680,19 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
+    /**
+     * Why the calling user marked an observation not useful in What to watch.
+     */
+    export interface ObservationFeedDismissal {
+      /** Optional reason the observation was not useful. Omit or send null when the user gave none.
+       *
+       * * `not_a_real_problem` - Not a real problem
+       * * `already_known` - Already known
+       * * `not_my_area` - Not my area
+       * * `other` - Other */
+      reason?: FeedDismissalReasonEnum | null;
+    }
+
     export interface ObservationLabelDayCount {
       /** Day (UTC) the observed sessions were scanned. */
       date: string;
@@ -73155,6 +73354,32 @@ export namespace Schemas {
       Insight: 'insight',
     } as const;
 
+    /**
+     * * `ok` - OK
+     * * `errored` - Errored
+     * * `broken` - Broken
+     */
+    export type PlatformAlertCheckStatusEnum = typeof PlatformAlertCheckStatusEnum[keyof typeof PlatformAlertCheckStatusEnum];
+
+
+    export const PlatformAlertCheckStatusEnum = {
+      Ok: 'ok',
+      Errored: 'errored',
+      Broken: 'broken',
+    } as const;
+
+    /**
+     * * `source` - Source
+     * * `platform` - Platform
+     */
+    export type PlatformAlertOwnerEnum = typeof PlatformAlertOwnerEnum[keyof typeof PlatformAlertOwnerEnum];
+
+
+    export const PlatformAlertOwnerEnum = {
+      Source: 'source',
+      Platform: 'platform',
+    } as const;
+
     export interface PlatformAlert {
       /** Unique identifier of this alert instance. */
       readonly id: string;
@@ -73237,6 +73462,24 @@ export namespace Schemas {
          * @nullable
          */
       readonly legacy_configuration_id: string | null;
+      /** How the alert splits its results into instances. */
+      readonly grouping: Grouping;
+      /**
+         * Time until which every instance's notifications are muted. Null when not muted. An instance's own snooze_until mutes one group, and the later of the two holds.
+         * @nullable
+         */
+      readonly snooze_until: string | null;
+      /** Whether the alert's checks succeed. Holds for every instance, because a failed check names no group.
+       *
+       * * `ok` - OK
+       * * `errored` - Errored
+       * * `broken` - Broken */
+      readonly check_status: PlatformAlertCheckStatusEnum;
+      /** Which stack evaluates and delivers the alert. Only an alert the platform owns can be edited here. The source product's own API edits the rest.
+       *
+       * * `source` - Source
+       * * `platform` - Platform */
+      readonly owner: PlatformAlertOwnerEnum;
       /** When the configuration was created. */
       readonly created_at: string;
       /** When the configuration was last changed. */
@@ -83730,6 +83973,55 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedLogsPlatformAlertConfigurationEditSourceKind = typeof PatchedLogsPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedLogsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedLogsPlatformAlertConfigurationEditSourceKind = {
+      Logs: 'logs',
+    } as const;
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedLogsPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedLogsPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a logs alert. The bound the alert is evaluated against is under condition. */
+      source_config?: LogsPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
     export interface PatchedLogsRetentionRule {
       /** Unique identifier for this retention rule. */
       readonly id?: string;
@@ -84421,6 +84713,8 @@ export namespace Schemas {
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
+
+    export type PatchedPlatformAlertConfigurationEdit = PatchedLogsPlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -89329,6 +89623,8 @@ export namespace Schemas {
       labels: unknown[];
       created_at: string | null;
     }
+
+    export type PlatformAlertConfigurationEdit = LogsPlatformAlertConfigurationEdit;
 
     /**
      * * `running` - Running
@@ -104641,6 +104937,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -105330,6 +105627,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -105711,6 +106009,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -106106,6 +106405,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -106795,6 +107095,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -107176,6 +107477,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -107538,6 +107840,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -108227,6 +108530,7 @@ export namespace Schemas {
        * * `LambdaLabs` - LambdaLabs
        * * `LangSmith` - LangSmith
        * * `Linode` - Linode
+       * * `Listmonk` - Listmonk
        * * `LlamaCloud` - LlamaCloud
        * * `Mem0` - Mem0
        * * `Metriport` - Metriport
@@ -108608,6 +108912,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -122565,12 +122870,32 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Return only these kinds of change. Omit to return every kind. Use `feature_flag` and `experiment` to see configuration edits without releases and annotations.
+     */
+    kinds?: ChangeFeedListKindsItem[];
+    /**
      * Maximum number of changes to return, newest first. Defaults to 100, at most 500.
      * @minimum 1
      * @maximum 500
      */
     limit?: number;
     };
+
+    /**
+     * * `feature_flag` - Feature flag
+     * * `experiment` - Experiment
+     * * `release` - Release
+     * * `annotation` - Annotation
+     */
+    export type ChangeFeedListKindsItem = typeof ChangeFeedListKindsItem[keyof typeof ChangeFeedListKindsItem];
+
+
+    export const ChangeFeedListKindsItem = {
+      FeatureFlag: 'feature_flag',
+      Experiment: 'experiment',
+      Release: 'release',
+      Annotation: 'annotation',
+    } as const;
 
     export type ChangeRequestsListParams = {
     action_key?: string;
