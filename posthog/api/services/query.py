@@ -484,7 +484,7 @@ def native_events_cluster_modifiers_for_user(
     is_query_service: bool,
     execution_mode: ExecutionMode,
 ) -> HogQLQueryModifiers | None:
-    # The flag covers app queries only. Personal API key traffic keeps its usual cluster.
+    # Personal API key traffic keeps its usual cluster; session and OAuth clients are covered.
     if is_query_service or not isinstance(user, User):
         return None
     node: object = query
