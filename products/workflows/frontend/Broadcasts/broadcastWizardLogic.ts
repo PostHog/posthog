@@ -1584,10 +1584,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             cache.emailEditPending = true
             // Read before the wait: a Continue in flight moves the step on, but its save may not carry this edit.
-            const editedOnContent = values.currentStep === 'content'
+            // The review step edits the subject and preheader in place, so its edits save the same way.
+            const editedInPlace = values.currentStep === 'content' || values.currentStep === 'review'
             const saves = getSaveQueue(cache, values)
             await saves.whenIdle()
-            if (!editedOnContent || values.broadcast?.status !== 'draft') {
+            if (!editedInPlace || values.broadcast?.status !== 'draft') {
                 clearPending()
                 return
             }
