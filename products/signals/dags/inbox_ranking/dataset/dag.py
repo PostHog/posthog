@@ -14,8 +14,7 @@ Nine assets on one daily partition, each writing Parquet under the configured S3
 
 The first four are report grain and feed one table. inbox_signal_embeddings is signal grain and is
 read on its own, joined to the others by report_id at training time. inbox_report_title_embeddings
-is a report-grain leaf: nothing joins it, and the training side pairs it to inbox_report_embeddings
-by report_id when it measures one rendering against the other. inbox_report_reviewers is a
+is a report-grain leaf: nothing joins it, and no model family trains on it. inbox_report_reviewers is a
 (report, reviewer) leaf with its own schema version: nothing joins it, and the training side pairs
 it to the report tables by report_id. inbox_user_report_interactions is a (report, person) grain
 leaf with its own schema version, so nothing joins it either. inbox_project_vectors is a
@@ -71,6 +70,7 @@ import pyarrow.compute as pc
 
 from posthog import settings
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
 from posthog.dataclasses import frozen
@@ -1049,6 +1049,7 @@ def _snapshot_report_embeddings(
                 },
                 settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
                 workload=etl_workload(),
+                ch_user=ClickHouseUser.SIGNALS,
             )
             or [],
         )
@@ -1192,6 +1193,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
                 },
                 settings=SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
                 workload=etl_workload(),
+                ch_user=ClickHouseUser.SIGNALS,
             )
             or [],
         )

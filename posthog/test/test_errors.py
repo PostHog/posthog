@@ -2,6 +2,8 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import (
+    BAD_GET_FALLBACK_MESSAGE,
+    CHQueryErrorBadGet,
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
@@ -62,6 +64,12 @@ class TestWrapClickhouseQueryError:
                 121,
                 "UNSUPPORTED_JOIN_KEYS",
                 "Unsupported JOIN keys. Check the expressions and types used to join your tables.",
+            ),
+            (
+                124,
+                "INCORRECT_ELEMENT_OF_SET",
+                "An element of an IN set is invalid. Make sure each tuple in the IN list has the same number "
+                "of elements as the left side, and that each element is a constant.",
             ),
             (
                 125,
@@ -149,6 +157,39 @@ class TestWrapClickhouseQueryError:
         wrapped = wrap_clickhouse_query_error(ServerException("private-row-value", code=code))
 
         assert isinstance(wrapped, error_type)
+
+    def test_bad_get_exposes_type_names_without_clickhouse_context(self) -> None:
+        err = ServerException(
+            "DB::Exception: Bad get: has Float64, requested UInt64. "
+            "While processing private-row-value. Stack trace: private-stack-frame",
+            code=170,
+            nested=ServerException("fake-nested-secret", code=1000),
+        )
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, CHQueryErrorBadGet)
+        assert str(wrapped) == (
+            "A value in the query has the wrong type: got Float64, expected UInt64. "
+            "Check function parameters and type conversions."
+        )
+        assert "private" not in wrapped.message
+        assert wrapped.code == 170
+        assert wrapped.code_name == "bad_get"
+        assert wrapped.nested is None
+        assert look_up_clickhouse_error_code_meta(err).get_category() == QueryErrorCategory.USER_ERROR
+
+    def test_bad_get_hides_unrecognized_raw_message(self) -> None:
+        err = ServerException(
+            "DB::Exception: Bad get: has private-row-value, requested UInt64. While processing private-query-context.",
+            code=170,
+        )
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, CHQueryErrorBadGet)
+        assert str(wrapped) == BAD_GET_FALLBACK_MESSAGE
+        assert "private" not in wrapped.message
 
     @parameterized.expand(
         [

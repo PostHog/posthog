@@ -134,7 +134,7 @@ class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
             name=ExternalDataSourceType.UNLEASH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Unleash",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["feature flags", "feature toggles", "getunleash"],
             caption="""Enter your Unleash instance URL and an Admin API token to sync your feature flags, projects, environments, strategies, segments, and other configuration data into the PostHog Data warehouse.
 

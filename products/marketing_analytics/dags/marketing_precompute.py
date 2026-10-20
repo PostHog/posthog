@@ -27,8 +27,9 @@ poisoning and no access-control bypass.
 
 The audience is `MARKETING_PRECOMPUTE_TEAM_IDS`: comma-separated team IDs, empty to disable warming, or
 `auto` to warm every team that has a conversion goal AND has opened marketing analytics recently
-(query_log). Unset, it warms the teams with a conversion goal and the read flag on, on PostHog Cloud
-only. `MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the `auto` activity window.
+(query_log). Unset, it warms the teams whose reads are precompute-only, on PostHog Cloud only: teams
+with a conversion goal and the conversion read flag on, and recently active teams with a warehouse table
+and the cost read flag on. `MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the `auto` activity window.
 """
 
 import os
@@ -203,11 +204,33 @@ def _read_flag_team_ids() -> list[int]:
     )
 
 
+def _costs_flag_team_ids() -> set[int]:
+    """Recently active teams with a warehouse table and the `marketing-analytics-costs-precomputation` flag on.
+
+    Cost reads never write, so the warmer is the only producer of cost rows. The two read flags roll out
+    independently, so a team with only the cost flag on must be in the audience too. Otherwise its cost
+    windows expire and every source falls back to the live union. Like `_read_flag_team_ids`, this records
+    no exposure. When query_log is unavailable this returns no teams, so the conversion audience still warms.
+    """
+    active_days = int(os.getenv(ACTIVE_DAYS_ENV_VAR, str(DEFAULT_ACTIVE_DAYS)))
+    active_team_ids = _recently_active_team_ids(active_days)
+    if not active_team_ids:
+        return set()
+    teams = (
+        Team.objects.filter(pk__in=active_team_ids)
+        .filter(pk__in=DataWarehouseTable.objects.filter(deleted=False).values("team_id"))
+        .select_related("organization")
+    )
+    return {team.pk for team in teams if MarketingAnalyticsConfig.costs_precompute_enabled_without_exposure(team)}
+
+
 def get_selected_team_ids() -> list[int]:
     """Resolve which teams to warm.
 
-    Unset, it warms every team that has a conversion goal and the `marketing-analytics-precomputation`
-    read flag on. Those reads are precompute-only, so a flagged team the warmer skips reads not-ready.
+    Unset, it warms every team whose reads are precompute-only: a team with a conversion goal and the
+    `marketing-analytics-precomputation` read flag on, and a recently active team with a warehouse table and
+    the `marketing-analytics-costs-precomputation` flag on. A flagged team the warmer skips reads not-ready
+    for conversions, and reads costs from the live union.
     Cloud only: self-hosted has no flag rollout to follow. Set, the env var wins (even when empty, as a
     kill switch): a comma-separated list with blank or invalid entries skipped.
 
@@ -217,7 +240,7 @@ def get_selected_team_ids() -> list[int]:
     """
     raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
     if raw is None:
-        return _read_flag_team_ids() if is_cloud() else []
+        return sorted(set(_read_flag_team_ids()) | _costs_flag_team_ids()) if is_cloud() else []
     if raw.strip().lower() != AUTO_AUDIENCE:
         return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
 

@@ -1,7 +1,7 @@
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -18,6 +18,9 @@ class GitGuardianEndpointConfig:
     # Explicit `ordering` param so pagination walks a stable monotonic field; must match the
     # endpoint's SourceResponse sort_mode (asc).
     ordering: Optional[str] = None
+    # "desc" for incremental endpoints with no `ordering` param: the pipeline then promotes the
+    # watermark only when the sync completes, so it never depends on the API's row order.
+    sort_mode: Literal["asc", "desc"] = "asc"
     page_size: int = 100  # GitGuardian caps per_page at 100
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
@@ -161,6 +164,46 @@ GITGUARDIAN_ENDPOINTS: dict[str, GitGuardianEndpointConfig] = {
         primary_keys=["name"],
         required_scope="incidents:read",
         incremental_fields=[],
+    ),
+    # Custom tags: small key/value lookup resolving the custom tag ids applied to incidents. No
+    # timestamps or time filter, so full refresh.
+    "custom_tags": GitGuardianEndpointConfig(
+        name="custom_tags",
+        path="/v1/custom_tags",
+        required_scope="custom_tags:read",
+        incremental_fields=[],
+    ),
+    # Audit logs: immutable, org-wide trail of workspace events. The endpoint accepts a
+    # server-side `date_after` filter but no `ordering` param and documents no default order, so
+    # the response is declared desc. Off by default because the `audit_logs:read` scope is not
+    # granted to every token.
+    "audit_logs": GitGuardianEndpointConfig(
+        name="audit_logs",
+        path="/v1/audit_logs",
+        default_incremental_field="date",
+        partition_key="date",
+        sort_mode="desc",
+        required_scope="audit_logs:read",
+        resumable=True,
+        should_sync_default=False,
+        incremental_fields=_DATE_INCREMENTAL_FIELD,
+    ),
+    # Public secret incidents: secrets leaked on public GitHub, a perimeter separate from the
+    # internal incidents. Same `date_after` + `ordering=date` semantics and mutable triage fields
+    # as `secret_incidents`, hence the same lookback. Off by default because it needs the Public
+    # Monitoring product.
+    "public_secret_incidents": GitGuardianEndpointConfig(
+        name="public_secret_incidents",
+        path="/v1/public-incidents/secrets",
+        default_incremental_field="date",
+        partition_key="date",
+        ordering="date",
+        required_scope="incidents:read",
+        incremental_lookback=timedelta(days=7),
+        resumable=True,
+        should_sync_default=False,
+        excluded_fields=frozenset({"share_url"}),
+        incremental_fields=_DATE_INCREMENTAL_FIELD,
     ),
 }
 

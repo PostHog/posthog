@@ -431,9 +431,22 @@ class TestAutoProjectMiddleware(APIBaseTest):
         # indexed lookup on posthog_taggeditem per page load, and the organization it
         # serializes comes off the user's current_organization foreign key, which carries
         # no signed-BAA annotation, so the AI training lock costs one more indexed lookup.
-        cls.base_app_num_queries = 56
+        # +5: the app context also serializes the team's five extension configs, and each
+        # request reads them on its own Team instance, one primary-key lookup each.
+        cls.base_app_num_queries = 61
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
+        # A page load creates any missing config row, which adds an insert per config to its first
+        # count. Create the rows here so that each count covers only the lookups.
+        for team in (cls.team, cls.second_team):
+            for config in (
+                "revenue_analytics_config",
+                "marketing_analytics_config",
+                "customer_analytics_config",
+                "workflows_config",
+                "feature_flag_policy_config",
+            ):
+                getattr(team, config)
 
         # some teams have non-standard API tokens
         cls.third_team = create_team(organization=cls.organization, name="Third Life")

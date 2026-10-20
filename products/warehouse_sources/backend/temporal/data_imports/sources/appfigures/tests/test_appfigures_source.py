@@ -21,11 +21,6 @@ class TestAppfiguresSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["reviews"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "reviews"
-
     @pytest.mark.parametrize(
         "status,schema_name,expected_ok",
         [

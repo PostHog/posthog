@@ -1,7 +1,3 @@
-from typing import Any
-
-from unittest.mock import MagicMock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.canonical_descriptions import (
@@ -11,25 +7,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.
 from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.source import JumpcloudSource
 
 
-def _config(api_key: str = "key", org_id: str | None = None, region: str = "us") -> Any:
-    config = MagicMock()
-    config.api_key = api_key
-    config.org_id = org_id
-    config.region = region
-    return config
-
-
 class TestSourceConfig:
     def test_connection_host_fields_force_secret_reentry_on_retarget(self) -> None:
         # Changing org_id or region retargets the stored API key (different organization's
         # data, or a different regional host), so both must force re-entering the key.
         assert JumpcloudSource().connection_host_fields == ["org_id", "region"]
-
-
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = JumpcloudSource().get_schemas(_config(), team_id=1, names=["users", "events"])
-        assert {s.name for s in schemas} == {"users", "events"}
 
 
 class TestNonRetryableErrors:

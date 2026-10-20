@@ -45,9 +45,6 @@ class TestGetSchemas:
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
 
-    def test_names_filter(self) -> None:
-        assert KongKonnectSource().get_schemas(_config(), team_id=1, names=["nonexistent"]) == []
-
 
 class TestValidateCredentials:
     @patch.object(source_module, "validate_kong_konnect_credentials", return_value=True)

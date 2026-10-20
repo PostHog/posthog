@@ -66,4 +66,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "indexedAt": "Time the AppView last indexed the followed account's profile.",
         },
     },
+    "Likes": {
+        "description": "Likes on each post in the configured account's feed, one row per liking account.",
+        "docs_url": "https://docs.bsky.app/docs/api/app-bsky-feed-get-likes",
+        "columns": {
+            "post_uri": "AT-URI of the liked post.",
+            "actor_did": "Decentralized identifier of the account that liked the post.",
+            "actor": "Profile of the account that liked the post.",
+            "createdAt": "Time the like record was created, as set by the liking account.",
+            "indexedAt": "Time the AppView indexed the like.",
+        },
+    },
+    "Quotes": {
+        "description": "Posts that quote a post in the configured account's feed.",
+        "docs_url": "https://docs.bsky.app/docs/api/app-bsky-feed-get-quotes",
+        "columns": {
+            "quoted_post_uri": "AT-URI of the quoted post from the configured account's feed.",
+            "uri": "The quote post's AT-URI, globally unique across the network.",
+            "cid": "The quote post record's content hash.",
+            "author": "Profile of the quote post's author.",
+            "record": "The raw quote post record, including its text and creation time.",
+            "replyCount": "Number of replies to the quote post.",
+            "repostCount": "Number of reposts of the quote post.",
+            "likeCount": "Number of likes on the quote post.",
+            "quoteCount": "Number of quote posts of the quote post.",
+            "indexedAt": "Time the AppView first indexed the quote post.",
+        },
+    },
 }

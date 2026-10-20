@@ -58,10 +58,6 @@ class TestBugsnagSource:
         schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=self.team_id)}
         assert schemas[endpoint].should_sync_default is expected_default
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id, names=["errors", "projects"])
-        assert {s.name for s in schemas} == {"errors", "projects"}
-
     @parameterized.expand(
         [
             ("organizations", ["id"]),

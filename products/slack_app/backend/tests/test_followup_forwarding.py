@@ -239,7 +239,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
 
         # Mention-dispatch debug pointer persisted on the new run.
         # No explicit envelope event_id → falls back to "<channel>:<ts>".
-        assert task.latest_run.state["slack_mention_workflow_id"] == "posthog-code-mention-T_SLACK:C123:1234.5678"
+        assert (
+            task.latest_run.state["slack_mention_workflow_id"] == "slack-app-mention-processing-T_SLACK:C123:1234.5678"
+        )
 
         mock_execute_workflow.assert_called_once()
         call_kwargs = mock_execute_workflow.call_args.kwargs
@@ -545,7 +547,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
 
         task = self.Task.objects.get(team=self.team)
-        assert task.latest_run.state["slack_mention_workflow_id"] == "posthog-code-mention-T_SLACK:Ev01234567"
+        assert task.latest_run.state["slack_mention_workflow_id"] == "slack-app-mention-processing-T_SLACK:Ev01234567"
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -915,7 +917,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state.get("initial_prompt_override") == "do something"
 
         # Resume path also annotates the new run with the mention-dispatch pointer.
-        assert new_run.state.get("slack_mention_workflow_id") == "posthog-code-mention-T_SLACK:C123:1234.5678"
+        assert new_run.state.get("slack_mention_workflow_id") == "slack-app-mention-processing-T_SLACK:C123:1234.5678"
 
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
@@ -1141,6 +1143,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert mock_signal.call_args.args == (self.task_run.id, self.task.id, self.team.id)
         signal_kwargs = mock_signal.call_args.kwargs
         assert signal_kwargs["content"] == "Bob: please retry the build"
+        # Reply suggestions get the person's own words, without the speaker prefix the agent needs.
+        assert signal_kwargs["person_message"] == "please retry the build"
         assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
         # No "Only the person who started" denial; the message went through.
@@ -1570,14 +1574,14 @@ class TestEventLevelDedupe(SimpleTestCase):
         slack_team_id = "T_SLACK"
         event_id = "Ev123456"
         event_id_or_fallback = event_id
-        wf_id_1 = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
-        wf_id_2 = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
+        wf_id_1 = f"slack-app-mention-processing-{slack_team_id}:{event_id_or_fallback}"
+        wf_id_2 = f"slack-app-mention-processing-{slack_team_id}:{event_id_or_fallback}"
         assert wf_id_1 == wf_id_2
 
     def test_different_event_ids_produce_different_workflow_ids(self):
         slack_team_id = "T_SLACK"
-        wf_id_1 = f"posthog-code-mention-{slack_team_id}:Ev111"
-        wf_id_2 = f"posthog-code-mention-{slack_team_id}:Ev222"
+        wf_id_1 = f"slack-app-mention-processing-{slack_team_id}:Ev111"
+        wf_id_2 = f"slack-app-mention-processing-{slack_team_id}:Ev222"
         assert wf_id_1 != wf_id_2
 
     def test_fallback_uses_channel_and_ts(self):
@@ -1586,8 +1590,8 @@ class TestEventLevelDedupe(SimpleTestCase):
         channel = "C123"
         ts = "1234.5678"
         event_id_or_fallback = event_id if event_id else f"{channel}:{ts}"
-        wf_id = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
-        assert wf_id == "posthog-code-mention-T_SLACK:C123:1234.5678"
+        wf_id = f"slack-app-mention-processing-{slack_team_id}:{event_id_or_fallback}"
+        assert wf_id == "slack-app-mention-processing-T_SLACK:C123:1234.5678"
 
 
 class TestSafeReact(UnitTestCase):

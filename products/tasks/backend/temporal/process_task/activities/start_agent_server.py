@@ -184,13 +184,17 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
     """
     if not ctx.repositories:
         return
-    for repository in ctx.repositories:
+    for index, repository in enumerate(ctx.repositories):
         repo_path = sandbox_repo_path(repository)
-        result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
+        if index == 0:
+            probe = f"test -e {shlex.quote(f'{repo_path}/.git')}"
+        else:
+            probe = f"test -d {shlex.quote(repo_path)}"
+        result = sandbox.execute(probe, timeout_seconds=10)
         if result.exit_code != 0:
             raise SandboxMissingRepositoryError(
-                f"Repository {repository} is not present in the sandbox at {repo_path} — it was never "
-                "cloned (no snapshot restored and no usable GitHub credentials for this task)",
+                f"Repository {repository} has no checkout in the sandbox at {repo_path} (no snapshot "
+                "restored, no usable GitHub credentials, or the clone failed)",
                 {
                     "task_id": ctx.task_id,
                     "run_id": ctx.run_id,
@@ -392,7 +396,6 @@ class _LaunchParams:
     task_run_session_token: str | None = field(repr=False)
     codex_run_token: str | None = field(repr=False)
     event_ingest_url: str | None
-    event_ingest_keep_stream_open: bool
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
@@ -499,7 +502,9 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     task_run_session_token: str | None = None
     if event_stream_ingest_enabled or task.runtime == Task.Runtime.PI:
         try:
-            run_token = create_sandbox_event_ingest_token(task_run, sandbox_id=sandbox_id)
+            run_token = create_sandbox_event_ingest_token(
+                task_run, sandbox_id=sandbox_id, stream_generation=ctx.stream_generation
+            )
         except Exception as e:
             raise SandboxExecutionError(
                 "Failed to create sandbox task run token",
@@ -601,7 +606,6 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_run_session_token=task_run_session_token,
         codex_run_token=codex_run_token,
         event_ingest_url=event_ingest_url,
-        event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
 
 
@@ -639,7 +643,6 @@ def _invoke_start_agent_server(
             event_ingest_token=params.event_ingest_token,
             task_run_session_token=params.task_run_session_token,
             event_ingest_url=params.event_ingest_url,
-            event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,

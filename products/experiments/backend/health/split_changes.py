@@ -40,16 +40,17 @@ class SplitNetEffect:
     change_count: int
 
 
-# Freezing narrows the release conditions to the exposed people, and unfreezing undoes it. Neither changes
-# the split, but both write the whole `filters` value.
-_SKIPPED_JOB_TYPES = frozenset({"experiment_exposure_frozen", "experiment_exposure_unfrozen"})
+# Freezing narrows the release conditions to the exposed people, and unfreezing undoes it. Both write the whole
+# `filters` value, but neither moves an exposed person to another variant, and the experiment's frozen status
+# already reports them.
+EXPOSURE_FREEZE_JOB_TYPES = frozenset({"experiment_exposure_frozen", "experiment_exposure_unfrozen"})
 
 
 def split_change_from_activity(
     *, changed_at: datetime, job_type: object, before_variants: object, after_variants: object
 ) -> SplitChange | None:
     """The split change in one activity log row of the flag, or None when the row does not change the split."""
-    if job_type in _SKIPPED_JOB_TYPES:
+    if job_type in EXPOSURE_FREEZE_JOB_TYPES:
         return None
     before = parse_variants(before_variants)
     after = parse_variants(after_variants)

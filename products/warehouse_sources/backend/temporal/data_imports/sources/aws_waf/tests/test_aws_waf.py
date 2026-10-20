@@ -1,5 +1,6 @@
 import json
 from collections.abc import Generator, Iterable, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -251,16 +252,26 @@ def test_repeated_marker_fails_without_advancing_checkpoint() -> None:
     assert result.final_state == saved
 
 
-@pytest.mark.parametrize("schema", [None, "ip_sets"])
+@pytest.mark.parametrize(
+    "schema,expected_reason",
+    [
+        (None, None),
+        ("ip_sets", "Grant wafv2:ListIPSets and wafv2:GetIPSet for this table."),
+        (
+            "sampled_requests",
+            "Grant wafv2:ListWebACLs, wafv2:GetWebACL and wafv2:GetSampledRequests for this table.",
+        ),
+        ("request_metrics", "Grant cloudwatch:ListMetrics and cloudwatch:GetMetricData for this table."),
+    ],
+)
 @pytest.mark.parametrize("code", ["AccessDenied", "AccessDeniedException", "WAFUnauthorizedOperationException"])
-def test_missing_permissions_at_creation_or_schema_probe(schema: str | None, code: str) -> None:
+def test_missing_permissions_at_creation_or_schema_probe(
+    schema: str | None, expected_reason: str | None, code: str
+) -> None:
     with scripted_network([ScriptedResponse(status=400, json={"__type": f"com.amazonaws.wafv2#{code}"})]) as network:
         valid, reason = validate_credentials(config(), schema)
     assert valid is (schema is None)
-    if schema:
-        assert reason == "Grant wafv2:ListIPSets and wafv2:GetIPSet for this table."
-    else:
-        assert reason is None
+    assert reason == expected_reason
     assert len(network.requests_log) == 1
 
 
@@ -345,11 +356,13 @@ def test_retries_stop_after_five_attempts() -> None:
     assert len(network.requests_log) == 5
 
 
-def test_tracked_transport_redacts_secrets_and_disables_nested_retries() -> None:
+@pytest.mark.parametrize("schema,capture", [(None, True), ("sampled_requests", False)])
+def test_tracked_transport_redacts_secrets_and_disables_nested_retries(schema: str | None, capture: bool) -> None:
     with scripted_network([ScriptedResponse(json={"WebACLs": []})]) as network:
-        assert validate_credentials(config()) == (True, None)
+        assert validate_credentials(config(), schema) == (True, None)
     assert network.session_options[0]["retry"].total == 0
     assert set(network.session_options[0]["redact_values"]) == {"example-secret", "example-token"}
+    assert network.session_options[0]["capture"] is capture
 
 
 def test_service_errors_do_not_become_credential_failures(session: MagicMock) -> None:
@@ -386,3 +399,244 @@ def test_unknown_schema_and_api_version_fail_before_requests() -> None:
     assert "Unknown AWS WAF table" in str(result.raised)
     assert network.requests_log == []
     assert result.requests == []
+
+
+NOW = datetime(2026, 10, 16, 12, 30, tzinfo=UTC)
+
+
+def targets(session: MagicMock) -> list[str]:
+    return [call.kwargs["headers"]["X-Amz-Target"].split(".")[-1] for call in session.post.call_args_list]
+
+
+def payloads(session: MagicMock) -> list[dict[str, Any]]:
+    return [json.loads(call.kwargs["data"]) for call in session.post.call_args_list]
+
+
+def rows_for(table: str, **kwargs: Any) -> list[dict[str, Any]]:
+    with patch(f"{MODULE}.utc_now", return_value=NOW):
+        stream = aws_waf_source(config(**kwargs.pop("overrides", {})), table, manager(), **kwargs)
+        return [row for batch in cast(Iterable[list[dict[str, Any]]], stream.items()) for row in batch]
+
+
+def test_managed_rule_groups_merge_summary_and_description(session: MagicMock) -> None:
+    summary = {"VendorName": "AWS", "Name": "AWSManagedRulesCommonRuleSet", "VersioningSupported": True}
+    session.post.side_effect = [
+        response({"ManagedRuleGroups": [summary]}),
+        response({"VersionName": "Version_1.0", "Capacity": 700, "Rules": [{"Name": "NoUserAgent_HEADER"}]}),
+    ]
+    rows = rows_for("managed_rule_groups")
+    assert targets(session) == ["ListAvailableManagedRuleGroups", "DescribeManagedRuleGroup"]
+    assert payloads(session)[1] == {"Scope": "REGIONAL", "VendorName": "AWS", "Name": "AWSManagedRulesCommonRuleSet"}
+    assert rows == [
+        {
+            "vendor_name": "AWS",
+            "name": "AWSManagedRulesCommonRuleSet",
+            "versioning_supported": True,
+            "version_name": "Version_1.0",
+            "capacity": 700,
+            "rules": [{"Name": "NoUserAgent_HEADER"}],
+            "region": "eu-west-1",
+            "scope": "REGIONAL",
+        }
+    ]
+
+
+@pytest.mark.parametrize("scope", ["REGIONAL", "CLOUDFRONT"])
+def test_protected_resources_cover_every_resource_type(session: MagicMock, scope: str) -> None:
+    web_acl = {"ARN": "arn:aws:wafv2:eu-west-1:123456789012:regional/webacl/main/id", "Id": "id", "Name": "main"}
+    alb_arn = "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/example/1"
+    responses = {
+        "ListWebACLs": response({"WebACLs": [web_acl]}),
+        "APPLICATION_LOAD_BALANCER": response({"ResourceArns": [alb_arn]}),
+        "AGENTCORE_GATEWAY": response({"__type": "WAFInvalidParameterException"}, 400),
+    }
+
+    def post(*args: Any, **kwargs: Any) -> requests.Response:
+        payload = json.loads(kwargs["data"])
+        key = payload.get("ResourceType") or kwargs["headers"]["X-Amz-Target"].split(".")[-1]
+        return responses.get(key, response({"ResourceArns": []}))
+
+    session.post.side_effect = post
+    rows = rows_for("protected_resources", overrides={"scope": scope})
+    if scope == "CLOUDFRONT":
+        assert rows == []
+        session.post.assert_not_called()
+        return
+    assert [payload.get("ResourceType") for payload in payloads(session)[1:]] == [
+        "APPLICATION_LOAD_BALANCER",
+        "API_GATEWAY",
+        "APPSYNC",
+        "COGNITO_USER_POOL",
+        "APP_RUNNER_SERVICE",
+        "VERIFIED_ACCESS_INSTANCE",
+        "AMPLIFY",
+        "AGENTCORE_GATEWAY",
+    ]
+    assert rows == [
+        {
+            "web_acl_arn": web_acl["ARN"],
+            "web_acl_id": "id",
+            "web_acl_name": "main",
+            "resource_type": "APPLICATION_LOAD_BALANCER",
+            "resource_arn": alb_arn,
+            "region": "eu-west-1",
+            "scope": "REGIONAL",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "last_value,expected_start",
+    [
+        (None, NOW - timedelta(hours=3)),
+        (NOW - timedelta(hours=5), NOW - timedelta(hours=3)),
+        ((NOW - timedelta(minutes=20)).isoformat(), NOW - timedelta(minutes=20)),
+    ],
+)
+def test_sampled_requests_window_rules_and_header_redaction(
+    session: MagicMock, last_value: Any, expected_start: datetime
+) -> None:
+    web_acl = {
+        "ARN": "arn:aws:wafv2:eu-west-1:123456789012:regional/webacl/main/id",
+        "Id": "id",
+        "Name": "main",
+        "Rules": [
+            {"Name": "sampled", "VisibilityConfig": {"MetricName": "sampled-rule", "SampledRequestsEnabled": True}},
+            {"Name": "unsampled", "VisibilityConfig": {"MetricName": "quiet-rule", "SampledRequestsEnabled": False}},
+        ],
+    }
+    sample = {
+        "Request": {
+            "ClientIP": "192.0.2.10",
+            "Country": "DE",
+            "URI": "/login",
+            "Method": "POST",
+            "HTTPVersion": "HTTP/2.0",
+            "Headers": [{"Name": "Cookie", "Value": "session=fake"}, {"Name": "User-Agent", "Value": "curl"}],
+        },
+        "Weight": 2,
+        "Timestamp": (NOW - timedelta(minutes=5)).timestamp(),
+        "Action": "BLOCK",
+    }
+    session.post.side_effect = [
+        response({"WebACLs": [{"Id": "id", "Name": "main", "ARN": web_acl["ARN"]}]}),
+        response({"WebACL": web_acl}),
+        response(
+            {
+                "SampledRequests": [sample],
+                "PopulationSize": 40,
+                "TimeWindow": {
+                    "StartTime": expected_start.timestamp(),
+                    "EndTime": (NOW - timedelta(minutes=2)).timestamp(),
+                },
+            }
+        ),
+        response({"SampledRequests": [], "TimeWindow": {"EndTime": NOW.timestamp()}}),
+    ]
+    rows = rows_for("sampled_requests", incremental_last_value=last_value)
+    assert targets(session) == ["ListWebACLs", "GetWebACL", "GetSampledRequests", "GetSampledRequests"]
+    assert payloads(session)[3]["TimeWindow"] == {
+        "StartTime": (NOW - timedelta(minutes=2)).timestamp(),
+        "EndTime": NOW.timestamp(),
+    }
+    assert payloads(session)[2] == {
+        "WebAclArn": web_acl["ARN"],
+        "RuleMetricName": "sampled-rule",
+        "Scope": "REGIONAL",
+        "TimeWindow": {"StartTime": expected_start.timestamp(), "EndTime": NOW.timestamp()},
+        "MaxItems": 500,
+    }
+    [row] = rows
+    assert row["headers"] == [{"Name": "Cookie", "Value": "[REDACTED]"}, {"Name": "User-Agent", "Value": "curl"}]
+    assert "session=fake" not in json.dumps(row, default=str)
+    assert {key: row[key] for key in ("client_ip", "uri", "http_version", "action", "weight", "population_size")} == {
+        "client_ip": "192.0.2.10",
+        "uri": "/login",
+        "http_version": "HTTP/2.0",
+        "action": "BLOCK",
+        "weight": 2,
+        "population_size": 40,
+    }
+    assert row["timestamp"] == NOW - timedelta(minutes=5)
+    assert row["rule_metric_name"] == "sampled-rule"
+    assert len(row["id"]) == 64
+
+
+@pytest.mark.parametrize("scope,region_filter", [("REGIONAL", True), ("CLOUDFRONT", False)])
+def test_request_metrics_from_cloudwatch(session: MagicMock, scope: str, region_filter: bool) -> None:
+    regional = {
+        "Namespace": "AWS/WAFV2",
+        "MetricName": "BlockedRequests",
+        "Dimensions": [
+            {"Name": "WebACL", "Value": "main"},
+            {"Name": "Rule", "Value": "ALL"},
+            {"Name": "Region", "Value": "us-east-1"},
+        ],
+    }
+    cloudfront = {
+        "Namespace": "AWS/WAFV2",
+        "MetricName": "AllowedRequests",
+        "Dimensions": [{"Name": "WebACL", "Value": "edge"}, {"Name": "Rule", "Value": "ALL"}],
+    }
+    hour = NOW.replace(minute=0) - timedelta(hours=1)
+    session.post.side_effect = [
+        response({"Metrics": [regional], "NextToken": "metrics-2"}),
+        response({"Metrics": [cloudfront]}),
+        response(
+            {
+                "MetricDataResults": [{"Id": "m0", "Timestamps": [hour.timestamp()], "Values": [5.0]}],
+                "NextToken": "data-2",
+            }
+        ),
+        response(
+            {"MetricDataResults": [{"Id": "m0", "Timestamps": [NOW.replace(minute=0).timestamp()], "Values": [7.0]}]}
+        ),
+    ]
+    rows = rows_for(
+        "request_metrics",
+        overrides={"scope": scope, "aws_region": "us-east-1"},
+        incremental_last_value=hour + timedelta(minutes=10),
+    )
+    calls = session.post.call_args_list
+    assert {call.args[0] for call in calls} == {"https://monitoring.us-east-1.amazonaws.com/"}
+    assert "/us-east-1/monitoring/aws4_request" in calls[0].kwargs["headers"]["Authorization"]
+    assert calls[0].kwargs["headers"]["Content-Type"] == "application/x-amz-json-1.0"
+    assert [call.kwargs["headers"]["X-Amz-Target"] for call in calls] == [
+        "GraniteServiceVersion20100801.ListMetrics",
+        "GraniteServiceVersion20100801.ListMetrics",
+        "GraniteServiceVersion20100801.GetMetricData",
+        "GraniteServiceVersion20100801.GetMetricData",
+    ]
+    sent = payloads(session)
+    assert ("Dimensions" in sent[0]) is region_filter
+    assert sent[1]["NextToken"] == "metrics-2"
+    expected_metric = regional if region_filter else cloudfront
+    assert sent[2]["MetricDataQueries"] == [
+        {"Id": "m0", "MetricStat": {"Metric": expected_metric, "Period": 3600, "Stat": "Sum"}, "ReturnData": True}
+    ]
+    assert sent[2]["StartTime"] == hour.timestamp()
+    assert sent[3]["NextToken"] == "data-2"
+    assert [(row["metric_id"], row["timestamp"], row["value"]) for row in rows] == [
+        (
+            "BlockedRequests|Region=us-east-1|Rule=ALL|WebACL=main"
+            if region_filter
+            else "AllowedRequests|Rule=ALL|WebACL=edge",
+            timestamp,
+            value,
+        )
+        for timestamp, value in [(hour, 5.0), (NOW.replace(minute=0), 7.0)]
+    ]
+
+
+def test_request_metrics_fail_on_a_failed_series(session: MagicMock) -> None:
+    metric = {
+        "Namespace": "AWS/WAFV2",
+        "MetricName": "BlockedRequests",
+        "Dimensions": [{"Name": "Region", "Value": "eu-west-1"}],
+    }
+    session.post.side_effect = [
+        response({"Metrics": [metric]}),
+        response({"MetricDataResults": [{"Id": "m0", "StatusCode": "InternalError", "Timestamps": [], "Values": []}]}),
+    ]
+    with pytest.raises(AwsWafRetryableError, match="InternalError"):
+        rows_for("request_metrics")

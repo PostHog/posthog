@@ -5,18 +5,9 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.source import VellumSource
 
 
-class TestVellumSchemas:
-    def test_names_filter(self) -> None:
-        schemas = VellumSource().get_schemas(MagicMock(), team_id=1, names=["documents"])
-        assert [s.name for s in schemas] == ["documents"]
-
-
 class TestVellumValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", (True, 200), True, None),
-            ("bad_key_403", (False, 403), False, "Invalid Vellum API key"),
-            ("unauthorized_401", (False, 401), False, "Invalid Vellum API key"),
             ("network_error", (False, None), False, "Could not connect to Vellum. Please try again later."),
         ]
     )

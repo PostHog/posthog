@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -20,10 +20,12 @@ from posthog.data_freshness import (
 )
 from posthog.models.team.team import Team
 from posthog.schema_enums import ProductKey
+from posthog.test.fixtures import create_app_metric2
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.feature_flags.backend.data_freshness import DATA_SOURCES as FEATURE_FLAGS_DATA_SOURCES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.logs.backend.data_freshness import DATA_SOURCES as LOGS_DATA_SOURCES
 
 NOW = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
 QUIET_BEFORE = NOW - timedelta(days=7)
@@ -193,3 +195,32 @@ class TestFeatureFlagsFreshness(BaseTest):
         )
         self.assertEqual(results[self.team.id].sources, expected_sources)
         self.assertEqual(results[self.other_team.id].last_data_at, self.other_team_called_at)
+
+
+class TestLogsFreshness(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
+    def test_scheduled_retention_rows_do_not_make_a_project_live(self) -> None:
+        now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+        ingested_at = now - timedelta(days=2)
+        create_app_metric2(
+            team_id=self.team.pk,
+            app_source="logs",
+            timestamp=ingested_at,
+            metric_kind="usage",
+            metric_name="bytes_ingested",
+        )
+        # The consumer dates later retention months ahead, so they arrive in the window after ingestion stops.
+        create_app_metric2(
+            team_id=self.team.pk,
+            app_source="logs",
+            timestamp=now - timedelta(hours=1),
+            metric_kind="usage",
+            metric_name="retention_byte_days",
+        )
+
+        with patch("posthog.data_freshness.discover_data_sources", return_value=tuple(LOGS_DATA_SOURCES)):
+            results = {result.team_id: result for result in _compute([self.team])}
+
+        self.assertEqual(
+            results[self.team.id].sources,
+            [SourceFreshness(data_source=ProductKey.LOGS, last_data_at=ingested_at)],
+        )
