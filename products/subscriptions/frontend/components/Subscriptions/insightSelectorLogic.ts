@@ -45,7 +45,7 @@ export interface insightSelectorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         validSelectedIds: (insightTiles: DashboardTile[], selectedInsightIds: number[]) => number[]
         unavailableSelectedIds: (validSelectedIds: number[], selectedInsightIds: number[]) => number[]
-        insightTiles: (tiles: any) => DashboardTile[]
+        insightTiles: (tiles: DashboardTile[]) => DashboardTile[]
         filteredTiles: (insightTiles: DashboardTile[], searchTerm: string) => DashboardTile[]
         showSearch: (insightTiles: DashboardTile[]) => boolean
     }
