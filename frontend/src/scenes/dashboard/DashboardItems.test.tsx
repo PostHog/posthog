@@ -421,7 +421,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: false,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -459,7 +458,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -512,7 +510,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -569,7 +566,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }

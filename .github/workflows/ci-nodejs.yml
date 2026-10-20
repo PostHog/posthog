@@ -154,6 +154,9 @@ jobs:
                       node_src:
                         - 'nodejs/**/*.ts'
                         - 'nodejs/**/*.js'
+                        # Imported JSON is part of jest's module graph. Left out, a PR that edits
+                        # a .ts file and an imported .json skips the tests that read the JSON.
+                        - 'nodejs/**/*.json'
                         - '!nodejs/**/*.d.ts'
                       # Anything here invalidates jest's view of the module graph, or changes
                       # the native addons every suite links, so no narrowed run can be trusted.
