@@ -25756,7 +25756,7 @@
             "type": "string"
         },
         "ExperimentExposureHealthFindingCode": {
-            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded"],
+            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded", "multiple_variants_share"],
             "type": "string"
         },
         "ExperimentExposureHealthFindingSeverity": {
