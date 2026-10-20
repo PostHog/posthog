@@ -999,15 +999,15 @@
         "chromium": 5.615,
         "webkit": 1.491
     },
-    "frontend/src/scenes/insights/stories/MCPMissingCapability.stories.tsx": {
+    "products/product_analytics/frontend/insights/insightScene/MCPMissingCapability.stories.tsx": {
         "chromium": 8.274,
         "webkit": 1.52
     },
-    "frontend/src/scenes/insights/stories/SQLLineChart.stories.tsx": {
+    "products/product_analytics/frontend/insights/insightScene/SQLLineChart.stories.tsx": {
         "chromium": 21.353,
         "webkit": 5.257
     },
-    "frontend/src/scenes/insights/stories/SQLTableConditionalFormatting.stories.tsx": {
+    "products/product_analytics/frontend/insights/insightScene/SQLTableConditionalFormatting.stories.tsx": {
         "chromium": 6.294,
         "webkit": 2.51
     },
@@ -1131,7 +1131,7 @@
         "chromium": 17.987,
         "webkit": 5.896
     },
-    "frontend/src/scenes/persons-management/Persons.stories.tsx": {
+    "products/persons/frontend/pages/Persons.stories.tsx": {
         "chromium": 12.236,
         "webkit": 2.119
     },
