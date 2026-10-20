@@ -695,6 +695,70 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 404
 
+    @parameterized.expand(
+        [
+            ("issue", True, {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
+            ("issue", False, {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
+            ("issue_events", True, {}, {}),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_reads_capture_an_event_for_existing_issues_only(
+        self,
+        endpoint: str,
+        has_exceptions: bool,
+        extra_body: dict[str, object],
+        expected_properties: dict[str, object],
+    ) -> None:
+        self.create_issue()
+        if has_exceptions:
+            self.create_exception_event()
+            flush_persons_and_events()
+        token = self.create_personal_api_key_with_scopes(["error_tracking:read"])
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
+            found = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/{endpoint}",
+                data={"issueId": self.issue_id, **extra_body},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+            missing = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/{endpoint}",
+                data={"issueId": "00000000-0000-0000-0000-000000000000", **extra_body},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        assert found.status_code == 200
+        assert missing.status_code == 404
+        read_events = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "error_tracking_issue_read"
+        ]
+        assert read_events == [
+            {
+                **read_events[0],
+                "issue_id": self.issue_id,
+                "endpoint": endpoint,
+                "access_method": "personal_api_key",
+                **expected_properties,
+            }
+        ]
+
+    def test_issue_read_succeeds_when_capture_fails(self) -> None:
+        self.create_issue()
+
+        with patch("posthog.event_usage.posthoganalytics.capture", side_effect=RuntimeError("capture down")):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue",
+                data={"issueId": self.issue_id},
+                format="json",
+            )
+
+        assert response.status_code == 200
+
     def test_issue_events_tags_clickhouse_queries(self) -> None:
         self.create_issue()
         observed_tags: list[tuple[object, object]] = []
