@@ -2029,7 +2029,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if payload.get("kind") != "run_event":
             return True
         event = payload.get("event")
-        return isinstance(event, dict) and event.get("type") in self._TRIAL_RUN_EVENT_TYPES
+        if not isinstance(event, dict):
+            return False
+        event_type = event.get("type")
+        return isinstance(event_type, str) and event_type in self._TRIAL_RUN_EVENT_TYPES
 
     def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
         if self.action not in {

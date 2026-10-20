@@ -124,7 +124,7 @@ class TestAgentRunEvents(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("other_status", {"type": "started", "agent_version": "1.2.3"}, 409),
-            ("no_status", {"type": "usage", "token_usage": {"input_tokens": 3}}, 409),
+            ("no_status", {"type": "branch_changed", "branch": "feat/x"}, 409),
             ("same_status_retry", {"type": "failed", "error_type": "agent_reported", "cause": "late"}, 200),
         ]
     )
@@ -139,12 +139,37 @@ class TestAgentRunEvents(BaseTaskAPITest):
             "error_message": None,
         }
 
+    def test_usage_is_kept_after_the_run_ended(self, _signal) -> None:
+        self._create_run(self.task, TaskRun.Status.COMPLETED)
+
+        response = self._report({"type": "usage", "token_usage": {"input_tokens": 3}})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.task_run.refresh_from_db()
+        assert self.task_run.state["token_usage"] == {"input_tokens": 3}
+
+    @parameterized.expand(
+        [
+            ("first_report", TaskRun.Status.IN_PROGRESS),
+            ("retry_after_the_run_failed", TaskRun.Status.FAILED),
+        ]
+    )
+    def test_failed_event_retries_until_the_workflow_is_signalled(self, _name, run_status, signal) -> None:
+        self._create_run(self.task, run_status)
+        signal.return_value = False
+
+        response = self._report({"type": "failed", "error_type": "agent_reported", "cause": "boom"})
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        signal.assert_called_with(self.task_run.id, TaskRun.Status.FAILED, "boom", "agent_reported")
+
     @parameterized.expand(
         [
             ("started", {"type": "started", "agent_version": "1.2.3"}, status.HTTP_200_OK),
             ("failed", {"type": "failed", "error_type": "agent_reported", "cause": "boom"}, status.HTTP_200_OK),
             ("branch_changed", {"type": "branch_changed", "branch": "feat/x"}, status.HTTP_403_FORBIDDEN),
             ("pr_detected", {"type": "pr_detected", "pr_url": PR_ONE}, status.HTTP_403_FORBIDDEN),
+            ("malformed_type", {"type": ["started"]}, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_scout_trial_reports_only_lifecycle_events(self, _name, event, expected_status, _signal) -> None:

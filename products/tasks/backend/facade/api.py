@@ -3485,18 +3485,28 @@ TASK_RUN_EVENT_ERROR_TYPES = tuple(
 
 def report_task_run_event(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, event: dict[str, Any]
-) -> Literal["applied", "not_found", "run_ended"]:
+) -> Literal["applied", "not_found", "run_ended", "signal_failed"]:
     runtime = None
     if event["type"] == "failed":
         runtime = Task.objects.filter(id=task_id, team_id=team_id).values_list("runtime", flat=True).first()
     update = task_run_event_update(event, runtime=runtime)
+    accepted_after_end = event["type"] == "usage"
     run = update_task_run(
-        run_id, task_id, team_id, validated_data=update, only_if_non_terminal=True, caller_is_agent=True
+        run_id,
+        task_id,
+        team_id,
+        validated_data=update,
+        only_if_non_terminal=not accepted_after_end,
+        caller_is_agent=True,
     )
     if run is None:
         return "not_found"
-    if run.status in _TERMINAL_TASK_RUN_STATUSES and run.status != update.get("status"):
+    if not accepted_after_end and run.status in _TERMINAL_TASK_RUN_STATUSES and run.status != update.get("status"):
         return "run_ended"
+    if update.get("status") in _TERMINAL_TASK_RUN_STATUSES and not signal_workflow_completion(
+        run_id, update["status"], update.get("error_message"), update.get("error_type")
+    ):
+        return "signal_failed"
     return "applied"
 
 

@@ -5079,7 +5079,7 @@ class TaskRunEventSerializer(serializers.Serializer):
         required=False, max_length=255, help_text="Upstream Benjamin commit the agent server runs, when enabled."
     )
     error_type = serializers.ChoiceField(
-        choices=TASK_RUN_FAILURE_ERROR_TYPES,
+        choices=tasks_facade.TASK_RUN_EVENT_ERROR_TYPES,
         required=False,
         help_text="Classified failure cause, for `failed` events. The server builds the error message from it.",
     )
@@ -5114,11 +5114,6 @@ class TaskRunEventSerializer(serializers.Serializer):
         if attrs["type"] == "usage" and not fields:
             raise serializers.ValidationError("A usage event needs token_usage or budget_guard.")
         return attrs
-
-    def validate_error_type(self, value: str) -> str:
-        if value not in tasks_facade.TASK_RUN_EVENT_ERROR_TYPES:
-            raise serializers.ValidationError("Not a cause the agent may report.")
-        return value
 
     def validate_pr_url(self, value: str) -> str:
         if canonical_github_pull_request_url(value) is None:

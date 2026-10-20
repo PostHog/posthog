@@ -3309,6 +3309,38 @@ export const TaskRunEventTypeEnumApi = {
 } as const
 
 /**
+ * * `agent_reported` - agent_reported
+ * * `agent_server_crash` - agent_server_crash
+ * * `upstream_stream_terminated` - upstream_stream_terminated
+ * * `upstream_connection_error` - upstream_connection_error
+ * * `upstream_timeout` - upstream_timeout
+ * * `upstream_provider_failure` - upstream_provider_failure
+ * * `upstream_request_rejected` - upstream_request_rejected
+ * * `content_block_rejection` - content_block_rejection
+ * * `turn_ended_without_response` - turn_ended_without_response
+ * * `subscription_usage_limit` - subscription_usage_limit
+ * * `task_spend_limit` - task_spend_limit
+ * * `agent_error` - agent_error
+ */
+export type TaskRunEventErrorTypeEnumApi =
+    (typeof TaskRunEventErrorTypeEnumApi)[keyof typeof TaskRunEventErrorTypeEnumApi]
+
+export const TaskRunEventErrorTypeEnumApi = {
+    AgentReported: 'agent_reported',
+    AgentServerCrash: 'agent_server_crash',
+    UpstreamStreamTerminated: 'upstream_stream_terminated',
+    UpstreamConnectionError: 'upstream_connection_error',
+    UpstreamTimeout: 'upstream_timeout',
+    UpstreamProviderFailure: 'upstream_provider_failure',
+    UpstreamRequestRejected: 'upstream_request_rejected',
+    ContentBlockRejection: 'content_block_rejection',
+    TurnEndedWithoutResponse: 'turn_ended_without_response',
+    SubscriptionUsageLimit: 'subscription_usage_limit',
+    TaskSpendLimit: 'task_spend_limit',
+    AgentError: 'agent_error',
+} as const
+
+/**
  * Structured output, validated against the task's json_schema if one is set.
  */
 export type TaskRunEventApiOutput = { [key: string]: unknown }
@@ -3347,10 +3379,6 @@ export interface TaskRunEventApi {
      *
      * * `agent_reported` - agent_reported
      * * `agent_server_crash` - agent_server_crash
-     * * `agent_declined` - agent_declined
-     * * `output_parse_failed` - output_parse_failed
-     * * `poll_timeout` - poll_timeout
-     * * `pi_runtime_error` - pi_runtime_error
      * * `upstream_stream_terminated` - upstream_stream_terminated
      * * `upstream_connection_error` - upstream_connection_error
      * * `upstream_timeout` - upstream_timeout
@@ -3361,7 +3389,7 @@ export interface TaskRunEventApi {
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
      * * `agent_error` - agent_error */
-    error_type?: ErrorTypeEnumApi
+    error_type?: TaskRunEventErrorTypeEnumApi
     /** What went wrong, for `failed` events. Secrets must already be redacted. */
     cause?: string
     /**

@@ -63,4 +63,6 @@ def report_run_event(*, run_id: str, task_id: str, team_id: int, event: dict[str
             return CallbackOutcome(status=404, error="Task run not found")
         case "run_ended":
             return CallbackOutcome(status=409, error="The run has already ended")
+        case "signal_failed":
+            return CallbackOutcome(status=503, error="The run's workflow could not be signalled")
     return CallbackOutcome(dispatched=True)
