@@ -1,7 +1,7 @@
 import datetime as dt
 from functools import cached_property
 
-from posthog.schema import CachedLogsQueryResponse, LogsQuery
+from posthog.schema import CachedLogsQueryResponse, DateRange, LogsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -11,14 +11,19 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
+from products.logs.backend.agent_window import utc_iso
 from products.logs.backend.logs_query_runner import (
     LogsQueryResponse,
     LogsQueryRunnerMixin,
     fail_fast_aggregate_settings,
 )
+from products.logs.backend.onset_detection import find_onset
 
 DEFAULT_TARGET_BUCKETS = 10
 MAX_TARGET_BUCKETS = 100
+DETECT_MODES = ("onset",)
+ONSET_FINE_TARGET_BUCKETS = 24
+ONSET_HIGH_CONFIDENCE_BASELINE = 12
 
 
 def _utc_z(value: dt.datetime) -> str:
@@ -36,21 +41,28 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
     query: LogsQuery
     cached_response: CachedLogsQueryResponse
 
-    def __init__(self, *args, target_buckets: int = DEFAULT_TARGET_BUCKETS, **kwargs):
+    def __init__(self, *args, target_buckets: int = DEFAULT_TARGET_BUCKETS, detect: str | None = None, **kwargs):
         # Set before super().__init__ so query_date_range (cached) sees the override
         # the first time it's read.
         self.BUCKET_TARGET = max(1, min(target_buckets, MAX_TARGET_BUCKETS))
+        self.detect = detect
         super().__init__(*args, **kwargs)
 
     def get_cache_payload(self) -> dict:
-        # A runner argument, not a query field, so the base payload cannot see it.
-        return {**super().get_cache_payload(), "target_buckets": self.BUCKET_TARGET}
+        return {**super().get_cache_payload(), "target_buckets": self.BUCKET_TARGET, "detect": self.detect}
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
         return fail_fast_aggregate_settings(max_bytes_to_read=1_000_000_000)
 
     def _calculate(self) -> LogsQueryResponse:
+        ranges = self._ranges()
+        results: dict = {"ranges": ranges, "interval": self._interval_short()}
+        if self.detect == "onset":
+            results["onset"] = self._onset(ranges)
+        return LogsQueryResponse(results=results)
+
+    def _ranges(self) -> list[dict]:
         response = execute_hogql_query(
             query_type="LogsQuery",
             query=self.to_query(),
@@ -78,9 +90,53 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
                 }
             )
 
-        return LogsQueryResponse(
-            results={"ranges": ranges, "interval": self._interval_short()},
+        return ranges
+
+    def _dense_grid(self, ranges: list[dict]) -> tuple[list[dt.datetime], list[int], dt.timedelta]:
+        unit_seconds = 1 if self.query_date_range.interval_name == "second" else 60
+        step = dt.timedelta(seconds=self.query_date_range.interval_count * unit_seconds)
+        date_from, date_to = self.query_date_range.date_from(), self.query_date_range.date_to()
+        epoch = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
+        cursor = epoch + (date_from - epoch) // step * step
+        counts = {bucket["date_from"]: bucket["count"] for bucket in ranges}
+        starts: list[dt.datetime] = []
+        while cursor < date_to:
+            starts.append(cursor)
+            cursor += step
+        return starts, [counts.get(utc_iso(start), 0) for start in starts], step
+
+    def _onset(self, ranges: list[dict]) -> dict | None:
+        starts, counts, step = self._dense_grid(ranges)
+        partial = {0} if starts and starts[0] < self.query_date_range.date_from() else set()
+        onset = find_onset(counts, partial)
+        if onset is None:
+            return None
+        start = starts[onset.index]
+        minutes = step.total_seconds() / 60
+        if onset.confirmed:
+            confidence = "high" if onset.baseline_samples >= ONSET_HIGH_CONFIDENCE_BASELINE else "medium"
+        else:
+            confidence = "low"
+        return {
+            "start": utc_iso(self._refined_start(start - step, start + step) or start),
+            "end": utc_iso(starts[onset.end_index] + step) if onset.end_index is not None else None,
+            "peak_at": utc_iso(starts[onset.peak_index]),
+            "baseline_per_min": round(onset.expected / minutes, 1),
+            "peak_per_min": round(counts[onset.peak_index] / minutes, 1),
+            "confidence": confidence,
+        }
+
+    def _refined_start(self, date_from: dt.datetime, date_to: dt.datetime) -> dt.datetime | None:
+        fine_range = DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat(), explicitDate=True)
+        fine = CountRangesQueryRunner(
+            team=self.team,
+            query=self.query.model_copy(update={"dateRange": fine_range}),
+            target_buckets=ONSET_FINE_TARGET_BUCKETS,
+            limit_context=self.limit_context,
         )
+        starts, counts, _ = fine._dense_grid(fine._ranges())
+        onset = find_onset(counts)
+        return starts[onset.index] if onset is not None else None
 
     def _interval_short(self) -> str:
         unit = self.query_date_range.interval_name

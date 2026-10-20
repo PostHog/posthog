@@ -1,7 +1,7 @@
 import os
 import re
 import json
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -10,6 +10,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+
+from products.logs.backend.test.volume_rollup_fixtures import insert_logs_and_rollups, log_row
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 _DENSE_DAY = {"date_from": "2025-12-16T00:00:00Z", "date_to": "2025-12-17T00:00:00Z"}
@@ -149,3 +151,88 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
     def test_defaults_date_range_to_last_hour(self):
         response = self._ranges({})
         self.assertEqual(response["ranges"], [])
+
+
+_ONSET_NOW = "2026-06-23T13:00:00Z"
+_ONSET_WINDOW = {"date_from": "2026-06-23T12:00:00Z", "date_to": "2026-06-23T13:00:00Z"}
+
+
+def _per_minute(team_id: int, service: str, minute: int, count: int) -> list[dict]:
+    start = datetime(2026, 6, 23, 12, minute, tzinfo=UTC)
+    return [log_row(team_id, start + timedelta(seconds=i * 60 / count), service=service) for i in range(count)]
+
+
+class TestCountRangesOnset(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        rows: list[dict] = []
+        for minute in range(60):
+            rows += _per_minute(cls.team.id, "steady", minute, 2)
+            # Steps from 2/min to 60/min at 12:43, in the middle of a 2-minute coarse bucket.
+            rows += _per_minute(cls.team.id, "step", minute, 2 if minute < 43 else 60)
+            rows += _per_minute(cls.team.id, "ramp", minute, 2 if minute < 40 else round(2 * 1.25 ** (minute - 39)))
+        insert_logs_and_rollups(rows)
+
+    def _onset(self, service: str, **query) -> dict:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/count-ranges",
+            data={
+                "query": {
+                    "dateRange": _ONSET_WINDOW,
+                    "serviceNames": [service],
+                    "targetBuckets": 30,
+                    "detect": "onset",
+                    **query,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()
+
+    @time_machine.travel(_ONSET_NOW, tick=False)
+    def test_step_change_onset_is_refined_to_the_minute(self):
+        result = self._onset("step")
+
+        onset = result["onset"]
+        self.assertEqual(result["interval"], "2m")
+        # The coarse bucket starts at 12:42. The second pass inside it finds the step at 12:43.
+        self.assertEqual(onset["start"], "2026-06-23T12:43:00Z")
+        self.assertIsNone(onset["end"])
+        self.assertEqual(onset["baseline_per_min"], 2.0)
+        self.assertEqual(onset["peak_per_min"], 60.0)
+        self.assertEqual(onset["confidence"], "high")
+        self.assertTrue(result["ranges"])
+
+    @time_machine.travel(_ONSET_NOW, tick=False)
+    def test_gradual_ramp_onset(self):
+        onset = self._onset("ramp")["onset"]
+
+        self.assertIsNotNone(onset)
+        self.assertGreaterEqual(onset["start"], "2026-06-23T12:40:00Z")
+        self.assertLessEqual(onset["start"], "2026-06-23T12:52:00Z")
+        self.assertGreaterEqual(onset["peak_at"], "2026-06-23T12:56:00Z")
+
+    @time_machine.travel(_ONSET_NOW, tick=False)
+    def test_steady_stream_has_no_onset(self):
+        result = self._onset("steady")
+
+        self.assertIn("onset", result)
+        self.assertIsNone(result["onset"])
+
+    @time_machine.travel(_ONSET_NOW, tick=False)
+    def test_without_detect_the_response_has_no_onset(self):
+        result = self._onset("step", detect=None)
+
+        self.assertNotIn("onset", result)
+
+    def test_unknown_detect_mode_is_rejected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/count-ranges",
+            data={"query": {"dateRange": _ONSET_WINDOW, "detect": "drop"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

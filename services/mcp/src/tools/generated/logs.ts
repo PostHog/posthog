@@ -640,7 +640,7 @@ const logsCountRanges = (): ToolBase<ReturnType<typeof LogsCountRangesSchema>, S
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/count-ranges/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['ranges', 'interval']) as typeof result
+        const filtered = pickResponseFields(result, ['ranges', 'interval', 'onset']) as typeof result
         return filtered
     },
 })
@@ -668,6 +668,30 @@ const logsFacetValuesCreate = (): ToolBase<
             body,
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
+const LogsGroupBySchema = () => {
+    const LogsGroupByCreateBody = orvalSchemas.LogsGroupByCreateBody()
+    return LogsGroupByCreateBody
+}
+
+const logsGroupBy = (): ToolBase<ReturnType<typeof LogsGroupBySchema>, Schemas._LogsGroupByResponse> => ({
+    name: 'logs-group-by',
+    schema: LogsGroupBySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsGroupBySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._LogsGroupByResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/group-by/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, ['groups.*.value']) as typeof result
         return filtered
     },
 })
@@ -754,12 +778,20 @@ const logsServicesCreate = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.baselineDateRange !== undefined) {
+            body['baselineDateRange'] = params.baselineDateRange
+        }
         const result = await context.api.request<Schemas._LogsServicesResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/services/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['services', 'sparkline']) as typeof result
+        const filtered = omitResponseFields(result, [
+            'sparkline',
+            'services.*.error_rate',
+            'services.*.severity_breakdown',
+            'services.*.active_rules',
+        ]) as typeof result
         return filtered
     },
 })
@@ -831,6 +863,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
     'logs-facet-values-create': logsFacetValuesCreate,
+    'logs-group-by': logsGroupBy,
     'logs-patterns': logsPatterns,
     'logs-patterns-diff': logsPatternsDiff,
     'logs-services-create': logsServicesCreate,

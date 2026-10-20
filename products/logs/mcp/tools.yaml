@@ -393,6 +393,7 @@ tools:
             include:
                 - ranges
                 - interval
+                - onset
     logs-facet-values-create:
         operation: logs_facet_values_create
         enabled: true
@@ -407,6 +408,21 @@ tools:
         response:
             include:
                 - results
+    logs-group-by:
+        operation: logs_group_by_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Group logs by attributes
+        description_file: ./prompts/logs-group-by.md
+        feature_flag: logs-agent-tools
+        response:
+            exclude:
+                - groups.*.value
     logs-patterns:
         operation: logs_patterns_create
         enabled: true
@@ -451,22 +467,14 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: List services with stats
-        description: |
-            Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate,
-            plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on
-            — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking
-            attribute-values + per-service counts.
-
-            Put all parameters in `query`:
-
-            ```json
-            { "query": { "dateRange": { "date_from": "-24h" } } }
-            ```
+        title: List services with health status
+        description_file: ./prompts/logs-services.md
         response:
-            include:
-                - services
+            exclude:
                 - sparkline
+                - services.*.error_rate
+                - services.*.severity_breakdown
+                - services.*.active_rules
     logs-sparkline-query:
         operation: logs_sparkline_create
         enabled: true

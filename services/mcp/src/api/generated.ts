@@ -24603,6 +24603,22 @@ export namespace Schemas {
       has_voted: boolean;
     }
 
+    /**
+     * * `none` - none
+     * * `previous_period` - previous_period
+     * * `previous_day` - previous_day
+     * * `previous_week` - previous_week
+     */
+    export type CompareEnum = typeof CompareEnum[keyof typeof CompareEnum];
+
+
+    export const CompareEnum = {
+      None: 'none',
+      PreviousPeriod: 'previous_period',
+      PreviousDay: 'previous_day',
+      PreviousWeek: 'previous_week',
+    } as const;
+
     export interface CompareItem {
       label: string;
       value: string;
@@ -36285,6 +36301,16 @@ export namespace Schemas {
       /** The steps of the connection test, in order. The test stops at the first failed step. */
       steps: DestinationConnectionTestStep[];
     }
+
+    /**
+     * * `onset` - onset
+     */
+    export type DetectEnum = typeof DetectEnum[keyof typeof DetectEnum];
+
+
+    export const DetectEnum = {
+      Onset: 'onset',
+    } as const;
 
     /**
      * * `Desktop` - Desktop
@@ -117601,6 +117627,32 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters applied before bucketing. Same shape as `query-logs`. */
       filterGroup?: _LogPropertyFilter[];
+      /** "onset" adds `onset`: when the first sustained spike in the window starts, refined by a second, finer pass over that bucket. Use 30 or more targetBuckets so the spike has earlier buckets to compare to.
+       *
+       * * `onset` - onset */
+      detect?: DetectEnum | null;
+    }
+
+    export interface _LogsCountRangesOnset {
+      /** When the spike starts, ISO 8601 UTC, from the finer second pass. */
+      start: string;
+      /**
+         * When the spike ends. Null when it lasts to the window end.
+         * @nullable
+         */
+      end: string | null;
+      /** Start of the bucket with the most logs in the spike. */
+      peak_at: string;
+      /** Expected logs per minute before the spike. */
+      baseline_per_min: number;
+      /** Logs per minute in the peak bucket. */
+      peak_per_min: number;
+      /** low: one bucket only, not confirmed by the next. medium: confirmed, with fewer than 12 earlier buckets.
+       *
+       * * `high` - high
+       * * `medium` - medium
+       * * `low` - low */
+      confidence: ConfidenceTierEnum;
     }
 
     export interface _LogsCountRangesRequest {
@@ -117613,6 +117665,8 @@ export namespace Schemas {
       ranges: _LogsCountRangeBucket[];
       /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
       interval: string;
+      /** Only with detect "onset". Null when no spike was found. */
+      onset?: _LogsCountRangesOnset | null;
     }
 
     export interface _LogsCountRequest {
@@ -117670,7 +117724,7 @@ export namespace Schemas {
     }
 
     export interface _LogsGroupByDimension {
-      /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
+      /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template). */
       key: string;
       /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
        *
@@ -117691,7 +117745,7 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters applied before grouping. Same shape as the query-logs endpoint. */
       filterGroup?: _LogPropertyFilter[];
-      /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". Ignored when groupBys is provided. */
+      /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern". Ignored when groupBys is provided. */
       groupBy?: string;
       /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.
        *
@@ -117732,6 +117786,8 @@ export namespace Schemas {
       log_count: number;
       /** Number of matching logs in this group at severity "error" or "fatal". */
       error_count: number;
+      /** ISO 8601 timestamp of the earliest matching log in this group. */
+      first_seen: string;
       /** ISO 8601 timestamp of the most recent matching log in this group. */
       last_seen: string;
     }
@@ -117799,6 +117855,20 @@ export namespace Schemas {
     export interface _LogsNaturalLanguageError {
       /** What went wrong. */
       error: string;
+    }
+
+    /**
+     * Prefilled `query` for that tool.
+     */
+    export type _LogsNextStepQuery = { [key: string]: unknown };
+
+    export interface _LogsNextStep {
+      /** MCP tool to call next. */
+      tool: string;
+      /** What the call answers. */
+      why: string;
+      /** Prefilled `query` for that tool. */
+      query: _LogsNextStepQuery;
     }
 
     export interface _LogsPatternsBody {
@@ -118007,6 +118077,28 @@ export namespace Schemas {
       summary_string: string;
     }
 
+    /**
+     * * `ok` - ok
+     * * `degraded` - degraded
+     * * `regressed` - regressed
+     * * `improved` - improved
+     * * `recovered` - recovered
+     * * `new` - new
+     * * `silent` - silent
+     */
+    export type _LogsServiceAggregateStatusEnum = typeof _LogsServiceAggregateStatusEnum[keyof typeof _LogsServiceAggregateStatusEnum];
+
+
+    export const _LogsServiceAggregateStatusEnum = {
+      Ok: 'ok',
+      Degraded: 'degraded',
+      Regressed: 'regressed',
+      Improved: 'improved',
+      Recovered: 'recovered',
+      New: 'new',
+      Silent: 'silent',
+    } as const;
+
     export interface _LogsServiceSeverityBreakdown {
       debug: number;
       info: number;
@@ -118017,6 +118109,40 @@ export namespace Schemas {
     export interface _LogsServiceAggregate {
       /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
       service_name: string;
+      /** ok, degraded (error rate of 5% or more), regressed or improved (error rate up or down by 1 pp and 2x), recovered (back under 5%), new (no baseline logs) or silent (baseline logs, none in the window).
+       *
+       * * `ok` - ok
+       * * `degraded` - degraded
+       * * `regressed` - regressed
+       * * `improved` - improved
+       * * `recovered` - recovered
+       * * `new` - new
+       * * `silent` - silent */
+      status: _LogsServiceAggregateStatusEnum;
+      /** Short reason for the status, e.g. "error rate 0.4% → 3.1%". */
+      reason: string;
+      /** Error rate in percent, rounded to 1 decimal. */
+      error_rate_pct: number;
+      /**
+         * Logs in the baseline. Null without one.
+         * @nullable
+         */
+      baseline_log_count: number | null;
+      /**
+         * Error rate change against the baseline, in percentage points.
+         * @nullable
+         */
+      error_rate_delta_pp: number | null;
+      /**
+         * Log volume change against the baseline, in percent.
+         * @nullable
+         */
+      log_count_change_pct: number | null;
+      /**
+         * Latest log time (UTC). From the rollup, and for silent services, the start of the last 5-minute bucket.
+         * @nullable
+         */
+      last_seen: string | null;
       /** Total log entries from this service in the window. */
       log_count: number;
       /** Count of logs at severity "error" or "fatal". */
@@ -118047,11 +118173,25 @@ export namespace Schemas {
       serviceNameSearch?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
+      /**
+         * Deployment environment, matched without case against the first set resource attribute of deployment.environment.name, deployment.environment and env. "(none)" matches logs without one.
+         * @maxLength 200
+         */
+      environment?: string;
+      /** Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.
+       *
+       * * `none` - none
+       * * `previous_period` - previous_period
+       * * `previous_day` - previous_day
+       * * `previous_week` - previous_week */
+      compare?: CompareEnum;
     }
 
     export interface _LogsServicesRequest {
       /** The services aggregation query to execute. */
       query: _LogsServicesBody;
+      /** Explicit baseline window. Takes precedence over `query.compare`. */
+      baselineDateRange?: _DateRange;
     }
 
     export interface _LogsServicesSparklineBucket {
@@ -118061,12 +118201,54 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * Service rows per status.
+     */
+    export type _LogsServicesSummaryStatusCounts = {[key: string]: number};
+
     export interface _LogsServicesSummary {
       /** Number of top services included in the volume_share aggregate (up to 5). */
       top_services_count: number;
       /** Combined volume share (percent) of the top services by log_count. */
       top_services_volume_share_pct: number;
+      /** Service rows per status. */
+      status_counts: _LogsServicesSummaryStatusCounts;
+      /** True when more services matched than `services` holds. */
+      truncated: boolean;
     }
+
+    /**
+     * `from` and `to` of the queried window, ISO 8601 UTC.
+     */
+    export type _LogsWindowCurrent = {[key: string]: string};
+
+    /**
+     * `from` and `to` of the baseline. Absent without one.
+     */
+    export type _LogsWindowBaseline = {[key: string]: string};
+
+    export interface _LogsWindow {
+      /** `from` and `to` of the queried window, ISO 8601 UTC. */
+      current: _LogsWindowCurrent;
+      /** `from` and `to` of the baseline. Absent without one. */
+      baseline?: _LogsWindowBaseline;
+      /** Always UTC. */
+      timezone: string;
+    }
+
+    /**
+     * * `rollup` - rollup
+     * * `rollup+raw` - rollup+raw
+     * * `raw` - raw
+     */
+    export type _LogsServicesResponseSourceEnum = typeof _LogsServicesResponseSourceEnum[keyof typeof _LogsServicesResponseSourceEnum];
+
+
+    export const _LogsServicesResponseSourceEnum = {
+      Rollup: 'rollup',
+      RollupRaw: 'rollup+raw',
+      Raw: 'raw',
+    } as const;
 
     export interface _LogsServicesResponse {
       /** Per-service aggregates, ordered by log_count descending. Capped at 10000 services. */
@@ -118077,6 +118259,16 @@ export namespace Schemas {
       total_services: number;
       /** Roll-up stats for the Services tab header. */
       summary?: _LogsServicesSummary;
+      /** Absolute UTC bounds of the window and the baseline. */
+      window: _LogsWindow;
+      /** rollup: 5-minute rollup only. rollup+raw: rollup plus raw logs at unaligned window edges.
+       *
+       * * `rollup` - rollup
+       * * `rollup+raw` - rollup+raw
+       * * `raw` - raw */
+      source: _LogsServicesResponseSourceEnum;
+      /** Prefilled follow-up calls for problem services. */
+      next: _LogsNextStep[];
     }
 
     export interface _LogsSparklineBody {
@@ -129725,8 +129917,7 @@ export namespace Schemas {
      */
     serviceNames?: string[];
     /**
-     * Search filter for attribute values
-     * @minLength 1
+     * Search filter for attribute values. Omit it or pass an empty string to list all values.
      */
     value?: string;
     };
