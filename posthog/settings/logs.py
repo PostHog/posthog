@@ -94,7 +94,8 @@ structlog.configure(
 # rendered either as pretty colored console lines or as single JSON lines.
 LOGGING: dict[str, Any] = {
     "version": 1,
-    "disable_existing_loggers": True,
+    # A test that re-runs django.setup() would otherwise silence every logger an earlier test created.
+    "disable_existing_loggers": not TEST,
     "formatters": {
         "default": {
             "()": structlog.stdlib.ProcessorFormatter,
