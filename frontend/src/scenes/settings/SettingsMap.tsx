@@ -52,6 +52,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { DevModeSetting } from 'products/ai_gateway/frontend/components/DevModeSetting'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
@@ -2626,6 +2627,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Applications that have been granted access to your PostHog account via OAuth. You can revoke access at any time.',
                 component: <ConnectedApps />,
                 keywords: ['oauth', 'app', 'connected', 'authorized', 'revoke', 'access', 'token'],
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-ai-gateway-dev-mode',
+        title: 'AI gateway developer mode',
+        flag: 'AI_GATEWAY_DEV_MODE',
+        settings: [
+            {
+                id: 'ai-gateway-dev-mode',
+                title: 'Developer mode tokens',
+                description:
+                    'Short-lived AI gateway tokens for PostHog staff, pinned to your identity. Use them in place of project secret keys when calling the gateway locally.',
+                component: <DevModeSetting />,
+                flag: 'AI_GATEWAY_DEV_MODE',
+                keywords: ['ai gateway', 'llm gateway', 'token', 'developer mode', 'phe_'],
             },
         ],
     },
