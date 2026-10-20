@@ -1,5 +1,6 @@
 import hashlib
 from collections.abc import Iterator
+from functools import partial
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     EndpointResource,
@@ -95,11 +97,11 @@ class FintocAPI:
         try:
             for token in tokens:
                 # Movements need an account ID, so probe the account before probing its child scope.
-                probe_name = "accounts" if name == "movements" else name
-                resource = self.resource(probe_name, page_size=1)
+                parent = ENDPOINTS[name].parent
+                resource = self.resource(parent or name, page_size=1)
                 config: RESTAPIConfig = {"client": self.client_config(token), "resources": [resource]}
                 page = next(iter(rest_api_resource(config, 0, "fintoc-validation", None)), [])
-                if name == "movements" and page:
+                if parent and page:
                     config["resources"] = [self.resource(name, page_size=1, account_id=page[0]["id"])]
                     next(iter(rest_api_resource(config, 0, "fintoc-validation", None)), None)
         except HTTPError as error:
@@ -114,19 +116,20 @@ class FintocAPI:
     @staticmethod
     def resource(name: str, page_size: int = 300, account_id: str | None = None) -> EndpointResource:
         endpoint = ENDPOINTS[name]
-        params: dict[str, Any] = {endpoint.page_size_param: page_size}
+        params: dict[str, Any] = {endpoint.page_size_param: page_size} if endpoint.page_size_param else {}
         path = endpoint.path
         if name == "movements":
             params["confirmed_only"] = "false"
+        if endpoint.parent:
             if account_id is not None:
                 path = path.format(account_id=quote(account_id, safe=""))
             else:
-                params["account_id"] = {"type": "resolve", "resource": "accounts", "field": "id"}
+                params["account_id"] = {"type": "resolve", "resource": endpoint.parent, "field": "id"}
         resource: EndpointResource = {
             "name": name,
             "endpoint": {"path": path, "params": params, "data_selector": "$"},
         }
-        if name == "movements" and account_id is None:
+        if endpoint.parent and account_id is None:
             resource["include_from_parent"] = ["id"]
         return resource
 
@@ -161,8 +164,8 @@ class FintocAPI:
 
             resource = self.resource(name)
             resources: list[str | EndpointResource] = [resource]
-            if name == "movements":
-                resources = [self.resource("accounts"), resource]
+            if endpoint.parent:
+                resources = [self.resource(endpoint.parent), resource]
             config: RESTAPIConfig = {"client": self.client_config(token), "resources": resources}
             result = rest_api_resources(
                 config,
@@ -173,9 +176,9 @@ class FintocAPI:
                 initial_paginator_state=resume.paginator if resume else None,
             )[-1]
             for page in result:
-                if name == "movements":
+                if endpoint.parent:
                     for row in page:
-                        row["account_id"] = row.pop("_accounts_id")
+                        row["account_id"] = row.pop(f"_{endpoint.parent}_id")
                 yield page
             token_manager.save_state(FintocResumeState(complete=True))
 
@@ -189,9 +192,12 @@ class FintocAPI:
         if name not in ENDPOINTS:
             raise ValueError("Unknown Fintoc table. Select a supported table.")
         endpoint = ENDPOINTS[name]
+        # `rows` hands each page on as it arrives and holds no rows, so as a `Resource` it keeps the
+        # framework's checkpoints across fan-out requests that return empty pages.
+        items = Resource(partial(self.rows, name, link_tokens, inputs, manager), name=name, hints={})
         return SourceResponse(
             name=name,
-            items=lambda: self.rows(name, link_tokens, inputs, manager),
+            items=lambda: items,
             primary_keys=list(endpoint.primary_keys),
             partition_keys=[endpoint.partition_key] if endpoint.partition_key else None,
             partition_mode="datetime" if endpoint.partition_key else None,

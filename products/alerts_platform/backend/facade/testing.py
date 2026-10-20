@@ -113,6 +113,9 @@ def record_check(
     previous_state: str,
     state: str,
     error_message: str | None = None,
+    value: float | None = None,
+    condition: dict[str, Any] | None = None,
+    query_duration_ms: int | None = None,
 ) -> None:
     """Write one ungrouped check to the platform's ClickHouse history, as a check that ran at `at`."""
     insert_events(
@@ -130,11 +133,11 @@ def record_check(
                 previous_state=previous_state,
                 state=state,
                 episode_started_at=None,
-                value=None,
+                value=value,
                 labels={},
-                condition_snapshot={},
+                condition_snapshot=condition or {},
                 source_config_snapshot={},
-                query_duration_ms=None,
+                query_duration_ms=query_duration_ms,
                 error_message=error_message,
                 consecutive_failures=0,
                 muted_notification="",
