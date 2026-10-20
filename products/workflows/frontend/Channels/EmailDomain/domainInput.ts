@@ -40,9 +40,26 @@ export const isValidDomain = (domain: string): boolean => DOMAIN_PATTERN.test(do
 
 export const rootDomainOf = (hostname: string): string => hostname.split('.').filter(Boolean).slice(-2).join('.')
 
-export const nameFromDomain = (domain: string): string => {
-    const label = domain.split('.').filter(Boolean).slice(-2)[0] ?? domain
-    return label ? label.charAt(0).toUpperCase() + label.slice(1) : ''
+const SECOND_LEVEL_SUFFIX_LABELS = new Set(['co', 'com', 'org', 'net', 'ac', 'gov', 'edu'])
+
+const PLACEHOLDER_ORGANIZATION_NAME = /^(?:default(?: organization)?|.*['’]s organization)$/i
+
+const isCountryCodeSuffix = (labels: string[]): boolean => {
+    const [secondLevel, topLevel] = labels.slice(-2)
+    return topLevel?.length === 2 && SECOND_LEVEL_SUFFIX_LABELS.has(secondLevel)
+}
+
+const brandLabelOf = (domain: string): string => {
+    const labels = domain.split('.').filter(Boolean)
+    const suffixLength = labels.length > 2 && isCountryCodeSuffix(labels) ? 2 : 1
+    return labels.at(-suffixLength - 1) ?? domain
+}
+
+const capitalize = (label: string): string => label.charAt(0).toUpperCase() + label.slice(1)
+
+export const defaultSenderName = (organizationName: string | null | undefined, domain: string): string => {
+    const name = organizationName?.trim() ?? ''
+    return name && !PLACEHOLDER_ORGANIZATION_NAME.test(name) ? name : capitalize(brandLabelOf(domain))
 }
 
 export const hostnameOfUrl = (url: string): string | null => {

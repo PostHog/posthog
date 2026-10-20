@@ -153,6 +153,8 @@ describe('EmailDomainScene', () => {
         backend.verifyDomain(DOMAIN)
         await flush(POLL_MS)
         expectStep(/You can send from/)
+        expect(screen.getByText('Your first sender')).toBeInTheDocument()
+        expect(screen.getByText(`Send your first email from ${DOMAIN}`)).toBeInTheDocument()
 
         typeInto('email-domain-sender-name', 'Acme Team')
         click('email-domain-save-sender-name')
@@ -298,6 +300,19 @@ describe('EmailDomainScene', () => {
         await flush()
         expect(backend.requestsTo('integration_create')).toHaveLength(2)
         expectStep('Add 8 settings at Cloudflare')
+    })
+
+    it('drops "first" from the ready step when the project already sends from another domain', async () => {
+        seedSender()
+        backend.verifyDomain(DOMAIN)
+        backend.addSender({ email: 'hello@mail.acme.org' })
+        backend.verifyDomain('mail.acme.org')
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep(/You can send from/)
+
+        expect(screen.getByText('Your sender')).toBeInTheDocument()
+        expect(screen.getByText(`Send email from ${DOMAIN}`)).toBeInTheDocument()
+        expect(screen.queryByText(/first/i)).toBeNull()
     })
 
     it('keeps the edited sender name on screen when the save fails, and saves it on the next try', async () => {
