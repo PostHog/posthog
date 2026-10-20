@@ -1,9 +1,7 @@
 import { useValues } from 'kea'
+import { ReactNode } from 'react'
 
-import { IconCheck, IconWarning } from '@posthog/icons'
-import { LemonCollapse } from '@posthog/lemon-ui'
-
-import { DnsRecordRows } from '../components/DnsRecordRows'
+import { DnsRecordsSummary } from '../components/DnsRecordsSummary'
 import { NextWorkflowCard } from '../components/NextWorkflowCard'
 import { SenderCard } from '../components/SenderCard'
 import { StepHeading } from '../components/StepHeading'
@@ -12,7 +10,8 @@ import { emailDomainSenderLogic } from '../emailDomainSenderLogic'
 import { emailDomainStatusLogic } from '../emailDomainStatusLogic'
 import { HedgehogRocket } from '../hoggies'
 
-export function ReadyStep(): JSX.Element {
+/** `next` replaces the first workflow suggestions, for a setup opened from a workflow. */
+export function ReadyStep({ next = <NextWorkflowCard /> }: { next?: ReactNode }): JSX.Element {
     const { domain } = useValues(emailDomainSenderLogic)
     const { records, foundCount, allRecordsFound } = useValues(emailDomainStatusLogic)
     const { hostName } = useValues(emailDomainAutoConfigureLogic)
@@ -35,36 +34,11 @@ export function ReadyStep(): JSX.Element {
                 />
             </div>
             <SenderCard />
-            <LemonCollapse
-                defaultActiveKey={allRecordsFound ? undefined : 'records'}
-                panels={[
-                    {
-                        key: 'records',
-                        header: (
-                            <span className="flex items-center gap-2">
-                                {allRecordsFound ? (
-                                    <IconCheck className="text-success" />
-                                ) : (
-                                    <IconWarning className="text-warning" />
-                                )}
-                                <span>
-                                    {allRecordsFound
-                                        ? `${records.length} settings in place at ${host}`
-                                        : `${foundCount} of ${records.length} settings in place at ${host}`}
-                                </span>
-                            </span>
-                        ),
-                        content: (
-                            <DnsRecordRows
-                                records={records}
-                                missing={records.filter((record) => record.status === 'pending')}
-                                showStatus
-                            />
-                        ),
-                    },
-                ]}
+            <DnsRecordsSummary
+                missing={records.filter((record) => record.status === 'pending')}
+                needsAttention={!allRecordsFound}
             />
-            <NextWorkflowCard />
+            {next}
         </div>
     )
 }

@@ -17,27 +17,41 @@ import { CreateWelcomeWorkflowAction } from './CreateWelcomeWorkflowAction'
 
 const SURFACE: WorkflowDataSuggestionsSurface = 'email_domain_wizard'
 
-/** The ways to start a first workflow from the domain wizard: the best suggestion once loaded, else the welcome template and a blank workflow. */
-export function FirstWorkflowChoices(): JSX.Element {
-    const { offersDataSuggestions } = useValues(emailDomainLogic)
+/** Where the choices show: the last step, or the wait for DNS. Each reports its own data-attrs. */
+export type FirstWorkflowChoicesPlacement = 'ready' | 'verifying'
 
-    // The suggestions logic loads on mount, so it only mounts when the organization allows AI processing.
-    return offersDataSuggestions ? <ChoicesWithSuggestions /> : <TemplateChoices />
+// pinned: data-attr prefixes, autocapture dashboards read them
+const DATA_ATTR_PREFIX: Record<FirstWorkflowChoicesPlacement, string> = {
+    ready: 'email-domain',
+    verifying: 'email-domain-verifying',
 }
 
-function ChoicesWithSuggestions(): JSX.Element {
+/** The ways to start a first workflow from the domain wizard: the best suggestion once loaded, else the welcome template and a blank workflow. */
+export function FirstWorkflowChoices({
+    placement = 'ready',
+}: {
+    placement?: FirstWorkflowChoicesPlacement
+}): JSX.Element {
+    const { offersDataSuggestions } = useValues(emailDomainLogic)
+    const prefix = DATA_ATTR_PREFIX[placement]
+
+    // The suggestions logic loads on mount, so it only mounts when the organization allows AI processing.
+    return offersDataSuggestions ? <ChoicesWithSuggestions prefix={prefix} /> : <TemplateChoices prefix={prefix} />
+}
+
+function ChoicesWithSuggestions({ prefix }: { prefix: string }): JSX.Element {
     const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface: SURFACE }))
     const [skipped, setSkipped] = useState(false)
 
     if (skipped) {
         return (
-            <TemplateChoices>
+            <TemplateChoices prefix={prefix}>
                 <LemonButton
                     type="tertiary"
                     size="small"
                     className="self-center"
                     onClick={() => setSkipped(false)}
-                    data-attr="email-domain-back-to-suggestions"
+                    data-attr={`${prefix}-back-to-suggestions`}
                 >
                     Back to the suggestions
                 </LemonButton>
@@ -47,15 +61,23 @@ function ChoicesWithSuggestions(): JSX.Element {
     // Until suggestions load, and when none come back, the welcome template stays the first choice.
     if (generating || cards.length === 0) {
         return (
-            <TemplateChoices>
+            <TemplateChoices prefix={prefix}>
                 <WorkflowDataSuggestions surface={SURFACE} />
             </TemplateChoices>
         )
     }
-    return <SuggestedChoices cards={cards} onSkip={() => setSkipped(true)} />
+    return <SuggestedChoices prefix={prefix} cards={cards} onSkip={() => setSkipped(true)} />
 }
 
-function SuggestedChoices({ cards, onSkip }: { cards: SuggestionCard[]; onSkip: () => void }): JSX.Element {
+function SuggestedChoices({
+    prefix,
+    cards,
+    onSkip,
+}: {
+    prefix: string
+    cards: SuggestionCard[]
+    onSkip: () => void
+}): JSX.Element {
     const logic = workflowDataSuggestionsLogic({ surface: SURFACE })
     const { buildingKey } = useValues(logic)
     const { reportCardsShown } = useActions(logic)
@@ -89,7 +111,7 @@ function SuggestedChoices({ cards, onSkip }: { cards: SuggestionCard[]; onSkip: 
                         type="tertiary"
                         size="small"
                         onClick={() => setExpanded(true)}
-                        data-attr="email-domain-show-more-suggestions"
+                        data-attr={`${prefix}-show-more-suggestions`}
                     >
                         Show {others.length} more {others.length === 1 ? 'suggestion' : 'suggestions'}
                     </LemonButton>
@@ -99,7 +121,7 @@ function SuggestedChoices({ cards, onSkip }: { cards: SuggestionCard[]; onSkip: 
                     size="small"
                     onClick={onSkip}
                     disabledReason={buildingKey ? 'Wait until the suggested workflow is built' : undefined}
-                    data-attr="email-domain-skip-suggestions"
+                    data-attr={`${prefix}-skip-suggestions`}
                 >
                     Start without a suggestion
                 </LemonButton>
@@ -108,11 +130,11 @@ function SuggestedChoices({ cards, onSkip }: { cards: SuggestionCard[]; onSkip: 
     )
 }
 
-function TemplateChoices({ children }: { children?: ReactNode }): JSX.Element {
+function TemplateChoices({ prefix, children }: { prefix: string; children?: ReactNode }): JSX.Element {
     return (
-        <div className="flex flex-col gap-5">
-            <CreateWelcomeWorkflowAction data-attr="email-domain-create-welcome-workflow" />
-            <WorkflowTemplateBlankCard data-attr="email-domain-create-blank-workflow" />
+        <div className="flex flex-col gap-5" data-attr={`${prefix}-workflow-choices`}>
+            <CreateWelcomeWorkflowAction data-attr={`${prefix}-create-welcome-workflow`} />
+            <WorkflowTemplateBlankCard data-attr={`${prefix}-create-blank-workflow`} />
             {children}
         </div>
     )

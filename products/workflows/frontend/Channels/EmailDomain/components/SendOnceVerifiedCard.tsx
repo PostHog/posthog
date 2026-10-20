@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { emailDomainSenderLogic } from '../emailDomainSenderLogic'
 import { HedgehogMailbox } from '../hoggies'
-import { CreateWelcomeWorkflowAction } from './CreateWelcomeWorkflowAction'
+import { FirstWorkflowChoices } from './FirstWorkflowChoices'
 
 export function SendOnceVerifiedCard(): JSX.Element {
     const { domain } = useValues(emailDomainSenderLogic)
@@ -23,7 +23,7 @@ export function SendOnceVerifiedCard(): JSX.Element {
                     </p>
                 </div>
             </div>
-            <CreateWelcomeWorkflowAction data-attr="email-domain-verifying-create-welcome-workflow" />
+            <FirstWorkflowChoices placement="verifying" />
             <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm">
                 <Link to={urls.workflows()} data-attr="email-domain-verifying-go-to-workflows">
                     Go to workflows

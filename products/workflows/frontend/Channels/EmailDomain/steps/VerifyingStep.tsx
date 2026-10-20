@@ -8,7 +8,8 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { AgentSetupButton } from '../components/AgentSetupButton'
 import { BigAction } from '../components/BigAction'
 import { DnsHostLink } from '../components/DnsHostLink'
-import { DnsRecordRows, RECORD_KIND_LABEL } from '../components/DnsRecordRows'
+import { RECORD_KIND_LABEL } from '../components/DnsRecordRows'
+import { DnsRecordsSummary } from '../components/DnsRecordsSummary'
 import { StepHeading } from '../components/StepHeading'
 import { VerificationStepsStrip } from '../components/VerificationStepsStrip'
 import { emailDomainAutoConfigureLogic } from '../emailDomainAutoConfigureLogic'
@@ -163,7 +164,7 @@ export function VerifyingStep(): JSX.Element {
                 </LemonBanner>
             )}
             <Actions />
-            <DnsRecordRows records={records} missing={missingRecords} showStatus />
+            <DnsRecordsSummary missing={missingRecords} needsAttention={stuck || temporaryFailure} />
         </div>
     )
 }

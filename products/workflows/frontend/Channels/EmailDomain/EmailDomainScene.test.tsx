@@ -155,6 +155,11 @@ describe('EmailDomainScene', () => {
         expectStep('Checking your settings…')
         expectProgress('8 of 8 found')
         expect(element('email-domain-verifying-create-welcome-workflow')).toBeInTheDocument()
+        expect(element('email-domain-verifying-create-blank-workflow')).toBeInTheDocument()
+        expect(screen.queryByText('Proves you own the domain')).not.toBeInTheDocument()
+        click('email-domain-dns-records')
+        await flush()
+        expect(screen.getByText('Proves you own the domain')).toBeInTheDocument()
 
         backend.verifyDomain(DOMAIN)
         await flush(POLL_MS)
@@ -223,7 +228,7 @@ describe('EmailDomainScene', () => {
         expectStep(/You can send from/)
     })
 
-    it('replaces the template with workflows suggested from the data, loaded while DNS was checked', async () => {
+    it('replaces the template with workflows suggested from the data, from the wait for DNS to the last step', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         const shownEvents = (): unknown[][] =>
             capture.mock.calls.filter(([event]) => event === 'workflows data suggestions shown')
@@ -236,8 +241,10 @@ describe('EmailDomainScene', () => {
         ])
         await open(urls.workflowsEmailDomain(SENDER_ID))
         expectStep('Checking your settings…')
-        expect(screen.queryByText('Welcome new teammates')).not.toBeInTheDocument()
-        expect(shownEvents()).toHaveLength(0)
+        expect(screen.getByText('Welcome new teammates')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="email-domain-verifying-create-welcome-workflow"]')).toBeNull()
+        expect(element('email-domain-verifying-create-blank-workflow')).toBeInTheDocument()
+        expect(shownEvents()).toHaveLength(1)
 
         backend.verifyDomain(DOMAIN)
         await flush(POLL_MS)
@@ -248,10 +255,8 @@ describe('EmailDomainScene', () => {
         expect(document.querySelector('[data-attr="email-domain-create-blank-workflow"]')).toBeNull()
         expect(backend.requestsTo('data_suggestions_generate')).toHaveLength(1)
         expect(shownEvents()).toEqual([
-            [
-                'workflows data suggestions shown',
-                expect.objectContaining({ surface: 'email_domain_wizard', stages: ['onboarding'] }),
-            ],
+            ['workflows data suggestions shown', expect.objectContaining({ surface: 'email_domain_wizard' })],
+            ['workflows data suggestions shown', expect.objectContaining({ surface: 'email_domain_wizard' })],
         ])
 
         expect(screen.queryByText('Nudge trials before they end')).not.toBeInTheDocument()
