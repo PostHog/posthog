@@ -116,7 +116,15 @@ export const canvasPickerLogic = kea<canvasPickerLogicType>([
         search: ['', { setSearch: (_: string, { search }: { search: string }) => search }],
         hasLoadedOptions: [false, { loadOptionsSuccess: () => true }],
         canvasOptionsFailed: [false, { loadOptions: () => false, loadOptionsFailure: () => true }],
-        selectedCanvasFailed: [false, { loadSelectedCanvas: () => false, loadSelectedCanvasFailure: () => true }],
+        selectedCanvasFailed: [
+            false,
+            {
+                // Picking a canvas starts fresh, so an earlier failure cannot stick to a canvas that loaded fine.
+                ensureSelectedLoaded: () => false,
+                loadSelectedCanvas: () => false,
+                loadSelectedCanvasFailure: () => true,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({

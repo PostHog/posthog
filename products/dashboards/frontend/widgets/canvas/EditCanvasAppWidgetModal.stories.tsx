@@ -8,7 +8,8 @@ import type { DashboardWidgetEditModalProps } from '../registry'
 import { EditCanvasAppWidgetModal } from './EditCanvasAppWidgetModal'
 
 const DEFAULT_CONFIG = canvasAppWidgetConfigSchema.parse({}) as Record<string, unknown>
-const CANVAS_ID = '11111111-1111-1111-1111-111111111111'
+// Must pass z.uuid(), or the config parser drops it and the story renders with no canvas selected.
+const CANVAS_ID = '0192f1c4-7b2e-7d3a-9f00-123456789abc'
 
 const sampleCanvas = {
     id: CANVAS_ID,
