@@ -90,6 +90,34 @@ Invalid configuration produces a warning and skips this destination; Braintrust 
 An upload failure also warns without changing the evaluation's score gate.
 The final summary shows a PostHog results link only after a successful offline upload; otherwise it shows the upload status.
 
+### Testing uploads against local PostHog
+
+Set `POSTHOG_OFFLINE_EVAL_HOST=http://localhost:8010` and use a personal API key created in that local instance.
+HTTP is accepted only for `localhost`, `127.0.0.1`, and `::1`; other hosts require HTTPS.
+The eval harness's temporary test database is separate from the development instance receiving uploads.
+
+The suite catalogs contain production project and scorer-version IDs. To use local scorers without editing those catalogs, set
+`POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG=.env.local.offline-evals.json` in `.env.local`. The JSON file selects a local project and maps
+each catalog scorer-version UUID to a version created in that local project:
+
+```json
+{
+  "project_id": 2,
+  "scorer_versions": {
+    "00000000-0000-4000-8000-000000000002": "00000000-0000-4000-8000-000000000003"
+  }
+}
+```
+
+The UUIDs above are placeholders. Create the needed scorers under **Evaluations → Scorers**, matching each catalog metric's kind,
+and use their immutable version IDs. Include every scorer used by the selected suites; a single file can cover multiple suites.
+The file is gitignored by the `.env*` rule. Local configuration is accepted only with a loopback upload host.
+An unreadable, invalid, or incomplete file disables the upload with an error; it never falls back to the production catalog.
+
+Run through `hogli evals` to load `.env.local`; existing shell variables take precedence.
+For PostHog-only testing, select suites declaring `NO_SEND_LOGS = True`, such as Feature Flags or Dashboards.
+Set `OPT_OUT_CAPTURE=1` to suppress ordinary SDK/trace capture while retaining explicit offline-result uploads.
+
 ### Scorer and experiment tags
 
 Score definitions and experiment runs use the same team and component tags:

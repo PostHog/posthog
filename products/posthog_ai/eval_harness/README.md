@@ -419,6 +419,9 @@ Agent and judge trace capture remains available. `no_send_logs=True` suppresses 
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal key with `offline_evaluation_ingestion:write`, `evaluation:write`, and access to project `2` to upload and tag results. An ingestion-only personal or project secret key can upload results, but tagging will warn and leave the run untagged.
 The [SQL suite definition](../evals/sql/eval_sql.py) pins that project ID and all seven immutable scorer version UUIDs in code.
 `POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
+For development, use `http://localhost:8010` with a local API key and set `POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG`
+to a gitignored JSON file containing the local project ID and scorer-version mappings.
+See [local upload setup](../../../docs/internal/ai-offline-evaluation-reporting.md#testing-uploads-against-local-posthog).
 The [suite configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#configured-offline-experiment-suites) lists the metrics and explains local and CI key configuration.
 Delivery runs in a bounded background queue after local results are saved. Prepared uploads stay in memory, with up to two uploads running concurrently, at most 32 queued or active uploads, and a 60-second deadline per active upload.
 A completed upload records its results link before tagging begins. Tagging has a separate five-second deadline; failures, timeouts, and shutdown interruptions only warn and preserve the successful upload status.
