@@ -5072,7 +5072,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_201_CREATED,
         )
 
-    def _unusable_cohort_id(self, cohort_state: str) -> int | str:
+    def _unusable_cohort_id(self, cohort_state: str) -> int | float | str:
         if cohort_state == "missing":
             return (Cohort.objects.order_by("-id").values_list("id", flat=True).first() or 0) + 1
         if cohort_state == "malformed":
@@ -5081,6 +5081,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # A live cohort with id 1 is what a boolean value would wrongly resolve to.
             Cohort.objects.update_or_create(pk=1, defaults={"team": self.team, "name": "First cohort"})
             return True
+        if cohort_state == "fractional":
+            # int() would truncate the value to this live cohort's id.
+            return Cohort.objects.create(team=self.team, name="Live cohort").id + 0.5
         return Cohort.objects.create(
             team=self.team,
             name=None if cohort_state == "deleted_unnamed" else "Retired cohort",
@@ -5094,12 +5097,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ).id
 
     @staticmethod
-    def _cohort_condition_filters(cohort_id: int | str) -> dict[str, Any]:
+    def _cohort_condition_filters(cohort_id: int | float | str) -> dict[str, Any]:
         return {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}]}
 
     @staticmethod
-    def _unusable_cohort_detail(cohort_state: str, cohort_id: int | str) -> str:
-        if cohort_state in ("missing", "malformed", "boolean"):
+    def _unusable_cohort_detail(cohort_state: str, cohort_id: int | float | str) -> str:
+        if cohort_state in ("missing", "malformed", "boolean", "fractional"):
             return f"Cohort with id {cohort_id} does not exist"
         label = (
             f"Cohort with id {cohort_id}"
@@ -5111,6 +5114,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @parameterized.expand(
         [
             ("missing_post", "missing", "post"),
+            ("fractional_post", "fractional", "post"),
             ("deleted_post", "deleted", "post"),
             ("deleted_patch", "deleted", "patch"),
             ("deleted_unnamed_post", "deleted_unnamed", "post"),
@@ -7362,7 +7366,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             filters={
                 "groups": [
                     {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]},
-                    {"properties": [{"key": "id", "type": "cohort", "value": str(cohort.pk), "cohort_deleted": True}]},
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": str(cohort.pk),
+                                "cohort_deleted": True,
+                                "cohort_missing": True,
+                            }
+                        ]
+                    },
                     {"properties": [{"key": "id", "type": "cohort", "value": deleted_cohort.pk}]},
                     {"properties": [{"key": "id", "type": "cohort", "value": nameless_deleted_cohort.pk}]},
                     {"properties": [{"key": "id", "type": "cohort", "value": other_project_cohort.pk}]},
@@ -7400,6 +7414,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             return response.json()["filters"]
 
+        missing = {"cohort_name": None, "cohort_deleted": True, "cohort_missing": True}
         self.assertEqual(
             [group["properties"][0] for group in get_filters(flag.id)["groups"]],
             [
@@ -7416,31 +7431,19 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "key": "id",
                     "type": "cohort",
                     "value": nameless_deleted_cohort.pk,
-                    "cohort_name": "",
-                    "cohort_deleted": True,
-                },
-                {
-                    "key": "id",
-                    "type": "cohort",
-                    "value": other_project_cohort.pk,
                     "cohort_name": None,
                     "cohort_deleted": True,
                 },
+                {"key": "id", "type": "cohort", "value": other_project_cohort.pk, **missing},
             ],
         )
         self.assertEqual(
             [group["properties"][0] for group in get_filters(malformed_flag.id)["groups"]],
             [
-                {
-                    "key": "id",
-                    "type": "cohort",
-                    "value": "not-a-cohort-id",
-                    "cohort_name": None,
-                    "cohort_deleted": True,
-                },
-                {"key": "id", "type": "cohort", "value": True, "cohort_name": None, "cohort_deleted": True},
-                {"key": "id", "type": "cohort", "value": cohort.pk + 0.5, "cohort_name": None, "cohort_deleted": True},
-                {"key": "id", "type": "cohort", "value": "9" * 5000, "cohort_name": None, "cohort_deleted": True},
+                {"key": "id", "type": "cohort", "value": "not-a-cohort-id", **missing},
+                {"key": "id", "type": "cohort", "value": True, **missing},
+                {"key": "id", "type": "cohort", "value": cohort.pk + 0.5, **missing},
+                {"key": "id", "type": "cohort", "value": "9" * 5000, **missing},
             ],
         )
         self.assertEqual(

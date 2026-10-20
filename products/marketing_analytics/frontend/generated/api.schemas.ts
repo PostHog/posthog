@@ -227,6 +227,8 @@ export interface SessionPropertyFilterApi {
 export interface CohortPropertyFilterApi {
     /** Set by the feature flag API when the cohort is deleted or does not exist. */
     cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null

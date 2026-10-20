@@ -631,6 +631,12 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = () => zo
                                                 .describe(
                                                     'Set by the feature flag API when the cohort is deleted or does not exist.'
                                                 ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
@@ -2518,6 +2524,12 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = () => zo
                                                 .describe(
                                                     'Set by the feature flag API when the cohort is deleted or does not exist.'
                                                 ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
@@ -4190,6 +4202,12 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = () => zo
                                                 .optional()
                                                 .describe(
                                                     'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
                                                 ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
@@ -6077,6 +6095,12 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = () => zo
                                                 .describe(
                                                     'Set by the feature flag API when the cohort is deleted or does not exist.'
                                                 ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
@@ -7751,6 +7775,12 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = () => zo
                                                 .optional()
                                                 .describe(
                                                     'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
                                                 ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
@@ -9638,6 +9668,12 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = () => zo
                                                 .optional()
                                                 .describe(
                                                     'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
                                                 ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
@@ -11543,6 +11579,12 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.objec
                                         .describe(
                                             'Set by the feature flag API when the cohort is deleted or does not exist.'
                                         ),
+                                    cohort_missing: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                        ),
                                     cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                     key: zod
                                         .literal('id')
@@ -13422,6 +13464,12 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.objec
                                         .describe(
                                             'Set by the feature flag API when the cohort is deleted or does not exist.'
                                         ),
+                                    cohort_missing: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                        ),
                                     cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                     key: zod
                                         .literal('id')
@@ -15094,6 +15142,12 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.objec
                                         .optional()
                                         .describe(
                                             'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                        ),
+                                    cohort_missing: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
                                         ),
                                     cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                     key: zod
@@ -16970,6 +17024,12 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.objec
                                         .describe(
                                             'Set by the feature flag API when the cohort is deleted or does not exist.'
                                         ),
+                                    cohort_missing: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                        ),
                                     cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                     key: zod
                                         .literal('id')
@@ -18644,6 +18704,12 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.objec
                                         .optional()
                                         .describe(
                                             'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                        ),
+                                    cohort_missing: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
                                         ),
                                     cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                     key: zod
@@ -20520,6 +20586,12 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.objec
                                         .optional()
                                         .describe(
                                             'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                        ),
+                                    cohort_missing: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
                                         ),
                                     cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                     key: zod

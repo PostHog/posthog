@@ -126,13 +126,13 @@ describe('FeatureFlagDeletedCohortBanner', () => {
         },
         {
             state: 'a flag whose deleted cohort has no name',
-            flag: buildFlag({ active: true }, { cohort_name: '' }),
+            flag: buildFlag({ active: true }, { cohort_name: undefined }),
             says: /^Cohort ID 5 was deleted\. .* Restore the cohort or update the release conditions to remove it\.$/,
             showsEdit: true,
         },
         {
             state: 'a flag whose cohort no longer exists',
-            flag: buildFlag({ active: true }, { cohort_name: undefined }),
+            flag: buildFlag({ active: true }, { cohort_name: undefined, cohort_missing: true }),
             says: /^Cohort ID 5 was deleted\. The flag fails to evaluate for anyone who reaches a release condition that targets it\. Update the release conditions to remove it\.$/,
             showsEdit: true,
         },

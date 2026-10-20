@@ -327,6 +327,10 @@ class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
         read_only=True,
         help_text="True when the referenced cohort is deleted or does not exist. Injected on read and ignored on write.",
     )
+    cohort_missing = serializers.BooleanField(
+        read_only=True,
+        help_text="True when no cohort with the referenced id exists in the project. Injected on read and ignored on write.",
+    )
     group_key_names = serializers.JSONField(
         required=False,
         allow_null=True,

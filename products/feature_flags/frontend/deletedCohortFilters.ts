@@ -4,12 +4,9 @@ import { CohortPropertyFilter, FeatureFlagConfig } from '~/types'
 
 import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 
-/**
- * Whether a condition's deleted cohort still exists, so that its page can restore it.
- * The flag API sends a null name only for a cohort that no longer exists. A cohort without a name sends an empty string.
- */
+/** Whether a condition's deleted cohort still exists, so that its page can restore it. */
 export function cohortCanBeRestored(property: CohortPropertyFilter): boolean {
-    return property.cohort_name != null
+    return !property.cohort_missing
 }
 
 /** The release conditions that target a deleted or missing cohort, one per cohort. */

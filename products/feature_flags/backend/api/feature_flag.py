@@ -1182,6 +1182,27 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[_FlagFilterProperty]:
                 )
 
 
+def _condition_cohort_id(value: Any) -> int | None:
+    """Return the cohort id a condition's value names, or None when the value is not an id."""
+    # The Rust flag evaluator (PropertyFilter::get_cohort_id) accepts only a JSON integer or a string of
+    # digits, and only when the id fits in 32 bits. It rejects a float such as 42.5, which int() would
+    # truncate to a live cohort's id.
+    # A JSON true is the Python integer 1, so the bool check must come before the int check.
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        if not re.fullmatch(r"[+-]?[0-9]+", value):
+            return None
+        try:
+            value = int(value)
+        except ValueError:
+            # Python refuses to convert a string with more digits than sys.get_int_max_str_digits().
+            return None
+    if isinstance(value, int) and -(2**31) <= value < 2**31:
+        return value
+    return None
+
+
 def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     """Return the cohort a release condition targets, or raise if the flag cannot evaluate it.
 
@@ -1189,12 +1210,9 @@ def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     deleted cohort therefore fails the whole flag. The lookup includes deleted cohorts so that the
     error can name the cohort.
     """
-    try:
-        # A JSON true is the Python integer 1, so the lookup would match the cohort with id 1.
-        if isinstance(cohort_id, bool):
-            raise TypeError(cohort_id)
-        cohort = Cohort.objects.get(pk=cast(str | int, cohort_id), team__project_id=project_id)
-    except (Cohort.DoesNotExist, ValueError, TypeError):
+    parsed_id = _condition_cohort_id(cohort_id)
+    cohort = Cohort.objects.filter(pk=parsed_id, team__project_id=project_id).first() if parsed_id is not None else None
+    if cohort is None:
         raise serializers.ValidationError(
             detail=f"Cohort with id {cohort_id} does not exist",
             code="cohort_does_not_exist",
@@ -1340,27 +1358,6 @@ CONDITION_COHORTS_CONTEXT_KEY = "feature_flag_condition_cohorts"
 class _ConditionCohort:
     name: str | None
     deleted: bool
-
-
-def _condition_cohort_id(value: Any) -> int | None:
-    """Return the cohort id a condition's value names, or None when the value is not an id."""
-    # The Rust flag evaluator (PropertyFilter::get_cohort_id) accepts only a JSON integer or a string of
-    # digits, and only when the id fits in 32 bits. It rejects a float such as 42.5, which int() would
-    # truncate to a live cohort's id.
-    # A JSON true is the Python integer 1, so the bool check must come before the int check.
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, str):
-        if not re.fullmatch(r"[+-]?[0-9]+", value):
-            return None
-        try:
-            value = int(value)
-        except ValueError:
-            # Python refuses to convert a string with more digits than sys.get_int_max_str_digits().
-            return None
-    if isinstance(value, int) and -(2**31) <= value < 2**31:
-        return value
-    return None
 
 
 def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> dict[int, _ConditionCohort]:
@@ -3075,16 +3072,16 @@ class FeatureFlagSerializer(
         for cohort_prop in cohort_props:
             cohort_id = _condition_cohort_id(cohort_prop.get("value"))
             cohort = cohorts.get(cohort_id) if cohort_id is not None else None
-            # The frontend reads a null name as a cohort that no longer exists. An existing cohort
-            # therefore sends a string, even an empty one.
-            cohort_prop["cohort_name"] = (cohort.name or "") if cohort else None
+            cohort_prop["cohort_name"] = cohort.name if cohort else None
             # The flag evaluator loads only non-deleted cohorts. A condition on a deleted or missing
-            # cohort fails the flag. A client that echoes the key back can store it, and removing the
+            # cohort fails the flag. A client that echoes these keys back can store them. Removing a
             # key here hides that stale value on a live cohort.
-            if cohort is None or cohort.deleted:
-                cohort_prop["cohort_deleted"] = True
-            else:
-                cohort_prop.pop("cohort_deleted", None)
+            markers = {"cohort_deleted": cohort is None or cohort.deleted, "cohort_missing": cohort is None}
+            for key, marked in markers.items():
+                if marked:
+                    cohort_prop[key] = True
+                else:
+                    cohort_prop.pop(key, None)
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)

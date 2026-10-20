@@ -394,6 +394,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                 .describe(
                                                     'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
                                                 ),
+                                            cohort_missing: zod
+                                                .boolean()
+                                                .optional()
+                                                .describe(
+                                                    'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                                ),
                                         }),
                                         zod.object({
                                             key: zod
@@ -1328,6 +1334,12 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                                                 .optional()
                                                 .describe(
                                                     'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                                ),
+                                            cohort_missing: zod
+                                                .boolean()
+                                                .optional()
+                                                .describe(
+                                                    'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
                                                 ),
                                         }),
                                         zod.object({
@@ -2265,6 +2277,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 .optional()
                                                 .describe(
                                                     'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                                ),
+                                            cohort_missing: zod
+                                                .boolean()
+                                                .optional()
+                                                .describe(
+                                                    'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
                                                 ),
                                         }),
                                         zod.object({

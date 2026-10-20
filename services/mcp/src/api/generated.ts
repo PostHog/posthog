@@ -3508,6 +3508,8 @@ export namespace Schemas {
     export interface CohortPropertyFilter {
       /** Set by the feature flag API when the cohort is deleted or does not exist. */
       cohort_deleted?: boolean | null;
+      /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+      cohort_missing?: boolean | null;
       cohort_name?: string | null;
       key?: 'id';
       label?: string | null;
@@ -44418,6 +44420,8 @@ export namespace Schemas {
       value: unknown;
       /** Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write. */
       cohort_deleted?: boolean;
+      /** Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write. */
+      cohort_missing?: boolean;
     }
 
     /**

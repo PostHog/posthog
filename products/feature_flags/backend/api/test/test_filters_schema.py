@@ -332,7 +332,9 @@ class TestFiltersSchema(SimpleTestCase):
         filters = {
             "groups": [
                 {
-                    "properties": [{**VALID_PROPERTY, "property_extra": {"a": 1}, "cohort_deleted": True}],
+                    "properties": [
+                        {**VALID_PROPERTY, "property_extra": {"a": 1}, "cohort_deleted": True, "cohort_missing": True}
+                    ],
                     "group_extra": "g",
                 }
             ],
@@ -355,6 +357,7 @@ class TestFiltersSchema(SimpleTestCase):
         assert validated["groups"][0]["group_extra"] == "g"
         assert validated["groups"][0]["properties"][0]["property_extra"] == {"a": 1}
         assert "cohort_deleted" not in validated["groups"][0]["properties"][0]
+        assert "cohort_missing" not in validated["groups"][0]["properties"][0]
         assert validated["multivariate"]["multivariate_extra"] is True
         assert validated["multivariate"]["variants"][0]["variant_extra"] == [1]
         assert validated["holdout"]["holdout_extra"] == "h"

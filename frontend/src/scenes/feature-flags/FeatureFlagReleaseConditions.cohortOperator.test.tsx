@@ -106,13 +106,16 @@ describe('feature flag release conditions cohort operator', () => {
         })
     })
 
-    it('keeps a deleted cohort marked when the operator changes', async () => {
+    it.each([
+        { state: 'a deleted cohort', markers: { cohort_deleted: true } },
+        { state: 'a missing cohort', markers: { cohort_deleted: true, cohort_missing: true } },
+    ])('keeps $state marked when the operator changes', async ({ markers }) => {
         const onChange = jest.fn()
         render(
             <Provider>
                 <FeatureFlagReleaseConditions
                     id="1234"
-                    filters={buildFilters({ ...cohortFilter, cohort_deleted: true })}
+                    filters={buildFilters({ ...cohortFilter, ...markers })}
                     onChange={onChange}
                 />
             </Provider>
@@ -128,7 +131,7 @@ describe('feature flag release conditions cohort operator', () => {
             expect(onChange.mock.lastCall?.[0].groups[0].properties[0]).toMatchObject({
                 operator: PropertyOperator.In,
                 cohort_name: 'Power Users',
-                cohort_deleted: true,
+                ...markers,
             })
         })
     })

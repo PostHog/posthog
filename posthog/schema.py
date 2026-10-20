@@ -5392,6 +5392,10 @@ class CohortPropertyFilter(BaseModel):
         default=None,
         description=("Set by the feature flag API when the cohort is deleted or does not exist."),
     )
+    cohort_missing: bool | None = Field(
+        default=None,
+        description=("Set by the feature flag API when the cohort does not exist, so it cannot be restored."),
+    )
     cohort_name: str | None = None
     key: Literal["id"] = "id"
     label: str | None = None
