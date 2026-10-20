@@ -55,6 +55,7 @@ The axis charts need a parent like `<div className="flex h-[280px] flex-col">`; 
 | `FunnelChart`                         | Funnel steps. `funnelFromCounts` builds its input from step counts                                                                                            |
 | `ScatterChart`                        | Two numeric axes. Each series takes `points`, not `data`                                                                                                      |
 | `Heatmap`                             | A grid of values, such as activity by day and hour. Takes `xLabels`, `yLabels` and `cells[row][col]`                                                          |
+| `SankeyChart`                         | Flow between stages, such as referrer to device to browser. Takes `nodes` and `links` keyed by id, not `series`. The graph must be acyclic                    |
 | `BoxPlot`                             | Distributions                                                                                                                                                 |
 | `SlopeChart`                          | Change between two points                                                                                                                                     |
 | `Sparkline`                           | A small trend with no axes. Takes `data` and a `height` prop instead of a sized parent. Its `fill` prop means "fill a flex parent's height", not an area fill |
