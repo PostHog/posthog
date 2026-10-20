@@ -533,8 +533,8 @@ importers:
         specifier: ^3.0.5
         version: 3.0.5
       posthog-js-lite:
-        specifier: 4.12.1
-        version: 4.12.1
+        specifier: 4.13.0
+        version: 4.13.0
       sass:
         specifier: ^1.26.2
         version: 1.56.0
@@ -5816,8 +5816,8 @@ importers:
         specifier: ^0.577.0
         version: 0.577.0(react@18.3.1)
       posthog-js-lite:
-        specifier: 4.12.1
-        version: 4.12.1
+        specifier: 4.13.0
+        version: 4.13.0
       posthog-node:
         specifier: ^5.56.2
         version: 5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
@@ -11002,9 +11002,6 @@ packages:
   '@posthog/browser-common@0.9.5':
     resolution: {integrity: sha512-oXnBgZvM8UQ84IcBLfGP0WSGd9rA0PCGR37H8Pw0NszJRwxwbJnFXIUih0pvI/ze2eGmzkIEC9i3SwC+bMAgjQ==}
 
-  '@posthog/core@1.51.2':
-    resolution: {integrity: sha512-z3fPR/RdOgTYWdHQnZZm81CCgljDxsrMsSz72Jpd2vJAtycsRYKOlMXdP8+55yM3WYeVU1wOyF9BldWsIABr+A==}
-
   '@posthog/core@1.59.1':
     resolution: {integrity: sha512-P39YgzQVDh6oz6wAzQXEnoHgTYpM7gifonmVKq1scAJco79h31XmmNVurRq9tTmmyIrr1uX8FHT0riCsyfV9AQ==}
 
@@ -11058,9 +11055,6 @@ packages:
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
-
-  '@posthog/types@1.412.4':
-    resolution: {integrity: sha512-Q7lV9O9TbLngjOYw1ucm3bS3tn48xb1B4ZQdDy8gv7yfKe99hCTeWYG4xZ36nJM80VxpTF9TriiJt5hngDOkBg==}
 
   '@posthog/types@1.416.0':
     resolution: {integrity: sha512-0/9+02s/0uDyrH4G/qUg1yyl6gXUg8Uuxw/PlDad3KLzo9FFS9zS/kAQaEshx/saVGupj1aAy/4EUBxWisBogw==}
@@ -20602,8 +20596,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  posthog-js-lite@4.12.1:
-    resolution: {integrity: sha512-gZGdk1GZlfs042phwlQCX44gNanhkwZFEoEqkOtKc/YWzSokQcvNTDss8fpnvfe083KmRRHnjHosJOv3n8uEaA==}
+  posthog-js-lite@4.13.0:
+    resolution: {integrity: sha512-BGbyrKH4Xh8rxrfyYpleQ+6GWmoT2z+5sw9/SudHLfK7bYbh4HU3IAKbvO4ZTGricSYw/Em5jtN08BIsKq7ZXw==}
 
   posthog-js@1.438.12:
     resolution: {integrity: sha512-hjhvrtqbk6pFlbtNEGk0FrWKKFdeXe/WWA/LppN0f+uDoHKR9/SZJOxUHSVCGYbGTJvNRoDjjQvZuTcq4oKSlg==}
@@ -30530,10 +30524,6 @@ snapshots:
       '@posthog/core': 1.59.1
       '@posthog/types': 1.416.0
 
-  '@posthog/core@1.51.2':
-    dependencies:
-      '@posthog/types': 1.412.4
-
   '@posthog/core@1.59.1':
     dependencies:
       '@posthog/types': 1.416.0
@@ -30580,8 +30570,6 @@ snapshots:
       '@types/react': 18.3.27
 
   '@posthog/siphash@1.1.1': {}
-
-  '@posthog/types@1.412.4': {}
 
   '@posthog/types@1.416.0': {}
 
@@ -42783,9 +42771,9 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  posthog-js-lite@4.12.1:
+  posthog-js-lite@4.13.0:
     dependencies:
-      '@posthog/core': 1.51.2
+      '@posthog/core': 1.59.1
 
   posthog-js@1.438.12(@types/react@18.3.27)(react@18.3.1):
     dependencies:

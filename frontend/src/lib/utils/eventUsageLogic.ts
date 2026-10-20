@@ -10,6 +10,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+import type { InstallationErrorKind } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -1653,6 +1654,7 @@ export interface eventUsageLogicActions {
     reportWizardSyncSessionFinished: (props: {
         completedTaskCount: number
         elapsedSeconds: number
+        errorKind: InstallationErrorKind | null
         outcome: string
         skillId: string
         taskCount: number
@@ -1660,6 +1662,7 @@ export interface eventUsageLogicActions {
     }) => {
         completedTaskCount: number
         elapsedSeconds: number
+        errorKind: 'usage_limit' | null
         outcome: string
         skillId: string
         taskCount: number
@@ -2001,6 +2004,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             workflowId: string
             skillId: string
             outcome: string
+            errorKind: InstallationErrorKind | null
             taskCount: number
             completedTaskCount: number
             elapsedSeconds: number
@@ -2744,6 +2748,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             workflowId,
             skillId,
             outcome,
+            errorKind,
             taskCount,
             completedTaskCount,
             elapsedSeconds,
@@ -2752,6 +2757,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 workflow_id: workflowId,
                 skill_id: skillId,
                 outcome,
+                error_kind: errorKind,
                 task_count: taskCount,
                 completed_task_count: completedTaskCount,
                 elapsed_seconds: elapsedSeconds,
