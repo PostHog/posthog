@@ -1,7 +1,7 @@
 //! The parity rules between the Node feed and the personhog feed: per key
 //! for a streaming comparison, over whole states for a gate.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use uuid::Uuid;
 
@@ -165,12 +165,14 @@ pub fn accounting_violations(feed: &FeedState) -> Vec<AccountingViolation> {
         .mappings()
         .map(|(key, mapping)| PersonKey::new(key.team_id, mapping.person_uuid))
         .collect();
+    let deleted = deleted_persons(feed);
     let mut violations = Vec::new();
     for person in feed.named_persons() {
         match feed.survivor_of(person) {
             Err(_) => violations.push(AccountingViolation::Loop { person }),
             Ok(survivor) => {
-                if !holders.contains(&PersonKey::new(person.team_id, survivor)) {
+                let survivor_key = PersonKey::new(person.team_id, survivor);
+                if !holders.contains(&survivor_key) && !deleted.contains(&survivor_key) {
                     violations.push(AccountingViolation::Unaccounted { person, survivor });
                 }
             }
@@ -192,6 +194,34 @@ pub fn accounting_violations(feed: &FeedState) -> Vec<AccountingViolation> {
     }
     violations.sort();
     violations
+}
+
+/// Only a delete writes a tombstone: both feeds publish the rows a merge
+/// moves as live rows under the target, so a missing merge event cannot
+/// look like a delete.
+fn deleted_persons(feed: &FeedState) -> HashSet<PersonKey> {
+    let mut highest_rows: HashMap<(&DistinctIdKey, Uuid), &Mapping> = HashMap::new();
+    for (key, row) in feed.history() {
+        highest_rows
+            .entry((key, row.person_uuid))
+            .and_modify(|highest| {
+                if row.version > highest.version {
+                    *highest = row;
+                }
+            })
+            .or_insert(row);
+    }
+    let mut deleted = HashSet::new();
+    let mut live = HashSet::new();
+    for ((key, person_uuid), row) in highest_rows {
+        let person = PersonKey::new(key.team_id, person_uuid);
+        if row.is_deleted {
+            deleted.insert(person);
+        } else {
+            live.insert(person);
+        }
+    }
+    &deleted - &live
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -422,6 +452,37 @@ mod tests {
         assert_eq!(
             compare_states(&tombstone_left_behind, &tombstone_left_behind),
             vec![]
+        );
+        let reused_after_delete = feed(
+            &[
+                ("a", 1, 0, false),
+                ("a", 2, 1, false),
+                ("a", 2, 2, true),
+                ("a", 3, 3, false),
+            ],
+            &[(1, 2)],
+        );
+        assert_eq!(
+            compare_states(&reused_after_delete, &reused_after_delete),
+            vec![]
+        );
+        let revived_then_moved = feed(
+            &[
+                ("a", 1, 0, false),
+                ("a", 1, 1, true),
+                ("a", 1, 2, false),
+                ("a", 2, 3, false),
+                ("b", 1, 1, true),
+                ("b", 4, 2, false),
+            ],
+            &[],
+        );
+        assert_eq!(
+            accounting_violations(&revived_then_moved),
+            vec![AccountingViolation::Unaccounted {
+                person: PersonKey::new(TEAM, uuid(1)),
+                survivor: uuid(1),
+            }]
         );
 
         let other_person = feed(&[("anon", 3, 0, false), ("user", 2, 0, false)], &[]);

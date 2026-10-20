@@ -252,6 +252,12 @@ impl FeedState {
             .map(|(key, history)| (key, history.latest()))
     }
 
+    pub fn history(&self) -> impl Iterator<Item = (&DistinctIdKey, &Mapping)> {
+        self.mappings
+            .iter()
+            .flat_map(|(key, history)| history.rows().map(move |row| (key, row)))
+    }
+
     pub fn merges(&self) -> impl Iterator<Item = (&PersonKey, Uuid)> {
         self.merged_into.iter().map(|(old, new)| (old, *new))
     }
