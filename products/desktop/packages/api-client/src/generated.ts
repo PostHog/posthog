@@ -3690,107 +3690,6 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         version?: (number | null) | undefined;
     };
-    export type FunnelCorrelationResultsType =
-        | "events"
-        | "properties"
-        | "event_with_properties";
-    export type CorrelationType = "success" | "failure";
-    export type EventDefinition = {
-        elements: Array<unknown>;
-        event: string;
-        properties: Record<string, unknown>;
-    };
-    export type EventOddsRatioSerialized = {
-        correlation_type: CorrelationType;
-        event: EventDefinition;
-        failure_count: number;
-        odds_ratio: number;
-        success_count: number;
-    };
-    export type FunnelCorrelationResult = {
-        events: Array<EventOddsRatioSerialized>;
-        skewed: boolean;
-    };
-    export type FunnelCorrelationResponse = {
-        columns?: (Array<unknown> | null) | undefined;
-        error?: (string | null) | undefined;
-        hasMore?: (boolean | null) | undefined;
-        hogql?: (string | null) | undefined;
-        limit?: (number | null) | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        offset?: (number | null) | undefined;
-        query_status?: (QueryStatus | null) | undefined;
-        resolved_compare_date_range?:
-            | (ResolvedDateRangeResponse | null)
-            | undefined;
-        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
-        results: FunnelCorrelationResult;
-        timings?: (Array<QueryTiming> | null) | undefined;
-        types?: (Array<unknown> | null) | undefined;
-        used_data_warehouse_sources?:
-            | (Array<DataWarehouseSourceUsage> | null)
-            | undefined;
-        warnings?:
-            | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
-              > | null)
-            | undefined;
-    };
-    export type FunnelCorrelationQuery = {
-        funnelCorrelationEventExcludePropertyNames?:
-            | (Array<string> | null)
-            | undefined;
-        funnelCorrelationEventNames?: (Array<string> | null) | undefined;
-        funnelCorrelationExcludeEventNames?: (Array<string> | null) | undefined;
-        funnelCorrelationExcludeNames?: (Array<string> | null) | undefined;
-        funnelCorrelationNames?: (Array<string> | null) | undefined;
-        funnelCorrelationType: FunnelCorrelationResultsType;
-        kind?: string | undefined;
-        response?: (FunnelCorrelationResponse | null) | undefined;
-        source: FunnelsActorsQuery;
-        version?: (number | null) | undefined;
-    };
-    export type FunnelCorrelationActorsQuery = {
-        funnelCorrelationPersonConverted?: (boolean | null) | undefined;
-        funnelCorrelationPersonEntity?:
-            | (EventsNode | ActionsNode | DataWarehouseNode | null)
-            | undefined;
-        funnelCorrelationPropertyValues?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
-        includeRecordings?: (boolean | null) | undefined;
-        kind?: string | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        response?: (ActorsQueryResponse | null) | undefined;
-        source: FunnelCorrelationQuery;
-        tags?: (QueryLogTags | null) | undefined;
-        version?: (number | null) | undefined;
-    };
     export type ExperimentEventExposureConfig = {
         event: string;
         kind?: string | undefined;
@@ -4441,7 +4340,6 @@ export namespace Schemas {
         source:
             | InsightActorsQuery
             | FunnelsActorsQuery
-            | FunnelCorrelationActorsQuery
             | ExperimentActorsQuery
             | StickinessActorsQuery
             | PathsV2ActorsQuery
@@ -20015,13 +19913,6 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         person_display_name_properties?: (Array<string> | null) | undefined;
-        /**
-         * A project and its settings, including the settings that live on its passthrough Team.
-         *
-         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
-         * onto /api/projects/ never loses a field.
-         */
-        correlation_config?: unknown | undefined;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
