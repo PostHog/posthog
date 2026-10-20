@@ -388,7 +388,8 @@ export function deliveryFailure(
     return {
       at: Date.parse(entry.timestamp ?? "") || 0,
       text: detail ? `${label}: ${detail}` : label,
-      sandboxGone: /^send_followup failed/.test(
+      // A hand-over the sandbox's agent server refused, or a sandbox the backend says has stopped (its time ran out).
+      sandboxGone: /^send_followup failed|sandbox has stopped/.test(
         params.detail?.replace(/^\w*Error: /, "") ?? "",
       ),
     };
