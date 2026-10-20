@@ -1577,7 +1577,7 @@ class Command(BaseCommand):
                     "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
                     "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
                     "$mcp_intent": session_intent,
-                    "$mcp_intent_source": rng.choices(["context_parameter", None], weights=[92, 8], k=1)[0],
+                    "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[92, 8], k=1)[0],
                     "$mcp_is_error": failure is not None,
                 }
                 if failure:
