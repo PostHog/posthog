@@ -157,6 +157,11 @@ class TestCodesceneSourceFanout:
             ("technical_debt", "TechnicalDebt", "result", "page_size", PageNumberPaginator),
             # Author statistics comes back as a bare array with no envelope and no pagination.
             ("author_statistics", "AuthorStatistics", None, None, SinglePagePaginator),
+            ("branch_statistics", "BranchStatistics", None, None, SinglePagePaginator),
+            ("commits", "Commits", "commits", "page_size", PageNumberPaginator),
+            # Commit activity is wrapped in an envelope but has no pagination.
+            ("commit_activity", "CommitActivity", "commit_activity_trend", None, SinglePagePaginator),
+            ("delta_analyses", "DeltaAnalyses", "delta_analyses", None, PageNumberPaginator),
         ]
     )
     def test_fanout_wiring(

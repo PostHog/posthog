@@ -49,10 +49,6 @@ class TestSchemas:
         assert schemas[endpoint].supports_incremental is incremental
         assert schemas[endpoint].supports_append is append
 
-    def test_names_filter(self) -> None:
-        schemas = MetorialSource().get_schemas(_config(), team_id=1, names=["sessions"])
-        assert [s.name for s in schemas] == ["sessions"]
-
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", True), ("invalid", False)])

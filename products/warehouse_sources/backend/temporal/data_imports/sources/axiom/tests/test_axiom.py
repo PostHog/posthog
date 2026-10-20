@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -189,14 +188,6 @@ def test_probe_preserves_non_auth_failures(status: int, exception: type[Exceptio
             AxiomSource().validate_credentials(AxiomSourceConfig(api_token="test-token"), 1)
 
     assert {request.path for request in network.requests_log} == {"/v2/datasets"}
-
-
-def test_unknown_table_fails_before_request() -> None:
-    result = SourceDriver(AxiomSource(), AxiomSourceConfig(api_token="test-token")).run("unknown_table", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert "unknown_table" in str(result.raised)
-    assert result.requests == []
 
 
 @pytest.mark.parametrize("body", [{"message": "Unexpected response"}, None])

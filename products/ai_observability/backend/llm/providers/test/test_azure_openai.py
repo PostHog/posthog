@@ -2,8 +2,15 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import httpx
+import openai
 from parameterized import parameterized
 
+from products.ai_observability.backend.llm.errors import (
+    AuthenticationError,
+    ClaudeDeploymentOnAzureOpenAIError,
+    ModelNotFoundError,
+    user_facing_error_message,
+)
 from products.ai_observability.backend.llm.providers.azure_openai import (
     DEPLOYMENTS_LIST_API_VERSION,
     AzureOpenAIAdapter,
@@ -315,3 +322,28 @@ class TestAzureOpenAICreateClient:
         assert mock_wrapped.call_args.kwargs["azure_endpoint"] == MOCK_ENDPOINT
         assert mock_wrapped.call_args.kwargs["timeout"] == 12.0
         assert mock_wrapped.call_args.kwargs["max_retries"] == 0
+
+
+def _make_openai_status_error(error_class: type[openai.APIStatusError], status_code: int) -> openai.APIStatusError:
+    request = httpx.Request("POST", f"{MOCK_ENDPOINT}openai/deployments/x/chat/completions")
+    response = httpx.Response(status_code=status_code, request=request, json={"error": {"message": "error"}})
+    return error_class("error", response=response, body={"error": {"message": "error"}})
+
+
+class TestAzureOpenAIClaudeDeployment:
+    @parameterized.expand(
+        [
+            ("claude_not_found", "claude-sonnet-4-5", openai.NotFoundError, 404, ClaudeDeploymentOnAzureOpenAIError),
+            ("claude_bad_request", "my-Claude-judge", openai.BadRequestError, 400, ClaudeDeploymentOnAzureOpenAIError),
+            ("gpt_not_found", "gpt-4o", openai.NotFoundError, 404, ModelNotFoundError),
+            ("claude_rejected_key", "claude-sonnet-4-5", openai.AuthenticationError, 401, AuthenticationError),
+        ]
+    )
+    def test_claude_deployment_points_at_the_anthropic_key(self, _name, model, error_class, status_code, expected):
+        mapped = AzureOpenAIAdapter(azure_endpoint=MOCK_ENDPOINT)._mapped_error(
+            _make_openai_status_error(error_class, status_code), model
+        )
+
+        assert type(mapped) is expected
+        if expected is ClaudeDeploymentOnAzureOpenAIError:
+            assert "Microsoft Foundry endpoint" in user_facing_error_message(mapped)

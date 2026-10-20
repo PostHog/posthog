@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -106,6 +107,7 @@ _HEALTH_TRAFFIC = ConditionSetTraffic(
     people_by_set={1: 120, 2: 880},
     calls=2000,
     remotely_evaluated_calls=2000,
+    people_assigned_outside=0,
 )
 _HEALTH_METRIC = {
     "kind": "ExperimentMetric",
@@ -966,6 +968,54 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
+            ("variants_assigned_outside", 300, ("assigned_outside_flag_service", "info")),
+            ("no_one_assigned_outside", 0, ("running_but_no_rollout", "warning")),
+        ]
+    )
+    def test_health_reads_the_calls_of_a_flag_with_no_rollout(
+        self, _name: str, people_assigned_outside: int, expected: tuple[str, str]
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"health-no-rollout-{_name}",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 0}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="health-no-rollout",
+            feature_flag=flag,
+            start_date=timezone.now() - timedelta(days=3),
+            metrics=[_HEALTH_METRIC],
+        )
+        traffic = replace(_HEALTH_TRAFFIC, people_by_set={}, people_assigned_outside=people_assigned_outside)
+
+        with patch(
+            "products.experiments.backend.health.condition_set_traffic.query_condition_set_traffic",
+            side_effect=[traffic],
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            [
+                (finding["subcode"], finding["severity"])
+                for finding in response.json()["findings"]
+                if finding["code"] == "flag_off_while_running"
+            ],
+            [expected],
+        )
+
+    @parameterized.expand(
+        [
             ("staff_session", True, None, status.HTTP_200_OK, ("read", [120, 880], "ok", "ok")),
             (
                 "staff_token_without_query_scope",
@@ -1327,6 +1377,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": "new",
+                "is_imported": False,
                 "experiment_create_deprecated_fields": ["filters"],
             },
         )
@@ -4935,6 +4986,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": expected_mode,
+                "is_imported": False,
                 "allow_unknown_events": True,
                 "experiment_create_deprecated_fields": [],
             },

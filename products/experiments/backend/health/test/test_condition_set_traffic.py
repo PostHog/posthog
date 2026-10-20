@@ -40,6 +40,7 @@ TRAFFIC = ConditionSetTraffic(
     people_by_set={1: 30, 2: 970},
     calls=2000,
     remotely_evaluated_calls=2000,
+    people_assigned_outside=0,
 )
 TOO_FEW_PEOPLE = ConditionSetTraffic(
     since=datetime(2026, 10, 1, tzinfo=UTC),
@@ -47,6 +48,7 @@ TOO_FEW_PEOPLE = ConditionSetTraffic(
     people_by_set={1: 3, 2: 50},
     calls=100,
     remotely_evaluated_calls=100,
+    people_assigned_outside=0,
 )
 _NO_VARIANT_REASONS = frozenset({"Out of rollout bound", "No matching condition set"})
 _STAFF_PINNED_TO_TEST: dict[str, Any] = {
@@ -74,6 +76,16 @@ _HOLDOUT_FILTERS: dict[str, Any] = {
         ]
     },
 }
+
+
+_ZERO_ROLLOUT_FILTERS: dict[str, Any] = {
+    "groups": [{"properties": [], "rollout_percentage": 0}],
+    "multivariate": {
+        "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+    },
+}
+NO_ONE_ASSIGNED_OUTSIDE = replace(TRAFFIC, people_by_set={}, remotely_evaluated_calls=0, calls=0)
+ASSIGNED_OUTSIDE = replace(NO_ONE_ASSIGNED_OUTSIDE, calls=900, people_assigned_outside=300)
 
 
 def _create_running_experiment(team: Team, user: User, *, launched_at: datetime) -> Experiment:
@@ -127,6 +139,28 @@ class TestLoadConditionSetTraffic(BaseTest):
 
     @parameterized.expand(
         [
+            ("pinned_condition", None, 1),
+            ("zero_rollout", _ZERO_ROLLOUT_FILTERS, 1),
+            (
+                "no_pin_and_a_rollout",
+                {**_ZERO_ROLLOUT_FILTERS, "groups": [{"properties": [], "rollout_percentage": 100}]},
+                0,
+            ),
+        ]
+    )
+    def test_scans_only_for_a_check_that_reads_the_calls(
+        self, _name: str, flag_filters: dict[str, Any] | None, expected_queries: int
+    ) -> None:
+        if flag_filters is not None:
+            FeatureFlag.objects.filter(pk=self.experiment.feature_flag_id).update(filters=flag_filters)
+            self.experiment = Experiment.objects.get(pk=self.experiment.pk)
+
+        _, query = self._load(TRAFFIC)
+
+        self.assertEqual(query.call_count, expected_queries)
+
+    @parameterized.expand(
+        [
             ("since_launch", timedelta(days=2), timedelta(days=3), "launch"),
             ("since_the_last_save", timedelta(days=30), timedelta(hours=2), "save"),
             ("last_seven_days", timedelta(days=30), timedelta(days=20), "window"),
@@ -159,6 +193,29 @@ class TestLoadConditionSetTraffic(BaseTest):
                 1,
                 _HOLDOUT_FILTERS,
             ),
+            (
+                "no_one_assigned_outside_in_a_young_window_an_hour_later",
+                NO_ONE_ASSIGNED_OUTSIDE,
+                timedelta(hours=1, minutes=1),
+                1,
+                _ZERO_ROLLOUT_FILTERS,
+                timedelta(hours=2),
+            ),
+            (
+                "no_one_assigned_outside_in_a_full_window_hours_later",
+                NO_ONE_ASSIGNED_OUTSIDE,
+                timedelta(hours=12),
+                0,
+                _ZERO_ROLLOUT_FILTERS,
+            ),
+            (
+                "assigned_outside_in_a_young_window_hours_later",
+                ASSIGNED_OUTSIDE,
+                timedelta(hours=12),
+                0,
+                _ZERO_ROLLOUT_FILTERS,
+                timedelta(hours=2),
+            ),
         ]
     )
     def test_answer_cache(
@@ -168,10 +225,16 @@ class TestLoadConditionSetTraffic(BaseTest):
         next_load_after: timedelta,
         expected_queries: int,
         flag_filters: dict[str, Any] | None = None,
+        saved_ago: timedelta | None = None,
     ) -> None:
         if flag_filters is not None:
-            FeatureFlag.objects.filter(pk=self.experiment.feature_flag_id).update(filters=flag_filters)
+            saved_at = timezone.now() - saved_ago if saved_ago is not None else None
+            FeatureFlag.objects.filter(pk=self.experiment.feature_flag_id).update(
+                filters=flag_filters, **({"updated_at": saved_at} if saved_at is not None else {})
+            )
             self.experiment = Experiment.objects.get(pk=self.experiment.pk)
+            if saved_at is not None:
+                answer = replace(answer, since=saved_at)
         first, _ = self._load(answer)
 
         with time_machine.travel(timezone.now() + next_load_after):
@@ -283,7 +346,7 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
                     ("person-1", "Matched condition set 1", FLAG_VERSION, 1),
                     ("person-2", "Matched condition set 1", 2, 1),
                 ],
-                ({1: 1}, 2, 2),
+                ({1: 1}, 2, 2, 0),
             ),
             (
                 "calls_evaluated_outside_the_flag_service_name_no_set",
@@ -291,8 +354,11 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
                     ("person-1", "Matched condition set 2", FLAG_VERSION, 1),
                     ("person-2", None, None, 1),
                     ("person-3", "Evaluated locally", None, 1),
+                    ("person-4", None, None, 1),
+                    ("person-5", None, None, 6.99),
                 ],
-                ({2: 1}, 3, 1),
+                ({2: 1}, 5, 1, 1),
+                frozenset({"person-4"}),
             ),
             (
                 "calls_that_return_no_variant_do_not_count",
@@ -300,7 +366,7 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
                     ("person-1", "Out of rollout bound", FLAG_VERSION, 1),
                     ("person-2", "Matched condition set 2", FLAG_VERSION, 1),
                 ],
-                ({2: 1}, 1, 1),
+                ({2: 1}, 1, 1, 0),
             ),
             (
                 "person_counts_once_under_the_latest_set",
@@ -308,7 +374,7 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
                     ("person-1", "Matched condition set 1", FLAG_VERSION, 2),
                     ("person-1", "Matched condition set 2", FLAG_VERSION, 1),
                 ],
-                ({2: 1}, 2, 2),
+                ({2: 1}, 2, 2, 0),
             ),
             (
                 "calls_outside_the_window",
@@ -316,27 +382,42 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
                     ("person-1", "Matched condition set 1", FLAG_VERSION, 1),
                     ("person-2", "Matched condition set 1", FLAG_VERSION, 8),
                 ],
-                ({1: 1}, 1, 1),
+                ({1: 1}, 1, 1, 0),
             ),
         ]
     )
     def test_query_condition_set_traffic(
         self,
         _name: str,
-        calls: list[tuple[str, str | None, int | None, int]],
-        expected: tuple[dict[int, int], int, int],
+        calls: list[tuple[str, str | None, int | None, float]],
+        expected: tuple[dict[int, int], int, int, int],
+        locally_evaluated: frozenset[str] = frozenset(),
     ) -> None:
         now = timezone.now()
         experiment = _create_running_experiment(self.team, self.user, launched_at=now - timedelta(days=30))
         for distinct_id in dict.fromkeys(distinct_id for distinct_id, *_ in calls):
             create_person(team=self.team, distinct_ids=[distinct_id])
         for distinct_id, reason, version, days_ago in calls:
-            self._call_flag(distinct_id, reason, version, now - timedelta(days=days_ago))
+            self._call_flag(
+                distinct_id,
+                reason,
+                version,
+                now - timedelta(days=days_ago),
+                locally_evaluated=distinct_id in locally_evaluated,
+            )
         flush_persons_and_events()
 
         traffic = query_condition_set_traffic(experiment, window_start=now - timedelta(days=7), window_end=now)
 
-        self.assertEqual((dict(traffic.people_by_set), traffic.calls, traffic.remotely_evaluated_calls), expected)
+        self.assertEqual(
+            (
+                dict(traffic.people_by_set),
+                traffic.calls,
+                traffic.remotely_evaluated_calls,
+                traffic.people_assigned_outside,
+            ),
+            expected,
+        )
 
     @parameterized.expand(
         [
@@ -370,11 +451,14 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
         at: datetime,
         *,
         event: str = "$feature_flag_called",
+        locally_evaluated: bool = False,
     ) -> None:
         properties: dict[str, Any] = {
             "$feature_flag": FLAG_KEY,
             "$feature_flag_response": False if reason in _NO_VARIANT_REASONS else "test",
         }
+        if locally_evaluated:
+            properties["locally_evaluated"] = True
         if reason is not None:
             properties["$feature_flag_reason"] = reason
         if version is not None:

@@ -12,7 +12,7 @@ export function formatRankingLift(lift: number): string {
 }
 
 /**
- * Bar width in percent for a lift on a log scale. 1x sits at 50%, and the bar clamps at 0.1x and 10x,
+ * Bar position in percent for a lift on a log scale. 1x sits at 50%, and the bar clamps at 0.1x and 10x,
  * so a lift and its inverse sit at equal distances from the center.
  */
 export function rankingLiftBarPercent(lift: number): number {
@@ -21,6 +21,12 @@ export function rankingLiftBarPercent(lift: number): number {
     }
     const position = (Math.log10(lift) + 1) / 2
     return Math.min(1, Math.max(0, position)) * 100
+}
+
+/** The bar fill in percent. It starts at 1x in the center and grows right above 1x and left below 1x. */
+export function rankingLiftBarFill(lift: number): { left: number; width: number } {
+    const percent = rankingLiftBarPercent(lift)
+    return { left: Math.min(50, percent), width: Math.abs(percent - 50) }
 }
 
 export type RankingStrength = 'very_likely' | 'likely' | 'average' | 'unlikely'

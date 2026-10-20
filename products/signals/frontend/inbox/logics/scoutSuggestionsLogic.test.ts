@@ -441,14 +441,22 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.isRefreshing).toBe(false)
     })
 
-    it('does not wait for a scan the daily cap refused', async () => {
+    it.each([
+        ['strip', 429, true],
+        ['onboarding', 403, false],
+        ['strip', 403, true],
+        ['onboarding', 500, true],
+    ] as const)('handles a refused %s scan with status %s', async (source, status, showsToast) => {
         await mountWithBatch()
-        mockRefresh.mockRejectedValueOnce(new ApiError("You've reached today's limit.", 429))
+        const toast = jest.spyOn(lemonToast, 'error')
+        mockRefresh.mockRejectedValueOnce(new ApiError('Scan unavailable', status))
 
-        logic.actions.requestRefresh('strip')
+        logic.actions.requestRefresh(source)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isRefreshing).toBe(false)
+        expect(toast).toHaveBeenCalledTimes(showsToast ? 1 : 0)
+        toast.mockRestore()
     })
 
     it('keeps waiting when the row was already failed before the refresh', async () => {

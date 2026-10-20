@@ -9,9 +9,11 @@ import {
     unifiedSearchResultToSearchItem,
 } from 'lib/components/Search/searchItems'
 import { shouldSearchTickets } from 'lib/components/Search/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
+import { isFileSystemEntryTypeEnabled } from '~/layout/panel-layout/ProjectTree/utils'
 import type { Noun } from '~/models/groupsModel'
 import { GroupType, GroupTypeIndex } from '~/types'
 
@@ -118,10 +120,11 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
         sources: ['results'],
         fetch: async (search, signal) => {
             const response = await api.fileSystem.list({ search, limit: RESULTS_LIMIT, notType: 'folder', signal })
+            const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
             return {
-                results: response.results.map((entry) =>
-                    fileSystemEntryToSearchItem(entry, { id: entry.id, category: 'results' })
-                ),
+                results: response.results
+                    .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
+                    .map((entry) => fileSystemEntryToSearchItem(entry, { id: entry.id, category: 'results' })),
             }
         },
     },

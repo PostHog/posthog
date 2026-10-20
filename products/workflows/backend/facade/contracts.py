@@ -80,6 +80,17 @@ class WorkflowVisionScanDailyLimits:
 
 
 @frozen
+class RealtimeAudienceCohort:
+    """A realtime cohort a batch audience sends to from the realtime pipeline's membership."""
+
+    id: int
+    name: str
+    ready: bool
+    # False when the realtime pipeline doesn't run for the cohort's project, so it never becomes ready.
+    can_finish: bool
+
+
+@frozen
 class WorkflowBatchJob:
     """One batch run of a workflow.
 
@@ -204,6 +215,17 @@ class AccountAudienceProvider(Protocol):
 
 
 @frozen
+class RealtimeCohortStatus:
+    """How far a realtime cohort audience is from having its membership calculated."""
+
+    id: int
+    name: str
+    # A CohortRealtimeState value: "ready", "building", "rebuilding" or "needs_attention".
+    state: str
+    percent_complete: int | None
+
+
+@frozen
 class AudienceSize:
     """How many recipients a batch audience matches, and the most a batch trigger may send to."""
 
@@ -211,6 +233,10 @@ class AudienceSize:
     total: int
     limit: int
     dedupe_key: str | None
+    # Set when the audience is one realtime cohort. A send waits until that cohort is ready.
+    realtime_cohort: RealtimeCohortStatus | None = None
+    # Set when a realtime cohort shares the audience with other conditions, which a save rejects.
+    realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
 
 
 @frozen

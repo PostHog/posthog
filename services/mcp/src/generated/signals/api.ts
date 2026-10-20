@@ -152,6 +152,8 @@ export const SignalsReportsListParams = () => zod.object({
 })
 
 export const signalsReportsListQueryCountOnlyDefault = false
+export const signalsReportsListQueryExcludeMax = 100
+
 export const signalsReportsListQueryIncludeSourceMetadataDefault = true
 
 export const SignalsReportsListQueryParams = () => zod.object({
@@ -187,6 +189,13 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('ISO 8601 datetime. Keeps reports created at or after this time.'),
+    exclude: zod
+        .array(zod.string())
+        .max(signalsReportsListQueryExcludeMax)
+        .optional()
+        .describe(
+            'Report ids to leave out of `results` and `count`, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.'
+        ),
     has_implementation_pr: zod
         .boolean()
         .optional()
@@ -288,7 +297,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which."
+            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which."
         ),
 })
 
@@ -2087,7 +2096,7 @@ export const SignalsScoutConfigTrialSetupQueryParams = () => zod.object({
 })
 
 /**
- * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately. With surface=onboarding, new configs stay disabled until explicitly activated.
  * @summary Sync scout configs
  */
 export const SignalsScoutConfigSyncParams = () => zod.object({
@@ -2100,10 +2109,10 @@ export const SignalsScoutConfigSyncParams = () => zod.object({
 
 export const SignalsScoutConfigSyncQueryParams = () => zod.object({
     surface: zod
-        .enum(['roster', 'desktop', 'wizard'])
+        .enum(['roster', 'desktop', 'wizard', 'onboarding'])
         .optional()
         .describe(
-            "Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.\n\n\* `roster` - roster\n\* `desktop` - desktop\n\* `wizard` - wizard"
+            "Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. The onboarding surface creates new configs disabled until the user activates them. Omitted means unknown.\n\n\* `roster` - roster\n\* `desktop` - desktop\n\* `wizard` - wizard\n\* `onboarding` - onboarding"
         ),
 })
 
@@ -3781,7 +3790,7 @@ export const SignalsScoutReportCheckListQueryParams = () => zod.object({
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = () => zod.object({
@@ -3840,6 +3849,12 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
         .max(signalsScoutScratchpadSearchQueryLimitMax)
         .optional()
         .describe('Max rows to return (default 20, hard cap 1000).'),
+    skill_name: zod
+        .string()
+        .optional()
+        .describe(
+            'Return only the entries this writer created, matched against `created_by_skill` (a scout skill name or a `pipeline:\*` identity). Omit to return entries from every writer.'
+        ),
     text: zod
         .string()
         .optional()

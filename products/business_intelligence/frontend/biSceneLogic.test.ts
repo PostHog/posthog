@@ -1,10 +1,13 @@
+import { getPluginContext } from 'kea'
 import { router } from 'kea-router'
+import type { RouterPluginContext } from 'kea-router/lib/types'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -317,6 +320,70 @@ describe('biSceneLogic', () => {
         }
     })
 
+    it.each(['loaded', 'failed', 'left'])('handles a pending catalog metric request when %s', async (outcome) => {
+        let release!: () => void
+        const pending = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let started!: () => void
+        const requested = new Promise<void>((resolve) => {
+            started = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/data_catalog/metrics/revenue/': async () => {
+                    started()
+                    await pending
+                    return outcome === 'failed'
+                        ? [503, { detail: 'Metric unavailable' }]
+                        : [
+                              200,
+                              {
+                                  name: 'revenue',
+                                  display_name: 'Revenue',
+                                  definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42 AS revenue' },
+                              },
+                          ]
+                },
+            },
+        })
+        silenceKeaLoadersErrors()
+        try {
+            const completed = expectLogic(logic, () =>
+                router.actions.push(urls.businessIntelligenceNew(), { metric: 'revenue' })
+            ).toFinishAllListeners()
+            await requested
+            expect(logic.values.catalogMetricLoading).toBe(true)
+            expect(logic.values.loadError).toBeNull()
+            if (outcome === 'left') {
+                router.actions.push(urls.businessIntelligence())
+            }
+            release()
+            await completed
+            expect(logic.values.catalogMetricLoading).toBe(false)
+            if (outcome === 'failed') {
+                expect(logic.values.loadError).toBeTruthy()
+                expect(logic.values.lastRunQuery).toBeNull()
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.businessIntelligenceNew(), {}, { q: '' })
+                ).toFinishAllListeners()
+                expect(logic.values.loadError).toBeNull()
+                expect(logic.values.worksheet.config.source).toBeNull()
+                expect(logic.values.worksheet.config.querySnapshot).toBeUndefined()
+            } else if (outcome === 'left') {
+                expect(router.values.location.pathname).toBe('/project/997/bi')
+                expect(router.values.hashParams).toEqual({})
+                expect(logic.values.worksheet.config.querySnapshot).toBeUndefined()
+            } else {
+                expect(logic.values.worksheet.config.querySnapshot?.query).toBe('SELECT 42 AS revenue')
+                expect(logic.values.lastRunQuery).toBeNull()
+            }
+        } finally {
+            release()
+            resumeKeaLoadersErrors()
+        }
+    })
+
     it.each([false, true])('protects unsaved worksheet edits when navigating away (saved: %s)', async (saved) => {
         const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
         try {
@@ -350,6 +417,45 @@ describe('biSceneLogic', () => {
             expect(logic.values.name).toBe(saved ? stored.name : 'Untitled worksheet')
             expect(logic.values.hasUnsavedChanges).toBe(false)
         } finally {
+            confirm.mockRestore()
+        }
+    })
+
+    it.each([
+        {
+            kind: 'metric',
+            query: catalogMetricWorksheet({
+                name: 'revenue',
+                definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42 AS revenue' },
+            })!,
+        },
+        { kind: 'starter', query: worksheet() },
+    ])('returns to the library with browser Back from a $kind', async ({ kind, query }) => {
+        logic.unmount()
+        router.actions.push(urls.businessIntelligence())
+        router.actions.push(
+            urls.businessIntelligenceNew(),
+            { [kind]: kind === 'metric' ? 'revenue' : '1' },
+            { q: JSON.stringify(query) }
+        )
+        logic = biSceneLogic({ tabId: 'bi-test' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true)
+        const context = getPluginContext('router') as RouterPluginContext
+        const originalLocation = context.location
+        const replaceState = jest.spyOn(context.history!, 'replaceState')
+        try {
+            const pathname = '/project/997/bi'
+            context.location = { pathname, search: '', hash: '' }
+            window.dispatchEvent(new PopStateEvent('popstate', { state: { count: context.historyStateCount! - 1 } }))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.location).toMatchObject({ pathname, search: '', hash: '' })
+            expect(confirm).toHaveBeenCalledTimes(1)
+            expect(replaceState).not.toHaveBeenCalled()
+        } finally {
+            replaceState.mockRestore()
+            context.location = originalLocation
             confirm.mockRestore()
         }
     })
@@ -1011,7 +1117,7 @@ describe('biSceneLogic', () => {
         expect(logic.values.worksheet.source.query).toContain('LIMIT 50000')
         expect(JSON.parse(router.values.hashParams.q).config).toEqual(logic.values.config)
         logic.unmount()
-        router.actions.push(urls.businessIntelligence())
+        router.actions.push(urls.businessIntelligenceNew())
         logic = biSceneLogic({ tabId: 'bi-test' })
         logic.mount()
         expect(logic.values.config.limit).toBe(50000)
