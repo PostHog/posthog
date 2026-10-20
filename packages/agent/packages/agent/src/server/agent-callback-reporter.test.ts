@@ -13,14 +13,17 @@ function createReporter({
   send = async () => true,
   awaitEventAck = async () => 7,
   ackTimeoutMs,
+  sendsCallbacks = true,
 }: {
   send?: (callback: AgentCallback) => Promise<boolean>;
   awaitEventAck?: () => Promise<number | null>;
   ackTimeoutMs?: number;
+  sendsCallbacks?: boolean;
 } = {}) {
   const sent: AgentCallback[] = [];
   const clock = { nowMs: 0 };
   const reporter = new AgentCallbackReporter({
+    sendsCallbacks,
     send: async (callback) => {
       sent.push(callback);
       return send(callback);
@@ -311,15 +314,151 @@ describe("AgentCallbackReporter", () => {
       eventIngestToken: "not-a-jwt",
       reports: false,
     },
-  ])("creates a reporter only when $name", ({ eventIngestToken, reports }) => {
-    const reporter = createAgentCallbackReporter({
-      eventIngestToken,
-      send: async () => true,
-      awaitEventAck: async () => null,
-      logger: new Logger({ debug: false }),
+    {
+      name: "there is no token",
+      eventIngestToken: undefined,
+      reports: false,
+    },
+  ])(
+    "sends turn callbacks only when $name",
+    ({ eventIngestToken, reports }) => {
+      const reporter = createAgentCallbackReporter({
+        eventIngestToken,
+        send: async () => true,
+        awaitEventAck: async () => null,
+        logger: new Logger({ debug: false }),
+      });
+
+      expect(reporter.sendsCallbacks).toBe(reports);
+    },
+  );
+
+  it("reports run events without the callbacks opt-in", async () => {
+    const { reporter, sent } = createReporter({ sendsCallbacks: false });
+
+    reporter.turnCompleted("end_turn");
+    await reporter.reportRun({ type: "started", agent_version: "1.0.0" });
+
+    expect(sent).toEqual([
+      {
+        kind: "run_event",
+        agent_active: false,
+        event: { type: "started", agent_version: "1.0.0" },
+      },
+    ]);
+  });
+
+  it("drops run events after the run failed, except usage", async () => {
+    const { reporter, sent } = createReporter({ sendsCallbacks: false });
+
+    await reporter.reportRun({
+      type: "failed",
+      error_type: "agent_reported",
+      cause: "boom",
+    });
+    const outcomes = [
+      await reporter.reportRun({ type: "branch_changed", branch: "feat/x" }),
+      await reporter.reportRun({ type: "usage", token_usage: { turns: 1 } }),
+    ];
+
+    expect([outcomes, sent.length]).toEqual([["skipped", "dispatched"], 2]);
+  });
+
+  it("drops queued structured output once a failure overtakes it", async () => {
+    let releaseBranch!: () => void;
+    const branchPending = new Promise<boolean>((resolve) => {
+      releaseBranch = () => resolve(true);
+    });
+    const { reporter, sent } = createReporter({
+      sendsCallbacks: false,
+      send: (callback) =>
+        callback.kind === "run_event" &&
+        callback.event.type === "branch_changed"
+          ? branchPending
+          : Promise.resolve(true),
     });
 
-    expect(reporter !== null).toBe(reports);
+    void reporter.reportRun({ type: "branch_changed", branch: "feat/x" });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    const output = reporter.reportRun({
+      type: "structured_output",
+      output: { summary: "done" },
+    });
+    await reporter.reportRun({
+      type: "failed",
+      error_type: "agent_server_crash",
+      cause: "boom",
+    });
+    releaseBranch();
+
+    expect(await output).toBe("skipped");
+    expect(
+      sent.map(
+        (callback) => callback.kind === "run_event" && callback.event.type,
+      ),
+    ).toEqual(["branch_changed", "failed"]);
+  });
+
+  it("sends a failure without waiting for earlier run events", async () => {
+    let releaseBranch!: () => void;
+    const branchPending = new Promise<boolean>((resolve) => {
+      releaseBranch = () => resolve(true);
+    });
+    const { reporter, sent } = createReporter({
+      sendsCallbacks: false,
+      send: (callback) =>
+        callback.kind === "run_event" &&
+        callback.event.type === "branch_changed"
+          ? branchPending
+          : Promise.resolve(true),
+    });
+
+    void reporter.reportRun({ type: "branch_changed", branch: "feat/x" });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    await reporter.reportRun({
+      type: "failed",
+      error_type: "agent_server_crash",
+      cause: "boom",
+    });
+    releaseBranch();
+    await reporter.settled();
+
+    expect(
+      sent.map(
+        (callback) => callback.kind === "run_event" && callback.event.type,
+      ),
+    ).toEqual(["branch_changed", "failed"]);
+  });
+
+  it("does not hold run events behind a callback waiting for its ack", async () => {
+    const { reporter, sent } = createReporter({
+      awaitEventAck: () => new Promise<number>(() => {}),
+    });
+
+    reporter.turnCompleted("end_turn");
+    await reporter.reportRun({ type: "started", agent_version: "1.0.0" });
+
+    expect(sent.map((callback) => callback.kind)).toEqual(["run_event"]);
+  });
+
+  it("stops reporting once the server says the run has ended", async () => {
+    const { reporter, sent } = createReporter({
+      sendsCallbacks: false,
+      send: async () => {
+        throw Object.assign(new Error("conflict"), { status: 409 });
+      },
+    });
+
+    const refused = await reporter.reportRun({
+      type: "branch_changed",
+      branch: "feat/x",
+    });
+    const dropped = await reporter.reportRun({
+      type: "pr_detected",
+      pr_url: "https://github.com/org/repo/pull/1",
+    });
+
+    expect([refused, dropped, sent.length]).toEqual(["refused", "skipped", 1]);
   });
   it("reports at once without a sequence after it stops waiting for acks", async () => {
     const { reporter, sent } = createReporter({

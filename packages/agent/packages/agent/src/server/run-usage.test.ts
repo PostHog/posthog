@@ -1,7 +1,5 @@
-import { describe, expect, test, vi } from "vitest";
-import type { PostHogAPIClient } from "../posthog-api";
-import type { Logger } from "../utils/logger";
-import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
+import { describe, expect, test } from "vitest";
+import { RunUsageAccumulator, seedRunUsage } from "./run-usage";
 
 describe("RunUsageAccumulator", () => {
   test("accumulates across turns and defaults nullable ACP fields to 0", () => {
@@ -114,38 +112,5 @@ describe("RunUsageAccumulator", () => {
     acc.add({ inputTokens: 1, outputTokens: 1, totalTokens: 2 });
     expect(first.turns).toBe(1);
     expect(acc.snapshot().turns).toBe(2);
-  });
-
-  test("sends run usage reports one at a time so an older snapshot never lands last", async () => {
-    const acc = new RunUsageAccumulator();
-    const settle: Array<() => void> = [];
-    const updateTaskRun = vi.fn(
-      (_taskId: string, _runId: string, body: unknown) =>
-        new Promise<unknown>((resolve) => {
-          settle.push(() => resolve(body));
-        }),
-    );
-    const api = { updateTaskRun } as unknown as PostHogAPIClient;
-    const logger = { warn: vi.fn() } as unknown as Logger;
-
-    acc.add({ inputTokens: 1, outputTokens: 1, totalTokens: 2 });
-    const first = reportRunUsage(acc, api, "task-1", "run-1", logger);
-    acc.add({ inputTokens: 1, outputTokens: 1, totalTokens: 2 });
-    const second = reportRunUsage(acc, api, "task-1", "run-1", logger, {
-      budget_guard: { stage: "warn" },
-    });
-
-    expect(updateTaskRun).toHaveBeenCalledTimes(1);
-    settle[0]();
-    await first;
-    expect(updateTaskRun).toHaveBeenCalledTimes(2);
-    expect(updateTaskRun.mock.calls[1][2]).toEqual({
-      state: {
-        token_usage: expect.objectContaining({ turns: 2 }),
-        budget_guard: { stage: "warn" },
-      },
-    });
-    settle[1]();
-    await second;
   });
 });

@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { ProcessKilledParams } from "../acp-extensions";
+import type { AgentErrorClassification } from "../adapters/error-classification";
 import { AGENT_CALLBACK_TIMEOUT_MS } from "../posthog-api";
 import type { Logger } from "../utils/logger";
 
@@ -9,6 +10,8 @@ const AGENT_SENDS_CALLBACKS_CLAIM = "agent_sends_callbacks";
 const HEARTBEAT_THROTTLE_MS = 30_000;
 const DEFAULT_RETRY_DELAY_MS = 500;
 const DEFAULT_ACK_TIMEOUT_MS = 30_000;
+const RUN_EVENT_ATTEMPTS = 3;
+const RUN_ENDED_STATUS = 409;
 const STOP_REASON_END_TURN = "end_turn";
 const STOP_REASON_IDLE_RESUME = "idle_resume";
 const BUDGET_STEER_FIELDS = [
@@ -26,6 +29,28 @@ export const AGENT_CALLBACK_SETTLE_BUDGET_MS =
   2 * AGENT_CALLBACK_TIMEOUT_MS + DEFAULT_RETRY_DELAY_MS;
 
 type BootMilestone = "command_dispatched" | "agent_activity";
+
+export type RunFailureType =
+  | "agent_reported"
+  | "agent_server_crash"
+  | AgentErrorClassification;
+
+export type RunEvent =
+  | { type: "started"; agent_version: string; benjamin_version?: string }
+  | {
+      type: "failed";
+      error_type: RunFailureType;
+      cause: string;
+      agent_version?: string;
+    }
+  | { type: "branch_changed"; branch: string }
+  | { type: "pr_detected"; pr_url: string; branch?: string }
+  | { type: "structured_output"; output: Record<string, unknown> }
+  | {
+      type: "usage";
+      token_usage?: Record<string, unknown>;
+      budget_guard?: Record<string, unknown>;
+    };
 
 export type AgentCallback =
   | { kind: "heartbeat"; agent_active: true; activity_started: boolean }
@@ -56,11 +81,13 @@ export type AgentCallback =
         memory_current_bytes: number;
         memory_limit_bytes: number;
       };
-    };
+    }
+  | { kind: "run_event"; agent_active: false; event: RunEvent };
 
-type DeliveryOutcome = "dispatched" | "skipped" | "refused" | "failed";
+export type DeliveryOutcome = "dispatched" | "skipped" | "refused" | "failed";
 
 interface AgentCallbackReporterConfig {
+  sendsCallbacks: boolean;
   send: (callback: AgentCallback) => Promise<boolean>;
   awaitEventAck: () => Promise<number | null>;
   logger: Logger;
@@ -70,11 +97,17 @@ interface AgentCallbackReporterConfig {
 }
 
 function isRetryableFailure(error: unknown): boolean {
-  const status =
-    typeof error === "object" && error !== null && "status" in error
-      ? error.status
-      : undefined;
-  return typeof status !== "number" || status >= 500;
+  const status = errorStatus(error);
+  return status === undefined || status >= 500;
+}
+
+function errorStatus(error: unknown): number | undefined {
+  return typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof error.status === "number"
+    ? error.status
+    : undefined;
 }
 
 function withSequence(sequence: number | null): { sequence?: number } {
@@ -111,6 +144,12 @@ export class AgentCallbackReporter {
   private lastHeartbeatAtMs: number | null = null;
   private ackWaitsReleased = false;
   private readonly pendingAckWaits = new Set<() => void>();
+  private runQueue: Promise<unknown> = Promise.resolve();
+  private runEnded = false;
+
+  get sendsCallbacks(): boolean {
+    return this.config.sendsCallbacks;
+  }
 
   constructor(private readonly config: AgentCallbackReporterConfig) {
     this.now = config.now ?? Date.now;
@@ -119,6 +158,9 @@ export class AgentCallbackReporter {
   }
 
   agentActivity(generating: boolean): void {
+    if (!this.config.sendsCallbacks) {
+      return;
+    }
     if (generating) {
       this.reportMilestone({ kind: "agent_activity", agent_active: true });
     }
@@ -207,8 +249,42 @@ export class AgentCallbackReporter {
     );
   }
 
-  settled(): Promise<void> {
-    return this.queue;
+  reportRun(event: RunEvent): Promise<DeliveryOutcome> {
+    if (this.droppedAfterRunEnded(event)) {
+      return Promise.resolve("skipped");
+    }
+    const callback: AgentCallback = {
+      kind: "run_event",
+      agent_active: false,
+      event,
+    };
+    if (event.type === "failed") {
+      this.runEnded = true;
+      const delivered = this.deliver(callback, RUN_EVENT_ATTEMPTS);
+      this.runQueue = Promise.all([this.runQueue, delivered]);
+      return delivered;
+    }
+    const delivered = this.runQueue.then(() =>
+      this.droppedAfterRunEnded(event)
+        ? "skipped"
+        : this.deliver(callback, RUN_EVENT_ATTEMPTS),
+    );
+    this.runQueue = delivered;
+    return delivered;
+  }
+
+  private droppedAfterRunEnded(event: RunEvent): boolean {
+    if (!this.runEnded || event.type === "usage") {
+      return false;
+    }
+    this.config.logger.warn("Dropped run event after the run ended", {
+      type: event.type,
+    });
+    return true;
+  }
+
+  async settled(): Promise<void> {
+    await Promise.all([this.queue, this.runQueue]);
   }
 
   stopWaitingForAcks(): void {
@@ -222,6 +298,9 @@ export class AgentCallbackReporter {
   private reportMilestone(
     callback: Extract<AgentCallback, { kind: BootMilestone }>,
   ): void {
+    if (!this.config.sendsCallbacks) {
+      return;
+    }
     if (this.reportedMilestones.has(callback.kind)) {
       return;
     }
@@ -237,6 +316,9 @@ export class AgentCallbackReporter {
   private reportAfterAck(
     build: (sequence: number | null) => AgentCallback | null,
   ): void {
+    if (!this.config.sendsCallbacks) {
+      return;
+    }
     const acked = this.waitForAck();
     this.enqueue(async () => {
       const callback = build(await acked);
@@ -287,6 +369,9 @@ export class AgentCallbackReporter {
           attempt,
           error: error instanceof Error ? error.message : String(error),
         });
+        if (errorStatus(error) === RUN_ENDED_STATUS) {
+          this.runEnded = true;
+        }
         if (!isRetryableFailure(error)) {
           return "refused";
         }
@@ -302,15 +387,15 @@ export class AgentCallbackReporter {
 }
 
 export function createAgentCallbackReporter(options: {
-  eventIngestToken: string;
+  eventIngestToken: string | undefined;
   send: (callback: AgentCallback) => Promise<boolean>;
   awaitEventAck: () => Promise<number | null>;
   logger: Logger;
-}): AgentCallbackReporter | null {
-  if (!agentSendsCallbacks(options.eventIngestToken)) {
-    return null;
-  }
+}): AgentCallbackReporter {
   return new AgentCallbackReporter({
+    sendsCallbacks:
+      options.eventIngestToken !== undefined &&
+      agentSendsCallbacks(options.eventIngestToken),
     send: options.send,
     awaitEventAck: options.awaitEventAck,
     logger: options.logger,

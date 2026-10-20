@@ -1038,9 +1038,9 @@ describe("Question relay", () => {
       const promptSpy = vi.fn().mockImplementation(async () => {
         throw createTransientConnectionError();
       });
-      const updateTaskRunSpy = vi
-        .spyOn(server.posthogAPI, "updateTaskRun")
-        .mockResolvedValue({} as TaskRun);
+      const sendAgentCallbackSpy = vi
+        .spyOn(server.posthogAPI, "sendAgentCallback")
+        .mockResolvedValue(true);
       server.session = {
         contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
         cancellationVersion: 0,
@@ -1067,14 +1067,18 @@ describe("Question relay", () => {
       }
 
       expect(promptSpy).toHaveBeenCalledTimes(3);
-      expect(updateTaskRunSpy).toHaveBeenCalledWith(
+      expect(sendAgentCallbackSpy).toHaveBeenCalledWith(
         "test-task-id",
         "test-run-id",
         {
-          status: "failed",
-          error_message: `upstream_connection_error: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
-          error_type: "upstream_connection_error",
-          state: { agent_version: expect.any(String) },
+          kind: "run_event",
+          agent_active: false,
+          event: {
+            type: "failed",
+            error_type: "upstream_connection_error",
+            cause: UPSTREAM_PROVIDER_FAILURE_MESSAGE,
+            agent_version: expect.any(String),
+          },
         },
       );
     });

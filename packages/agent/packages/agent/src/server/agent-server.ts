@@ -19,16 +19,13 @@ import { type ServerType, serve } from "@hono/node-server";
 import {
   type AcpMcpServer,
   type Adapter,
-  buildPrOutput,
   getErrorMessage,
   IDLE_RESUME_STOP_REASON,
   isIgnoredSkillPath,
   isSkillBundleArtifactMetadata,
   type McpServerConnection,
-  mergePrUrls,
   parseMcpToolName,
   readMcpToolDescriptor,
-  readPrUrls,
   sleepWithBackoff,
   toAcpMcpServers,
 } from "@posthog/agent-contracts";
@@ -182,7 +179,7 @@ import {
   resolvePullRequestFooter,
 } from "./product/session";
 import { createRtkSavingsNotification } from "./rtk-savings";
-import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
+import { RunUsageAccumulator, seedRunUsage } from "./run-usage";
 import {
   type CredentialResponseParams,
   claudeCodeConfigSchema,
@@ -562,7 +559,7 @@ export class AgentServer {
   private contextSelectionAPI: PostHogAPIClient;
   private contextSelectionApiKey: string;
   private eventStreamSender: TaskRunEventStreamSender | null = null;
-  private agentCallbacks: AgentCallbackReporter | null = null;
+  private readonly agentCallbacks: AgentCallbackReporter;
   private readonly nextEventId = createEventIdSource();
   private rtkSavingsAttempted = false;
   private questionAwaitingReply = false;
@@ -735,25 +732,24 @@ export class AgentServer {
       getApiKey: () => this.contextSelectionApiKey,
       userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
     });
+    this.agentCallbacks = createAgentCallbackReporter({
+      eventIngestToken: config.eventIngestToken,
+      logger: this.logger.child("AgentCallback"),
+      send: (callback) =>
+        this.posthogAPI.sendAgentCallback(
+          config.taskId,
+          config.runId,
+          callback,
+        ),
+      awaitEventAck: () =>
+        this.eventStreamSender?.awaitAckOfLastEvent() ?? Promise.resolve(null),
+    });
     if (config.eventIngestToken) {
-      this.agentCallbacks = createAgentCallbackReporter({
-        eventIngestToken: config.eventIngestToken,
-        logger: this.logger.child("AgentCallback"),
-        send: (callback) =>
-          this.posthogAPI.sendAgentCallback(
-            config.taskId,
-            config.runId,
-            callback,
-          ),
-        awaitEventAck: () =>
-          this.eventStreamSender?.awaitAckOfLastEvent() ??
-          Promise.resolve(null),
-      });
       this.eventStreamSender = new TaskRunEventStreamSender({
         apiUrl: config.apiUrl,
         eventIngestBaseUrl: config.eventIngestBaseUrl,
         keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
-        agentSendsCallbacks: this.agentCallbacks !== null,
+        agentSendsCallbacks: this.agentCallbacks.sendsCallbacks,
         projectId: config.projectId,
         taskId: config.taskId,
         runId: config.runId,
@@ -1103,7 +1099,7 @@ export class AgentServer {
     };
     if (this.session) {
       this.broadcastAndPersistNotification(notification);
-      this.agentCallbacks?.processKilled(params);
+      this.agentCallbacks.processKilled(params);
       return;
     }
     this.pendingProcessKills.push(params);
@@ -1119,7 +1115,7 @@ export class AgentServer {
         method: POSTHOG_NOTIFICATIONS.PROCESS_KILLED,
         params,
       });
-      this.agentCallbacks?.processKilled(params);
+      this.agentCallbacks.processKilled(params);
     }
   }
 
@@ -1272,9 +1268,9 @@ export class AgentServer {
               Promise.resolve()),
         5_000,
       );
-      this.agentCallbacks?.stopWaitingForAcks();
+      this.agentCallbacks.stopWaitingForAcks();
       await withTimeout(
-        this.agentCallbacks?.settled() ?? Promise.resolve(),
+        this.agentCallbacks.settled(),
         AGENT_CALLBACK_SETTLE_BUDGET_MS,
       );
       // An abort during initialization leaves the root span open with no session
@@ -1313,22 +1309,20 @@ export class AgentServer {
     );
     this.logger.error("Fatal agent-server error; marking run failed", error);
 
-    try {
-      await this.posthogAPI.updateTaskRun(
-        this.config.taskId,
-        this.config.runId,
-        {
-          status: "failed",
-          error_message: `Agent server crashed: ${errorMessage}`,
-          error_type: "agent_server_crash",
-          state: { agent_version: this.agentVersion },
-        },
-      );
-    } catch (updateError) {
-      this.logger.error(
-        "Failed to mark run failed after fatal error",
-        updateError,
-      );
+    this.agentCallbacks.stopWaitingForAcks();
+    const reported = await withTimeout(
+      this.agentCallbacks.reportRun({
+        type: "failed",
+        error_type: "agent_server_crash",
+        cause: errorMessage,
+        agent_version: this.agentVersion,
+      }),
+      AGENT_CALLBACK_SETTLE_BUDGET_MS,
+    );
+    if (reported.result !== "success" || reported.value !== "dispatched") {
+      this.logger.error("Failed to mark run failed after fatal error", {
+        reported,
+      });
     }
 
     try {
@@ -1754,7 +1748,7 @@ export class AgentServer {
           });
 
           if (result.stopReason === "end_turn") {
-            void this.syncCloudBranchMetadata(commandSession.payload);
+            void this.syncCloudBranchMetadata();
           }
 
           this.recordTurnUsage(result.usage);
@@ -2211,7 +2205,6 @@ export class AgentServer {
 
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = payload.run_id;
-    this.lastBudgetSnapshot = undefined;
     this.lastPersistedBudgetKey = undefined;
     this.budgetPersistInFlightKey = undefined;
     seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
@@ -2456,13 +2449,13 @@ export class AgentServer {
             }
           : undefined,
       onStructuredOutput: async (output) => {
-        await this.posthogAPI.setTaskRunOutput(
-          payload.task_id,
-          payload.run_id,
-          {
-            output,
-          },
-        );
+        const outcome = await this.agentCallbacks.reportRun({
+          type: "structured_output",
+          output,
+        });
+        if (outcome !== "dispatched") {
+          throw new Error(`Structured output was not accepted: ${outcome}`);
+        }
       },
     });
 
@@ -2746,19 +2739,13 @@ export class AgentServer {
     this.broadcastAndPersistNotification(agentStartedProgress);
 
     // Signal in_progress so the UI can start polling for updates
-    this.posthogAPI
-      .updateTaskRun(payload.task_id, payload.run_id, {
-        status: "in_progress",
-        state: {
-          agent_version: this.agentVersion,
-          ...(isBenjaminEnabled() && {
-            benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
-          }),
-        },
-      })
-      .catch((err) =>
-        this.logger.debug("Failed to set task run to in_progress", err),
-      );
+    void this.agentCallbacks.reportRun({
+      type: "started",
+      agent_version: this.agentVersion,
+      ...(isBenjaminEnabled() && {
+        benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
+      }),
+    });
 
     await this.runStartupTurn(() =>
       this.sendInitialTaskMessage(payload, initialTaskMessage),
@@ -3307,7 +3294,7 @@ export class AgentServer {
       await this.clearPendingInitialPromptState(payload, taskRun);
 
       if (result.stopReason === "end_turn") {
-        void this.syncCloudBranchMetadata(payload);
+        void this.syncCloudBranchMetadata();
       }
 
       this.recordTurnUsage(result.usage);
@@ -3709,7 +3696,7 @@ export class AgentServer {
       await this.clearPendingInitialPromptState(payload, taskRun);
 
       if (result.stopReason === "end_turn") {
-        void this.syncCloudBranchMetadata(payload);
+        void this.syncCloudBranchMetadata();
       }
 
       this.recordTurnUsage(result.usage);
@@ -4899,25 +4886,18 @@ export class AgentServer {
     return { repository, branch };
   }
 
-  private async syncCloudBranchMetadata(payload: JwtPayload): Promise<void> {
+  private async syncCloudBranchMetadata(): Promise<void> {
     const branchName = await this.getCurrentGitBranch();
     if (!branchName || branchName === this.lastReportedBranch) {
       return;
     }
 
-    try {
-      await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
-        branch: branchName,
-        output: { head_branch: branchName },
-      });
+    const outcome = await this.agentCallbacks.reportRun({
+      type: "branch_changed",
+      branch: branchName,
+    });
+    if (outcome === "dispatched") {
       this.lastReportedBranch = branchName;
-    } catch (error) {
-      this.logger.debug("Failed to attach current branch to task run", {
-        taskId: payload.task_id,
-        runId: payload.run_id,
-        branchName,
-        error,
-      });
     }
   }
 
@@ -4950,9 +4930,6 @@ export class AgentServer {
     const currentSession = this.session;
     const sessionMatchesRun = currentSession?.payload.run_id === payload.run_id;
     const terminalErrorMessage = errorMessage ?? "Agent error";
-    const persistedErrorMessage = options?.errorCategory
-      ? `${options.errorCategory}: ${errorMessage ?? "Agent error"}`
-      : terminalErrorMessage;
     // The Django drain reads this contract from the S3 log. Enqueue it before
     // the flush so the drain can report the safe classified cause.
     if (stopReason === "error" && (!currentSession || sessionMatchesRun)) {
@@ -4987,20 +4964,14 @@ export class AgentServer {
       return;
     }
 
-    const status = "failed";
-
     try {
-      await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
-        status,
-        error_message: persistedErrorMessage,
-        ...(options?.errorCategory
-          ? { error_type: options.errorCategory }
-          : {}),
-        state: { agent_version: this.agentVersion },
+      const outcome = await this.agentCallbacks.reportRun({
+        type: "failed",
+        error_type: options?.errorCategory ?? "agent_reported",
+        cause: terminalErrorMessage,
+        agent_version: this.agentVersion,
       });
-      this.logger.debug("Task completion signaled", { status, stopReason });
-    } catch (error) {
-      this.logger.error("Failed to signal task completion", error);
+      this.logger.debug("Task completion signaled", { outcome, stopReason });
     } finally {
       if (
         (!currentSession || sessionMatchesRun) &&
@@ -5503,24 +5474,16 @@ export class AgentServer {
 
     this.detectedPrUrl = prUrl;
 
-    try {
-      const urls = mergePrUrls(readPrUrls(freshOutput), [prUrl]);
-      await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
-        output: buildPrOutput(freshOutput, urls),
-      });
-      this.logger.debug("Attributed created PR to task run", {
-        taskId: payload.task_id,
-        runId: payload.run_id,
-        prUrl,
-      });
-    } catch (err) {
-      this.logger.error("Failed to attach PR URL to task run", {
-        taskId: payload.task_id,
-        runId: payload.run_id,
-        prUrl,
-        error: err,
-      });
-    }
+    const outcome = await this.agentCallbacks.reportRun({
+      type: "pr_detected",
+      pr_url: prUrl,
+    });
+    this.logger.debug("Attributed created PR to task run", {
+      taskId: payload.task_id,
+      runId: payload.run_id,
+      prUrl,
+      outcome,
+    });
   }
 
   /** Env for a `gh` call that must run as the *current* actor. Prefers the live
@@ -5668,7 +5631,6 @@ export class AgentServer {
     // with a different run_id) must not inherit the previous run's totals.
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = null;
-    this.lastBudgetSnapshot = undefined;
     this.lastPersistedBudgetKey = undefined;
     this.budgetPersistInFlightKey = undefined;
     this.session = null;
@@ -5712,17 +5674,14 @@ export class AgentServer {
       this.runUsageRunId = payload.run_id;
     }
     if (!this.runUsage.add(usage)) return Promise.resolve();
-    return reportRunUsage(
-      this.runUsage,
-      this.posthogAPI,
-      payload.task_id,
-      payload.run_id,
-      this.logger,
-      this.lastBudgetSnapshot && { budget_guard: this.lastBudgetSnapshot },
-    );
+    return this.agentCallbacks
+      .reportRun({
+        type: "usage",
+        token_usage: this.runUsage.snapshot(),
+      })
+      .then(() => undefined);
   }
 
-  private lastBudgetSnapshot: Record<string, unknown> | undefined;
   private lastPersistedBudgetKey: string | undefined;
   private budgetPersistInFlightKey: string | undefined;
 
@@ -5739,20 +5698,12 @@ export class AgentServer {
       return;
     }
     this.budgetPersistInFlightKey = key;
-    this.posthogAPI
-      .updateTaskRun(
-        payload.task_id,
-        payload.run_id,
-        { state: { budget_guard: budget } },
-        AbortSignal.timeout(30_000),
-      )
-      .then(() => {
-        this.lastPersistedBudgetKey = key;
-      })
-      .catch((error: unknown) => {
-        this.logger.debug("Failed to persist the budget snapshot", { error });
-      })
-      .finally(() => {
+    void this.agentCallbacks
+      .reportRun({ type: "usage", budget_guard: budget })
+      .then((outcome) => {
+        if (outcome === "dispatched") {
+          this.lastPersistedBudgetKey = key;
+        }
         if (this.budgetPersistInFlightKey === key) {
           this.budgetPersistInFlightKey = undefined;
         }
@@ -5771,7 +5722,6 @@ export class AgentServer {
     }
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {
-      this.lastBudgetSnapshot = budget;
       this.persistBudgetSnapshotIfChanged(budget);
     }
     if (isTurnCompleteNotification(message)) {
@@ -5796,7 +5746,7 @@ export class AgentServer {
 
   private reportAgentMessage(message: unknown): void {
     if (
-      !this.agentCallbacks ||
+      !this.agentCallbacks.sendsCallbacks ||
       typeof message !== "object" ||
       message === null
     ) {
@@ -5851,7 +5801,7 @@ export class AgentServer {
         ...(traceId ? { traceId } : {}),
       },
     });
-    this.agentCallbacks?.turnCompleted(stopReason);
+    this.agentCallbacks.turnCompleted(stopReason);
   }
 
   private broadcastAndPersistNotification(
@@ -5903,7 +5853,7 @@ export class AgentServer {
       method: POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
       params: {},
     });
-    this.agentCallbacks?.commandDispatched();
+    this.agentCallbacks.commandDispatched();
   }
 
   private flushPreSessionEvents(): void {
