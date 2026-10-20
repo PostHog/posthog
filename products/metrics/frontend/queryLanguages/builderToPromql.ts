@@ -191,11 +191,13 @@ function sharedHistogramQuantiles(clauses: BuilderClause[], exprs: Map<string, C
         buckets = clauseBuckets
         quantiles.push(quantile)
     }
-    return buckets && {
-        type: 'call',
-        func: 'histogram_quantiles',
-        args: [{ type: 'string', value: CLAUSE_LABEL }, ...quantiles, buckets],
-    }
+    return (
+        buckets && {
+            type: 'call',
+            func: 'histogram_quantiles',
+            args: [{ type: 'string', value: CLAUSE_LABEL }, ...quantiles, buckets],
+        }
+    )
 }
 
 export function builderToPromql(query: BuilderQuery): ConversionResult<string> {
