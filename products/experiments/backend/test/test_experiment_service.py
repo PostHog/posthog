@@ -4019,6 +4019,38 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("current", timedelta(0), None, False, [False]),
+            ("backdated_running", timedelta(days=90), None, False, [True]),
+            ("backdated_future_end", timedelta(days=90), timedelta(days=10), False, [True]),
+            ("imported_concluded", timedelta(days=90), timedelta(days=-30), True, []),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_with_dates_reports_imports_and_backdated_launches(
+        self, _name, start_ago, end_from_now, expected_imported, expected_backdated, mock_report_user_action
+    ):
+        now = timezone.now()
+        with time_machine.travel(now, tick=False), self.captureOnCommitCallbacks(execute=True):
+            self._service().create_experiment(
+                name=f"Imported {_name}",
+                feature_flag_key=f"imported-{_name.replace('_', '-')}",
+                start_date=now - start_ago,
+                end_date=now + end_from_now if end_from_now is not None else None,
+                event_source=EventSource.API,
+            )
+
+        events = {call.args[1]: call.args[2] for call in mock_report_user_action.call_args_list}
+        launched = [
+            call.args[2]["is_backdated"]
+            for call in mock_report_user_action.call_args_list
+            if call.args[1] == "experiment launched"
+        ]
+        assert events["experiment created"]["is_imported"] is expected_imported
+        assert events["experiment created"]["start_date"] == (now - start_ago).isoformat()
+        assert launched == expected_backdated
+
+    @parameterized.expand(
+        [
             (
                 "launch_endpoint",
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),

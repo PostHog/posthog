@@ -161,6 +161,14 @@ ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
 # The launch action is not the only way to launch. A create call or an update that sets the start date launches too.
 ExperimentLaunchPath = Literal["launch_endpoint", "create_request", "update_start_date"]
 
+# A create whose start_date is older than this is a backdated create (e.g. a move from another tool).
+BACKDATED_LAUNCH_THRESHOLD = timedelta(days=1)
+
+
+def _is_imported_concluded(experiment: Experiment) -> bool:
+    """An experiment created with an end_date that has passed was never launched in PostHog: it is an import."""
+    return experiment.end_date is not None and experiment.end_date <= timezone.now()
+
 
 def _parse_tag_names(value: Any) -> list[str]:
     """Parse a tags query param that arrives as a list or a JSON-encoded string.
@@ -1331,7 +1339,7 @@ class ExperimentService:
                 creation_mode=creation_mode,
                 analytics_properties=analytics_properties,
             )
-            if experiment.start_date is not None:
+            if experiment.start_date is not None and not _is_imported_concluded(experiment):
                 self._report_experiment_launched(
                     experiment,
                     launch_path="create_request",
@@ -1385,6 +1393,11 @@ class ExperimentService:
 
         analytics_metadata = experiment.get_analytics_metadata()
         analytics_metadata["creation_mode"] = creation_mode
+        analytics_metadata["is_imported"] = _is_imported_concluded(experiment)
+        if experiment.start_date is not None:
+            analytics_metadata["start_date"] = experiment.start_date.isoformat()
+        if experiment.end_date is not None:
+            analytics_metadata["end_date"] = experiment.end_date.isoformat()
         if event_source is not None:
             analytics_metadata["source"] = event_source
         if allow_unknown_events:
@@ -1423,6 +1436,9 @@ class ExperimentService:
                 extra_metadata={
                     "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
                     "launch_path": launch_path,
+                    "is_backdated": launch_path == "create_request"
+                    and experiment.start_date is not None
+                    and timezone.now() - experiment.start_date > BACKDATED_LAUNCH_THRESHOLD,
                     "flag_age_seconds": int(flag_age.total_seconds()),
                     "health_finding_codes": [finding.code.value for finding in findings],
                     # pinned: `code:subcode`, as on `experiment viewed`. The code prefix keeps a subcode
