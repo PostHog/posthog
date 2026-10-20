@@ -837,6 +837,7 @@ fn assert_is_sourcemap(data: &str) -> Result<(), ResolveError> {
 #[cfg(test)]
 mod test {
     use crate::error::FrameError;
+    use common_dns::test_util::capture_oob_logs;
     use httpmock::MockServer;
     use sourcemap::SourceMapBuilder;
 
@@ -1376,37 +1377,17 @@ mod test {
         ));
     }
 
-    fn capture_logs(work: impl FnOnce()) -> String {
-        #[derive(Clone)]
-        struct Sink(Arc<std::sync::Mutex<Vec<u8>>>);
-
-        impl std::io::Write for Sink {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(buf);
-                Ok(buf.len())
-            }
-
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
+    #[test]
+    fn a_fullwidth_at_sign_never_reaches_the_matcher_as_a_host() {
+        // The matcher refuses a string holding @ or /, but only the ascii forms. It never sees the
+        // fullwidth ones, because Url rejects the whole input first. This pins that, so the guard
+        // is not quietly weakened by a future url crate that starts accepting them.
+        for raw in [
+            "https://user＠abc.oast.live/app.js",
+            "https://user／abc.oast.live/app.js",
+        ] {
+            assert!(raw.parse::<Url>().is_err(), "expected {raw} to be refused");
         }
-
-        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Sink {
-            type Writer = Sink;
-
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let sink = Sink(Arc::new(std::sync::Mutex::new(Vec::new())));
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(sink.clone())
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, work);
-        let captured = sink.0.lock().unwrap().clone();
-        String::from_utf8(captured).unwrap()
     }
 
     #[test]
@@ -1414,7 +1395,9 @@ mod test {
         for (raw, host, listed) in [
             ("https://x.oast.live/app.js", "x.oast.live", true),
             // IDNA maps the fullwidth form onto the ascii name the resolver queries.
-            ("https://ｏａｓｔ.ｍｅ/app.js", "oast.me", true),
+            // A subdomain, so the logged host differs from the logged domain and the assertion
+            // below cannot pass on the domain alone.
+            ("https://ｘ.ｏａｓｔ.ｍｅ/app.js", "x.oast.me", true),
             ("https://notoast.me/app.js", "notoast.me", false),
         ] {
             let url: Url = raw.parse().unwrap();
@@ -1426,7 +1409,7 @@ mod test {
 
             // The check sits above the internal-ip escape hatch, so it runs under both values.
             for allow_internal_ips in [false, true] {
-                let logs = capture_logs(|| {
+                let logs = capture_oob_logs(|| {
                     assert!(
                         ensure_fetchable_host(&url, allow_internal_ips).is_ok(),
                         "detection must not refuse {raw}"

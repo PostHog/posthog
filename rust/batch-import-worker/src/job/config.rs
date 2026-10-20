@@ -416,7 +416,11 @@ impl S3SourceConfig {
     /// A listed out-of-band interaction domain is logged above the escape hatch below, so a
     /// probe is recorded in every environment. That check refuses nothing.
     fn validate_endpoint_url(url: &str, allow_internal_ips: bool) -> Result<(), Error> {
-        if let Ok(parsed) = url::Url::parse(url) {
+        // Parsed once: the detection below runs on every endpoint, while a parse failure is only
+        // an error on the path that goes on to check the address.
+        let parsed = url::Url::parse(url);
+
+        if let Ok(ref parsed) = parsed {
             if let Some(url::Host::Domain(host)) = parsed.host() {
                 common_dns::oob_domains::note_oob_domain(host, "batch_import_s3_endpoint");
             }
@@ -426,8 +430,8 @@ impl S3SourceConfig {
             return Ok(());
         }
 
-        let parsed = url::Url::parse(url)
-            .map_err(|e| Error::msg(format!("Invalid endpoint URL '{}': {}", url, e)))?;
+        let parsed =
+            parsed.map_err(|e| Error::msg(format!("Invalid endpoint URL '{}': {}", url, e)))?;
 
         let host = parsed
             .host()
@@ -822,6 +826,7 @@ impl JobConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_dns::test_util::capture_oob_logs;
 
     fn create_test_job_config() -> JobConfig {
         JobConfig {
@@ -1340,39 +1345,6 @@ mod tests {
         assert!(S3SourceConfig::validate_endpoint_url("not-a-url", true).is_ok());
     }
 
-    fn capture_logs(work: impl FnOnce()) -> String {
-        #[derive(Clone)]
-        struct Sink(Arc<std::sync::Mutex<Vec<u8>>>);
-
-        impl std::io::Write for Sink {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(buf);
-                Ok(buf.len())
-            }
-
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-
-        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Sink {
-            type Writer = Sink;
-
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let sink = Sink(Arc::new(std::sync::Mutex::new(Vec::new())));
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(sink.clone())
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, work);
-        let captured = sink.0.lock().unwrap().clone();
-        String::from_utf8(captured).unwrap()
-    }
-
     #[test]
     fn test_validate_endpoint_url_logs_an_out_of_band_domain_and_still_accepts_it() {
         for (url, listed) in [
@@ -1381,7 +1353,7 @@ mod tests {
         ] {
             // The check sits above the internal-ip escape hatch, so it runs under both values.
             for allow_internal_ips in [false, true] {
-                let logs = capture_logs(|| {
+                let logs = capture_oob_logs(|| {
                     assert!(
                         S3SourceConfig::validate_endpoint_url(url, allow_internal_ips).is_ok(),
                         "detection must not refuse {url}"
