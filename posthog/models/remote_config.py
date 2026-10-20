@@ -207,8 +207,9 @@ class RemoteConfig(UUIDTModel):
                 elif events is not None:
                     continue
                 flag = conditions.get("flag")
-                # A flag object without a non-empty key stays as stored. Its flag condition then never matches.
-                # Converting it would send an empty flag. The SDK reads an empty flag as no flag condition.
+                # A flag object without a non-empty string key stays as stored. Its flag condition then never matches.
+                # Converting a missing or empty key would send an empty flag.
+                # The SDK reads an empty flag as no flag condition.
                 # A group with no other condition then records every session.
                 if isinstance(flag, dict) and isinstance(key := flag.get("key"), str) and key:
                     conditions = {**conditions, "flag": _flag_for_sdk(flag)}
