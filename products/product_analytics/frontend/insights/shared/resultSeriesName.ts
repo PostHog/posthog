@@ -1,7 +1,6 @@
 import { toDisplayEntityFilter } from 'lib/components/EntityFilterInfo'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-
-import type { ResultSeries } from './resultSeries'
+import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
 
 /**
  * The name a result row's series displays under, by the rules `EntityFilterInfo` applies to the same node. Null

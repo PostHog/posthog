@@ -6036,6 +6036,10 @@ snapshots:
         hash: v1.k794b7964.f9059da612f8cb309c1100982a7352bf0c010c585701ed9f703ed1962da1a8b2.4Wbe0lwcRKZju4mbcJDVTwzvT2DtSSqF1VwdFStAA5o
     logs-logsretentionperiodpicker--stored-custom-months-without-paid-retention--light:
         hash: v1.k794b7964.d8d79824779beb9150246c932e4f2b756133d02aca4ca269271b98d0e9082480.PCD7I0jw8Fis5NRmUgRrjvUpwz5Dap-BO1UKMSJu5Ns
+    marketing-analytics-ad-performance-metric-trends--with-trends--dark:
+        hash: v1.k794b7964.9a2823d7597aac44d396018c51abba4545f3079ea859dc75855cb064add75317.2DtYQx5epqWzQwQS5oFiY-QYBMVzZoDVZZbr7SPYrsk
+    marketing-analytics-ad-performance-metric-trends--with-trends--light:
+        hash: v1.k794b7964.2f4ccaa52f1dac23d7792a6c737b167c3327c76418e35ae15289353f90d3010d.fL2tqTuwK5Zjhq1FOUJkaXAnBHs6qKnexB-SWPfu7rM
     marketing-analytics-add-source--dismissed-everywhere--dark:
         hash: v1.k794b7964.f23fe271dbeafe8d745237090a5a115e167653cdb000e74a3245efd986450ff0.ymRCgme2xTcwSDlK8Mjxj_zM6bDHbYjLGl0ncGYQfuo
     marketing-analytics-add-source--dismissed-everywhere--light:
@@ -14643,9 +14647,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-surveys--light:
         hash: v1.k794b7964.207944bd75ef551a13937ebd442aa7a3efbe6ad6370f75b36188955b0aacd487.mgWOBNeJkX87Y3SdH0dH8R7ff71klfkhbdNhDD0WFC4
     scenes-app-settings-environment--settings-environment-web-analytics--dark:
-        hash: v1.k794b7964.905d72a75d81df5d93f76f12778107287b98bb424e659b84ae48681032aec09d.YUnsaSpEKr0SCw-ADEHO-TOmzhFPGsE4lH4Y9V9YceQ
+        hash: v1.k794b7964.fe19fb69a98d2ab0172d211e0757142bf5fa816cd6da152590d3b5892b430f9b.LeCsObl-OgjexeFS5vfF6cujexXKuGDOgmzDR_0kNuc
     scenes-app-settings-environment--settings-environment-web-analytics--light:
-        hash: v1.k794b7964.2bb2d096f6389829399c57890ac6b5de5a17fb1b33079680885c9d400f7df2da.64bmbq5xDL6XZgx5rlYIOMAtMxo9Ts5iQlIgEsLQNNg
+        hash: v1.k794b7964.2d7c5efd6988d5fc968f263b5f49259841d44cc69c9607e25059789976582448.QwZG-i7TTw2Z5BipD7w0kZK95GNkdtuWpT6jirLQgFo
     scenes-app-settings-identity-provider-configuration--oidc--dark:
         hash: v1.k794b7964.1177527533a6ec000b396e1ee39627722226aed5cbab11759198dbbc2d72dcb3.NqKVUNSdSz-yE-r1M5EiEIaPRbQwBbyjCAf7rSSi9Do
     scenes-app-settings-identity-provider-configuration--oidc--light:
@@ -15786,6 +15790,10 @@ snapshots:
         hash: v1.k794b7964.7fcafd04ed6c719a8ad01cebc7abcc7265a3f677a2398e6ee19004eac26d1eff.kASMuoxhwilbDbtUhEblU0HnMTCXcWhk0aGBx34zYYk
     scenes-other-onboarding-shared-installation-progress--failed-provisioning--light:
         hash: v1.k794b7964.ae9111e8e758485d7791e5d85cd44d5cd5ffb2d5ec8948b1a9bb360455bc6674.O0Mx_17KqsoiMCWOgBgvn9w30i-uCzJpz05Jk9K3Isc
+    scenes-other-onboarding-shared-installation-progress--failed-usage-limit--dark:
+        hash: v1.k794b7964.60aae9b667df8cbdb74bf7419d201ece1ecede99bfb47de5ab86ca92cf29a3ca.vJvgDkUSC7s5hJ5wiiC1F7WgLlRUqmshkqDn5bOB0e8
+    scenes-other-onboarding-shared-installation-progress--failed-usage-limit--light:
+        hash: v1.k794b7964.50c4be57a0b7f54e4f9576afc3c8640b7fe50d81fb5ac53491a7627514c98759.2_g9z9UW7cdf77LuleEVHVIKOKW9qDlojT8K9IRbrLk
     scenes-other-onboarding-shared-installation-progress--failed-wizard--dark:
         hash: v1.k794b7964.3a1cef199fe6ff0b83ed59eb7c203067ceb40d28992890194f4b65eb54037063.G8lqwGkC_dmlyq1MoxtZlaWREPKsfAmXjlt1i3opb-w
     scenes-other-onboarding-shared-installation-progress--failed-wizard--light:
