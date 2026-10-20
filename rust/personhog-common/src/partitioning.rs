@@ -16,9 +16,15 @@ pub fn partition_for_person(team_id: i64, person_id: i64, num_partitions: u32) -
         write!(cursor, "{team_id}:{person_id}").unwrap();
         cursor.position() as usize
     };
-    let hash = kafka_murmur2(&buf[..len]);
+    partition_for_key(&buf[..len], num_partitions)
+}
+
+/// Kafka's default partitioner for a keyed record, which Node's
+/// `murmur2Partition` and librdkafka's `murmur2_random` both reproduce.
+pub fn partition_for_key(key: &[u8], num_partitions: u32) -> u32 {
+    assert!(num_partitions > 0, "num_partitions must be > 0");
     // Kafka's toPositive: hash & 0x7fffffff
-    let positive = (hash & 0x7fffffff) as u32;
+    let positive = (kafka_murmur2(key) & 0x7fffffff) as u32;
     positive % num_partitions
 }
 
@@ -103,6 +109,17 @@ mod tests {
         assert_eq!(kafka_murmur2(b"1:42"), -1141388408);
         assert_eq!(kafka_murmur2(b"hello"), 2132663229);
         assert_eq!(kafka_murmur2(b"test-key"), -1341026247);
+    }
+
+    // The fixture `nodejs/src/common/kafka/murmur2.test.ts` pins.
+    #[test]
+    fn partition_for_key_matches_nodes_partitioner() {
+        let key = b"2:01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        assert_eq!(kafka_murmur2(key), 989609914);
+        assert_eq!(partition_for_key(key, 64), 58);
+        // A negative hash: the mask, not the absolute value, picks the partition.
+        assert_eq!(kafka_murmur2(b"21"), -973932308);
+        assert_eq!(partition_for_key(b"21", 10), 0);
     }
 
     #[test]
