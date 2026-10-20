@@ -14,8 +14,6 @@ interface TodayPaneRowProps {
     action?: JSX.Element | null
     /** Keeps the action shown without a hover, for a state the row must always show, like a star. */
     actionVisible?: boolean
-    /** How many icon buttons the action holds, so the label stops before them. */
-    actionCount?: 1 | 2
     dataAttr?: string
 }
 
@@ -29,7 +27,6 @@ export function TodayPaneRow({
     variant,
     action,
     actionVisible = false,
-    actionCount = 1,
     dataAttr,
 }: TodayPaneRowProps): JSX.Element {
     return (
@@ -41,10 +38,14 @@ export function TodayPaneRow({
                 variant={variant}
                 title={label}
                 data-attr={dataAttr}
-                className={cn(action && (actionCount === 2 ? 'pr-14' : 'pr-8'))}
+                className={cn(action && 'pr-8')}
             >
                 {icon && (
-                    <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4" aria-hidden>
+                    <span
+                        className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4"
+                        data-keep-color
+                        aria-hidden
+                    >
                         {icon}
                     </span>
                 )}

@@ -1,11 +1,6 @@
-import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { cn } from '@posthog/quill'
-
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { findProductShortcut } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { TodayPaneRow } from './TodayPaneRow'
@@ -16,32 +11,23 @@ import { TodayProductStarButton } from './TodayProductStarButton'
 export interface TodayProductRowProps {
     value: string
     label: string
-    /** The product the row describes and stars. A Library row opens its product's list. */
     product: FileSystemImport
     to: string
     active: boolean
-    icon?: JSX.Element | null
-    /** Another control before the star, like the Library rows' create button. */
-    extraAction?: JSX.Element | null
-    /** Shows a starred row's filled star without a hover. The Starred group turns it off, as every row there has one. */
-    pinStar?: boolean
-    dataAttr: string
+    starred: boolean
+    /** Every row in the Starred group has a star, so those rows show it only on hover. */
+    inStarredGroup: boolean
 }
 
-/** A Products pane row with the current navigation's product card on hover and a star button. */
 export function TodayProductRow({
     value,
     label,
     product,
     to,
     active,
-    icon,
-    extraAction,
-    pinStar = true,
-    dataAttr,
+    starred,
+    inStarredGroup,
 }: TodayProductRowProps): JSX.Element {
-    const { shortcutData } = useValues(projectTreeDataLogic)
-    const starVisible = pinStar && !!findProductShortcut(product, shortcutData)
     // The shared card stores the payload, so it must keep its identity between renders.
     const preview = useMemo(() => productPreview(label, product), [label, product])
     return (
@@ -49,29 +35,14 @@ export function TodayProductRow({
             <TodayPaneRow
                 value={value}
                 label={label}
-                icon={icon ?? <NavProductIcon item={product} />}
+                icon={<NavProductIcon item={product} />}
                 to={to}
                 active={active}
-                action={
-                    <span className="flex items-center">
-                        {extraAction && (
-                            <span
-                                className={cn(
-                                    'flex items-center',
-                                    starVisible &&
-                                        'opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100'
-                                )}
-                            >
-                                {extraAction}
-                            </span>
-                        )}
-                        <TodayProductStarButton product={product} />
-                    </span>
-                }
+                action={<TodayProductStarButton product={product} starred={starred} />}
                 // Like the current navigation, a starred row keeps its filled star in view.
-                actionVisible={starVisible}
-                actionCount={extraAction ? 2 : 1}
-                dataAttr={dataAttr}
+                actionVisible={starred && !inStarredGroup}
+                // pinned: tracking API, do not rename.
+                dataAttr={inStarredGroup ? 'today-tool-starred' : 'today-tool'}
             />
         </TodayPreviewTrigger>
     )

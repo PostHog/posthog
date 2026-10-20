@@ -28,7 +28,7 @@ export function TodayProductHoverCard({
                         <span className="min-w-0 flex-1 font-semibold">{preview.label}</span>
                     </ItemTitle>
                     <div className="flex flex-col gap-2 pl-6">
-                        <p className="m-0 text-xs">{preview.description}</p>
+                        {preview.description && <p className="m-0 text-xs">{preview.description}</p>}
                         {preview.example && (
                             <div className="flex flex-col gap-0.5">
                                 <Text size="xs" variant="muted" className="font-semibold">

@@ -56,51 +56,6 @@ export function isToolItem(item: FileSystemImport): boolean {
     )
 }
 
-let productsByLibraryType: Map<string, FileSystemImport[]> | null = null
-
-function libraryRowProducts(type: string): FileSystemImport[] {
-    if (!productsByLibraryType) {
-        const products = new Map<string, FileSystemImport[]>()
-        for (const item of getToolSourceItems()) {
-            if (libraryRowOpensProduct(item)) {
-                const itemType = productObjectType(item)
-                products.set(itemType, [...(products.get(itemType) ?? []), item])
-            }
-        }
-        productsByLibraryType = products
-    }
-    return productsByLibraryType.get(type) ?? []
-}
-
-/** The names of the products a Library type row opens, so a search for "Product analytics" finds Insights. */
-export function libraryRowProductLabels(type: string): string[] {
-    return libraryRowProducts(type).map(toolLabel)
-}
-
-/** The product a Library type row opens, so the row can show its description and be starred like a product. */
-export function libraryRowProduct(type: string): FileSystemImport | null {
-    return libraryRowProducts(type)[0] ?? null
-}
-
-export function toolHrefForPath(
-    path: string,
-    tools: Pick<FileSystemImport, 'href'>[] = getToolSourceItems().filter(isToolItem)
-): string | null {
-    let match: { href: string; toolPath: string } | null = null
-    for (const { href } of tools) {
-        const toolPath = href?.split(/[?#]/)[0]
-        if (
-            href &&
-            toolPath &&
-            (path === toolPath || path.startsWith(`${toolPath}/`)) &&
-            (!match || toolPath.length > match.toolPath.length)
-        ) {
-            match = { href, toolPath }
-        }
-    }
-    return match?.href ?? null
-}
-
 export function groupTools(tools: FileSystemImport[], search: string): ToolGroup[] {
     const groups = new Map<string, FileSystemImport[]>()
     for (const tool of tools) {

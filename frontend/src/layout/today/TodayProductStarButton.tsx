@@ -4,16 +4,19 @@ import { IconStar, IconStarFilled } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { findProductShortcut } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-import { todayToolsLogic } from './todayToolsLogic'
+import { todayProductsLogic } from './todayProductsLogic'
 
-/** Stars a product, or removes its star. The stars are the same as in the current navigation. */
-export function TodayProductStarButton({ product }: { product: FileSystemImport }): JSX.Element {
-    const { shortcutData, shortcutDataLoading } = useValues(projectTreeDataLogic)
-    const { toggleStarred } = useActions(todayToolsLogic)
-    const starred = !!findProductShortcut(product, shortcutData)
+export function TodayProductStarButton({
+    product,
+    starred,
+}: {
+    product: FileSystemImport
+    starred: boolean
+}): JSX.Element {
+    const { shortcutDataLoading } = useValues(projectTreeDataLogic)
+    const { toggleStarred } = useActions(todayProductsLogic)
     const label = starred ? 'Remove from starred' : 'Add to starred'
     return (
         <Tooltip>

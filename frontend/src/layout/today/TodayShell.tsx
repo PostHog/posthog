@@ -19,7 +19,6 @@ import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
-import { todayRecentsLogic } from './todayRecentsLogic'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
 import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
@@ -44,8 +43,6 @@ const NewSpaceDialog = lazyWithRetry(() =>
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
-    // Records the tools visited while other panes are open, so the Tools pane's Recent group is ready.
-    useMountedLogic(todayRecentsLogic)
     useMountedLogic(todayPanelChatSessionLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({
