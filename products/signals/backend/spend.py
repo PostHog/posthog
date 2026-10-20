@@ -136,27 +136,53 @@ async def submit_signal_metadata_updates(
 
 
 async def publish_signal_spend(*, team_id: int, signal_id: str, wait_for_completion: bool = True) -> None:
-    try:
-        await submit_signal_metadata_updates(
-            team_id=team_id, signal_ids=[signal_id], wait_for_completion=wait_for_completion
-        )
-    except Exception:
-        logger.exception(
-            "signals.spend.accounting_failed", stage="persist_metadata", team_id=team_id, signal_id=signal_id
+    from temporalio.client import WithStartWorkflowOperation  # noqa: PLC0415 — keeps Temporal off Django startup
+    from temporalio.common import WorkflowIDConflictPolicy  # noqa: PLC0415 — keeps Temporal off Django startup
+
+    from posthog.temporal.common.client import async_connect  # noqa: PLC0415 — keeps Temporal off Django startup
+
+    if not wait_for_completion:
+        await submit_signal_metadata_updates(team_id=team_id, signal_ids=[signal_id])
+        return
+    client = await asyncio.wait_for(async_connect(), timeout=5)
+    await client.execute_update_with_start_workflow(
+        "publish_spend",
+        start_workflow_operation=WithStartWorkflowOperation(
+            "update-signal-spend",
+            SignalSpendUpdate(team_id=team_id, signal_id=signal_id),
+            id=f"signal-spend-{team_id}-{signal_id}",
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            execution_timeout=timedelta(minutes=15),
+        ),
+    )
+
+
+@frozen
+class _SpendTotals:
+    cost_microusd: int
+    task_ids: list[UUID]
+    task_count: int
+    failed_stages: list[str]
+    tasks_finished: bool
+
+    @property
+    def summary(self) -> SignalSpendSummary:
+        return SignalSpendSummary(
+            total_spend=float(cost_to_spend(self.cost_microusd, task_count=self.task_count)),
+            failed_stages=self.failed_stages,
         )
 
 
-def _save_spend(spend: SignalSpend, *, finalize: bool = False) -> SignalSpendSummary:
+def _calculate_spend(spend: SignalSpend) -> _SpendTotals:
     from products.tasks.backend.facade.billing import (
         get_task_runs_spend,  # noqa: PLC0415 — keeps task services off startup
     )
 
     owner = {"signal_id": spend.signal_id} if spend.signal_id else {"scout_run_id": spend.scout_run_id}
     legacy = list(LegacySignalSpend.objects.for_team(spend.team_id).filter(**owner))
-    for receipt in legacy:
-        if receipt.task_id and receipt.task_id not in spend.task_ids:
-            spend.task_ids.append(receipt.task_id)
-    runs = get_task_runs_spend(team_id=spend.team_id, task_ids=spend.task_ids)
+    task_ids = list(dict.fromkeys([*spend.task_ids, *(receipt.task_id for receipt in legacy if receipt.task_id)]))
+    runs = get_task_runs_spend(team_id=spend.team_id, task_ids=task_ids)
     task_costs = {str(receipt.source_id): receipt.token_cost_microusd or 0 for receipt in legacy if receipt.is_task}
     failed_stages = set(spend.llm_failed_stages)
     failed_stages.update(receipt.stage for receipt in legacy if receipt.accounting_failed)
@@ -166,24 +192,34 @@ def _save_spend(spend: SignalSpend, *, finalize: bool = False) -> SignalSpendSum
             failed_stages.add("scout" if spend.scout_run_id else run.stage)
     cost = spend.llm_cost_microusd + sum(receipt.token_cost_microusd or 0 for receipt in legacy if not receipt.is_task)
     cost += sum(task_costs.values())
-    if (cost, len(task_costs)) != (spend.token_cost_microusd, spend.task_count):
+    return _SpendTotals(
+        cost_microusd=cost,
+        task_ids=task_ids,
+        task_count=len(task_costs),
+        failed_stages=sorted(failed_stages),
+        tasks_finished=all(run.is_terminal for run in runs),
+    )
+
+
+def _save_spend(spend: SignalSpend, *, finalize: bool = False) -> SignalSpendSummary:
+    totals = _calculate_spend(spend)
+    if (totals.cost_microusd, totals.task_count) != (spend.token_cost_microusd, spend.task_count):
         spend.finalized_at = None
-    spend.token_cost_microusd = cost
-    spend.task_count = len(task_costs)
-    spend.accounting_failed = bool(failed_stages)
-    if spend.accounting_failed or any(not run.is_terminal for run in runs):
+    spend.task_ids = totals.task_ids
+    spend.token_cost_microusd = totals.cost_microusd
+    spend.task_count = totals.task_count
+    spend.accounting_failed = bool(totals.failed_stages)
+    if spend.accounting_failed or not totals.tasks_finished:
         spend.finalized_at = None
     elif finalize:
         spend.finalized_at = spend.finalized_at or timezone.now()
     recognize_spend(spend, now=timezone.now())
     spend.save()
-    summary = SignalSpendSummary(
-        total_spend=float(cost_to_spend(cost, task_count=spend.task_count)), failed_stages=sorted(failed_stages)
-    )
+    summary = totals.summary
     if spend.scout_run_id:
         scout = SignalScoutRun.objects.for_team(spend.team_id).filter(id=spend.scout_run_id).first()
         if scout:
-            scout.total_spend = cost_to_spend(cost, task_count=spend.task_count)
+            scout.total_spend = cost_to_spend(totals.cost_microusd, task_count=totals.task_count)
             scout.metadata = {**(scout.metadata or {}), "spend_accounting_failed_stages": summary.failed_stages}
             scout.save(update_fields=["total_spend", "metadata"])
     return summary
@@ -194,9 +230,8 @@ def _locked_spend(
     team_id: int,
     signal_id: str | None = None,
     scout_run_id: str | None = None,
-    create: bool = True,
     report_id: str | None = None,
-) -> SignalSpend | None:
+) -> SignalSpend:
     if (signal_id is None) == (scout_run_id is None):
         raise ValueError("Spend must have exactly one owner")
     owner = {"signal_id": signal_id} if signal_id is not None else {"scout_run_id": scout_run_id}
@@ -204,8 +239,6 @@ def _locked_spend(
     spend = queryset.select_for_update().filter(**owner).first()
     if spend is None:
         legacy_exists = LegacySignalSpend.objects.for_team(team_id).filter(**owner).exists()
-        if not create and not legacy_exists:
-            return None
         report = SignalReport.objects.filter(team_id=team_id, id=report_id).first() if report_id else None
         usage_billing = not legacy_exists and (report.usage_based_billing if report else usage_billing_enabled(team_id))
         scout = SignalScoutRun.objects.for_team(team_id).filter(id=scout_run_id).first() if scout_run_id else None
@@ -234,7 +267,6 @@ def record_llm_spend(
     try:
         with transaction.atomic():
             spend = _locked_spend(team_id=team_id, signal_id=signal_id)
-            assert spend is not None
             spend.finalized_at = None
             if token_cost_microusd is None:
                 spend.llm_failed_stages = sorted(set(spend.llm_failed_stages) | {stage})
@@ -262,10 +294,12 @@ def signal_spend_summaries(*, team_id: int, signal_ids: list[str]) -> dict[str, 
         except ValueError:
             continue
         try:
-            with transaction.atomic():
-                spend = _locked_spend(team_id=team_id, signal_id=signal_id, create=False)
-                if spend:
-                    summaries[signal_id] = _save_spend(spend)
+            spend = SignalSpend.objects.for_team(team_id).filter(signal_id=signal_id).first()
+            if spend is None:
+                if not LegacySignalSpend.objects.for_team(team_id).filter(signal_id=signal_id).exists():
+                    continue
+                spend = SignalSpend(team_id=team_id, signal_id=UUID(signal_id))
+            summaries[signal_id] = _calculate_spend(spend).summary
         except Exception:
             logger.exception("signals.spend.accounting_failed", stage="read_spend", team_id=team_id)
     return summaries
@@ -295,7 +329,6 @@ def record_task_spend(
         return
     with transaction.atomic():
         spend = _locked_spend(team_id=team_id, signal_id=signal_id, scout_run_id=scout_run_id, report_id=report_id)
-        assert spend is not None
         if run.task_id not in spend.task_ids:
             spend.task_ids.append(run.task_id)
         if report_id:
@@ -368,7 +401,6 @@ def complete_signal_pipeline(
     try:
         with transaction.atomic():
             spend = _locked_spend(team_id=team_id, signal_id=signal_id, report_id=report_id)
-            assert spend is not None
             spend.billing_exempt = spend.billing_exempt or billing_exempt
             report = SignalReport.objects.filter(team_id=team_id, id=report_id).first() if report_id else None
             if report:
@@ -389,7 +421,6 @@ def begin_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
     try:
         with transaction.atomic():
             spend = _locked_spend(team_id=team_id, signal_id=signal_id, report_id=report_id)
-            assert spend is not None
             spend.report_id = UUID(report_id)
             spend.finalized_at = None
             report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
@@ -471,14 +502,9 @@ def _report_spend_signal_ids(*, team_id: int, report_id: str) -> list[str]:
 
 
 async def publish_report_spend(*, team_id: int, report_id: str) -> None:
-    try:
-        signal_ids = await database_sync_to_async(_report_spend_signal_ids)(team_id=team_id, report_id=report_id)
-        for signal_id in signal_ids:
-            await publish_signal_spend(team_id=team_id, signal_id=signal_id)
-    except Exception:
-        logger.exception(
-            "signals.spend.accounting_failed", stage="report_completion", team_id=team_id, report_id=report_id
-        )
+    signal_ids = await database_sync_to_async(_report_spend_signal_ids)(team_id=team_id, report_id=report_id)
+    for signal_id in signal_ids:
+        await publish_signal_spend(team_id=team_id, signal_id=signal_id)
 
 
 def complete_task_spend(*, team_id: int, run_id: str) -> None:
@@ -501,13 +527,13 @@ def complete_task_spend(*, team_id: int, run_id: str) -> None:
             spend.save(update_fields=["task_ids"])
     process_pending_gateway_usage(run_id=UUID(run_id), team_id=team_id, limit=1000)
     usage = get_task_run_token_usage(run_id=UUID(run_id), team_id=team_id)
-    if not usage.complete:
-        raise TaskTokenUsageUnavailable("Task usage is not settled yet")
     with transaction.atomic():
         spend = _task_spend(team_id=team_id, run_id=run_id)
         if spend is None:
             return
         _save_spend(spend, finalize=spend.scout_run_id is not None)
+    if not usage.complete:
+        raise TaskTokenUsageUnavailable("Task usage is not settled yet")
     if spend.report_id:
         # Research stays open until its parent finishes the implementation decision.
         if (run.state or {}).get("ai_stage") not in {"research", "repo_selection"}:

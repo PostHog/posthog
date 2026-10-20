@@ -3,6 +3,7 @@ import json
 import uuid
 import random
 import asyncio
+import logging
 import dataclasses
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -2637,33 +2638,43 @@ class TestProcessTaskWorkflowUnit:
         assert forward_mock.called is forwarded
 
     @pytest.mark.parametrize(
-        "origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status",
+        "origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status, spend_fails",
         [
-            (None, False, 1, None, "completed"),
-            (None, False, 1, True, "completed"),
+            (None, False, 1, None, "completed", False),
+            (None, False, 1, True, "completed", False),
             # The agent was mid-turn when the sandbox vanished, so the workflow step waiting on
             # this run has no work to continue from.
-            ("workflow", False, 1, False, "failed"),
+            ("workflow", False, 1, False, "failed", False),
             # Every other origin keeps completing: the run is the snapshot its reader or its resume
             # flow picks up, and a red run in the task list would report breakage that never was.
-            (None, False, 1, False, "completed"),
-            ("slack", False, 1, False, "completed"),
-            ("user_created", False, 1, None, "completed"),
-            ("signal_report", False, 1, None, "completed"),
-            ("signals_scout", False, 1, None, "completed"),
+            (None, False, 1, False, "completed", False),
+            ("slack", False, 1, False, "completed", False),
+            ("user_created", False, 1, None, "completed", False),
+            ("signal_report", False, 1, None, "completed", False),
+            ("signals_scout", False, 1, None, "completed", False),
+            ("signal_report", False, 1, None, "completed", True),
+            ("signals_scout", False, 1, None, "completed", True),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
-            ("onboarding", False, 1, None, "failed"),
+            ("onboarding", False, 1, None, "failed", False),
             # Unless the PR is already open: the wizard reads the terminal status, so a downgrade
             # would report a failed install over a PR the user can merge.
-            ("onboarding", True, 1, None, "completed"),
+            ("onboarding", True, 1, None, "completed", False),
             # No follow-up round ever ran, so the empty PR latch is unobserved rather than evidence
             # of no PR. Downgrading here would fail a run whose PR the loop never got to look at.
-            ("onboarding", False, 0, None, "completed"),
+            ("onboarding", False, 0, None, "completed", False),
         ],
     )
     async def test_run_completes_when_credential_refresh_detects_sandbox_gone(
-        self, monkeypatch, origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status
+        self,
+        monkeypatch,
+        origin_product,
+        pr_progress_emitted,
+        ci_repetitions,
+        end_of_turn_received,
+        expected_status,
+        spend_fails,
+        caplog,
     ):
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
@@ -2722,11 +2733,22 @@ class TestProcessTaskWorkflowUnit:
                 await asyncio.sleep(0)
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger("temporalio.workflow"))
 
         async def finish_spend(activity_fn, run_id, **kwargs):
             assert activity_fn is process_task_workflow_module.complete_signal_spend
             assert run_id == "run-id"
             cleanup_sandbox_mock.assert_awaited_once()
+            if spend_fails:
+                raise ActivityError(
+                    "Task usage is not settled",
+                    scheduled_event_id=1,
+                    started_event_id=2,
+                    identity="test",
+                    activity_type="complete_signal_spend",
+                    activity_id="billing",
+                    retry_state=RetryState.TIMEOUT,
+                )
 
         finish_spend_mock = AsyncMock(side_effect=finish_spend)
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", finish_spend_mock)
@@ -2734,6 +2756,8 @@ class TestProcessTaskWorkflowUnit:
         assert finish_spend_mock.await_count == (1 if origin_product in {"signal_report", "signals_scout"} else 0)
 
         assert result.success is True
+        if spend_fails:
+            assert "signals.spend.accounting_failed" in caplog.text
         assert workflow._completion_status == expected_status
         update_task_run_status_mock.assert_any_await(
             expected_status,

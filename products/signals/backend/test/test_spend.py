@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from django.apps import apps
 from django.db import IntegrityError, connection, connections, transaction
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import httpx
@@ -211,6 +212,11 @@ class TestSignalSpend(BaseTest):
             with self.assertRaises(RuntimeError):
                 publish_signal_spend_metadata(signal)
             produce_scope.side_effect = None
+            producer.produce.return_value.get.side_effect = RuntimeError("Kafka delivery failed")
+            with self.assertRaisesRegex(RuntimeError, "Kafka delivery failed"):
+                publish_signal_spend_metadata(signal)
+            producer.produce.return_value.get.side_effect = None
+            producer.reset_mock()
             publication = publish_signal_spend_metadata(signal)
             assert producer.produce.call_count == len(EmbeddingModelName)
             for _ in range(5):
@@ -799,10 +805,37 @@ class TestSignalSpend(BaseTest):
         record_llm_spend("new-call", token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="grouping")
         old.token_cost_microusd = 150
         old.save(update_fields=["token_cost_microusd", "updated_at"])
-        for _ in range(2):
-            assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 0.045}
+        late_driver = str(uuid4())
+        LegacySignalSpend.objects.for_team(self.team.id).create(
+            team_id=self.team.id, signal_id=late_driver, source_id="late-call", stage="grouping", token_cost_microusd=50
+        )
+        before = list(SignalSpend.objects.for_team(self.team.id).order_by("id").values())
+        with CaptureQueriesContext(connection) as queries:
+            for _ in range(2):
+                assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, late_driver]) == {
+                    driver: 0.045,
+                    late_driver: 0.005,
+                }
+        assert all(query["sql"].startswith("SELECT") and "FOR UPDATE" not in query["sql"] for query in queries)
+        assert list(SignalSpend.objects.for_team(self.team.id).order_by("id").values()) == before
         assert SignalSpend.objects.for_team(self.team.id).count() == 2
-        assert LegacySignalSpend.objects.for_team(self.team.id).count() == 2
+        assert LegacySignalSpend.objects.for_team(self.team.id).count() == 3
+
+    def test_spend_reads_do_not_reopen_or_bill_a_completed_owner(self) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        run = self._run(report=report)
+        self._set_task_cost(run, 10_000)
+        SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).update(
+            finalized_at=timezone.now(), usage_based_billing=True, billing_amounts={"2026-10-01": 50_000}
+        )
+        before = SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).values().get()
+        run.state = {"ai_stage": "research", "token_cost": {"model": {"provider": {"cost_microusd": 20_000}}}}
+        run.save(update_fields=["state"])
+        with CaptureQueriesContext(connection) as queries:
+            assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 6}
+        assert all(query["sql"].startswith("SELECT") and "FOR UPDATE" not in query["sql"] for query in queries)
+        assert SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).values().get() == before
 
     def test_report_reassignment_and_deletion_do_not_leave_spend_open(self) -> None:
         driver = str(uuid4())
@@ -828,7 +861,7 @@ class TestSignalSpend(BaseTest):
         with transaction.atomic():
             self._set_task_cost(run, 10_001)
             assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 5.0001}
-            self.temporal.start_workflow.assert_not_called()
+            self.temporal.execute_update_with_start_workflow.assert_not_called()
         try:
             with transaction.atomic():
                 self._set_task_cost(run, 20_002)
@@ -869,11 +902,7 @@ class TestSignalSpend(BaseTest):
             implementation.status = implementation_status
             implementation.save(update_fields=["status"])
             complete_task_spend(team_id=self.team.id, run_id=str(implementation.id))
-        self.temporal.start_workflow.assert_awaited_once()
-        assert self.temporal.start_workflow.call_args.args[1] == SignalSpendUpdate(
-            team_id=self.team.id, signal_id=driver
-        )
-        self.temporal.start_workflow.return_value.result.assert_awaited_once()
+        self.temporal.execute_update_with_start_workflow.assert_awaited_once()
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {
             driver: 11.0003 if implementation else 5.0001
         }
@@ -896,8 +925,19 @@ class TestSignalSpend(BaseTest):
         run.save(update_fields=["state", "status"])
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
-            new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)),
+            new=AsyncMock(return_value=None),
         ) as fetch:
+            with self.assertRaises(TaskTokenUsageUnavailable):
+                complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+            owner = SignalSpend.objects.for_team(self.team.id).get(
+                **({"scout_run_id": scout.id} if scout else {"signal_id": driver})
+            )
+            assert owner.accounting_failed
+            assert owner.finalized_at is None
+            assert owner.billing_amounts == {}
+            self.temporal.execute_update_with_start_workflow.assert_not_called()
+            fetch.reset_mock()
+            fetch.return_value = GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)
             complete_task_spend(team_id=self.team.id, run_id=str(run.id))
             fetch.assert_awaited_once_with("pending-request")
         if scout:
@@ -909,7 +949,7 @@ class TestSignalSpend(BaseTest):
             summary = signal_spend_summaries(team_id=self.team.id, signal_ids=[driver])[driver]
             assert summary.total_spend == 16.3456
             assert summary.failed_stages == []
-        assert self.temporal.start_workflow.await_count == (0 if is_scout else 1)
+        assert self.temporal.execute_update_with_start_workflow.await_count == (0 if is_scout else 1)
 
     def test_one_shot_receipts_preserve_known_spend_and_record_failed_stage(self) -> None:
         driver = str(uuid4())
@@ -1000,7 +1040,7 @@ class TestSignalSpend(BaseTest):
             new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)),
         ):
             settle_scout_spend(team_id=self.team.id, run_id=str(run.id))
-        spend.refresh_from_db()
+        spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
         assert spend.finalized_at is not None
         assert spend.token_cost_microusd == 123_456
         assert sum(spend.billing_amounts.values()) > 0
