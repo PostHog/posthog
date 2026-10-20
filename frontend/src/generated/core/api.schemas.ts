@@ -6994,7 +6994,7 @@ export type FileSystemSearchRetrieveParams = {
     /**
      * Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.
      * @minLength 1
-     * @maxLength 500
+     * @maxLength 200
      */
     search: string
 }

@@ -41,6 +41,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
 from posthog.exceptions import Conflict
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
@@ -244,7 +245,7 @@ SEARCH_FILTER_FIELDS = {"path", "name", "user", "author", "type", "ref"}
 
 class FileSystemRankedSearchQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
-        max_length=500,
+        max_length=MAX_SEARCH_LENGTH,
         help_text="Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.",
     )
     limit = serializers.IntegerField(
