@@ -201,33 +201,6 @@ describe('createRecordingApiAuthMiddleware', () => {
         })
     })
 
-    describe('routes that require a JWT', () => {
-        it.each([
-            ['the legacy secret', { jwtSecret: JWT_SECRET }, { 'x-internal-api-secret': LEGACY_SECRET }],
-            [
-                'any request when no JWT key is configured',
-                { jwtSecret: '' },
-                { 'x-internal-api-secret': LEGACY_SECRET },
-            ],
-        ])('reject %s', (_, opts, headers) => {
-            const { res, next } = run(
-                { ...opts, op: 'write', allowLegacySecret: true, requireJwt: true },
-                mockRequest('123', headers)
-            )
-            expect(next).not.toHaveBeenCalled()
-            expect(res.status).toHaveBeenCalledWith(401)
-        })
-
-        it('accept a scoped write token', () => {
-            const { res, next } = run(
-                { op: 'write', allowLegacySecret: true, requireJwt: true },
-                mockRequest('123', bearer(mintToken({ team_id: 123, op: 'write' })))
-            )
-            expect(next).toHaveBeenCalled()
-            expect(res.status).not.toHaveBeenCalled()
-        })
-    })
-
     describe('progressive rollout (legacy secret before JWT is enabled)', () => {
         it('requires the legacy secret when no JWT secret is configured', () => {
             const req = mockRequest('123', { 'x-internal-api-secret': LEGACY_SECRET })

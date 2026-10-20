@@ -174,7 +174,8 @@ class BoundedRetry(Retry):
     - All tries of one request end by one deadline. In `TrackedHTTPAdapter` it is the request
       deadline (see `request_deadline`). Outside it, it is `retry_budget_seconds()` after the first
       failure. No wait starts that would end at or after the deadline: the last response or error
-      goes to the caller.
+      goes to the caller. A `Retry-After` counts with the delay that the server asked for, before
+      the cap, so a server that asks for a day gets its 429 back at once and no capped wait.
     - A wait ends early when the worker starts to shut down, so the caller can hand the run off.
     """
 
@@ -206,15 +207,17 @@ class BoundedRetry(Retry):
         deadline = _request_deadline.get()
         if deadline is None:
             deadline = now + retry_budget_seconds() if self._retry_deadline is None else self._retry_deadline
-        if now + retry._next_wait(response) >= deadline:
+        if now + retry._requested_wait(response) >= deadline:
             raise MaxRetryError(_pool, url or "", error or ResponseError("retry budget spent"))
         retry._retry_deadline = deadline
         return retry
 
-    def _next_wait(self, response: Any) -> float:
-        # The same choice as `Retry.sleep`, which urllib3 calls on the object that `increment` returns.
+    def _requested_wait(self, response: Any) -> float:
+        # The same choice as `Retry.sleep`, which urllib3 calls on the object that `increment` returns,
+        # but with the delay the server asked for and not the capped one. A capped wait ends before the
+        # server is ready, so a retry after it fails again and only holds the worker.
         if self.respect_retry_after_header and response is not None:
-            retry_after = self.get_retry_after(response)
+            retry_after = super().get_retry_after(response)
             if retry_after:
                 return retry_after
         return self.get_backoff_time()

@@ -444,7 +444,6 @@ class TestSharing(APIBaseTest):
             team=self.team,
             name="example dashboard",
             created_by=other_user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         response = self.client.patch(

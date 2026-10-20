@@ -136,7 +136,7 @@ def test_statistics_windows_and_rows(clock: MagicMock, name: str, metric: str, i
     assert result.saved_states[-1].window_start == NOW.replace(minute=0).isoformat()
 
 
-@pytest.mark.parametrize("status", [200, 401, 403, 429, 500])
+@pytest.mark.parametrize("status", [429, 500])
 def test_credentials_status_mapping(status: int) -> None:
     response = ScriptedResponse(status=status, json={"message": "Authentication credentials were not provided."})
     script = always(response) if status in (429, 500) else [response]

@@ -104,7 +104,7 @@ class NorthflankSource(SimpleSource[NorthflankSourceConfig]):
             name=ExternalDataSourceType.NORTHFLANK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Northflank",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Northflank API token to pull your Northflank projects, services, jobs, addons, and volumes into the PostHog Data warehouse.
 
 You can create a personal or team API token in your [Northflank account settings](https://app.northflank.com/). Grant it read access to the resources you want to sync.""",

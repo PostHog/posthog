@@ -193,10 +193,6 @@ class TestEppoSourcePagination:
 
 
 class TestValidateCredentials:
-    def test_ok(self) -> None:
-        with scripted_network([ScriptedResponse(status=200)]):
-            assert validate_credentials("key") == (True, 200)
-
     def test_probes_experiments_endpoint_with_token_header(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("key")

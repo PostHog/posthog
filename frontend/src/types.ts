@@ -7594,7 +7594,7 @@ export type HogFunctionTemplateType = Pick<
     /** Whether this is a featured/recommended source */
     featured?: boolean
     /** Release status, only populated for `type: 'source'` templates */
-    releaseStatus?: 'alpha' | 'beta' | 'ga'
+    releaseStatus?: 'beta' | 'ga'
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
@@ -8142,6 +8142,7 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
+    MCP = 'mcp',
 }
 
 // Managed viewset
