@@ -195,7 +195,8 @@ def classify_mapping(pg: PgMapping | None, ch: ChMapping | None, *, ch_owner_pg_
             return _verdict("mapping", "deleted_visible")
         return _verdict("mapping", "ok_deleted")
 
-    if pg.person_is_deleted:
+    # None is an orphan row whose person is gone; ingestion re-attaches it like any other stray.
+    if pg.person_is_deleted is not False:
         return _verdict("mapping", "stray")
     if ch is None or ch.visible_rows == 0:
         return _verdict("mapping", "missing_in_ch")
