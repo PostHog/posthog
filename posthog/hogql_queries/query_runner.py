@@ -2119,9 +2119,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
-        # WebVitals workers initialize from the source, regardless of wrapper modifiers.
-        query = self.query.source if isinstance(self.query, WebVitalsQuery) else self.query
-        query_modifiers = query_node_modifiers(query)
+        query_modifiers = query_node_modifiers(self.query)
         if self.modifiers.useNewEventsCluster or (query_modifiers and query_modifiers.useNewEventsCluster):
             raise ExposedHogQLError(
                 "Native events cluster queries require synchronous execution; use refresh=force_blocking"
