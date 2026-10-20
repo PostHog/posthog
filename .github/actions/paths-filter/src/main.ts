@@ -5,6 +5,7 @@ import {GetResponseDataTypeFromEndpointMethod} from '@octokit/types'
 import {PullRequest, PushEvent} from '@octokit/webhooks-types'
 
 import {Filter, FilterResults, firedKeys} from './filter'
+import {loadPolicy, projectLegacyFilters} from './shared-image-releases'
 import {File, ChangeStatus} from './file'
 import * as git from './git'
 import * as shadow from './shadow'
@@ -24,7 +25,16 @@ async function run(): Promise<void> {
     const ref = core.getInput('ref', {required: false})
     const base = core.getInput('base', {required: false})
     const filtersInput = core.getInput('filters', {required: true})
-    const filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput
+    let filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput
+    const policyPath = core.getInput('shared-image-policy', {required: false})
+    if (policyPath) {
+      const policy = loadPolicy(getConfigFileContent(policyPath), {
+        [process.env.ECR_REPOSITORY ?? '']: {
+          sourceRepository: 'PostHog/posthog', registry: '', repository: process.env.ECR_REPOSITORY ?? '', destinations: []
+        }
+      })
+      filtersYaml = projectLegacyFilters(policy, filtersYaml)
+    }
     const listFiles = core.getInput('list-files', {required: false}).toLowerCase() || 'none'
     const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', {required: false})) || 10
 

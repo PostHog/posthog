@@ -66,3 +66,11 @@ Examples: `container-images-cd.yml` (whole-job); `cd-mcp-image.yml`,
 `livestream-docker-image.yml`, `cd-sandbox-base-image.yml` (mixed PR+master);
 `rust-docker-build.yml` + `_rust-build-images.yml` (reusable `push` input).
 Counter-example, not gated: `build-phrocs.yml`.
+
+## New ordered-image publishers and shared builds
+
+For a new monorepo publisher or independent releases of a shared built image,
+read [Ordered image releases](references/ordered-image-releases.md). Reuse the
+repository helper and canonical policy. The foundation supports the common
+alias and policy helpers; selective worker publication is pending in the next
+integration PR. Services built elsewhere retain their existing publisher family.

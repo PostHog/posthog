@@ -1,0 +1,20 @@
+version: 1
+filters:
+    dataWarehouse:
+        - 'posthog/hogql*/**'
+        - 'products/warehouse_sources_queue/**'
+        - 'posthog/temporal/data_modeling/**'
+        - 'products/customer_analytics/backend/**'
+        - 'products/warehouse_sources/backend/**'
+        - 'products/data_warehouse/backend/**'
+        - 'posthog/warehouse/**'
+        - Dockerfile
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - pyproject.toml
+        - bin/temporal-django-worker
+        - 'posthog/clickhouse/migrations/**'
+
+images:
+    posthog-cloud:
+        channels: {}
