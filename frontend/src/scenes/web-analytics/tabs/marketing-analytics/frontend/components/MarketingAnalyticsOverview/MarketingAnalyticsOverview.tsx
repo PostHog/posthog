@@ -113,16 +113,28 @@ export function MarketingAnalyticsOverview(props: {
     return (
         <>
             {allWarnings.length > 0 && <MarketingAnalyticsValidationWarningBanner warnings={allWarnings} />}
-            <OverviewMetricCardGrid
-                sparklineTheme={sparklineTheme}
-                className="grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
-                items={overviewItems.filter(filterEmptyMetrics)}
-                loading={responseLoading}
-                numSkeletons={numSkeletons}
-                emptyMessage="-"
-                samplingRate={samplingRate}
-                labelFromKey={(key) => <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>}
-            />
+            <div className="flex flex-col gap-2">
+                {[
+                    overviewItems.filter((item) => adPerformanceMetricKey(item.key)),
+                    overviewItems.filter((item) => !adPerformanceMetricKey(item.key)),
+                ].map((items, index) =>
+                    (responseLoading && index === 0) || (!responseLoading && items.length > 0) ? (
+                        <OverviewMetricCardGrid
+                            key={index}
+                            sparklineTheme={sparklineTheme}
+                            className="grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
+                            items={items.filter(filterEmptyMetrics)}
+                            loading={responseLoading}
+                            numSkeletons={numSkeletons}
+                            emptyMessage="-"
+                            samplingRate={index === 0 ? samplingRate : undefined}
+                            labelFromKey={(key) => (
+                                <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>
+                            )}
+                        />
+                    ) : null
+                )}
+            </div>
         </>
     )
 }
