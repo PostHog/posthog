@@ -42,6 +42,7 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         self.instance_settings: dict[str, object] = {
             "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [44],
             "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
+            "CLICKHOUSE_NATIVE_EVENTS_ASYNC": True,
         }
         self.enterContext(
             patch("posthog.models.event.new_events_schema.get_instance_setting", self.instance_settings.get)
@@ -175,6 +176,20 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 keys.append(runner.get_cache_key())
         self.assertEqual(len(set(keys)), 2 if native else 1)
 
+    def test_native_enqueue_waits_for_the_async_gate(self) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        self.instance_settings["CLICKHOUSE_NATIVE_EVENTS_ASYNC"] = False
+        source = HogQLQuery(query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True}))
+        with (
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+            self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"),
+        ):
+            HogQLQueryRunner(query=source, team=self.team).enqueue_async_calculation(
+                cache_manager=MagicMock(cache_key="example-cache"), user=self.user
+            )
+        enqueue.assert_not_called()
+
     def test_worker_revalidates_eligibility_instead_of_falling_back(self) -> None:
         from posthog.hogql.errors import ExposedHogQLError
 
@@ -217,6 +232,7 @@ class TestNewEventsClusterRouting(SimpleTestCase):
             side_effect=lambda key: {
                 "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com" if cluster else "",
                 "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [44],
+                "CLICKHOUSE_NATIVE_EVENTS_ASYNC": True,
             }.get(key, False),
         ):
             request = HogQLQueryRunner(
@@ -336,6 +352,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
         super().setUp()
         self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"))
         self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]))
+        self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_ASYNC", True))
         self.enterContext(override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False))
 
     def _run_query(self, query: dict, refresh: str = "force_blocking", async_: bool = False):

@@ -198,6 +198,7 @@ from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
     events_route_scope,
     get_new_events_cluster_host,
+    native_events_async_enabled,
     new_events_cluster_host_scope,
     use_new_events_schema,
 )
@@ -2130,6 +2131,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
+        query_modifiers = query_node_modifiers(self.query)
+        native = self.modifiers.useNewEventsCluster or (query_modifiers and query_modifiers.useNewEventsCluster)
+        if native and not native_events_async_enabled():
+            raise ExposedHogQLError(
+                "Native events cluster queries require synchronous execution until async support is enabled. "
+                "Use refresh=force_blocking."
+            )
+
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
             event="query async recalculation initiated",

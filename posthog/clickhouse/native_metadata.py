@@ -9,6 +9,8 @@ from typing import Any
 
 from django.conf import settings
 
+from statshog.defaults.django import statsd
+
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload, default_client_kwargs
 from posthog.clickhouse.query_tagging import get_query_tags
 
@@ -32,6 +34,10 @@ def metadata_connection(
 
     if native_host:
         kwargs["verify"] = settings.CLICKHOUSE_VERIFY
+    elif polling and settings.CLICKHOUSE_USE_HTTP:
+        # sync_execute polls the legacy cluster over HTTP under this setting, so the worker keeps that transport.
+        kwargs.pop("ca_certs", None)
+        kwargs.update(transport="http", ca_cert=settings.CLICKHOUSE_CA, verify=settings.QUERYSERVICE_VERIFY)
     return kwargs
 
 
@@ -60,6 +66,10 @@ def _submit_metadata(job: dict[str, Any], *, native: bool, polling: bool, deadli
             )
         executor, slots = _pools[key]
     if not slots.acquire(blocking=False):
+        statsd.incr(
+            "clickhouse.metadata.busy",
+            tags={"cluster": "native" if native else "legacy", "operation": "poll" if polling else "cancel"},
+        )
         return None
     try:
         payload = json.dumps({**job, "log_comment": get_query_tags().to_json()})

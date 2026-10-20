@@ -2535,6 +2535,7 @@ class TestNativeEventsActorRouting(SimpleTestCase):
                 side_effect={
                     "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [44],
                     "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
+                    "CLICKHOUSE_NATIVE_EVENTS_ASYNC": True,
                 }.get,
             )
         )

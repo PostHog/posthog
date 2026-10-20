@@ -2,6 +2,7 @@
 
 import sys
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from clickhouse_driver import Client
@@ -12,8 +13,22 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
         kwargs = {**job["connection"]}
         if host is not None:
             kwargs["host"] = host
+        settings = {"log_comment": job["log_comment"]}
+        if kwargs.pop("transport", None) == "http":
+            import clickhouse_connect  # noqa: PLC0415 - only HTTP jobs pay for this import
+
+            http_client = clickhouse_connect.get_client(**kwargs)
+            try:
+                result = http_client.query(sql, parameters=params, settings=settings)
+            finally:
+                http_client.close()
+            if typed:
+                return result.result_set, [
+                    (name, kind.name) for name, kind in zip(result.column_names, result.column_types)
+                ]
+            return result.result_set
         with Client(**kwargs) as client:
-            return client.execute(sql, params, with_column_types=typed, settings={"log_comment": job["log_comment"]})
+            return client.execute(sql, params, with_column_types=typed, settings=settings)
 
     operation = job["operation"]
     if operation == "poll":
@@ -29,34 +44,34 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
             f"SELECT FQDN(), query_id FROM clusterAllReplicas(%(cluster)s, system.processes) WHERE {predicate} SETTINGS max_execution_time=2, skip_unavailable_shards=1",
             params,
         )
-        confirmed = bool(matches)
-        kill_error: Exception | None = None
-        for host, query_id in matches:
-            try:
-                rows, columns = execute(
-                    "KILL QUERY WHERE query_id=%(query_id)s SYNC SETTINGS max_execution_time=5",
-                    {"query_id": query_id},
-                    host,
-                    typed=True,
-                )
-            except Exception as error:
-                # One unreachable host must not leave the queries on the remaining hosts running.
-                kill_error = kill_error or error
-                confirmed = False
-                continue
+        if not matches:
+            return False
+
+        def kill(match: tuple[str, str]) -> bool:
+            host, query_id = match
+            rows, columns = execute(
+                "KILL QUERY WHERE query_id=%(query_id)s SYNC SETTINGS max_execution_time=5",
+                {"query_id": query_id},
+                host,
+                typed=True,
+            )
             names = [name for name, _ in columns]
-            confirmed = (
-                confirmed
-                and "query_id" in names
+            return (
+                "query_id" in names
                 and "kill_status" in names
                 and any(
                     row[names.index("kill_status")] == "finished" and row[names.index("query_id")] == query_id
                     for row in rows
                 )
             )
-        if kill_error is not None:
-            raise kill_error
-        return confirmed
+
+        # Kill on every host at once, so stalled hosts cannot use up the shared deadline before a healthy host.
+        with ThreadPoolExecutor(max_workers=len(matches)) as executor:
+            futures = [executor.submit(kill, match) for match in matches]
+        errors = [error for future in futures if (error := future.exception()) is not None]
+        if errors:
+            raise errors[0]
+        return all(future.result() for future in futures)
 
     discovery_error = None
     try:

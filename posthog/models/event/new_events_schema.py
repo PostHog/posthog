@@ -73,6 +73,10 @@ def use_new_events_cluster(team_id: int | None, modifiers: "HogQLQueryModifiers 
     return True
 
 
+def native_events_async_enabled() -> bool:
+    return get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_ASYNC") is True
+
+
 def native_events_cluster_ineligibility(team_id: int | None) -> str | None:
     if not get_new_events_cluster_host():
         return "The native events cluster host is not configured."
