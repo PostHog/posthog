@@ -25,7 +25,7 @@ from posthog.tasks.push_notifications import send_user_push
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_claims import get_active_claims, responsible_user
-from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
+from products.signals.backend.slack_inbox_notifications import resolve_org_suggested_reviewer_user_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -84,9 +84,14 @@ def notify_report_visible(*, team_id: int, report_id: str) -> list[int]:
     )
     if report is None:
         return []
+    reviewer_ids = resolve_org_suggested_reviewer_user_ids(team_id=team_id, report_ids=[str(report.id)]).get(
+        str(report.id), set()
+    )
+    if not reviewer_ids:
+        return []
     return _push_report(
         report,
-        resolve_suggested_reviewer_user_ids(report),
+        list(report.team.all_users_with_access().filter(id__in=reviewer_ids).order_by("id")),
         kind="report_visible",
         title=REPORT_VISIBLE_TITLE,
         body=report.title or "Untitled report",
@@ -121,19 +126,29 @@ def notify_pull_request_ready(*, team_id: int, pull_request_id: str) -> list[int
         .select_related("team")
         .order_by("created_at", "id")
     )
-    claims = get_active_claims(team_id=team_id, report_ids=[str(report.id) for report in reports])
-
-    pushed: list[int] = []
+    if not reports:
+        return []
+    report_ids = [str(report.id) for report in reports]
+    recipients_by_report = resolve_org_suggested_reviewer_user_ids(team_id=team_id, report_ids=report_ids)
+    claims = get_active_claims(team_id=team_id, report_ids=report_ids)
     for report in reports:
-        recipient_ids = resolve_suggested_reviewer_user_ids(report)
+        recipient_ids = recipients_by_report.setdefault(str(report.id), set())
         claim = claims.get(str(report.id))
         claimant = responsible_user(claim) if claim is not None else None
         if claimant is not None:
             recipient_ids.add(claimant.id)
+    all_recipient_ids = set().union(*recipients_by_report.values())
+    if not all_recipient_ids:
+        return []
+    # Calculate access once for the batch, including claimants who may have lost project access.
+    users_by_id = {user.id: user for user in reports[0].team.all_users_with_access().filter(id__in=all_recipient_ids)}
+    pushed: list[int] = []
+    for report in reports:
+        recipient_ids = recipients_by_report[str(report.id)] - set(pushed)
         pushed.extend(
             _push_report(
                 report,
-                recipient_ids - set(pushed),
+                [users_by_id[user_id] for user_id in sorted(recipient_ids) if user_id in users_by_id],
                 kind="pull_request_ready",
                 title=PULL_REQUEST_READY_TITLE,
                 body=report.title or f"{pull_request.repository}#{pull_request.number}",
@@ -142,8 +157,8 @@ def notify_pull_request_ready(*, team_id: int, pull_request_id: str) -> list[int
     return pushed
 
 
-def _push_report(report: SignalReport, user_ids: Collection[int], *, kind: str, title: str, body: str) -> list[int]:
-    if not user_ids:
+def _push_report(report: SignalReport, users: Collection[User], *, kind: str, title: str, body: str) -> list[int]:
+    if not users:
         return []
     data = {
         "type": "report",
@@ -153,8 +168,7 @@ def _push_report(report: SignalReport, user_ids: Collection[int], *, kind: str, 
         "url": f"posthog://inbox/{report.id}",
     }
     pushed: list[int] = []
-    # The project access check also covers a claimant who has since lost access to the project.
-    for user in report.team.all_users_with_access().filter(id__in=user_ids).order_by("id"):
+    for user in users:
         try:
             if not _push_enabled(user):
                 continue

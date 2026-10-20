@@ -1,14 +1,21 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
+from social_django.models import UserSocialAuth
 
-from posthog.models import User
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.inbox_push_notifications import notify_pull_request_ready
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.pull_requests import (
     PullRequestStateSource,
@@ -155,3 +162,77 @@ class TestInboxPushNotifications(BaseTest):
         assert pushed == (expected if expect_push else [])
         for push in self.send_push.call_args_list:
             assert push.args[3]["url"] == f"posthog://inbox/{report.id}"
+
+    @parameterized.expand([("project_access", True), ("no_project_access", False)])
+    def test_pull_request_ready_batches_reviewer_queries(self, _name: str, has_project_access: bool) -> None:
+        if not has_project_access:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+        login_reviewer = User.objects.create_and_join(self.organization, "login-reviewer@example.com", None)
+        old_reviewer = User.objects.create_and_join(self.organization, "old-reviewer@example.com", None)
+        UserSocialAuth.objects.create(
+            user=login_reviewer, provider="github", uid="login-reviewer", extra_data={"login": "login-reviewer"}
+        )
+        pull_request = SignalReportPullRequest.objects.for_team(self.team.id).create(
+            team=self.team, repository="posthog/posthog", number=123, url=PR_URL, state="open"
+        )
+
+        def add_linked_report(index: int = 0) -> SignalReport:
+            report = self._report(SignalReport.Status.READY)
+            SignalReport.objects.filter(team_id=self.team.id, id=report.id).update(
+                created_at=VISIBLE_AT + timedelta(days=index)
+            )
+            self._add_reviewers(report, old_reviewer)
+            report.artefacts.filter(type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS).update(
+                created_at=VISIBLE_AT
+            )
+            reviewers = SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(self.reviewer.uuid)}, {"github_login": "login-reviewer"}]),
+            )
+            SignalReportArtefact.objects.filter(team_id=self.team.id, id=reviewers.id).update(
+                created_at=VISIBLE_AT + timedelta(hours=1)
+            )
+            create_claim(report, ArtefactAttribution.from_user(self.user.id))
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+                pull_request=pull_request,
+                content=json.dumps({"url": PR_URL}),
+            )
+            return report
+
+        oldest_report = add_linked_report()
+        with CaptureQueriesContext(connection) as one_report_queries:
+            first_pushed = notify_pull_request_ready(team_id=self.team.id, pull_request_id=str(pull_request.id))
+        expected_users = sorted([self.user.id, self.reviewer.id, login_reviewer.id]) if has_project_access else []
+        assert first_pushed == expected_users
+        self.send_push.reset_mock()
+
+        for index in range(1, 5):
+            add_linked_report(index)
+        other_team = Team.objects.create(organization=self.organization)
+        cross_team_reviewers = SignalReportArtefact.objects.create(
+            team=other_team,
+            report=oldest_report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"user_uuid": str(old_reviewer.uuid)}]),
+        )
+        SignalReportArtefact.objects.filter(team_id=other_team.id, id=cross_team_reviewers.id).update(
+            created_at=VISIBLE_AT + timedelta(hours=2)
+        )
+        with CaptureQueriesContext(connection) as many_report_queries:
+            pushed = notify_pull_request_ready(team_id=self.team.id, pull_request_id=str(pull_request.id))
+
+        assert pushed == expected_users
+        assert [push.args[0] for push in self.send_push.call_args_list] == expected_users
+        assert all(push.args[3]["report_id"] == str(oldest_report.id) for push in self.send_push.call_args_list)
+        assert len(many_report_queries) == len(one_report_queries)

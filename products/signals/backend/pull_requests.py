@@ -117,9 +117,10 @@ def link_pull_request(
             pr.save(update_fields=["state", "checked_at", "updated_at"])
             # Wait for the complete PR batch and release its locks before locking shared reports.
             transaction.on_commit(partial(reconcile_reports_for_pull_request, team_id=report.team_id, pr_id=str(pr.id)))
-            from products.signals.backend.inbox_push_notifications import schedule_pull_request_ready_push
+            if state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
+                from products.signals.backend.inbox_push_notifications import schedule_pull_request_ready_push
 
-            schedule_pull_request_ready_push(pr, previous_state=previous_state)
+                schedule_pull_request_ready_push(pr, previous_state=previous_state)
     links = SignalReportArtefact.objects.filter(
         team_id=report.team_id,
         report_id=report.id,
