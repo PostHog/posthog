@@ -97,6 +97,7 @@ SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
 UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "AmazonS3": "request",
     "Attentive": "webhook",
+    "AzureLogAnalytics": "request",
     "Baserow": "request",
     "BigQuery": "driver",
     "BingAds": "database",
