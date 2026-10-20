@@ -9,7 +9,8 @@ export interface DestinationRecentSendsProps {
     loading: boolean
     error: boolean
     onRetry: () => void
-    eventLabelFor: (hogFunctionId: string) => string
+    // Keyed by HogFunction id. A send whose function is gone reads as an unknown event.
+    eventLabels: Record<string, string>
 }
 
 const PATH_META: Record<LogsAlertDestinationSendApi['path'], { label: string; tooltip: string }> = {
@@ -22,7 +23,7 @@ export function DestinationRecentSends({
     loading,
     error,
     onRetry,
-    eventLabelFor,
+    eventLabels,
 }: DestinationRecentSendsProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
@@ -58,7 +59,7 @@ export function DestinationRecentSends({
                         {
                             title: 'Event',
                             key: 'event',
-                            render: (_, send) => eventLabelFor(send.hog_function_id),
+                            render: (_, send) => eventLabels[send.hog_function_id] ?? 'Unknown event',
                         },
                         {
                             title: 'Outcome',

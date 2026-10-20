@@ -53,6 +53,7 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
         recentSends,
         recentSendsLoading,
         recentSendsError,
+        eventLabelByHogFunctionId,
     } = useValues(logsAlertNotificationDetailSceneLogic)
     const customizationEnabled = useFeatureFlag('ALERTS_DESTINATION_CUSTOMIZATION')
     const { deleteDestination, loadHogFunctions, loadRecentSends, setHogFunctionEnabled } = useActions(
@@ -278,11 +279,7 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                         loading={recentSendsLoading}
                         error={recentSendsError}
                         onRetry={loadRecentSends}
-                        eventLabelFor={(id) => {
-                            const fn = destinationGroup.hogFunctions.find((hogFunction) => hogFunction.id === id)
-                            const kind = fn ? getHogFunctionEventKind(fn) : null
-                            return kind ? LOGS_ALERT_EVENT_KIND_META[kind].label : 'Unknown event'
-                        }}
+                        eventLabels={eventLabelByHogFunctionId}
                     />
                 ) : null}
             </div>

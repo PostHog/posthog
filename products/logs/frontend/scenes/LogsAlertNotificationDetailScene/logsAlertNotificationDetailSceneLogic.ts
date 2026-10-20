@@ -18,7 +18,9 @@ import { Breadcrumb, HogFunctionType, IntegrationType } from '~/types'
 
 import {
     buildLogsAlertFilterConfig,
+    getHogFunctionEventKind,
     groupLogsAlertDestinations,
+    LOGS_ALERT_EVENT_KIND_META,
     LogsAlertDestinationGroup,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 import {
@@ -44,6 +46,7 @@ export interface logsAlertNotificationDetailSceneLogicValues {
     alertLoading: boolean
     breadcrumbs: Breadcrumb[]
     destinationGroup: LogsAlertDestinationGroup | null
+    eventLabelByHogFunctionId: Record<string, string>
     firstSlackIntegration: IntegrationType | undefined
     hasLoaded: boolean
     hogFunctionId: string
@@ -128,6 +131,7 @@ export interface logsAlertNotificationDetailSceneLogicMeta {
         hogFunctionId: (arg: any) => string
         firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
         destinationGroup: (hogFunctions: HogFunctionType[], hogFunctionId: string) => LogsAlertDestinationGroup | null
+        eventLabelByHogFunctionId: (destinationGroup: LogsAlertDestinationGroup | null) => Record<string, string>
         messageCustomized: (
             alert: LogsAlertConfigurationDetailApi | null,
             destinationGroup: LogsAlertDestinationGroup | null
@@ -254,7 +258,7 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                         return null
                     }
                     return logsAlertsDestinationsSendsList(String(values.currentTeamId), props.alertId, {
-                        hog_function_ids: group.hogFunctions.map((hogFunction) => hogFunction.id).join(','),
+                        hog_function_ids: group.hogFunctions.map((hogFunction) => hogFunction.id),
                     })
                 },
             },
@@ -274,6 +278,16 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                 const groups = groupLogsAlertDestinations(hogFunctions, () => null)
                 return groups.find((g) => g.hogFunctions.some((hf) => hf.id === hogFunctionId)) ?? null
             },
+        ],
+        eventLabelByHogFunctionId: [
+            (s) => [s.destinationGroup],
+            (group: LogsAlertDestinationGroup | null): Record<string, string> =>
+                Object.fromEntries(
+                    (group?.hogFunctions ?? []).flatMap((hogFunction) => {
+                        const kind = getHogFunctionEventKind(hogFunction)
+                        return kind ? [[hogFunction.id, LOGS_ALERT_EVENT_KIND_META[kind].label]] : []
+                    })
+                ),
         ],
         messageCustomized: [
             (s) => [s.alert, s.destinationGroup],
@@ -315,7 +329,13 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
 
     listeners(({ actions, values, props }) => ({
         loadHogFunctionsSuccess: () => {
-            if (values.featureFlags[FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION] && values.destinationGroup) {
+            // Only the first load: a pause or enable reloads the functions but changes no past send.
+            if (
+                values.featureFlags[FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION] &&
+                values.destinationGroup &&
+                values.recentSends === null &&
+                !values.recentSendsLoading
+            ) {
                 actions.loadRecentSends()
             }
         },

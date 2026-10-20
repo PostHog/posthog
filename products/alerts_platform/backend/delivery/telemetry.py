@@ -66,7 +66,7 @@ def record_delivery(
                     "log_source": NATIVE_SEND_LOG_SOURCE,
                     "log_source_id": destination_id,
                     "instance_id": configuration_id,
-                    "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "timestamp": format_clickhouse_timestamp(timestamp),
                     "level": "INFO" if succeeded else "ERROR",
                     "message": NATIVE_SEND_SUCCEEDED_MESSAGE if succeeded else (error or "Failed")[:_MAX_ERROR_LENGTH],
                 },

@@ -60,7 +60,7 @@ describe('logsAlertNotificationDetailSceneLogic', () => {
     })
 
     it.each([
-        [true, ['fn-firing,fn-resolved']],
+        [true, [['fn-firing', 'fn-resolved']]],
         [false, []],
     ])('asks for the sends of the whole group only behind the flag (flag on: %s)', async (flagOn, expected) => {
         featureFlagLogic.mount()
@@ -70,6 +70,6 @@ describe('logsAlertNotificationDetailSceneLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
 
-        expect([...new Set(mockSends.mock.calls.map(([, , params]) => params.hog_function_ids))]).toEqual(expected)
+        expect(mockSends.mock.calls.map(([, , params]) => params.hog_function_ids)).toEqual(expected)
     })
 })

@@ -9,43 +9,42 @@ from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
+from posthog.api.log_entries import LOG_ENTRIES_DEFAULT_LOOKBACK_DAYS
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.event.util import format_clickhouse_timestamp
 
 from products.alerts_platform.backend.delivery.telemetry import NATIVE_SEND_LOG_SOURCE
 from products.alerts_platform.backend.facade.contracts import DestinationSend
 from products.alerts_platform.backend.facade.enums import DeliveryPath
 
-# Bounds the read to the hot tier of `log_entries`, the same window its logs endpoint uses.
-LOOKBACK: Final = timedelta(days=7)
 _HOG_FUNCTION_LOG_SOURCE: Final = "hog_function"
 _HOG_FUNCTION_COMPLETED_PREFIX: Final = "Function completed"
 
-_NATIVE_SENDS_SQL: Final = """
-SELECT log_source_id, timestamp, upper(level) = 'ERROR', message
-FROM log_entries
-WHERE team_id = %(team_id)s
-  AND log_source = %(log_source)s
-  AND log_source_id IN %(destination_ids)s
-  AND timestamp > %(after)s
-ORDER BY timestamp DESC
-LIMIT %(limit)s
-"""
+_SENDS_SQL: Final = """
+SELECT destination_id, sent_at, path, failed, error
+FROM (
+    SELECT log_source_id AS destination_id, timestamp AS sent_at, %(native_path)s AS path,
+        upper(level) = 'ERROR' AS failed, message AS error
+    FROM log_entries
+    WHERE team_id = %(team_id)s
+      AND log_source = %(native_source)s
+      AND log_source_id IN %(destination_ids)s
+      AND timestamp > %(after)s
 
-_HOG_FUNCTION_SENDS_SQL: Final = """
-SELECT
-    log_source_id,
-    min(timestamp) AS sent_at,
-    countIf(upper(level) = 'ERROR') > 0 AS failed,
-    countIf(startsWith(message, %(completed_prefix)s)) > 0 AS completed,
-    argMinIf(message, timestamp, upper(level) = 'ERROR') AS error
-FROM log_entries
-WHERE team_id = %(team_id)s
-  AND log_source = %(log_source)s
-  AND log_source_id IN %(destination_ids)s
-  AND timestamp > %(after)s
-GROUP BY log_source_id, instance_id
-HAVING failed OR completed
+    UNION ALL
+
+    SELECT log_source_id AS destination_id, min(timestamp) AS sent_at, %(hog_function_path)s AS path,
+        countIf(upper(level) = 'ERROR') > 0 AS failed,
+        argMinIf(message, timestamp, upper(level) = 'ERROR') AS error
+    FROM log_entries
+    WHERE team_id = %(team_id)s
+      AND log_source = %(hog_function_source)s
+      AND log_source_id IN %(destination_ids)s
+      AND timestamp > %(after)s
+    GROUP BY log_source_id, instance_id
+    HAVING failed OR countIf(startsWith(message, %(completed_prefix)s)) > 0
+)
 ORDER BY sent_at DESC
 LIMIT %(limit)s
 """
@@ -57,39 +56,28 @@ def recent_destination_sends(
     if not destination_ids:
         return ()
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-    args = {
-        "team_id": team_id,
-        "destination_ids": list(destination_ids),
-        "after": (datetime.now(UTC) - LOOKBACK).strftime("%Y-%m-%d %H:%M:%S"),
-        "limit": limit,
-    }
-    native = [
+    rows = sync_execute(
+        _SENDS_SQL,
+        {
+            "team_id": team_id,
+            "destination_ids": list(destination_ids),
+            # Bounds the read to the hot tier of `log_entries`, the same window its logs endpoint uses.
+            "after": format_clickhouse_timestamp(datetime.now(UTC) - timedelta(days=LOG_ENTRIES_DEFAULT_LOOKBACK_DAYS)),
+            "limit": limit,
+            "native_source": NATIVE_SEND_LOG_SOURCE,
+            "native_path": DeliveryPath.NATIVE.value,
+            "hog_function_source": _HOG_FUNCTION_LOG_SOURCE,
+            "hog_function_path": DeliveryPath.HOG_FUNCTION.value,
+            "completed_prefix": _HOG_FUNCTION_COMPLETED_PREFIX,
+        },
+    )
+    return tuple(
         DestinationSend(
             destination_id=destination_id,
-            sent_at=_utc(sent_at),
-            path=DeliveryPath.NATIVE,
-            succeeded=not failed,
-            error=message if failed else None,
-        )
-        for destination_id, sent_at, failed, message in sync_execute(
-            _NATIVE_SENDS_SQL, {**args, "log_source": NATIVE_SEND_LOG_SOURCE}
-        )
-    ]
-    hog_function = [
-        DestinationSend(
-            destination_id=destination_id,
-            sent_at=_utc(sent_at),
-            path=DeliveryPath.HOG_FUNCTION,
+            sent_at=sent_at if sent_at.tzinfo is not None else sent_at.replace(tzinfo=UTC),
+            path=DeliveryPath(path),
             succeeded=not failed,
             error=error if failed else None,
         )
-        for destination_id, sent_at, failed, _completed, error in sync_execute(
-            _HOG_FUNCTION_SENDS_SQL,
-            {**args, "log_source": _HOG_FUNCTION_LOG_SOURCE, "completed_prefix": _HOG_FUNCTION_COMPLETED_PREFIX},
-        )
-    ]
-    return tuple(sorted([*native, *hog_function], key=lambda send: send.sent_at, reverse=True)[:limit])
-
-
-def _utc(timestamp: datetime) -> datetime:
-    return timestamp if timestamp.tzinfo is not None else timestamp.replace(tzinfo=UTC)
+        for destination_id, sent_at, path, failed, error in rows
+    )

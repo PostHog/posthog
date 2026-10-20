@@ -22,6 +22,7 @@ from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
+from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -43,6 +44,7 @@ from products.alerts.backend.facade.destinations import (
     destination_handles_event_kind,
     destination_template_id,
     list_alert_destination_groups,
+    owned_alert_destination_ids,
     redact_destination_data,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
@@ -1098,25 +1100,18 @@ MAX_DESTINATION_SENDS: Final = 20
 
 
 class LogsAlertDestinationSendsQuerySerializer(serializers.Serializer):
-    hog_function_ids = serializers.CharField(
-        help_text="Comma-separated HogFunction IDs of one destination group. IDs that are not this alert's are ignored.",
+    hog_function_ids = RepeatedOrCommaSeparatedListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+        help_text="HogFunction IDs of one destination group. IDs that are not this alert's are ignored.",
     )
-
-    def validate_hog_function_ids(self, value: str) -> list[UUID]:
-        try:
-            ids = [UUID(part.strip()) for part in value.split(",") if part.strip()]
-        except ValueError:
-            raise ValidationError("Must be comma-separated UUIDs.")
-        if not ids:
-            raise ValidationError("At least one ID is required.")
-        if len(ids) > MAX_DESTINATION_IDS_PER_DELETE_REQUEST:
-            raise ValidationError("Too many destination IDs.")
-        return ids
 
 
 class LogsAlertDestinationSendSerializer(serializers.Serializer):
     hog_function_id = serializers.CharField(
-        help_text="The HogFunction the message was sent for. It names the lifecycle event that was sent."
+        source="destination_id",
+        help_text="The HogFunction the message was sent for. It names the lifecycle event that was sent.",
     )
     sent_at = serializers.DateTimeField(help_text="When the send started.")
     path = serializers.ChoiceField(
@@ -1498,29 +1493,16 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         alert = self.get_object()
         query = LogsAlertDestinationSendsQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        groups = list_alert_destination_groups(
-            team_id=self.team_id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+        owned = owned_alert_destination_ids(
+            team_id=self.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            hog_function_ids=query.validated_data["hog_function_ids"],
         )
-        owned = {str(hog_function_id) for group in groups for hog_function_id in group.hog_function_ids}
-        destination_ids = [str(i) for i in query.validated_data["hog_function_ids"] if str(i) in owned]
         sends = recent_destination_sends(
-            team_id=self.team_id, destination_ids=destination_ids, limit=MAX_DESTINATION_SENDS
+            team_id=self.team_id, destination_ids=[str(i) for i in owned], limit=MAX_DESTINATION_SENDS
         )
-        return Response(
-            LogsAlertDestinationSendSerializer(
-                [
-                    {
-                        "hog_function_id": send.destination_id,
-                        "sent_at": send.sent_at,
-                        "path": send.path,
-                        "succeeded": send.succeeded,
-                        "error": send.error,
-                    }
-                    for send in sends
-                ],
-                many=True,
-            ).data
-        )
+        return Response(LogsAlertDestinationSendSerializer(sends, many=True).data)
 
     @extend_schema(
         request=None,

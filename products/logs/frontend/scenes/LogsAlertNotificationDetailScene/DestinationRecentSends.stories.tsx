@@ -40,7 +40,7 @@ const meta: Meta<typeof DestinationRecentSends> = {
         loading: false,
         error: false,
         onRetry: () => {},
-        eventLabelFor: (id: string) => (id === FIRING_FUNCTION ? 'Firing' : 'Resolved'),
+        eventLabels: { [FIRING_FUNCTION]: 'Firing', [RESOLVED_FUNCTION]: 'Resolved' },
     },
     render: (args) => (
         <div className="max-w-3xl p-4">

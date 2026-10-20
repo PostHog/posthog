@@ -129609,10 +129609,11 @@ export namespace Schemas {
 
     export type LogsAlertsDestinationsSendsListParams = {
     /**
-     * Comma-separated HogFunction IDs of one destination group. IDs that are not this alert's are ignored.
-     * @minLength 1
+     * HogFunction IDs of one destination group. IDs that are not this alert's are ignored.
+     * @minItems 1
+     * @maxItems 100
      */
-    hog_function_ids: string;
+    hog_function_ids: string[];
     };
 
     export type LogsAlertsEventsListParams = {
