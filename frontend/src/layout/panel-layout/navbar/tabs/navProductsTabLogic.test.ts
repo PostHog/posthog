@@ -58,6 +58,17 @@ describe('navProductsTabLogic', () => {
         expect(actual).toHaveLength(expected.size)
     })
 
+    it('pins the welcome page first for a new project on the simple onboarding arm', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' })
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            created_at: new Date().toISOString(),
+        })
+        expect(navProductsTabLogic.values.pinnedItems[0]).toEqual(
+            expect.objectContaining({ path: 'Welcome', href: urls.onboardingWelcome() })
+        )
+    })
+
     it('searches display names and sorts categories in a fixed order and products alphabetically', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true })
         expect(navProductsTabLogic.values.pinnedItems.map(productsItemName)).toEqual([

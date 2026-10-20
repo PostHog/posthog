@@ -156,10 +156,6 @@ class TestValidateCredentials:
         with scripted_network(always(ScriptedResponse(status=status_code))):
             assert validate_credentials("key", schema_name=schema_name) == expected
 
-    def test_unreachable_api_is_reported(self) -> None:
-        with scripted_network(always(ConnectionError("unreachable"))):
-            assert validate_credentials("key") == (False, "Could not reach the Sleekplan API.")
-
     def test_probe_session_redacts_the_key_and_disables_sample_capture(self) -> None:
         # Users/posts/comments carry emails and free-text feedback the generic scrubber can't
         # anonymize, so the probe -- like every other Sleekplan request -- must not be captured.

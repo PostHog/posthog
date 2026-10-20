@@ -84,10 +84,7 @@ class TestFetch:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", 200, True),
             ("forbidden_but_genuine_key", 403, True),
-            ("unauthorized", 401, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:

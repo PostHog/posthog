@@ -1384,6 +1384,22 @@ class ReadyToMergeBucket:
     p50_seconds: float | None
 
 
+@dataclass(frozen=True)
+class RevertShareBucket:
+    """One time bucket of reverts among the repo's merges: PRs merged in the bucket whose title
+    names a revert (``logic/reverts.py``), over every PR merged in it, all authors and bots
+    included. Keyed on the revert's own merge time, not on the change it undid. Empty buckets are
+    zero-filled with 0 merges and a None share, so a quiet stretch is never shown as 0% reverted.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on merge time.
+    bucket_start: datetime
+    merged_pr_count: int
+    reverting_pr_count: int
+    # None when nothing merged in the bucket.
+    revert_share: float | None
+
+
 class DeliveryStage(LabeledStrEnum):
     """A pre-merge leg of a PR's path to production, named for the timestamps that bound it.
 
@@ -1444,6 +1460,13 @@ class RepoOverview:
     # so cost-per-merge ratios use the same denominator as the cost series' bucket-local merges.
     merged_pr_count: int
     merged_pr_count_prev: int
+    # Merged PRs whose title names a revert (logic/reverts.py), counted when the revert merges, not
+    # when the change it undid did. Same population as merged_pr_count.
+    reverting_pr_count: int
+    reverting_pr_count_prev: int
+    # reverting_pr_count / merged_pr_count. None when nothing merged.
+    revert_share: float | None
+    revert_share_prev: float | None
     # Coarse by design: merged_at - created_at (draft + ready time fused), median over PRs merged in the window.
     median_open_to_merge_seconds: float | None
     median_open_to_merge_seconds_prev: float | None
@@ -1533,6 +1556,11 @@ class RepoOverview:
     ready_to_merge_series: list[ReadyToMergeBucket]
     # Bucket width of `ready_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     ready_to_merge_series_granularity: str
+    # Revert trend: reverting merges over all merges per bucket (all authors, bots included), oldest
+    # first, zero-filled, bucketed by `revert_share_series_granularity`. Empty buckets carry a None share.
+    revert_share_series: list[RevertShareBucket]
+    # Bucket width of `revert_share_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    revert_share_series_granularity: str
     # Bots and drafts excluded, unlike the headline counts above.
     delivery_pipeline: DeliveryPipeline
 
