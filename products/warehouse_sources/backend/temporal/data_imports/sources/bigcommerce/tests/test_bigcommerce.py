@@ -6,6 +6,7 @@ import pytest
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.bigcommerce import (
+    PAGE_SIZE,
     BigCommerceResumeConfig,
     _to_v2_timestamp,
     _to_v3_timestamp,
@@ -36,6 +37,7 @@ class TestGetResource:
             ("brands", "/v3/catalog/brands", "data", True),
             ("customers", "/v3/customers", "data", True),
             ("orders", "/v2/orders", None, False),
+            ("customer_groups", "/v2/customer_groups", None, False),
         ]
     )
     def test_path_and_envelope_per_endpoint(
@@ -241,6 +243,50 @@ class TestBigCommerceSourceResumeBehavior:
         ]
         assert result.params("page") == ["4", None, "5"]
         assert result.rows == [{"id": 3, "order_id": 102}]
+
+    @parameterized.expand([("order_products", "products"), ("order_shipments", "shipments")])
+    def test_v2_order_children_page_until_short_page(self, endpoint: str, child_path: str) -> None:
+        full_page = [{"id": child_id, "order_id": 101} for child_id in range(PAGE_SIZE)]
+        result = self._driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json=[{"id": 101}, {"id": 102}, {"id": 103}]),
+                ScriptedResponse(json=full_page),
+                ScriptedResponse(json=[{"id": PAGE_SIZE, "order_id": 101}]),
+                ScriptedResponse(status=204),
+                # Order deleted after the order listing was read.
+                ScriptedResponse(
+                    status=404, json=[{"status": 404, "message": "The requested resource was not found."}]
+                ),
+                ScriptedResponse(json=[]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [request.path for request in result.requests] == [
+            "/stores/store123/v2/orders",
+            f"/stores/store123/v2/orders/101/{child_path}",
+            f"/stores/store123/v2/orders/101/{child_path}",
+            f"/stores/store123/v2/orders/102/{child_path}",
+            f"/stores/store123/v2/orders/103/{child_path}",
+            "/stores/store123/v2/orders",
+        ]
+        assert result.params("page") == ["1", "1", "2", "1", "1", "2"]
+        assert [row["id"] for row in result.rows] == list(range(PAGE_SIZE + 1))
+        assert result.saved_states == [BigCommerceResumeConfig(page=1, order_index=i) for i in (1, 2, 3)]
+
+    def test_order_statuses_is_read_in_one_request(self) -> None:
+        statuses = [{"id": 0, "name": "Incomplete"}, {"id": 1, "name": "Pending"}]
+        result = self._driver().run(
+            "order_statuses",
+            # The endpoint ignores `page`, so a second request would return the same rows again.
+            [ScriptedResponse(json=statuses), ScriptedResponse(json=statuses)],
+        )
+
+        assert result.raised is None
+        assert [request.path for request in result.requests] == ["/stores/store123/v2/order_statuses"]
+        assert result.params("page") == [None]
+        assert result.rows == statuses
 
     def test_refunds_stop_on_empty_page_without_pagination_meta(self) -> None:
         last_value = datetime(2024, 5, 6, 7, 8, 9, tzinfo=UTC)

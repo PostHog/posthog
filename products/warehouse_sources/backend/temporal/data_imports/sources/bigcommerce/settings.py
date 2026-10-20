@@ -11,7 +11,11 @@ ENDPOINTS = (
     "brands",
     "customers",
     "channels",
+    "customer_groups",
     "orders",
+    "order_statuses",
+    "order_products",
+    "order_shipments",
     "order_transactions",
     "refunds",
 )
@@ -25,18 +29,28 @@ ENDPOINT_PATHS: dict[str, str] = {
     "brands": "/v3/catalog/brands",
     "customers": "/v3/customers",
     "channels": "/v3/channels",
+    "customer_groups": "/v2/customer_groups",
     "orders": "/v2/orders",
+    "order_statuses": "/v2/order_statuses",
+    "order_products": "/v2/orders/{order_id}/products",
+    "order_shipments": "/v2/orders/{order_id}/shipments",
     "order_transactions": "/v3/orders/{order_id}/transactions",
     "refunds": "/v3/orders/payment_actions/refunds",
 }
 
 # Endpoints still served by the legacy V2 API: no `data` envelope, no `meta.pagination`,
 # and a different incremental filter param + date format than V3.
-V2_ENDPOINTS = frozenset({"orders"})
+V2_ENDPOINTS = frozenset({"customer_groups", "orders", "order_statuses", "order_products", "order_shipments"})
 
-# Endpoint -> (server-side "since" filter param, cursor field it filters on). Categories, brands
-# and variants carry no modification timestamp, and order transactions have no filter, so those
-# are full refresh only.
+# Order statuses is a fixed list of BigCommerce's order states with no `page`/`limit` params.
+UNPAGINATED_ENDPOINTS = frozenset({"order_statuses"})
+
+# Endpoints read per order, because BigCommerce has no collection endpoint for them.
+ORDER_FAN_OUT_ENDPOINTS = frozenset({"order_products", "order_shipments", "order_transactions"})
+
+# Endpoint -> (server-side "since" filter param, cursor field it filters on). Categories, brands,
+# variants, customer groups and order statuses carry no modification timestamp, and the per-order
+# endpoints have no filter, so those are full refresh only.
 INCREMENTAL_FILTERS: dict[str, tuple[str, str]] = {
     "products": ("date_modified:min", "date_modified"),
     "customers": ("date_modified:min", "date_modified"),
@@ -58,19 +72,23 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     for endpoint, (_, field) in INCREMENTAL_FILTERS.items()
 }
 
-# Transactions are read per order. The order id joins the key so it stays unique table-wide even
-# if a store reuses transaction ids across orders.
+# Per-order rows are read one order at a time. The order id joins the key so it stays unique
+# table-wide even if a store reuses child ids across orders.
 PRIMARY_KEYS: dict[str, list[str]] = {
+    "order_products": ["order_id", "id"],
+    "order_shipments": ["order_id", "id"],
     "order_transactions": ["order_id", "id"],
 }
 
-# Stable creation-time field to partition on, per endpoint. Categories, brands and variants
-# have no creation timestamp field and are left unpartitioned.
+# Stable creation-time field to partition on, per endpoint. Categories, brands, variants,
+# customer groups, order statuses and order products have no creation timestamp field and are
+# left unpartitioned.
 PARTITION_FIELDS: dict[str, str] = {
     "products": "date_created",
     "customers": "date_created",
     "channels": "date_created",
     "orders": "date_created",
+    "order_shipments": "date_created",
     "order_transactions": "date_created",
     "refunds": "created",
 }

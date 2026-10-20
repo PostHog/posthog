@@ -157,4 +157,6 @@ Leave **API host** blank unless Unstructured provisioned your account with a cus
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

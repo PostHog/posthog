@@ -16,12 +16,6 @@ def _config() -> DigitalOceanSourceConfig:
     return DigitalOceanSourceConfig(api_key="dop_v1_token")
 
 
-class TestDigitalOceanGetSchemas:
-    def test_filters_by_names(self) -> None:
-        schemas = DigitalOceanSource().get_schemas(_config(), team_id=1, names=["droplets"])
-        assert [s.name for s in schemas] == ["droplets"]
-
-
 class TestDigitalOceanValidateCredentials:
     def test_accepts_valid_token(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:

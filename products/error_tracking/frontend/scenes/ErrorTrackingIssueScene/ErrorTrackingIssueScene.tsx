@@ -148,7 +148,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
                                     className={clsx(
-                                        'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0',
+                                        'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] [&>.scene-title-section]:py-2',
                                         isMobile
                                             ? '[&>.scene-title-section]:flex-row [&>.scene-title-section]:items-center [&>.scene-title-section>*:last-child]:order-last'
                                             : undefined

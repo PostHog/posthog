@@ -5212,6 +5212,7 @@
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
+                "get_replay_vision_scan_results",
                 "retry_replay_vision_observation",
                 "get_replay_vision_quota",
                 "create_replay_vision_scanner",
@@ -9902,6 +9903,13 @@
                 "clickhouse": {
                     "description": "Executed ClickHouse query",
                     "type": "string"
+                },
+                "column_formats": {
+                    "description": "Display formats for directly selected virtual properties, aligned with columns.",
+                    "items": {
+                        "type": ["string", "null"]
+                    },
+                    "type": "array"
                 },
                 "columns": {
                     "description": "Returned columns",
@@ -19138,6 +19146,13 @@
                                     "description": "Executed ClickHouse query",
                                     "type": "string"
                                 },
+                                "column_formats": {
+                                    "description": "Display formats for directly selected virtual properties, aligned with columns.",
+                                    "items": {
+                                        "type": ["string", "null"]
+                                    },
+                                    "type": "array"
+                                },
                                 "columns": {
                                     "description": "Returned columns",
                                     "items": {},
@@ -27410,6 +27425,7 @@
             "enum": [
                 "default_icon_type",
                 "dashboard",
+                "canvas",
                 "llm_analytics",
                 "product_analytics",
                 "revenue_analytics",
@@ -29860,6 +29876,13 @@
                 "clickhouse": {
                     "description": "Executed ClickHouse query",
                     "type": "string"
+                },
+                "column_formats": {
+                    "description": "Display formats for directly selected virtual properties, aligned with columns.",
+                    "items": {
+                        "type": ["string", "null"]
+                    },
+                    "type": "array"
                 },
                 "columns": {
                     "description": "Returned columns",
@@ -42520,6 +42543,13 @@
                             "description": "Executed ClickHouse query",
                             "type": "string"
                         },
+                        "column_formats": {
+                            "description": "Display formats for directly selected virtual properties, aligned with columns.",
+                            "items": {
+                                "type": ["string", "null"]
+                            },
+                            "type": "array"
+                        },
                         "columns": {
                             "description": "Returned columns",
                             "items": {},
@@ -45119,6 +45149,13 @@
                         "clickhouse": {
                             "description": "Executed ClickHouse query",
                             "type": "string"
+                        },
+                        "column_formats": {
+                            "description": "Display formats for directly selected virtual properties, aligned with columns.",
+                            "items": {
+                                "type": ["string", "null"]
+                            },
+                            "type": "array"
                         },
                         "columns": {
                             "description": "Returned columns",

@@ -1966,9 +1966,10 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_get.side_effect = [transient_1, transient_2]
 
-        with pytest.raises(GitHubIntegrationError, match="list_repositories non-JSON response"):
+        with pytest.raises(GitHubIntegrationError, match="list_repositories non-JSON response") as raised:
             GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_repositories()
 
+        assert raised.value.status_code == 502
         assert mock_get.call_count == 2
 
     @patch("posthog.egress.transport.transport.requests.request")
@@ -1992,9 +1993,10 @@ class TestGitHubIntegrationModel(BaseTest):
         # Page-1 succeeds. Page-2 fetch is retried once after transient 502.
         mock_get.side_effect = [first_page, second_page, second_page]
 
-        with pytest.raises(GitHubIntegrationError, match="failed to list repositories"):
+        with pytest.raises(GitHubIntegrationError, match="failed to list repositories") as raised:
             GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_all_repositories()
 
+        assert raised.value.status_code == 502
         assert mock_get.call_count == 3
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_repositories")

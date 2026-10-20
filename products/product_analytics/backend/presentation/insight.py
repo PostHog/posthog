@@ -59,7 +59,7 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries, tags_context
 from posthog.constants import INSIGHT, AvailableFeature
-from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
+from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -167,7 +167,6 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.exports.backend.facade.api import delete_insight_subscriptions
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
@@ -196,6 +195,7 @@ from products.product_analytics.backend.presentation.insight_metadata import (
 )
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
+from products.subscriptions.backend.facade.api import delete_insight_subscriptions
 
 from common.hogvm.python.utils import HogVMException
 
@@ -1724,6 +1724,14 @@ class InsightDataChecksRequestSerializer(serializers.Serializer):
             "Pass the query of a saved insight, or one that is not saved yet."
         )
     )
+    client_query_id = serializers.CharField(
+        required=False,
+        max_length=128,
+        help_text=(
+            "An id for this run, chosen by the client. To stop the queries of the run, send a DELETE request to "
+            "`query/{client_query_id}/`."
+        ),
+    )
 
 
 class InsightDataCheckSerializer(serializers.Serializer):
@@ -2584,6 +2592,8 @@ When set, the specified dashboard's filters and date range override will be appl
         # The scope covers a token. A session has no scopes, and a token's scope does not prove its owner has access.
         if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
             raise PermissionDenied("You need query access to check a query that is not saved as an insight.")
+        if client_query_id := request.validated_data.get("client_query_id"):
+            tag_queries(client_query_id=client_query_id)
         return self._data_checks_response(request.validated_data["query"])
 
     @validated_request(
@@ -2616,6 +2626,9 @@ When set, the specified dashboard's filters and date range override will be appl
                     user=cast(User, self.request.user),
                     email_access=self._team_email_access(),
                 )
+        except CHQueryErrorQueryWasCancelled:
+            # The client cancelled the run, so nothing reads a body. 499 is Nginx's "Client Closed Request".
+            return Response(status=499)
         except (ExposedHogQLError, ExposedCHQueryError, ResolutionError) as error:
             raise ValidationError(str(error), getattr(error, "code_name", None))
         return Response(InsightDataChecksSerializer(checks).data)

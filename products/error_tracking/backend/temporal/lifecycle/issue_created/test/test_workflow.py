@@ -207,6 +207,27 @@ def test_embedding_failure_classification_and_capture(
     assert capture_exception.called is expect_captured
 
 
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
+def test_embedding_hands_the_judge_its_text_before_clickhouse_has_it(
+    generate_embedding: MagicMock,
+    get_team: MagicMock,
+    fetch_event_properties: MagicMock,
+    render_stacktrace: MagicMock,
+) -> None:
+    get_team.return_value.organization.is_ai_data_processing_approved = True
+    fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
+    render_stacktrace.return_value = "TypeError: boom"
+    generate_embedding.return_value = MagicMock(embedding=[0.1, 0.2])
+
+    result = generate_issue_created_embedding_activity(_inputs("fingerprint"))
+
+    assert result.embedding is not None
+    assert result.embedding.merge_inputs.content == "TypeError: boom"
+
+
 def _decision(choice: str) -> DecisionResult:
     return DecisionResult(
         model="severity-model",

@@ -4,6 +4,7 @@ import uuid
 import logging
 from collections.abc import Generator
 from typing import Any
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -12,6 +13,8 @@ import posthoganalytics
 from anthropic.lib._parse._transform import transform_schema
 from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledParam
 from posthoganalytics.ai.anthropic import Anthropic
+from posthoganalytics.ai.anthropic.anthropic import WrappedMessages
+from posthoganalytics.client import Client as PostHogClient
 from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
@@ -21,14 +24,17 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderConfigurationError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    error_field_for_message,
     is_context_window_error_message,
     is_output_limit_error_message,
     stream_error_chunk,
 )
+from products.ai_observability.backend.llm.providers.azure_openai import is_allowed_azure_endpoint
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -38,6 +44,70 @@ from products.ai_observability.backend.llm.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Shared by the adapter and the serializer so the error attributes to the endpoint field in the UI.
+DISALLOWED_FOUNDRY_ENDPOINT_MESSAGE = (
+    "Microsoft Foundry endpoint must be an https:// URL on an Azure domain (e.g. *.services.ai.azure.com)"
+)
+
+FOUNDRY_ENDPOINT_NOT_FOUND_MESSAGE = (
+    "Microsoft Foundry endpoint not found. Check that the URL is the endpoint of your Foundry resource, "
+    "for example https://my-resource.services.ai.azure.com/"
+)
+
+# Keep aligned with the `return` statements in `AnthropicAdapter._validate_foundry_key`.
+_FOUNDRY_ERROR_FIELD_BY_PREFIX: tuple[tuple[str, str], ...] = (
+    ("Microsoft Foundry endpoint must be", "azure_endpoint"),
+    ("Microsoft Foundry endpoint not found", "azure_endpoint"),
+    ("Could not connect to Microsoft Foundry", "azure_endpoint"),
+    ("Invalid API key", "api_key"),
+)
+
+# Key validation is a single cheap call; don't inherit the long completion timeout.
+FOUNDRY_VALIDATION_TIMEOUT = 10.0
+
+
+def error_field_for_validation_message(error_message: str | None) -> str | None:
+    """Map an Anthropic `validate_key` error message to the UI form field that should be highlighted."""
+    return error_field_for_message(_FOUNDRY_ERROR_FIELD_BY_PREFIX, error_message)
+
+
+def _names_a_missing_deployment(error: anthropic.APIStatusError) -> bool:
+    """Return True when a Foundry 4xx is about the model or deployment, which means the key passed auth.
+
+    Azure answers an unknown route with a generic 404 ("Resource not found") before it checks
+    anything, so a 404 alone does not prove the endpoint or the key is right.
+    """
+    body = error.body if isinstance(error.body, dict) else {}
+    nested = body.get("error")
+    details = nested if isinstance(nested, dict) else body
+    if details.get("code") == "DeploymentNotFound":
+        return True
+    message = str(details.get("message", "")).lower()
+    return "deployment" in message or "model" in message
+
+
+def foundry_base_url(azure_endpoint: str) -> str:
+    """Build the Anthropic API base URL of a Microsoft Foundry resource.
+
+    Foundry serves Claude under `/anthropic/` on the resource host. Users paste the resource
+    endpoint, the `/anthropic/` URL, or a full `/anthropic/v1/messages` URL, so keep only the host.
+    """
+    if not is_allowed_azure_endpoint(azure_endpoint):
+        raise ProviderConfigurationError(f"{DISALLOWED_FOUNDRY_ENDPOINT_MESSAGE}.")
+    host = urlparse(azure_endpoint).hostname
+    return f"https://{host}/anthropic/"
+
+
+class _AnthropicFoundry(anthropic.AnthropicFoundry):
+    """Foundry client that captures generations to PostHog, like the SDK's Bedrock and Vertex wrappers."""
+
+    _ph_client: PostHogClient
+
+    def __init__(self, posthog_client: PostHogClient, **kwargs: Any):
+        super().__init__(**kwargs)
+        self._ph_client = posthog_client
+        self.messages = WrappedMessages(self)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 
 def _is_quota_or_billing_error(error: Exception) -> bool:
@@ -106,6 +176,28 @@ class AnthropicAdapter:
 
     name = "anthropic"
 
+    def __init__(self, foundry_endpoint: str = ""):
+        # Set when the key belongs to a Microsoft Foundry resource that serves Claude.
+        self.foundry_endpoint = foundry_endpoint
+
+    def _create_client(self, api_key: str, analytics: AnalyticsContext) -> Any:
+        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+
+        posthog_client = posthoganalytics.default_client
+        kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "timeout": AnthropicConfig.TIMEOUT,
+            "http_client": tagged_http_client(timeout=AnthropicConfig.TIMEOUT),
+        }
+        if self.foundry_endpoint:
+            kwargs["base_url"] = foundry_base_url(self.foundry_endpoint)
+            if analytics.capture and posthog_client:
+                return _AnthropicFoundry(posthog_client=posthog_client, **kwargs)
+            return anthropic.AnthropicFoundry(**kwargs)
+        if analytics.capture and posthog_client:
+            return Anthropic(posthog_client=posthog_client, **kwargs)
+        return anthropic.Anthropic(**kwargs)
+
     def complete(
         self,
         request: CompletionRequest,
@@ -115,25 +207,7 @@ class AnthropicAdapter:
     ) -> CompletionResponse:
         """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
-
-        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
-
-        posthog_client = posthoganalytics.default_client
-        client: Any
-        http_client = tagged_http_client(timeout=AnthropicConfig.TIMEOUT)
-        if analytics.capture and posthog_client:
-            client = Anthropic(
-                api_key=effective_api_key,
-                posthog_client=posthog_client,
-                timeout=AnthropicConfig.TIMEOUT,
-                http_client=http_client,
-            )
-        else:
-            client = anthropic.Anthropic(
-                api_key=effective_api_key,
-                timeout=AnthropicConfig.TIMEOUT,
-                http_client=http_client,
-            )
+        client = self._create_client(effective_api_key, analytics)
 
         messages: Any = request.messages
         system_prompt = request.system or ""
@@ -242,25 +316,7 @@ class AnthropicAdapter:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
         model_id = request.model
-
-        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
-
-        posthog_client = posthoganalytics.default_client
-        client: Any
-        http_client = tagged_http_client(timeout=AnthropicConfig.TIMEOUT)
-        if analytics.capture and posthog_client:
-            client = Anthropic(
-                api_key=effective_api_key,
-                posthog_client=posthog_client,
-                timeout=AnthropicConfig.TIMEOUT,
-                http_client=http_client,
-            )
-        else:
-            client = anthropic.Anthropic(
-                api_key=effective_api_key,
-                timeout=AnthropicConfig.TIMEOUT,
-                http_client=http_client,
-            )
+        client = self._create_client(effective_api_key, analytics)
 
         reasoning_on = model_id in AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING and request.thinking
 
@@ -384,6 +440,10 @@ class AnthropicAdapter:
         """Validate an Anthropic API key by making a lightweight API call."""
         from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
+        azure_endpoint = kwargs.get("azure_endpoint")
+        if azure_endpoint:
+            return AnthropicAdapter._validate_foundry_key(api_key, azure_endpoint)
+
         if not api_key.startswith("sk-ant-"):
             return (LLMProviderKey.State.INVALID, "Invalid key format (should start with 'sk-ant-')")
         try:
@@ -405,6 +465,48 @@ class AnthropicAdapter:
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
+    def _validate_foundry_key(api_key: str, azure_endpoint: str) -> tuple[str, str | None]:
+        """Validate a Microsoft Foundry key with a token count, which Foundry serves and does not bill.
+
+        Foundry has no models endpoint, so the probe has to name a deployment. The default model ID
+        is the default deployment name, but the user may have picked another name.
+        """
+        from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+
+        if not is_allowed_azure_endpoint(azure_endpoint):
+            return (LLMProviderKey.State.INVALID, DISALLOWED_FOUNDRY_ENDPOINT_MESSAGE)
+        try:
+            client = anthropic.AnthropicFoundry(
+                api_key=api_key,
+                base_url=foundry_base_url(azure_endpoint),
+                timeout=FOUNDRY_VALIDATION_TIMEOUT,
+                max_retries=0,
+            )
+            client.messages.count_tokens(
+                model=AnthropicConfig.DEFAULT_MODEL,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+            return (LLMProviderKey.State.OK, None)
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
+            return (LLMProviderKey.State.INVALID, "Invalid API key")
+        except anthropic.RateLimitError:
+            return (LLMProviderKey.State.ERROR, "Rate limited, please try again later")
+        except (anthropic.NotFoundError, anthropic.BadRequestError) as e:
+            # The user picks the deployment later, in the model picker, so a missing default
+            # deployment still counts as a working key.
+            if _names_a_missing_deployment(e):
+                return (LLMProviderKey.State.OK, None)
+            if isinstance(e, anthropic.NotFoundError):
+                return (LLMProviderKey.State.INVALID, FOUNDRY_ENDPOINT_NOT_FOUND_MESSAGE)
+            logger.exception("Microsoft Foundry key validation error")
+            return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
+        except anthropic.APIConnectionError:
+            return (LLMProviderKey.State.ERROR, "Could not connect to Microsoft Foundry endpoint")
+        except Exception:
+            logger.exception("Microsoft Foundry key validation error")
+            return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
+
+    @staticmethod
     def recommended_models() -> set[str]:
         return set(AnthropicConfig.SUPPORTED_MODELS)
 
@@ -415,8 +517,10 @@ class AnthropicAdapter:
         Without a key, returns the curated SUPPORTED_MODELS list.
         With a key, returns SUPPORTED_MODELS first, then remaining Claude models
         from the API sorted by creation date (newest first).
+        With a Microsoft Foundry endpoint, returns SUPPORTED_MODELS: Foundry has no models
+        endpoint, and a new deployment takes the model ID as its default name.
         """
-        if not api_key:
+        if not api_key or kwargs.get("azure_endpoint"):
             return AnthropicConfig.SUPPORTED_MODELS
 
         supported = set(AnthropicConfig.SUPPORTED_MODELS)
@@ -448,7 +552,7 @@ class AnthropicAdapter:
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
         """Build PostHog analytics kwargs if using instrumented client."""
-        if analytics.capture and isinstance(client, Anthropic):
+        if analytics.capture and isinstance(client, Anthropic | _AnthropicFoundry):
             return {
                 "posthog_distinct_id": analytics.distinct_id,
                 "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),

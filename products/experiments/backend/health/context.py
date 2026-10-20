@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from posthog.schema import MultipleVariantHandling
 
@@ -9,7 +10,7 @@ from posthog.dataclasses import frozen
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.metric_resolution import saved_metric_link_role, saved_metric_links
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.facade.filters import pinned_variant, reachable_conditions
+from products.feature_flags.backend.facade.filters import condition_aggregation, pinned_variant, reachable_conditions
 
 
 @frozen
@@ -46,14 +47,40 @@ class BucketingChange:
     after: str | int | bool | None
 
 
+@frozen
+class ReleaseCondition:
+    # The group type and property filters of the condition, as a signature that is equal for two conditions
+    # that match the same people under the flag-level aggregation of their save. The rollout is not part of it.
+    criteria: str
+    # The group type index that the condition matches, None for persons, and the keys of its property filters.
+    # The flag page's history pairs two conditions that share them as one condition edited.
+    aggregation: int | None
+    property_keys: frozenset[str]
+    rollout: float
+    variant: str | None
+
+
+@frozen
+class ConditionsChange:
+    changed_at: datetime
+    before: tuple[ReleaseCondition, ...]
+    after: tuple[ReleaseCondition, ...]
+
+
 # A change of the flag after launch that can move exposed people. A new kind needs its class here, an
 # `ExperimentHealthFlagChangeKind`, its read and its set-back question in `exposure_gate.py`, its row in
 # `inputs_payload.py`, and its check.
-FlagChange = SplitChange | BucketingChange
+FlagChange = SplitChange | BucketingChange | ConditionsChange
 
 
 def changes_of_kind[C: FlagChange](changes: tuple[FlagChange, ...], kind: type[C]) -> tuple[C, ...]:
     return tuple(change for change in changes if isinstance(change, kind))
+
+
+@frozen
+class ChangeWindow:
+    start: datetime
+    end: datetime
 
 
 @frozen
@@ -73,6 +100,12 @@ class FlagHistory:
     # Whether anyone was exposed between the first and the last counted change of a kind. Asked only when the last
     # sets back what the first changed, so a kind that was not asked is absent. None when unknown.
     exposed_between: Mapping[ExperimentHealthFlagChangeKind, bool | None]
+    # The flag's release conditions now. A save that no kind counts can renumber them after the last change, and
+    # the findings and the traffic number the conditions as they are now.
+    release_conditions: tuple[ReleaseCondition, ...]
+    # Whether anyone was exposed while an override was set and removed again, or removed and set back. A user
+    # exposed only outside that window got the same variant throughout. None when unknown.
+    exposed_during_overrides: Mapping[ChangeWindow, bool | None]
 
     def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
         return changes_of_kind(self.changes, kind)
@@ -89,6 +122,14 @@ class FlagHistoryNotCheckedReason(StrEnum):
     EXPOSURE_FILTERS = "exposure_filters"
     EXPOSURE_ACTION = "exposure_action"
     EXPOSURE_CRITERIA = "exposure_criteria"
+    # The history is not read past these bounds, because the work grows with the saves and the conditions, and the
+    # experiment page asks on every load.
+    TOO_MANY_SAVES = "too_many_saves"
+    TOO_MANY_CONDITIONS = "too_many_conditions"
+
+
+MAX_FLAG_SAVES = 100
+MAX_RELEASE_CONDITIONS = 100
 
 
 @frozen
@@ -112,10 +153,22 @@ class FlagReleaseGroup:
 
 
 @frozen
+class VariantProperty:
+    """A property whose value names the variant. A person and a group, or two group types, can have a property with
+    the same key, and those are different properties."""
+
+    key: str
+    group_type_index: int | None
+
+
+@frozen
 class ReachableCondition:
     # Numbered from 1, as the page labels the release conditions ("Set 2").
     number: int
     pinned_variant: str | None
+    # The person or group property that the condition matches on alone, when its one value is the pinned variant's
+    # key. The variant then comes from whatever sets that property, usually the customer's own assignment.
+    variant_property: VariantProperty | None
 
 
 @frozen
@@ -140,6 +193,10 @@ class ConditionSetTraffic:
     # The calls that returned a variant, and those of them that the flag service evaluated, which alone name a set.
     calls: int
     remotely_evaluated_calls: int
+    # The people who got a variant in a call that carries no flag version and is not a local evaluation in a server
+    # SDK, from the start of the flag-state check's grace period after `since`. Such a call comes from a bootstrap or
+    # from the customer's own code, so it can serve a variant that the flag's release conditions don't.
+    people_assigned_outside: int
 
 
 @frozen
@@ -193,9 +250,51 @@ def parse_flag_state(
         release_groups=tuple(_release_group(group) for group in conditions),
         variants=flag_variants,
         reachable_conditions=tuple(
-            ReachableCondition(number=index + 1, pinned_variant=pinned_variant(conditions[index], variant_keys))
+            _reachable_condition(index + 1, conditions[index], variant_keys, aggregation_group_type_index)
             for index in reachable
         ),
+    )
+
+
+def _reachable_condition(
+    number: int, condition: Mapping[str, Any], variant_keys: set[str], flag_aggregation: int | None
+) -> ReachableCondition:
+    pinned = pinned_variant(condition, variant_keys)
+    return ReachableCondition(
+        number=number,
+        pinned_variant=pinned,
+        variant_property=None if pinned is None else _variant_property(condition, pinned, flag_aggregation),
+    )
+
+
+def _variant_property(
+    condition: Mapping[str, Any], pinned: str, flag_aggregation: int | None
+) -> VariantProperty | None:
+    properties = condition.get("properties")
+    if not isinstance(properties, list) or len(properties) != 1 or not isinstance(properties[0], dict):
+        return None
+    key = properties[0].get("key")
+    value = properties[0].get("value")
+    values = value if isinstance(value, list) else [value]
+    if (
+        properties[0].get("type") not in ("person", "group")
+        or properties[0].get("operator") not in ("exact", None)
+        or len(values) != 1
+        or not isinstance(key, str)
+    ):
+        return None
+    # The flag service compares `exact` values as lowercase strings.
+    if str(values[0]).lower() != pinned.lower():
+        return None
+    if properties[0].get("type") == "person":
+        return VariantProperty(key=key, group_type_index=None)
+    # A group filter without its own group type reads the group the condition aggregates on.
+    group_type_index = properties[0].get("group_type_index")
+    return VariantProperty(
+        key=key,
+        group_type_index=group_type_index
+        if isinstance(group_type_index, int)
+        else condition_aggregation(condition, flag_aggregation),
     )
 
 

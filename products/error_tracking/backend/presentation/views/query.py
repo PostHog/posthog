@@ -25,6 +25,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.event_usage import report_user_action
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
@@ -76,6 +77,21 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
+
+    def _report_issue_read(self, request: ValidatedRequest, issue_id: str, endpoint: str, **properties: object) -> None:
+        # The frontend issue events see only the web app, so this is the one record of which issues
+        # MCP, CLI and API callers read. A capture failure must not fail the read.
+        try:
+            report_user_action(
+                cast(User, request.user),
+                "error_tracking_issue_read",
+                {"issue_id": issue_id, "endpoint": endpoint, **properties},
+                team=self.team,
+                organization=self.team.organization,
+                request=request,
+            )
+        except Exception:
+            logger.warning("error_tracking_issue_read_capture_failed", issue_id=issue_id, exc_info=True)
 
     @validated_request(
         request_serializer=ErrorTrackingIssuesListQueryRequestSerializer,
@@ -182,6 +198,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             payload["impact"] = {}
             if include_sparkline:
                 payload["sparkline"] = []
+            self._report_issue_read(
+                request, issue_id, "issue", include_breakdown=include_breakdown, include_sparkline=include_sparkline
+            )
             return Response(payload)
         issue = cast(dict[str, object], raw_results[0])
         event_properties: dict[str, object] = {}
@@ -234,6 +253,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         if include_breakdown:
             payload["breakdown"] = self._issue_breakdown(request, issue_id, date_range, filter_test_accounts)
+        self._report_issue_read(
+            request, issue_id, "issue", include_breakdown=include_breakdown, include_sparkline=include_sparkline
+        )
         return Response(payload)
 
     def _issue_breakdown(
@@ -334,4 +356,5 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
             payload["nextOffset"] = next_offset
+        self._report_issue_read(request, issue_id, "issue_events")
         return Response(payload)

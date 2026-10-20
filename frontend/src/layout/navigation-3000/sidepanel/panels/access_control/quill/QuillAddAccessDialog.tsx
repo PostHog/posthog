@@ -30,9 +30,10 @@ import {
     useComboboxAnchor,
 } from '@posthog/quill'
 
+import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
+
 import { AccessControlLevel } from '~/types'
 
-import { QuillPersonAvatar } from '../../../components/QuillPersonAvatar'
 import { accessControlLogic } from '../accessControlLogic'
 import { QuillAccessLevelSelect } from './QuillAccessLevelSelect'
 

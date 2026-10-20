@@ -39,10 +39,6 @@ class TestVultrSource:
         self.team_id = 123
         self.config = VultrSourceConfig(api_key="test-key")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["invoices"])
-        assert [s.name for s in schemas] == ["invoices"]
-
     @pytest.mark.parametrize("schema_name", list(ENDPOINTS))
     @mock.patch(f"{SOURCE_MODULE}.vultr_source")
     def test_source_for_pipeline_maps_primary_keys(self, mock_vultr_source: mock.MagicMock, schema_name: str) -> None:

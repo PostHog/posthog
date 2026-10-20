@@ -54,7 +54,6 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes, is_scout_sandbox_request
-from posthog.ph_client import get_feature_flag_or_none
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -89,6 +88,7 @@ from products.replay_vision.backend.billing import (
     observation_credits_for_model,
     projected_monthly_credits,
 )
+from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
@@ -110,6 +110,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
     hydrate_for_serialization,
 )
+from products.replay_vision.backend.models.replay_observation_feed_dismissal import ReplayObservationFeedDismissal
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
@@ -120,11 +121,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     apply_experiment_targeting,
     config_experiment_scope,
 )
-from products.replay_vision.backend.prompt_questions import (
-    question_fields_for_save,
-    scanner_question,
-    template_question,
-)
+from products.replay_vision.backend.prompt_questions import question_fields_for_save, scanner_question
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
@@ -141,7 +138,10 @@ from products.replay_vision.backend.quota import (
     compute_scanner_budgets,
     credits_used_by_scanner,
     current_period_bounds,
+    free_credits_ceiling,
+    org_credit_cap,
     quota_state,
+    quota_state_for_cap,
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
@@ -168,7 +168,6 @@ from products.replay_vision.backend.scanner_draft import (
     DraftError,
     UnwatchableExperimentError,
     draft_scanner_from_goal,
-    draft_scanner_from_goal_v2,
     scopes_allow_read,
 )
 from products.replay_vision.backend.scanning import (
@@ -194,10 +193,6 @@ from products.signals.backend.facade.api import get_outcomes_for_signal_source_s
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
-# The goal-based creation flow's flag. Multivariate so it can graduate to an experiment without a
-# rename; server-side so a client/rollout skew cannot half-apply the new flow.
-GOAL_FLOW_FLAG = "vision-goal-flow-v3"
-
 
 class ScannerCreationMethod(models.TextChoices):
     """How a person built a scanner in the UI. Reported once at creation, never stored.
@@ -205,9 +200,6 @@ class ScannerCreationMethod(models.TextChoices):
     Shares its values with the `creation_method` property on `replay_vision_scanner_creation_started`,
     which the app sends when the person picks a path. Same words at both ends, so a report can see
     who switched paths between starting and saving.
-
-    Separate from the creation-flow experiment arm, which says only which flow a person was offered.
-    Someone offered the AI flow can still fill the form by hand, so this is what says what they did.
 
     These are the values a caller may send. The property reported on the event can also hold an
     `EventSource` — see `_reported_creation_method`.
@@ -225,7 +217,7 @@ def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> s
     answer it at all. Every other surface reports its own source instead, which keeps the values
     mutually exclusive: `ai`/`template`/`scratch` mean a person in the editor, anything else names
     the caller. An agent creating a scanner over MCP is not someone building one by hand, and
-    letting it report `scratch` inflates the hand-built side of the creation-flow comparison.
+    letting it report `scratch` inflates the hand-built side of any comparison between the paths.
 
     Worth the override rather than only filling in a missing value: the wizard creates several times
     more scanners than the app does, and it already sends a method on some of its calls.
@@ -239,36 +231,6 @@ def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> s
     if source is None:
         return claimed
     return claimed if source == EventSource.WEB else source.value
-
-
-def _goal_flow_variant(user: User, team: Team) -> str | None:
-    """The user's arm of the creation-flow experiment, or None when the flag is off for them.
-
-    Never sends an exposure event. The frontend already records one when a person opens the editor,
-    which is the point they enter the flow; a second exposure from here would also enroll API-only
-    callers who never see the UI.
-    """
-    variant = get_feature_flag_or_none(
-        GOAL_FLOW_FLAG,
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        # Local evaluation cannot look up stored person properties, so every person property the
-        # flag's conditions read must be passed here. Without the email, an email-based variant
-        # override falls through to the rollout hash: the browser (which evaluates via /flags with
-        # the stored person) shows the goal-based UI while this returns control, and the request
-        # silently degrades to the legacy draft.
-        person_properties={"email": user.email},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    )
-    return variant if isinstance(variant, str) else None
-
-
-def _goal_flow_enabled(user: User, team: Team) -> bool:
-    """Any variant except control gets the goal-based flow. Never gate this on feature_enabled():
-    it returns True for EVERY variant, control included, which would ship the new flow to the
-    experiment's control group."""
-    return (variant := _goal_flow_variant(user, team)) is not None and variant != "control"
 
 
 def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
@@ -293,7 +255,7 @@ logger = structlog.get_logger(__name__)
 
 # Query keys that narrow which sessions a scanner matches. Date keys are schedule-controlled
 # and stripped on save, so they never count as user-chosen filters.
-_QUERY_FILTER_KEYS = (
+SCANNER_QUERY_FILTER_KEYS = (
     "events",
     "actions",
     "properties",
@@ -345,12 +307,11 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         "enabled": scanner.enabled,
         # An experiment scope narrows the population server-side, so it counts as filtered; the
         # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
-        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(experiment_scope),
+        "has_filters": any(query.get(key) for key in SCANNER_QUERY_FILTER_KEYS) or bool(experiment_scope),
         "has_experiment_targeting": bool(experiment_scope),
         # True when the prompt is a stock template's word for word, so a creation-flow experiment can
         # tell a scanner tailored to the team from a template saved with its defaults.
-        "uses_template_prompt": template_question(scanner.scanner_config) is not None,
-        # Spend choices, so the goal-flow experiment can count free-only scanners and capped ones.
+        # Spend choices, so analytics can count free-only scanners and capped ones.
         "free_only": scanner.free_only,
         "has_credit_limit": scanner.credit_limit is not None,
         "estimated_monthly_observations": estimate,
@@ -1090,15 +1051,11 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         report_user_action(
             user,
             "replay_vision_scanner_created",
-            # Two different questions ride this event. `creation_flow_variant` is the experiment arm,
-            # read from the flag, so it carries intent to treat and keeps the arms comparable: someone
-            # offered the AI flow counts as treated even when they ignore it. `creation_method` is what
-            # the person actually did, which is what says whether AI-built scanners turn out better.
-            # It names the calling surface when the caller is not the app, since only the UI knows
-            # how the form was filled.
+            # `creation_method` is what the person actually did, which is what says whether AI-built
+            # scanners turn out better. It names the calling surface when the caller is not the app,
+            # since only the UI knows how the form was filled.
             {
                 **scanner_lifecycle_properties(scanner),
-                "creation_flow_variant": _goal_flow_variant(user, team),
                 "creation_method": _reported_creation_method(self.context, creation_method),
             },
             team=team,
@@ -1445,24 +1402,35 @@ class BulkObserveResponseSerializer(serializers.Serializer):
 class InlineScanConfigSerializer(serializers.Serializer):
     """A question asked inline, without saving a scanner first."""
 
+    built_in = serializers.ChoiceField(
+        choices=BuiltInScanKey.choices,
+        required=False,
+        help_text=(
+            "Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the "
+            "Summarize button in the replay player runs, so its results are shared with that button. Leave out "
+            "`prompt`, `scanner_type` and `scanner_config` when this is set."
+        ),
+    )
     prompt = serializers.CharField(
         max_length=MAX_PROMPT_LENGTH,
-        help_text="What to look for in these sessions, in plain language. The same instruction a saved scanner carries.",
+        required=False,
+        help_text=(
+            "What to look for in these sessions, in plain language. The same instruction a saved scanner carries. "
+            "Required unless `built_in` is set."
+        ),
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
         required=False,
-        default=ScannerType.MONITOR,
         help_text=(
             "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. "
-            "Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by "
-            "its whole config, so the Summarize button in the replay player shares this scan only when "
-            "the prompt and `scanner_config` match the ones it sends."
+            "Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the "
+            "Summarize button's summary. An inline scan is keyed by its whole config, so asking the same "
+            "question again reuses its answers."
         ),
     )
     scanner_config = serializers.JSONField(
         required=False,
-        default=dict,
         help_text=(
             "Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, "
             "optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` "
@@ -1477,7 +1445,22 @@ class InlineScanConfigSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        config = attrs["scanner_config"]
+        if (built_in := attrs.pop("built_in", None)) is not None:
+            if given := sorted({"prompt", "scanner_type", "scanner_config"} & attrs.keys()):
+                raise serializers.ValidationError(
+                    {"built_in": f"A built-in scan defines its own {', '.join(given)}, so leave those fields out."}
+                )
+            scan = BUILT_IN_SCANS[built_in]
+            return {
+                **attrs,
+                "prompt": scan.prompt,
+                "scanner_type": scan.scanner_type,
+                "scanner_config": scan.scanner_config(),
+            }
+        if not attrs.get("prompt"):
+            raise serializers.ValidationError({"prompt": "Set a prompt, or a built-in scan."})
+        attrs.setdefault("scanner_type", ScannerType.MONITOR)
+        config = attrs.setdefault("scanner_config", {})
         if attrs["scanner_type"] == ScannerType.EXPERIMENT:
             # Inline scans skip the saved-scanner path that access-checks the experiment and, for
             # now, the workflow step that attributes a session's variant. Until those run for
@@ -1499,7 +1482,7 @@ class InlineScanConfigSerializer(serializers.Serializer):
 
 
 class InlineScanRequestSerializer(InlineScanConfigSerializer):
-    """Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at."""
+    """Body of POST /vision/scanners/inline_scan/ - a prompt or built-in scan plus the sessions to point it at."""
 
     session_ids = serializers.ListField(
         child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
@@ -2027,10 +2010,19 @@ class DraftScannerRequestSerializer(serializers.Serializer):
         min_value=1,
         max_value=100_000_000,
         help_text=(
-            "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the "
-            "`model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on "
-            "this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and "
-            "ignored while the goal-based flow's flag is off for the caller."
+            "Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves "
+            "`sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets "
+            "`credit_limit` to it as a hard cap. Ask the person for it rather than guessing. "
+            "Required unless `free_only` is true, and not allowed with it."
+        ),
+    )
+    free_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Draft a scanner that runs only on the organization's free monthly credits, so it never adds "
+            "to the bill and pauses when they run out. The draft is sized to those free credits and comes "
+            "back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`."
         ),
     )
     experiment_id = serializers.IntegerField(
@@ -2038,10 +2030,18 @@ class DraftScannerRequestSerializer(serializers.Serializer):
         min_value=1,
         max_value=9223372036854775807,
         help_text=(
-            "Goal-based flow only: a launched experiment the person picked for the scanner to watch. "
-            "The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`."
+            "A launched experiment the person picked for the scanner to watch. "
+            "The draft is then an `experiment` scanner on it."
         ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        has_budget = attrs.get("monthly_credit_budget") is not None
+        if attrs["free_only"] == has_budget:
+            raise ValidationError(
+                {"monthly_credit_budget": "Set either a monthly credit budget or free_only, but not both."}
+            )
+        return attrs
 
 
 class DraftScannerResponseSerializer(serializers.Serializer):
@@ -2071,14 +2071,14 @@ class DraftScannerResponseSerializer(serializers.Serializer):
         choices=SamplingMode.choices,
         allow_null=True,
         help_text=(
-            "Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the "
-            "legacy flow, and null when the costing estimate failed — the wizard keeps its defaults."
+            "The quality pre-filter the draft chose for the goal. Null when the costing estimate "
+            "failed, in which case the wizard keeps its defaults."
         ),
     )
     sampling_rate = serializers.FloatField(
         allow_null=True,
         help_text=(
-            "Goal-based flow only: the random sampling rate solved from `monthly_credit_budget`, 0..1. "
+            "The random sampling rate solved from `monthly_credit_budget`, 0..1. "
             "1.0 when the budget covers every matching recording. Floored at the minimum rate, so a "
             "budget below that floor keeps the minimum. Null whenever `sampling_mode` is."
         ),
@@ -2086,22 +2086,22 @@ class DraftScannerResponseSerializer(serializers.Serializer):
     model = serializers.ChoiceField(
         choices=ScannerModel.choices,
         allow_null=True,
-        help_text=(
-            "Goal-based flow only: the observation model the draft chose for the goal, by how much "
-            "judgment it needs. Null on the legacy flow, where the wizard keeps its default model."
-        ),
+        help_text=("The observation model the draft chose for the goal, by how much judgment it needs."),
     )
     credit_limit = serializers.IntegerField(
         allow_null=True,
         help_text=(
-            "Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a "
-            "mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow."
+            "The monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the "
+            "scanner at the credits the user agreed to. Null for a free-only draft."
         ),
+    )
+    free_only = serializers.BooleanField(
+        help_text="Whether the draft runs only on the organization's free monthly credits. Pass it on to create."
     )
     estimated_monthly_observations = serializers.IntegerField(
         allow_null=True,
         help_text=(
-            "Goal-based flow only: recordings a month the drafted scanner is projected to watch under "
+            "Recordings a month the drafted scanner is projected to watch under "
             "the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when "
             "the budget is below what the minimum sampling rate can reach, where this is the floor and "
             "exceeds the budget. Null whenever `sampling_mode` is."
@@ -2596,6 +2596,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a slot.
         candidates = accessible_observations(self.user_access_control, self.team_id, candidates)
         viewer_id = cast(User, request.user).id
+        # Before ranking, so a row the viewer marked not useful neither takes a slot nor shifts the window baselines.
+        candidates = candidates.exclude(
+            Exists(ReplayObservationFeedDismissal.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
+        )
         viewed = Exists(ReplayObservationView.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
         candidate_rows = list(
             candidates.annotate(
@@ -3290,7 +3294,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
     )
     def draft(self, request: Request, **kwargs: Any) -> Response:
-        """Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow."""
+        """Draft a full scanner configuration from a natural-language goal and a monthly credit budget."""
         # This action is `detail=False`, so the generic gate settles for editor access to any one scanner.
         # A draft spends model budget toward a scanner only editors can save, so hold it to `create`'s bar.
         if not self.user_access_control.check_access_level_for_resource("replay_scanner", required_level="editor"):
@@ -3308,23 +3312,34 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body.is_valid(raise_exception=True)
 
         goal = body.validated_data["goal"]
-        monthly_credit_budget = body.validated_data.get("monthly_credit_budget")
-        # A budget only means the goal-based flow when the flag says so: on a client/rollout skew
-        # the request degrades to a legacy draft instead of half-applying the new flow.
-        goal_flow = monthly_credit_budget is not None and _goal_flow_enabled(cast(User, request.user), self.team)
+        free_only = body.validated_data["free_only"]
+        if free_only:
+            cap = org_credit_cap(self.team.organization_id)
+            # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
+            monthly_credit_budget = free_credits_ceiling(cap)
+            # A free-only draft saved after the free credits run out pauses before its first scan.
+            if quota_state_for_cap(self.team.organization_id, cap).credits_used >= monthly_credit_budget:
+                raise ValidationError(
+                    {
+                        "free_only": "Your organization has used its free credits for this billing period. "
+                        "Set a monthly credit budget instead."
+                    }
+                )
+        else:
+            monthly_credit_budget = body.validated_data["monthly_credit_budget"]
         # The goal is customer text, so only its length goes into telemetry.
         draft_properties: dict[str, Any] = {
             "goal_length": len(goal),
             "team_id": self.team_id,
-            "goal_flow": goal_flow,
             "monthly_credit_budget": monthly_credit_budget,
+            "free_only": free_only,
         }
         # Scoped tokens must not receive data their scopes exclude. Core memory is INTERNAL
         # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
         # actions, experiments) is gated per resource against these scopes inside the drafter.
         allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
         include_business_context = allowed_scopes is None
-        experiment_id = body.validated_data.get("experiment_id") if goal_flow else None
+        experiment_id = body.validated_data.get("experiment_id")
         # Denied, out-of-scope and nonexistent ids read the same, so the error never confirms an experiment exists.
         if experiment_id is not None and not (
             scopes_allow_read(allowed_scopes, "experiment")
@@ -3333,25 +3348,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             raise ValidationError({"experiment_id": "Experiment not found in this project."})
 
         try:
-            if goal_flow:
-                drafted = draft_scanner_from_goal_v2(
-                    team=self.team,
-                    user=cast(User, request.user),
-                    goal=goal,
-                    monthly_credit_budget=cast(int, monthly_credit_budget),
-                    user_access_control=self.user_access_control,
-                    include_business_context=include_business_context,
-                    allowed_scopes=allowed_scopes,
-                    experiment_id=experiment_id,
-                )
-            else:
-                drafted = draft_scanner_from_goal(
-                    team=self.team,
-                    user=cast(User, request.user),
-                    goal=goal,
-                    user_access_control=self.user_access_control,
-                    include_business_context=include_business_context,
-                )
+            drafted = draft_scanner_from_goal(
+                team=self.team,
+                user=cast(User, request.user),
+                goal=goal,
+                monthly_credit_budget=monthly_credit_budget,
+                user_access_control=self.user_access_control,
+                include_business_context=include_business_context,
+                allowed_scopes=allowed_scopes,
+                experiment_id=experiment_id,
+                free_only=free_only,
+            )
         except UnwatchableExperimentError:
             raise ValidationError(
                 {"experiment_id": "Pick a running experiment that splits people, not groups, into variants."}
@@ -3362,7 +3369,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "replay_vision.scanner_draft.failed",
                 team_id=self.team_id,
                 reason=e.reason,
-                goal_flow=goal_flow,
             )
             # Report failures too, so model errors don't read as user abandonment.
             report_user_action(
@@ -3411,6 +3417,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "sampling_rate": drafted.sampling_rate,
                     "model": drafted.model,
                     "credit_limit": drafted.credit_limit,
+                    "free_only": drafted.free_only,
                     "estimated_monthly_observations": drafted.estimated_monthly_observations,
                 }
             ).data

@@ -63,7 +63,7 @@ dependencies = [
     "google-cloud-bigquery==3.40.1",
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
-    "google-genai==1.46.0",
+    "google-genai==1.75.0",
     # 2.8+ gives each worker its own SO_REUSEPORT socket on Linux. The query pool runs
     # bin/granian_shared_socket.py to keep one shared socket; its test must pass on any bump.
     "granian[uvloop,reload,pname]==2.8.3",
@@ -762,14 +762,13 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.service",
     # TODO: subscriptions presentation wave. The viewsets and model serializers moved from ee/
-    # with their ORM access: the subscription models (in exports until they move into the
-    # product) and the dashboard models behind dashboard and tile selection. Thin them to
-    # parse -> facade -> serialize and delete each entry. backend:contract-check stays off
-    # until this list is empty.
+    # with their ORM access: the product's own subscription models and the dashboard models
+    # behind dashboard and tile selection. Thin them to parse -> facade -> serialize and delete
+    # each entry. backend:contract-check stays off until this list is empty.
     "products.subscriptions.backend.presentation.views -> products.dashboards.backend.models.dashboard",
     "products.subscriptions.backend.presentation.views -> products.dashboards.backend.models.dashboard_tile",
-    "products.subscriptions.backend.presentation.views -> products.exports.backend.models.subscription",
-    "products.subscriptions.backend.presentation.views -> products.exports.backend.models.subscription_context",
+    "products.subscriptions.backend.presentation.views -> products.subscriptions.backend.models.subscription",
+    "products.subscriptions.backend.presentation.views -> products.subscriptions.backend.models.subscription_context",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
