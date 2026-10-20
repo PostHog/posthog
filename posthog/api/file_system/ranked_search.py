@@ -18,6 +18,7 @@ CANDIDATE_LIMIT = 2000
 TYPO_TOKENS_THRESHOLD = 50
 MIN_WORD_SIMILARITY = 0.4
 FRECENCY_HALF_LIFE_DAYS = 14
+MAX_TOKENS = 8
 CANDIDATE_FIELDS = ("id", "path", "type", "ref", "created_at")
 
 EQUAL, STARTS_WITH, WORD_STARTS_WITH, CONTAINS, ACRONYM, NO_MATCH = range(6)
@@ -132,7 +133,7 @@ class RankedSearchResult:
 class FileSystemRankedSearch:
     def __init__(self, query: str, *, user_id: int, team_id: int, today: date) -> None:
         self.query = " ".join(query.lower().split())
-        self.tokens = tuple(words(self.query))
+        self.tokens = tuple(dict.fromkeys(words(self.query)))[:MAX_TOKENS]
         self.singular_query = singular_text(self.query)
         self.user_id = user_id
         self.team_id = team_id
@@ -177,21 +178,24 @@ class FileSystemRankedSearch:
             .alias(search_text=SEARCH_TEXT, search_name=SEARCH_NAME)
         )
         found = self.fetch(queryset, self.every_word(typos=False), [])
-        if len(found) >= TYPO_TOKENS_THRESHOLD:
-            return self.rank(found)
+        result = self.rank(found)
+        if len(result.entries) >= TYPO_TOKENS_THRESHOLD:
+            return result
         with transaction.atomic(using=queryset.db), connections[queryset.db].cursor() as cursor:
             cursor.execute(
                 "SELECT set_config('pg_trgm.word_similarity_threshold', %s, true)", [str(MIN_WORD_SIMILARITY)]
             )
             if any(allowed_typos(token) for token in self.tokens):
                 found = self.fetch(queryset, self.every_word(typos=True), found)
-            result = self.rank(found)
+                result = self.rank(found)
             if result.matched_all_words or len(self.tokens) == 1:
                 return result
             found = self.fetch(queryset, self.any_word(typos=False), found)
-            if not found:
+            result = self.rank(found)
+            if not result.entries:
                 found = self.fetch(queryset, self.any_word(typos=True), found)
-            return self.rank(found)
+                result = self.rank(found)
+            return result
 
     def frecency(self, entries: Iterable[FileSystem]) -> dict[FileRef, float]:
         keys = {FileRef(type=entry.type, ref=entry.ref) for entry in entries if entry.ref}
@@ -217,6 +221,7 @@ class FileSystemRankedSearch:
         name_words = words(name)
         singular_name = " ".join(singular(word) for word in name_words)
         other_words = words(" ".join([*segments[:-1], entry.type]))
+        singular_words = {singular(word) for word in (*name_words, *other_words)}
         matched, typos, in_name, exact_words = 0, 0, 0, 0
         positions: list[int] = []
         matched_tokens: list[str] = []
@@ -234,7 +239,7 @@ class FileSystemRankedSearch:
             matched += 1
             typos += hit.typos
             matched_tokens.append(token)
-            if len(self.tokens) > 1 and singular(token) in {singular(word) for word in (*name_words, *other_words)}:
+            if len(self.tokens) > 1 and singular(token) in singular_words:
                 exact_words += 1
         if len(self.tokens) == 1 and singular_name == self.singular_query:
             exact_words = 1
@@ -265,14 +270,14 @@ class FileSystemRankedSearch:
             )
             is not None
         ]
-        full = [r for r in ranked if -r.rank[0] == len(self.tokens)]
-        matching = full or ranked
+        most_words = max((-r.rank[0] for r in ranked), default=0)
+        matching = [r for r in ranked if -r.rank[0] == most_words]
         fewest_typos = min((r.rank[1] for r in matching), default=0)
         pool = [r for r in matching if r.rank[1] == fewest_typos]
         pool.sort(key=lambda r: r.rank)
         return RankedSearchResult(
             entries=pool,
-            matched_all_words=bool(full),
+            matched_all_words=bool(matching) and most_words == len(self.tokens),
             matched_with_typos=fewest_typos > 0,
             type_counts=dict(Counter(r.entry.type for r in pool)),
             counts_capped=self.capped,

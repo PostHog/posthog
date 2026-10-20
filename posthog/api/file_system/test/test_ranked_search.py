@@ -1,14 +1,16 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.file_system.ranked_search import MAX_TOKENS, FileSystemRankedSearch
 from posthog.models import Team
-from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.file_system import FileSystem, split_path
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
 
@@ -30,7 +32,7 @@ class TestFileSystemRankedSearch(APIBaseTest):
         return response.json()
 
     def _names(self, data: dict) -> list[str]:
-        return [item["entry"]["path"].rsplit("/", 1)[-1] for item in data["results"]]
+        return [split_path(item["entry"]["path"])[-1] for item in data["results"]]
 
     @parameterized.expand(
         [
@@ -57,6 +59,12 @@ class TestFileSystemRankedSearch(APIBaseTest):
                 "retension",
                 ["Unfiled/Insights/Weekly retention", "Unfiled/Insights/Pageviews"],
                 ["Weekly retention"],
+            ),
+            (
+                "typo_in_a_name_with_an_escaped_slash",
+                "retension",
+                ["Unfiled/Insights/Retention \\/ Weekly", "Unfiled/Insights/Pageviews"],
+                ["Retention / Weekly"],
             ),
             (
                 "name_match_before_folder_match",
@@ -100,6 +108,20 @@ class TestFileSystemRankedSearch(APIBaseTest):
                 ["Journey: platform add-on trial", "Journey funnel"],
                 ["Journey: platform add-on trial", "Journey funnel"],
                 ["journey"],
+            ),
+            (
+                "more_words_beat_fewer_typos",
+                "signup retension xyzzy",
+                ["Signup retention", "Signup"],
+                ["Signup retention"],
+                ["signup", "retension"],
+            ),
+            (
+                "rejected_candidate_does_not_stop_the_typo_fallback",
+                "xyzzy retension",
+                ["prexyzzyabc", "Weekly retention"],
+                ["Weekly retention"],
+                ["retension"],
             ),
         ]
     )
@@ -155,3 +177,12 @@ class TestFileSystemRankedSearch(APIBaseTest):
         data = self._search("revenue", limit=1, per_type=2)
 
         self.assertEqual(self._names(data), ["Revenue", "Revenue by plan"])
+
+
+class TestFileSystemRankedSearchTokens(SimpleTestCase):
+    def test_repeated_and_extra_words_are_dropped(self) -> None:
+        ranker = FileSystemRankedSearch(
+            " ".join(["the"] * 200 + [f"word{index}" for index in range(20)]), user_id=1, team_id=1, today=date.today()
+        )
+
+        self.assertEqual(ranker.tokens, ("the", *(f"word{index}" for index in range(MAX_TOKENS - 1))))
