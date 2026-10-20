@@ -267,7 +267,9 @@ describe('SharingModal (dashboard)', () => {
             useMocks({ get: mockDashboardSharingConfiguration({}) })
             const logic = sharingLogic({ dashboardId })
 
-            await expectLogic(logic, () => logic.mount()).toDispatchActions(['loadSharingConfigurationSuccess'])
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toDispatchActions(['loadSharingConfigurationSuccess'])
             expect(logic.values.canManagePublicSharing).toBe(showsLink)
             logic.unmount()
         }
