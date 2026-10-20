@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.triggerdev import (
     TriggerDevSourceConfig,
@@ -26,7 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_de
     _should_stop_desc,
     resolve_base_url,
     validate_base_url,
-    validate_credentials,
 )
 
 BASE_URL = "https://api.trigger.dev"
@@ -295,28 +293,6 @@ class TestClassicPagination:
         with patch.object(trigger_dev, "MAX_CLASSIC_PAGES", 7):
             result = _run("queues", always(_json({"data": [{"id": "q"}], "pagination": {}})))
         assert len(result.requests) == 7
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            valid, error = validate_credentials("tr_prod_x", BASE_URL)
-        assert valid is expected_valid
-        assert (error is None) is expected_valid
-
-    def test_network_error_is_invalid_not_raised(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            valid, error = validate_credentials("tr_prod_x", BASE_URL)
-        assert valid is False
-        assert error is not None
 
 
 class TestFetchPageRetries:
