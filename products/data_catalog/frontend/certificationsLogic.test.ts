@@ -1,10 +1,12 @@
+import { router } from 'kea-router'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
-import { certificationsLogic } from './certificationsLogic'
+import { DEFAULT_CERTIFICATIONS_FILTERS, certificationsLogic } from './certificationsLogic'
 import type { CertificationsFilters, NewCertificationForm } from './certificationsLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
@@ -162,6 +164,19 @@ describe('certificationsLogic', () => {
 
         expect(lemonToast.error).toHaveBeenCalledWith('Could not create the proposal. Try again.')
         expect(logic.values.isCreatingCertification).toBe(false)
+    })
+
+    it('opens the page that holds a highlighted certification once it loads, with the filters cleared', () => {
+        logic.actions.setFilters({ status: 'proposed', search: 'stripe' })
+
+        logic.actions.highlightCertification('cert-25')
+        logic.actions.loadCertificationsSuccess(
+            Array.from({ length: 30 }, (_, index) => buildCertification({ id: `cert-${index + 1}` }))
+        )
+
+        expect(logic.values.filters).toEqual(DEFAULT_CERTIFICATIONS_FILTERS)
+        expect(logic.values.highlightedCertificationId).toEqual('cert-25')
+        expect(router.values.searchParams.page).toEqual(2)
     })
 
     it('removes the row when revoking', async () => {

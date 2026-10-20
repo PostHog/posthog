@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -25,6 +25,8 @@ export interface CertificationsFilters {
     search: string
     status: CertificationStatusFilter
 }
+
+export const CERTIFICATIONS_PAGE_SIZE = 20
 
 export const DEFAULT_CERTIFICATIONS_FILTERS: CertificationsFilters = {
     search: '',
@@ -64,6 +66,8 @@ export interface certificationsLogicValues {
     certificationsLoading: boolean
     filteredCertifications: DataCatalogCertificationApi[]
     filters: CertificationsFilters
+    highlightPending: boolean
+    highlightedCertificationId: string | null
     isCreatingCertification: boolean
     newCertificationForm: NewCertificationForm
     newCertificationModalOpen: boolean
@@ -94,6 +98,12 @@ export interface certificationsLogicActions {
     }
     deprecateCertification: (id: string) => {
         id: string
+    }
+    highlightCertification: (id: string) => {
+        id: string
+    }
+    highlightedCertificationShown: () => {
+        value: true
     }
     loadCertifications: () => any
     loadCertificationsFailure: (
@@ -168,6 +178,8 @@ export const certificationsLogic = kea<certificationsLogicType>([
         deprecateCertification: (id: string) => ({ id }),
         revokeCertification: (id: string) => ({ id }),
         setActionInFlight: (id: string, inFlight: boolean) => ({ id, inFlight }),
+        highlightCertification: (id: string) => ({ id }),
+        highlightedCertificationShown: true,
     }),
     loaders(() => ({
         certifications: [
@@ -214,6 +226,19 @@ export const certificationsLogic = kea<certificationsLogicType>([
                 setActionInFlight: (state, { id, inFlight }) => ({ ...state, [id]: inFlight }),
             },
         ],
+        highlightedCertificationId: [
+            null as string | null,
+            {
+                highlightCertification: (_, { id }) => id,
+            },
+        ],
+        highlightPending: [
+            false,
+            {
+                highlightCertification: () => true,
+                highlightedCertificationShown: () => false,
+            },
+        ],
     }),
     selectors({
         filteredCertifications: [
@@ -257,7 +282,28 @@ export const certificationsLogic = kea<certificationsLogicType>([
             }
         }
 
+        const showHighlightedPage = (): void => {
+            const index = values.filteredCertifications.findIndex(
+                (certification) => certification.id === values.highlightedCertificationId
+            )
+            if (!values.highlightPending || index < 0) {
+                return
+            }
+            const { location, searchParams, hashParams } = router.values
+            router.actions.replace(
+                location.pathname,
+                { ...searchParams, page: Math.floor(index / CERTIFICATIONS_PAGE_SIZE) + 1 },
+                hashParams
+            )
+            actions.highlightedCertificationShown()
+        }
+
         return {
+            highlightCertification: () => {
+                actions.setFilters(DEFAULT_CERTIFICATIONS_FILTERS)
+                showHighlightedPage()
+            },
+            loadCertificationsSuccess: () => showHighlightedPage(),
             openNewCertificationModal: () => actions.loadDatabase(),
             createCertification: async () => {
                 if (values.isCreatingCertification) {

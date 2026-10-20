@@ -5,10 +5,14 @@ import { SuggestedCertificationsTableContent } from './SuggestedCertificationsTa
 
 export interface SuggestedCertificationsTableProps {
     onAccepted?: WarehouseSuggestionsLogicProps['onAccepted']
+    onViewAccepted?: WarehouseSuggestionsLogicProps['onViewAccepted']
 }
 
-export function SuggestedCertificationsTable({ onAccepted }: SuggestedCertificationsTableProps): JSX.Element | null {
-    const logicProps: WarehouseSuggestionsLogicProps = { surface: 'catalog', onAccepted }
+export function SuggestedCertificationsTable({
+    onAccepted,
+    onViewAccepted,
+}: SuggestedCertificationsTableProps): JSX.Element | null {
+    const logicProps: WarehouseSuggestionsLogicProps = { surface: 'catalog', onAccepted, onViewAccepted }
     return (
         <BindLogic logic={warehouseSuggestionsLogic} props={logicProps}>
             <SuggestedCertificationsTableContent />

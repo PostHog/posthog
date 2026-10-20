@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
@@ -13,7 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SuggestedCertificationsTable } from 'products/warehouse_suggestions/frontend/components/SuggestedCertificationsTable'
 
-import { CertificationStatusFilter, certificationsLogic } from '../certificationsLogic'
+import { CERTIFICATIONS_PAGE_SIZE, CertificationStatusFilter, certificationsLogic } from '../certificationsLogic'
 import { NewCertificationModal } from '../components/NewCertificationModal'
 import type { DataCatalogCertificationApi } from '../generated/api.schemas'
 
@@ -31,7 +32,14 @@ const STATUS_TAG: Record<string, { label: string; type: 'warning' | 'success' | 
 }
 
 export function CertificationsTab(): JSX.Element {
-    const { filteredCertifications, certificationsLoading, filters, actionsInFlight } = useValues(certificationsLogic)
+    const {
+        filteredCertifications,
+        certificationsLoading,
+        filters,
+        actionsInFlight,
+        highlightedCertificationId,
+        highlightPending,
+    } = useValues(certificationsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         setFilters,
@@ -40,7 +48,17 @@ export function CertificationsTab(): JSX.Element {
         certifyCertification,
         deprecateCertification,
         revokeCertification,
+        highlightCertification,
     } = useActions(certificationsLogic)
+
+    useEffect(() => {
+        if (!highlightedCertificationId || highlightPending) {
+            return
+        }
+        document
+            .querySelector(`[data-row-key="${highlightedCertificationId}"]`)
+            ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, [highlightedCertificationId, highlightPending])
 
     const confirmRevoke = (certification: DataCatalogCertificationApi): void => {
         LemonDialog.open({
@@ -137,6 +155,17 @@ export function CertificationsTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS] && (
+                <SuggestedCertificationsTable
+                    onAccepted={() => loadCertifications()}
+                    onViewAccepted={(suggestion) => {
+                        const certificationId = suggestion.created_asset?.certification_id
+                        if (typeof certificationId === 'string') {
+                            highlightCertification(certificationId)
+                        }
+                    }}
+                />
+            )}
             <div className="flex justify-between gap-2 flex-wrap items-center">
                 <LemonInput
                     type="search"
@@ -171,16 +200,16 @@ export function CertificationsTab(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            {featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS] && (
-                <SuggestedCertificationsTable onAccepted={() => loadCertifications()} />
-            )}
             <LemonTable
                 data-attr="data-catalog-certifications-table"
                 dataSource={filteredCertifications}
                 rowKey="id"
                 columns={columns}
                 loading={certificationsLoading}
-                pagination={{ pageSize: 20 }}
+                pagination={{ pageSize: CERTIFICATIONS_PAGE_SIZE }}
+                rowClassName={(certification) =>
+                    certification.id === highlightedCertificationId ? 'bg-accent-highlight-secondary' : null
+                }
                 emptyState="No certifications match your filters."
                 nouns={['certification', 'certifications']}
             />

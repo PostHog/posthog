@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import { DataModelingSyncInterval } from '~/types'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
@@ -19,7 +21,17 @@ const status: WarehouseSuggestionStatusApi = {
     refreshed_at: '2026-10-07T08:30:00Z',
 }
 
-function materialize(id: string, name: string, savedSeconds: number, canAct = true): WarehouseSuggestionApi {
+interface MaterializeOptions {
+    canAct?: boolean
+    unknownSources?: boolean
+}
+
+function materialize(
+    id: string,
+    name: string,
+    savedSeconds: number,
+    { canAct = true, unknownSources = false }: MaterializeOptions = {}
+): WarehouseSuggestionApi {
     return {
         id,
         kind: 'materialize',
@@ -33,7 +45,7 @@ function materialize(id: string, name: string, savedSeconds: number, canAct = tr
             freshness_today_seconds: 3600,
             freshness_after_seconds: 90000,
             live_sources: { names: ['events'], hidden_count: 0 },
-            unknown_sources: { names: [], hidden_count: 1 },
+            unknown_sources: { names: [], hidden_count: unknownSources ? 1 : 0 },
         },
         payload_version: 1,
         evidence: {
@@ -45,7 +57,6 @@ function materialize(id: string, name: string, savedSeconds: number, canAct = tr
         evidence_window_start: '2026-09-07T00:00:00Z',
         evidence_window_end: '2026-10-07T00:00:00Z',
         last_seen_at: '2026-10-07T08:30:00Z',
-        score: 2,
         status: 'proposed',
         surfaced_at: '2026-10-07T08:30:00Z',
         reviewed_by: null,
@@ -61,8 +72,12 @@ function materialize(id: string, name: string, savedSeconds: number, canAct = tr
 const suggestions = [
     materialize('1', 'customer_monthly_revenue', 1080),
     materialize('2', 'sessions_by_plan_daily', 2400),
-    materialize('3', 'stripe_invoices_enriched', 0),
+    materialize('3', 'stripe_invoices_enriched', 0, { unknownSources: true }),
 ]
+
+const manySuggestions = Array.from({ length: 7 }, (_, index) =>
+    materialize(`${index + 1}`, `product_usage_rollup_${index + 1}`, 600 * (index + 1))
+)
 
 interface StripStoryProps {
     results?: WarehouseSuggestionApi[]
@@ -70,6 +85,7 @@ interface StripStoryProps {
     expanded?: boolean
     failing?: boolean
     width?: 'normal' | 'narrow'
+    openDialogWithInterval?: DataModelingSyncInterval
 }
 
 function StripStory({
@@ -78,6 +94,7 @@ function StripStory({
     expanded = true,
     failing,
     width,
+    openDialogWithInterval,
 }: StripStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
@@ -85,9 +102,18 @@ function StripStory({
             [STATUS_URL]: { ...status, ...statusOverrides },
         },
     })
+    const logic = warehouseSuggestionsLogic({ surface: 'models' })
+    const { stripState } = useValues(logic)
     useEffect(() => {
-        warehouseSuggestionsLogic({ surface: 'models' }).actions.setCollapsed(!expanded)
-    }, [expanded])
+        logic.actions.setCollapsed(!expanded)
+    }, [expanded, logic])
+    useEffect(() => {
+        if (!openDialogWithInterval || stripState !== 'active') {
+            return
+        }
+        logic.actions.openMaterializeModal(results[0].id)
+        logic.actions.setMaterializeInterval(openDialogWithInterval)
+    }, [openDialogWithInterval, stripState, logic, results])
 
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
@@ -112,7 +138,7 @@ export const Collapsed: Story = { args: { expanded: false } }
 export const ExpandedNarrow: Story = { args: { width: 'narrow' } }
 
 export const ViewerWithoutEditAccess: Story = {
-    args: { results: [materialize('1', 'customer_monthly_revenue', 1080, false)] },
+    args: { results: [materialize('1', 'customer_monthly_revenue', 1080, { canAct: false })] },
 }
 
 export const WarmingUp: Story = { args: { results: [], statusOverrides: { days_with_data: 12 } } }
@@ -120,3 +146,12 @@ export const WarmingUp: Story = { args: { results: [], statusOverrides: { days_w
 export const NotEligible: Story = { args: { results: [], statusOverrides: { eligible: false } } }
 
 export const LoadFailed: Story = { args: { failing: true } }
+
+export const ManySuggestions: Story = { args: { results: manySuggestions } }
+
+export const MaterializeDialogLongerScheduleUnknownSources: Story = {
+    args: {
+        results: [materialize('3', 'stripe_invoices_enriched', 1080, { unknownSources: true })],
+        openDialogWithInterval: '7day',
+    },
+}

@@ -27,7 +27,7 @@ export function DismissSuggestionMenu({ suggestionId, disabledReason }: DismissS
             ]}
         >
             <LemonButton
-                size="xsmall"
+                size="small"
                 type="tertiary"
                 disabledReason={disabledReason}
                 data-attr="warehouse-suggestions-dismiss"

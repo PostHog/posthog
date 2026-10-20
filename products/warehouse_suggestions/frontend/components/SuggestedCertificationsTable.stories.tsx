@@ -43,7 +43,6 @@ function suggestion(
         evidence_window_start: '2026-09-07T00:00:00Z',
         evidence_window_end: '2026-10-07T00:00:00Z',
         last_seen_at: '2026-10-07T08:30:00Z',
-        score: 2,
         status: 'proposed',
         surfaced_at: '2026-10-07T08:30:00Z',
         reviewed_by: null,
@@ -58,9 +57,10 @@ function suggestion(
 
 interface TableStoryProps {
     results: WarehouseSuggestionApi[]
+    width?: 'normal' | 'narrow'
 }
 
-function TableStory({ results }: TableStoryProps): JSX.Element {
+function TableStory({ results, width }: TableStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
             [LIST_URL]: { count: results.length, results },
@@ -68,7 +68,7 @@ function TableStory({ results }: TableStoryProps): JSX.Element {
         },
     })
     return (
-        <div className="w-[1000px] p-4">
+        <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
             <SuggestedCertificationsTable />
         </div>
     )
@@ -89,6 +89,16 @@ export const CertifyAndDeprecate: Story = {
             suggestion('1', 'certify', 'saved_query', 'customer_monthly_revenue'),
             suggestion('2', 'certify', 'table', 'stripe_charges'),
             suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup', false),
+        ],
+    },
+}
+
+export const Narrow: Story = {
+    args: {
+        width: 'narrow',
+        results: [
+            suggestion('1', 'certify', 'saved_query', 'customer_monthly_revenue_by_region_and_plan'),
+            suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup'),
         ],
     },
 }

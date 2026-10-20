@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -9,15 +11,18 @@ import {
     warehouseSuggestionsAcceptCreate,
     warehouseSuggestionsDismissCreate,
     warehouseSuggestionsList,
+    warehouseSuggestionsResumeCreate,
     warehouseSuggestionsStatusRetrieve,
 } from './generated/api'
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from './generated/api.schemas'
-import { StripState, warehouseSuggestionsLogic } from './warehouseSuggestionsLogic'
+import { intervalForSeconds } from './refreshIntervals'
+import { ROW_LEAVE_MS, StripState, SuggestionSurface, warehouseSuggestionsLogic } from './warehouseSuggestionsLogic'
 
 jest.mock('./generated/api', () => ({
     warehouseSuggestionsAcceptCreate: jest.fn(),
     warehouseSuggestionsDismissCreate: jest.fn(),
     warehouseSuggestionsList: jest.fn(),
+    warehouseSuggestionsResumeCreate: jest.fn(),
     warehouseSuggestionsStatusRetrieve: jest.fn(),
 }))
 
@@ -25,6 +30,7 @@ const mockList = warehouseSuggestionsList as jest.MockedFunction<typeof warehous
 const mockStatus = warehouseSuggestionsStatusRetrieve as jest.MockedFunction<typeof warehouseSuggestionsStatusRetrieve>
 const mockAccept = warehouseSuggestionsAcceptCreate as jest.MockedFunction<typeof warehouseSuggestionsAcceptCreate>
 const mockDismiss = warehouseSuggestionsDismissCreate as jest.MockedFunction<typeof warehouseSuggestionsDismissCreate>
+const mockResume = warehouseSuggestionsResumeCreate as jest.MockedFunction<typeof warehouseSuggestionsResumeCreate>
 
 const ACTIVE_STATUS: WarehouseSuggestionStatusApi = {
     enabled: true,
@@ -55,7 +61,6 @@ const MATERIALIZE: WarehouseSuggestionApi = {
     evidence_window_start: '2026-09-07T00:00:00Z',
     evidence_window_end: '2026-10-07T00:00:00Z',
     last_seen_at: '2026-10-07T08:30:00Z',
-    score: 2,
     status: 'proposed',
     surfaced_at: '2026-10-07T08:30:00Z',
     reviewed_by: null,
@@ -65,6 +70,19 @@ const MATERIALIZE: WarehouseSuggestionApi = {
     created_asset: null,
     asset_outcome: null,
     can_act: true,
+}
+
+function materialize(id: string, savesSeconds: number, savesBytes = 0): WarehouseSuggestionApi {
+    return {
+        ...MATERIALIZE,
+        id,
+        subject_id: `view-${id}`,
+        payload: { ...MATERIALIZE.payload, saves_seconds_per_month: savesSeconds, saves_bytes_per_month: savesBytes },
+    }
+}
+
+function certification(id: string, kind: 'certify' | 'deprecate'): WarehouseSuggestionApi {
+    return { ...MATERIALIZE, id, kind, subject_kind: 'table', payload: { subject_name: id } }
 }
 
 function page(results: WarehouseSuggestionApi[]): Awaited<ReturnType<typeof warehouseSuggestionsList>> {
@@ -85,8 +103,11 @@ describe('warehouseSuggestionsLogic', () => {
 
     afterEach(() => logic?.unmount())
 
-    async function mountLogic(): Promise<void> {
-        logic = warehouseSuggestionsLogic({ surface: 'models' })
+    async function mountLogic(
+        surface: SuggestionSurface = 'models',
+        onViewAccepted?: (suggestion: WarehouseSuggestionApi) => void
+    ): Promise<void> {
+        logic = warehouseSuggestionsLogic({ surface, onViewAccepted })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess', 'loadStatusSuccess'])
     }
@@ -172,5 +193,199 @@ describe('warehouseSuggestionsLogic', () => {
         await expectLogic(logic).toDispatchActions(['setMaterializeError'])
         expect(logic.values.materializeError).toEqual('A source refreshes daily.')
         expect(logic.values.materializeModalSuggestion?.id).toEqual(MATERIALIZE.id)
+    })
+
+    it.each<[SuggestionSurface, WarehouseSuggestionApi[], string[]]>([
+        [
+            'models',
+            [materialize('bytes-big', 0, 5e12), materialize('time-small', 600), materialize('time-big', 2400)],
+            ['time-big', 'time-small', 'bytes-big'],
+        ],
+        ['catalog', [certification('old', 'deprecate'), certification('used', 'certify')], ['used', 'old']],
+    ])('orders %s suggestions by what they are worth', async (surface, results, expectedOrder) => {
+        mockList.mockResolvedValue(page(results))
+
+        await mountLogic(surface)
+
+        expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual(expectedOrder)
+    })
+
+    it('shows five suggestions until someone asks for the rest', async () => {
+        mockList.mockResolvedValue(page(Array.from({ length: 7 }, (_, index) => materialize(`s${index}`, 600))))
+        await mountLogic()
+
+        expect(logic.values.visibleSuggestions).toHaveLength(5)
+        expect(logic.values.moreSuggestionsCount).toEqual(2)
+
+        logic.actions.showAllSuggestions()
+
+        expect(logic.values.visibleSuggestions).toHaveLength(7)
+    })
+
+    it('counts time and bytes savings separately', async () => {
+        mockList.mockResolvedValue(page([materialize('a', 1800), materialize('b', 1200), materialize('c', 0, 3e12)]))
+
+        await mountLogic()
+
+        expect(logic.values.savingsSummary).toEqual({
+            timeViews: 2,
+            savedSeconds: 3000,
+            bytesViews: 1,
+            savedBytes: 3e12,
+        })
+    })
+
+    it('drops an accepted row from the counts at once and from the list after it leaves', async () => {
+        jest.useFakeTimers()
+        try {
+            mockList.mockResolvedValue(page([materialize('a', 1800), materialize('b', 1200)]))
+            mockAccept.mockResolvedValue({ ...materialize('a', 1800), status: 'accepted' })
+            await mountLogic()
+
+            logic.actions.acceptSuggestion('a', 86400)
+            await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+
+            expect(logic.values.savingsSummary.savedSeconds).toEqual(1200)
+            expect(logic.values.visibleSuggestions.map((suggestion) => suggestion.id)).toEqual(['a', 'b'])
+
+            jest.advanceTimersByTime(ROW_LEAVE_MS)
+
+            expect(logic.values.visibleSuggestions.map((suggestion) => suggestion.id)).toEqual(['b'])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('stays mounted as all done while the last row leaves and after it is gone', async () => {
+        jest.useFakeTimers()
+        try {
+            mockAccept.mockResolvedValue({ ...MATERIALIZE, status: 'accepted' })
+            await mountLogic()
+
+            logic.actions.acceptSuggestion(MATERIALIZE.id, 86400)
+            await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+            expect(logic.values.stripState).toEqual('all_done')
+
+            jest.advanceTimersByTime(ROW_LEAVE_MS)
+            expect(logic.values.stripState).toEqual('all_done')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('keeps a row whose dismiss failed even after its leave timer would have fired', async () => {
+        jest.useFakeTimers()
+        try {
+            mockDismiss.mockRejectedValue(new Error('network'))
+            await mountLogic()
+
+            logic.actions.dismissSuggestion(MATERIALIZE.id, 'not_useful')
+            await expectLogic(logic).toDispatchActions(['restoreSuggestion'])
+            jest.advanceTimersByTime(ROW_LEAVE_MS)
+
+            expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual([MATERIALIZE.id])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('gives each dismiss its own toast so every Undo stays reachable', async () => {
+        mockList.mockResolvedValue(page([materialize('a', 600), materialize('b', 600)]))
+        mockDismiss.mockImplementation(async (_project, id) => ({ ...materialize(id, 600), status: 'dismissed' }))
+        await mountLogic()
+
+        logic.actions.dismissSuggestion('a', 'not_useful')
+        logic.actions.dismissSuggestion('b', 'not_useful')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const toastIds = (lemonToast.success as jest.Mock).mock.calls.map(([, options]) => options.toastId)
+        expect(new Set(toastIds).size).toEqual(2)
+    })
+
+    it('brings a dismissed row back through resume even after the list reloaded without it', async () => {
+        mockDismiss.mockResolvedValue({ ...MATERIALIZE, status: 'dismissed' })
+        mockResume.mockResolvedValue({ ...MATERIALIZE, status: 'proposed' })
+        await mountLogic()
+        logic.actions.dismissSuggestion(MATERIALIZE.id, 'not_now')
+        await expectLogic(logic).toFinishAllListeners()
+        mockList.mockResolvedValue(page([]))
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess'])
+
+        logic.actions.undoDismiss(MATERIALIZE.id)
+
+        await expectLogic(logic).toDispatchActions(['suggestionResumed', 'restoreSuggestion'])
+        expect(mockResume).toHaveBeenCalledWith(expect.any(String), MATERIALIZE.id)
+        expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual([MATERIALIZE.id])
+    })
+
+    it('keeps the row hidden when undo fails', async () => {
+        mockDismiss.mockResolvedValue({ ...MATERIALIZE, status: 'dismissed' })
+        mockResume.mockRejectedValue(new Error('network'))
+        await mountLogic()
+        logic.actions.dismissSuggestion(MATERIALIZE.id, 'not_now')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.undoDismiss(MATERIALIZE.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.error).toHaveBeenCalled()
+        expect(logic.values.surfaceSuggestions).toEqual([])
+    })
+
+    it('offers no catalog View while the certification it would point at does not exist yet', async () => {
+        const accepted = certification('used', 'certify')
+        mockList.mockResolvedValue(page([accepted]))
+        mockAccept.mockResolvedValue({ ...accepted, status: 'accepted', created_asset: null })
+        await mountLogic('catalog', jest.fn())
+
+        logic.actions.acceptSuggestion(accepted.id)
+        await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+
+        expect((lemonToast.success as jest.Mock).mock.calls[0][1].button).toBeUndefined()
+    })
+
+    async function acceptAndClickView(
+        surface: SuggestionSurface,
+        accepted: WarehouseSuggestionApi,
+        onViewAccepted?: (suggestion: WarehouseSuggestionApi) => void
+    ): Promise<void> {
+        mockList.mockResolvedValue(page([accepted]))
+        mockAccept.mockResolvedValue({ ...accepted, status: 'accepted' })
+        await mountLogic(surface, onViewAccepted)
+        logic.actions.acceptSuggestion(accepted.id)
+        await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+        const [, options] = (lemonToast.success as jest.Mock).mock.calls[0]
+        options.button.action()
+    }
+
+    it('sends the strip toast View to the materialized view in the SQL editor', async () => {
+        await acceptAndClickView('models', MATERIALIZE)
+
+        expect(router.values.location.pathname + router.values.location.search).toContain(
+            urls.sqlEditor({ view_id: MATERIALIZE.subject_id })
+        )
+    })
+
+    it('hands the catalog toast View to the host so it can show the new certification', async () => {
+        const onViewAccepted = jest.fn()
+        const accepted = { ...certification('used', 'certify'), created_asset: { certification_id: 'cert-1' } }
+
+        await acceptAndClickView('catalog', accepted, onViewAccepted)
+
+        expect(onViewAccepted).toHaveBeenCalledWith(expect.objectContaining({ id: accepted.id }))
+    })
+
+    it.each<[string, number, boolean]>([
+        ['shorter than suggested', 3600, true],
+        ['the suggested one', 86400, false],
+        ['longer than suggested', 7 * 86400, false],
+    ])('warns about a picked schedule %s only when it is shorter', async (_name, pickedSeconds, warns) => {
+        await mountLogic()
+        logic.actions.openMaterializeModal(MATERIALIZE.id)
+
+        logic.actions.setMaterializeInterval(intervalForSeconds(pickedSeconds))
+
+        expect(logic.values.materializeIntervalShorterThanSuggested).toEqual(warns)
     })
 })

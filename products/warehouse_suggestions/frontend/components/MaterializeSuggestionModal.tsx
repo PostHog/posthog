@@ -2,15 +2,21 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { SyncFrequencySelect } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
+import { CADENCE_LABELS, SyncFrequencySelect } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 
-import { INTERVAL_SECONDS } from '../refreshIntervals'
-import { isMaterializePayload } from '../suggestionCopy'
+import { INTERVAL_SECONDS, intervalForSeconds } from '../refreshIntervals'
+import { dataAgeLabel, isMaterializePayload, savingSentence, todayAgeLabel } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { DataAgeMeta } from './DataAgeMeta'
 
 export function MaterializeSuggestionModal(): JSX.Element | null {
-    const { materializeModalSuggestion, materializeError, materializeInterval, actionsInFlight } =
-        useValues(warehouseSuggestionsLogic)
+    const {
+        materializeModalSuggestion,
+        materializeError,
+        materializeInterval,
+        materializeIntervalShorterThanSuggested,
+        actionsInFlight,
+    } = useValues(warehouseSuggestionsLogic)
     const { acceptSuggestion, closeMaterializeModal, setMaterializeInterval } = useActions(warehouseSuggestionsLogic)
     const payload = materializeModalSuggestion?.payload
 
@@ -18,6 +24,9 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
         return null
     }
     const inFlight = !!actionsInFlight[materializeModalSuggestion.id]
+    const suggestedInterval = intervalForSeconds(payload.refresh_interval_seconds)
+    const suggestedCadence = suggestedInterval ? CADENCE_LABELS[suggestedInterval] : null
+    const pickedSeconds = materializeInterval ? INTERVAL_SECONDS[materializeInterval] : payload.refresh_interval_seconds
 
     return (
         <LemonModal
@@ -48,12 +57,42 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                 </>
             }
         >
-            <div className="flex flex-col gap-3">
-                <p className="m-0 text-sm">
-                    Stores the result and refreshes it on this schedule. Reads of this view use the stored rows. Pick a
-                    longer schedule if the data doesn't need to be this fresh.
+            <div className="flex max-w-xl flex-col gap-4">
+                <p className="m-0 text-sm text-secondary">
+                    Stores the result and refreshes it on a schedule. Reads of this view use the stored rows.
                 </p>
-                <SyncFrequencySelect value={materializeInterval} onChange={setMaterializeInterval} loading={inFlight} />
+                <div className="flex flex-col gap-1.5">
+                    <SyncFrequencySelect
+                        value={materializeInterval}
+                        onChange={setMaterializeInterval}
+                        loading={inFlight}
+                    />
+                    {suggestedCadence && (
+                        <span className="text-xs text-secondary">
+                            {`Suggested: every ${suggestedCadence}, the shortest schedule that saves more than it costs.`}
+                        </span>
+                    )}
+                </div>
+                <div className="grid grid-cols-1 gap-3 rounded border border-primary px-3 py-2.5">
+                    <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-semibold text-secondary">With this schedule</span>
+                        <span className="text-sm">
+                            <DataAgeMeta age={dataAgeLabel(payload, pickedSeconds)} />
+                        </span>
+                        <span className="text-xs text-secondary">{todayAgeLabel(payload)}</span>
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-semibold text-secondary">
+                            Estimated at the suggested schedule
+                        </span>
+                        <span className="text-sm">{savingSentence(payload)}</span>
+                    </div>
+                </div>
+                {materializeIntervalShorterThanSuggested && suggestedCadence && (
+                    <LemonBanner type="warning">
+                        {`Refreshing more often than every ${suggestedCadence} can cost more than it saves.`}
+                    </LemonBanner>
+                )}
                 {materializeError && <LemonBanner type="error">{materializeError} Pick another schedule.</LemonBanner>}
             </div>
         </LemonModal>
