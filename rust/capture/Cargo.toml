@@ -76,7 +76,7 @@ brotli = "8"
 zstd = "0.13"
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 anyhow = { workspace = true }
-axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
+axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git", rev = "833b6bf54bbacee0b5ed95ad7a05e131f288448c" }
 futures = { workspace = true }
 metrics-util = { workspace = true }
 once_cell = { workspace = true }
