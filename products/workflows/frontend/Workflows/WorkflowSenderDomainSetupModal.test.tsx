@@ -19,6 +19,7 @@ import { WorkflowStatusBar } from './WorkflowStatusBar'
 const WORKFLOW_ID = 'wf-domain-setup-1'
 const DOMAIN = 'mail.acme.com'
 const SENDER_ID = 42
+const POLL_MS = 10_000
 
 const workflowWith = (overrides: Partial<HogFlow>, from: Record<string, unknown>): HogFlow =>
     ({
@@ -93,18 +94,26 @@ const element = (attr: string): HTMLElement => {
     return found
 }
 
-const flush = async (): Promise<void> => {
+const flush = async (ms = 0): Promise<void> => {
     await act(async () => {
-        await jest.advanceTimersByTimeAsync(0)
+        await jest.advanceTimersByTimeAsync(ms)
     })
 }
+
+const emailSenderOf = (workflow: Partial<HogFlow>, stepId: string): unknown =>
+    (workflow.actions?.find(({ id }) => id === stepId)?.config as any)?.inputs?.email?.value?.from
 
 describe('the email domain setup opened from a workflow', () => {
     let backend: FakeEmailDomainBackend
     let storedWorkflow: HogFlow
-    let savedStatuses: string[]
+    let savedBodies: Partial<HogFlow>[]
 
-    const openFromStatusBar = async (workflow: HogFlow): Promise<void> => {
+    const savedStatuses = (): string[] => savedBodies.map((body) => String(body.status))
+
+    const openFromStatusBar = async (
+        workflow: HogFlow,
+        link: 'workflow-sender-domain-status' | 'workflow-sender-domain-set-up' = 'workflow-sender-domain-status'
+    ): Promise<void> => {
         storedWorkflow = workflow
         render(
             <Provider>
@@ -120,17 +129,16 @@ describe('the email domain setup opened from a workflow', () => {
             </Provider>
         )
         await flush()
-        fireEvent.click(element('workflow-sender-domain-status'))
+        fireEvent.click(element(link))
         await flush()
         expect(screen.getByText('For the workflow Welcome new sign-ups')).toBeInTheDocument()
     }
 
     beforeEach(() => {
         jest.useFakeTimers()
-        savedStatuses = []
+        savedBodies = []
         backend = new FakeEmailDomainBackend()
         backend.hostDnsAt('acme.com', 'cloudflare')
-        backend.addSender({ email: `hello@${DOMAIN}` })
         const fakeMocks = backend.mocks()
         const listSenders = fakeMocks.get?.['/api/environments/:team_id/integrations/']
         if (!listSenders) {
@@ -158,8 +166,15 @@ describe('the email domain setup opened from a workflow', () => {
                 ...fakeMocks.patch,
                 '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
                     const body = (await request.json()) as Partial<HogFlow>
-                    savedStatuses.push(String(body.status))
-                    return [200, { ...storedWorkflow, status: 'waiting_for_domain' }]
+                    savedBodies.push(body)
+                    const enabling = body.status === 'active'
+                    storedWorkflow = {
+                        ...storedWorkflow,
+                        ...body,
+                        status: enabling ? 'waiting_for_domain' : storedWorkflow.status,
+                        updated_at: `2026-09-0${savedBodies.length + 1}T00:00:00.000Z`,
+                    }
+                    return [200, storedWorkflow]
                 },
             },
         })
@@ -176,6 +191,7 @@ describe('the email domain setup opened from a workflow', () => {
     })
 
     it('enables a draft to send once verified while DNS is checked, and closes over the workflow', async () => {
+        backend.addSender({ email: `hello@${DOMAIN}` })
         backend.publishRecords(DOMAIN)
         await openFromStatusBar(
             workflowWith(
@@ -190,7 +206,7 @@ describe('the email domain setup opened from a workflow', () => {
         fireEvent.click(element('email-domain-workflow-enable'))
         await flush()
 
-        expect(savedStatuses).toEqual(['active'])
+        expect(savedStatuses()).toEqual(['active'])
         expect(screen.queryByText('For the workflow Welcome new sign-ups')).not.toBeInTheDocument()
     })
 
@@ -222,6 +238,7 @@ describe('the email domain setup opened from a workflow', () => {
             text: `It's on and starts sending once ${DOMAIN} is verified.`,
         },
     ])('$name, and Back to workflow only closes', async ({ workflow, text }) => {
+        backend.addSender({ email: `hello@${DOMAIN}` })
         backend.publishRecords(DOMAIN)
         await openFromStatusBar(workflow())
         expect(screen.getByText(text)).toBeInTheDocument()
@@ -230,11 +247,12 @@ describe('the email domain setup opened from a workflow', () => {
         fireEvent.click(element('email-domain-workflow-back'))
         await flush()
 
-        expect(savedStatuses).toEqual([])
+        expect(savedStatuses()).toEqual([])
         expect(screen.queryByText('For the workflow Welcome new sign-ups')).not.toBeInTheDocument()
     })
 
     it('offers to enable the workflow once the domain is verified', async () => {
+        backend.addSender({ email: `hello@${DOMAIN}` })
         backend.verifyDomain(DOMAIN)
         await openFromStatusBar(
             workflowWith(
@@ -245,5 +263,30 @@ describe('the email domain setup opened from a workflow', () => {
         expect(screen.getByText(`${DOMAIN} is verified. Turn the workflow on to start sending.`)).toBeInTheDocument()
         expect(element('email-domain-workflow-enable')).toHaveTextContent('Enable workflow')
         expect(document.querySelector('[data-attr="email-domain-create-blank-workflow"]')).toBeNull()
+    })
+
+    it('fills the empty sender with the one created in the setup, so the fresh workflow enables in one step', async () => {
+        await openFromStatusBar(workflowWith({}, {}), 'workflow-sender-domain-set-up')
+
+        fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+            target: { value: 'acme.com' },
+        })
+        fireEvent.click(element('email-domain-use-custom-domain'))
+        fireEvent.click(element('email-domain-continue'))
+        await flush()
+
+        expect(savedBodies.map((body) => emailSenderOf(body, 'email_node'))).toEqual([{ integrationId: SENDER_ID }])
+
+        backend.publishRecords(DOMAIN)
+        await flush(POLL_MS)
+        const fillNotice = `Your workflow now sends from hello@${DOMAIN}.`
+        expect(screen.getByText((_, node) => node?.tagName === 'P' && node.textContent === fillNotice)).toBeVisible()
+        expect(element('email-domain-workflow-enable')).toHaveTextContent('Enable and send once verified')
+
+        fireEvent.click(element('email-domain-workflow-enable'))
+        await flush()
+
+        expect(savedBodies.map((body) => body.status)).toEqual([undefined, 'active'])
+        expect(emailSenderOf(storedWorkflow, 'email_node')).toEqual({ integrationId: SENDER_ID })
     })
 })

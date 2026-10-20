@@ -7,7 +7,7 @@ import { workflowLogic } from './workflowLogic'
 /** The email domain setup, over the workflow whose status bar opened it. */
 export function WorkflowSenderDomainSetupModal(): JSX.Element | null {
     const { senderDomainSetup, originalWorkflow } = useValues(workflowLogic)
-    const { closeSenderDomainSetup } = useActions(workflowLogic)
+    const { closeSenderDomainSetup, fillEmptySendersFromDomainSetup } = useActions(workflowLogic)
 
     if (!senderDomainSetup || !originalWorkflow) {
         return null
@@ -20,6 +20,7 @@ export function WorkflowSenderDomainSetupModal(): JSX.Element | null {
             next={<WorkflowDomainSetupActions />}
             onComplete={closeSenderDomainSetup}
             onClose={closeSenderDomainSetup}
+            onSenderCreated={fillEmptySendersFromDomainSetup}
         />
     )
 }
