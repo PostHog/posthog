@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -15,12 +16,15 @@ from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     disable_configurations,
     due_checks,
+    give_back_ownership,
     record_outcomes,
     slot_of,
     take_ownership,
     upsert_configuration,
+    upsert_if_running,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    MAX_INSTANCES_CEILING,
     AlertEventKind,
     CheckFailure,
     FiringEpisode,
@@ -28,6 +32,7 @@ from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     GroupingMode,
     GroupOutcome,
+    HandbackRefusal,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -36,6 +41,14 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.grouping import (
+    MAX_TRANSITIONS_PER_DELIVERY,
+    GroupObservation,
+    decide_groups,
+    delivery_parts,
+)
+from products.alerts_platform.backend.facade.lifecycle import LOGS_ALERT_POLICY, AlertSnapshot, AlertState
+from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
 from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURATION_ROW_ALERT_ID
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
@@ -125,11 +138,21 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         assert self._alert().state == "not_firing"
 
-    def test_a_copy_inside_its_own_firing_is_not_taken_over(self) -> None:
+    @parameterized.expand(
+        [
+            ("a_live_firing_stays_with_its_source", "ok", False, ("source", "firing", True)),
+            # The machine ended the firing when the check broke, so the row's firing is stale.
+            ("a_broken_copy_is_taken_over", "broken", True, ("platform", "not_firing", False)),
+            ("an_errored_copy_is_taken_over", "errored", True, ("platform", "not_firing", False)),
+        ]
+    )
+    def test_a_copy_inside_its_own_firing_is_taken_over_only_once_that_firing_ended(
+        self, _name: str, check_status: str, expected_taken: bool, expected: tuple[str, str, bool]
+    ) -> None:
         legacy_id = uuid4()
         with team_scope(self.team.id):
             PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
-                legacy_configuration_id=legacy_id
+                legacy_configuration_id=legacy_id, check_status=check_status
             )
             PlatformAlert.objects.create(
                 team=self.team, configuration=self.configuration, state="firing", firing_started_at=self.cutoff
@@ -147,9 +170,69 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        assert not taken
+        alert = self._alert()
         self.configuration.refresh_from_db()
-        assert (self.configuration.owner, self._alert().state) == ("source", "firing")
+        assert taken is expected_taken
+        assert (self.configuration.owner, alert.state, alert.firing_started_at is not None) == expected
+
+    @parameterized.expand(
+        [
+            ("firing", {}, {"state": "firing"}, HandbackRefusal.FIRING),
+            (
+                "snoozed_inside_a_firing",
+                {},
+                {"state": "snoozed", "firing_started_at": datetime(2026, 9, 16, 9, tzinfo=UTC)},
+                HandbackRefusal.FIRING,
+            ),
+            (
+                "broken_is_never_due",
+                {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC), "check_status": "broken"},
+                {},
+                None,
+            ),
+            (
+                "disabled_while_a_check_runs",
+                {"enabled": False, "next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)},
+                {},
+                None,
+            ),
+            ("check_due", {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)}, {}, HandbackRefusal.CHECK_DUE),
+            (
+                "calendar_schedule",
+                {"recurrence_unit": "daily", "anchor_time": "09:00"},
+                {},
+                HandbackRefusal.NOT_PORTABLE,
+            ),
+            ("grouped", {}, {"grouping_key": "service=api"}, HandbackRefusal.NOT_PORTABLE),
+        ]
+    )
+    def test_the_platform_keeps_an_alert_its_source_cannot_take_back(
+        self,
+        _name: str,
+        configuration_fields: dict[str, Any],
+        alert_fields: dict[str, Any],
+        refusal: HandbackRefusal | None,
+    ) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                **{
+                    "legacy_configuration_id": legacy_id,
+                    "owner": "platform",
+                    "next_check_at": self.cutoff + timedelta(minutes=5),
+                    **configuration_fields,
+                }
+            )
+            PlatformAlert.objects.create(team=self.team, configuration=self.configuration, **alert_fields)
+
+        handback = give_back_ownership(team_id=self.team.id, legacy_configuration_id=legacy_id, at=self.cutoff)
+
+        assert (handback if isinstance(handback, HandbackRefusal) else None) == refusal
+        self.configuration.refresh_from_db()
+        assert self.configuration.owner == ("platform" if refusal else "source")
+        if refusal is None:
+            # A check that started before the handback finds the row no longer due and records nothing.
+            assert self.configuration.next_check_at is not None and self.configuration.next_check_at > self.cutoff
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
@@ -313,7 +396,10 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             "web": ("not_firing", due + timedelta(hours=2)),
             "new": ("not_firing", muted_until),
         }
-        assert check.instance("api").firing_started_at == self.cutoff
+        assert (check.instance("api").firing_started_at, check.instance("web").last_seen_at) == (
+            self.cutoff,
+            self.cutoff,
+        )
 
     def _group(self, key: str, *, state: str = "not_firing") -> GroupOutcome:
         return GroupOutcome(grouping_key=key, kind=AlertEventKind.CHECK, new_state=state, notified=False)
@@ -335,6 +421,26 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.id, "configuration_id": self.configuration.id},
         )
         assert (keys, rows) == (["api"], [("api",)])
+
+    @parameterized.expand([("stale", ("severity_text",), []), ("current", ("service_name",), ["api", "web"])])
+    def test_a_check_that_ran_under_another_grouping_records_no_groups(
+        self, _name: str, stored_keys: tuple[str, ...], expected_keys: list[str]
+    ) -> None:
+        checked_under = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",))
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=stored_keys).to_stored()
+            )
+
+        self._record(groups=(self._group("api", state="firing"), self._group("web")), grouping=checked_under)
+
+        with team_scope(self.team.id):
+            keys = sorted(
+                PlatformAlert.objects.filter(configuration=self.configuration).values_list("grouping_key", flat=True)
+            )
+            due = PlatformAlertConfiguration.objects.get(id=self.configuration.id).next_check_at
+        assert keys == expected_keys
+        assert due is not None and due > self.cutoff
 
     @parameterized.expand(
         [
@@ -373,6 +479,39 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             assert (
                 PlatformAlert.objects.filter(configuration=self.configuration, grouping_key="api").exists() is not kept
             )
+
+    @parameterized.expand(
+        [
+            ("at_rest", {}, False),
+            ("fired_since_the_check_read_it", {"state": "firing"}, True),
+            ("snoozed_since_the_check_read_it", {"snoozed": True}, True),
+            ("ungrouped", {"grouping": Grouping(max_instances=1)}, True),
+        ]
+    )
+    def test_an_evicted_group_gives_up_its_slot_only_while_it_is_at_rest(
+        self, _name: str, case: dict[str, Any], kept: bool
+    ) -> None:
+        grouping = case.get(
+            "grouping", Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=1)
+        )
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(grouping=grouping.to_stored())
+            PlatformAlert.objects.create(
+                team=self.team,
+                configuration=self.configuration,
+                grouping_key="old",
+                state=case.get("state", "not_firing"),
+                last_seen_at=self.cutoff - timedelta(hours=1),
+                snooze_until=self.cutoff + timedelta(hours=1) if case.get("snoozed") else None,
+            )
+
+        self._record(groups=(self._group("new", state="firing"),), evicted=("old",))
+
+        with team_scope(self.team.id):
+            keys = set(
+                PlatformAlert.objects.filter(configuration=self.configuration).values_list("grouping_key", flat=True)
+            )
+        assert keys == ({"old"} if kept else {"new"})
 
     def test_a_resolve_row_keeps_the_firing_it_ended(self) -> None:
         # The alert row clears the firing on a resolve, so history is the only place left holding
@@ -432,23 +571,58 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert len(due) == expected_slots
 
     def _copy(self, legacy_id: UUID, *, revive: bool = False, **overrides: Any) -> None:
-        fields: dict[str, Any] = {
-            "legacy_configuration_id": legacy_id,
-            "team_id": self.team.id,
-            "name": "Copied alert",
-            "enabled": True,
-            "source_kind": SourceKind.LOGS,
-            "source_config": {"condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}},
-            "check_interval_minutes": 5,
-            "evaluation_periods": 1,
-            "datapoints_to_alarm": 1,
-            "cooldown_minutes": 0,
-            "schedule_restriction": None,
-            "next_check_at": self.cutoff - timedelta(minutes=1),
-            "snooze_until": None,
-        }
-        fields.update(overrides)
-        upsert_configuration(PlatformAlertUpsert(**fields), revive=revive)
+        upsert_configuration(dataclasses.replace(self._upsert(legacy_id), **overrides), revive=revive)
+
+    def _upsert(self, legacy_id: UUID) -> PlatformAlertUpsert:
+        return PlatformAlertUpsert(
+            legacy_configuration_id=legacy_id,
+            team_id=self.team.id,
+            name="Copied alert",
+            enabled=True,
+            source_kind=SourceKind.LOGS,
+            source_config={"condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}},
+            check_interval_minutes=5,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            cooldown_minutes=0,
+            schedule_restriction=None,
+            next_check_at=self.cutoff - timedelta(minutes=1),
+            snooze_until=None,
+        )
+
+    def _own(self, legacy_id: UUID) -> None:
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(legacy_configuration_id=legacy_id).update(
+                owner=PlatformAlertOwner.PLATFORM
+            )
+
+    def _copies(self, *legacy_ids: UUID) -> dict[UUID, bool]:
+        with team_scope(self.team.id):
+            rows = PlatformAlertConfiguration.objects.filter(legacy_configuration_id__in=legacy_ids)
+            return {row.legacy_configuration_id: row.enabled for row in rows if row.legacy_configuration_id}
+
+    def test_a_cut_over_alert_comes_back_on_with_its_source(self) -> None:
+        cut_over = uuid4()
+        self._copy(cut_over)
+        self._own(cut_over)
+        # The parallel run is over, and the person then turned the alert off.
+        disable_configurations(SourceKind.LOGS, team_id=self.team.id)
+        self._copy(cut_over, enabled=False)
+
+        upsert_if_running(self._upsert(cut_over), revive=True)
+
+        assert self._copies(cut_over) == {cut_over: True}
+
+    def test_a_cut_over_alert_does_not_reopen_a_switched_off_parallel_run(self) -> None:
+        cut_over, parallel, created = uuid4(), uuid4(), uuid4()
+        self._copy(cut_over)
+        self._own(cut_over)
+        self._copy(parallel)
+        disable_configurations(SourceKind.LOGS, team_id=self.team.id)
+
+        upsert_if_running(self._upsert(created), revive=True)
+
+        assert self._copies(cut_over, parallel, created) == {cut_over: True, parallel: False}
 
     @parameterized.expand(
         [
@@ -580,16 +754,81 @@ def _group(grouping_key: str) -> GroupOutcome:
     return GroupOutcome(grouping_key=grouping_key, kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
 
 
+_ADMITTED_AT = datetime(2026, 9, 16, 10, tzinfo=UTC)
+_GROUPED = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=3)
+
+
+def _resting(key: str, *, seen_hours_ago: int = 1) -> InstanceCheckState:
+    return InstanceCheckState(
+        grouping_key=key, state="not_firing", last_seen_at=_ADMITTED_AT - timedelta(hours=seen_hours_ago)
+    )
+
+
 @pytest.mark.parametrize(
-    "existing, returned, expected",
+    "existing, returned, expected, grouping",
     [
-        ((), ("a", "b", "c", "d"), GroupAdmission(admitted=frozenset({"a", "b", "c"}), overflowed=1)),
-        (("x", "y", "z"), ("q", "x"), GroupAdmission(admitted=frozenset({"x"}), overflowed=1)),
-        (("x",), ("x", "a", "a", "b"), GroupAdmission(admitted=frozenset({"x", "a", "b"}), overflowed=0)),
+        ((), ("a", "b", "c", "d"), GroupAdmission(admitted=frozenset({"a", "b", "c"}), overflowed=1), _GROUPED),
+        (
+            (_resting("x"),),
+            ("x", "a", "a", "b"),
+            GroupAdmission(admitted=frozenset({"x", "a", "b"}), overflowed=0),
+            _GROUPED,
+        ),
+        # The least recently seen resting instance gives up its slot. "x" is older still, but this
+        # check reports it, so it keeps its row.
+        (
+            (_resting("x", seen_hours_ago=3), _resting("y", seen_hours_ago=1), _resting("z", seen_hours_ago=2)),
+            ("q", "x"),
+            GroupAdmission(admitted=frozenset({"x", "q"}), overflowed=0, evicted=frozenset({"z"})),
+            _GROUPED,
+        ),
+        (
+            tuple(InstanceCheckState(grouping_key=key, state="firing") for key in ("x", "y", "z")),
+            ("q", "x"),
+            GroupAdmission(admitted=frozenset({"x"}), overflowed=1),
+            _GROUPED,
+        ),
+        (
+            (
+                InstanceCheckState(grouping_key="x", state="firing"),
+                InstanceCheckState(
+                    grouping_key="y", state="not_firing", snooze_until=_ADMITTED_AT + timedelta(minutes=1)
+                ),
+                _resting("z"),
+            ),
+            ("q", "r"),
+            GroupAdmission(admitted=frozenset({"q"}), overflowed=1, evicted=frozenset({"z"})),
+            _GROUPED,
+        ),
+        (
+            (InstanceCheckState(grouping_key="x", state="firing"), _resting("y"), _resting("z")),
+            ("q",),
+            GroupAdmission(admitted=frozenset({"q"}), overflowed=0, evicted=frozenset({"y", "z"})),
+            Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=2),
+        ),
+        (
+            (
+                InstanceCheckState(grouping_key="x", state="firing"),
+                InstanceCheckState(grouping_key="y", state="firing"),
+                _resting("z"),
+            ),
+            ("q",),
+            GroupAdmission(admitted=frozenset(), overflowed=1),
+            Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=2),
+        ),
+        (
+            (_resting(""),),
+            ("other",),
+            GroupAdmission(admitted=frozenset(), overflowed=1),
+            Grouping(max_instances=1),
+        ),
     ],
 )
 def test_a_check_admits_existing_groups_and_new_ones_up_to_the_cap(
-    existing: tuple[str, ...], returned: tuple[str, ...], expected: GroupAdmission
+    existing: tuple[InstanceCheckState, ...],
+    returned: tuple[str, ...],
+    expected: GroupAdmission,
+    grouping: Grouping,
 ) -> None:
     check = PlatformAlertCheckInput(
         id=uuid4(),
@@ -606,11 +845,11 @@ def test_a_check_admits_existing_groups_and_new_ones_up_to_the_cap(
         legacy_configuration_id=None,
         check_status="ok",
         snooze_until=None,
-        instances=tuple(InstanceCheckState(grouping_key=key, state="not_firing") for key in existing),
-        grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=3),
+        instances=existing,
+        grouping=grouping,
     )
 
-    assert check.admit(returned) == expected
+    assert check.admit(returned, now=_ADMITTED_AT) == expected
 
 
 @pytest.mark.parametrize(
@@ -620,6 +859,7 @@ def test_a_check_admits_existing_groups_and_new_ones_up_to_the_cap(
         {"mode": GroupingMode.BY_RESULT_LABELS, "keys": ()},
         {"mode": GroupingMode.BY_RESULT_LABELS, "keys": ("service", "service")},
         {"mode": GroupingMode.BY_RESULT_LABELS, "keys": ("service",), "max_instances": 0},
+        {"mode": GroupingMode.BY_RESULT_LABELS, "keys": ("service",), "max_instances": MAX_INSTANCES_CEILING + 1},
     ],
 )
 def test_a_grouping_rejects_keys_its_mode_cannot_use(fields: dict[str, Any]) -> None:
@@ -632,6 +872,7 @@ def test_a_grouping_rejects_keys_its_mode_cannot_use(fields: dict[str, Any]) -> 
     [
         {"failure": CheckFailure(kind=AlertEventKind.ERRORED, new_state="errored", notified=True)},
         {"groups": (_group("api"), _group("api"))},
+        {"groups": (_group("api"),), "evicted": ("api",)},
     ],
 )
 def test_an_outcome_rejects_an_invalid_shape(overrides: dict[str, Any]) -> None:
@@ -644,3 +885,81 @@ def test_an_outcome_rejects_an_invalid_shape(overrides: dict[str, Any]) -> None:
     fields.update(overrides)
     with pytest.raises(ValueError):
         PlatformAlertOutcome(**fields)
+
+
+def test_a_full_grouped_check_with_hostile_labels_fits_one_payload() -> None:
+    check = PlatformAlertCheckInput(
+        id=uuid4(),
+        team_id=1,
+        name="API errors",
+        source_config={},
+        check_interval_minutes=5,
+        evaluation_periods=1,
+        datapoints_to_alarm=1,
+        cooldown_minutes=0,
+        schedule_restriction=None,
+        next_check_at=None,
+        consecutive_failures=0,
+        legacy_configuration_id=None,
+        check_status="ok",
+        snooze_until=None,
+        grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=MAX_INSTANCES_CEILING),
+    )
+    # Astral characters escape to 12 bytes each in a payload, the most a character can cost.
+    hostile = "\U0001f600" * 32 * 1024
+    observations = [
+        GroupObservation(
+            grouping_key=f"{index:03d}" + "\U0001f600" * 252,
+            current_breached=True,
+            value=1.0,
+            labels={f"{name}{hostile}": hostile for name in range(10)},
+        )
+        for index in range(MAX_INSTANCES_CEILING)
+    ]
+
+    decision = decide_groups(
+        check,
+        observations,
+        snapshot_of=lambda instance, prior: AlertSnapshot(
+            state=AlertState(instance.state),
+            cooldown=timedelta(0),
+            last_notified_at=None,
+            snooze_until=None,
+            consecutive_failures=0,
+        ),
+        policy=LOGS_ALERT_POLICY,
+        now=datetime(2026, 10, 15, tzinfo=UTC),
+    )
+    outcome = decision.as_outcome(
+        configuration_id=check.id, evaluation_key="window:x", grouping=check.grouping, query_duration_ms=1
+    )
+
+    assert len(outcome.groups) == MAX_INSTANCES_CEILING
+    assert payload_bytes(outcome) < MAX_BATCH_PAYLOAD_BYTES
+
+
+@pytest.mark.parametrize(
+    "kinds, incident_keys, failure, expected",
+    [
+        ((AlertEventKind.FIRING,), (), None, 1),
+        ((AlertEventKind.FIRING,) * (MAX_TRANSITIONS_PER_DELIVERY + 1), (), None, 2),
+        ((AlertEventKind.CHECK,) * (MAX_TRANSITIONS_PER_DELIVERY * 3), (), None, 1),
+        ((AlertEventKind.CHECK,) * (MAX_TRANSITIONS_PER_DELIVERY + 1), ("0", "1", "2", "3", "4", "5"), None, 2),
+        ((), (), CheckFailure(kind=AlertEventKind.ERRORED, new_state="errored", notified=True), 1),
+    ],
+)
+def test_an_outcome_splits_its_delivery_by_the_transitions_it_announces(
+    kinds: tuple[AlertEventKind, ...], incident_keys: tuple[str, ...], failure: CheckFailure | None, expected: int
+) -> None:
+    outcome = PlatformAlertOutcome(
+        configuration_id=uuid4(),
+        evaluation_key="window:x",
+        consecutive_failures=0,
+        groups=tuple(
+            GroupOutcome(grouping_key=str(index), kind=kind, new_state="firing", notified=True)
+            for index, kind in enumerate(kinds)
+        ),
+        failure=failure,
+    )
+
+    assert delivery_parts(outcome, incident_keys) == expected

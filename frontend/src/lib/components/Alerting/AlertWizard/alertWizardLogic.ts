@@ -703,7 +703,10 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     (s) =>
                         s.required &&
                         !prefilledKeys.has(s.key) &&
-                        (s.type === 'integration' || s.type === 'integration_field' || s.type === 'string')
+                        (s.type === 'integration' ||
+                            s.type === 'integration_field' ||
+                            s.type === 'string' ||
+                            s.type === 'choice')
                 )
             },
         ],

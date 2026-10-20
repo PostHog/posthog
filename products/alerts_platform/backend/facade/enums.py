@@ -22,6 +22,17 @@ class PlatformAlertOwner(LabeledStrEnum):
     PLATFORM = "platform", "Platform"
 
 
+class DeliveryPath(LabeledStrEnum):
+    """How the platform sends an alert it owns.
+
+    `HOG_FUNCTION` sends nothing natively. The source emits the internal events its own stack
+    emitted, and the alert's HogFunctions send exactly what they sent before the cutover.
+    """
+
+    NATIVE = "native", "Native"
+    HOG_FUNCTION = "hog_function", "HogFunction"
+
+
 class PlatformAlertState(LabeledStrEnum):
     """Where one alert instance stands."""
 

@@ -243,6 +243,37 @@ class TestGetRows:
         assert [r["id"] for r in result.rows] == ["o9"]
         assert result.raised is None
 
+    @pytest.mark.parametrize(
+        "endpoint, last_value, incremental_field, expected_from",
+        [
+            ("experiments", None, None, "1970-01-01T00:00:00Z"),
+            ("experiment_items", None, None, "1970-01-01T00:00:00Z"),
+            (
+                "experiment_items",
+                datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
+                "startTime",
+                "2026-03-04T09:00:00Z",
+            ),
+        ],
+    )
+    def test_experiment_endpoints_send_a_lower_bound_on_every_page(
+        self, endpoint, last_value, incremental_field, expected_from
+    ):
+        # Both endpoints reject a request without fromStartTime, so a full sync must send one too.
+        result = _driver().run(
+            endpoint,
+            [
+                _cursor_page([{"id": "e1", "experimentId": "x1"}], cursor="next"),
+                _cursor_page([{"id": "e2", "experimentId": "x1"}], cursor=None),
+            ],
+            db_incremental_field_last_value=last_value,
+            incremental_field=incremental_field,
+        )
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == ["e1", "e2"]
+        assert result.params("fromStartTime") == [expected_from, expected_from]
+        assert result.params("cursor") == [None, "next"]
+
     def test_rejects_plaintext_http_before_request(self):
         result = _driver("http://langfuse.example.com").run("traces", [], api_version="v1")
         assert isinstance(result.raised, langfuse_module.LangfuseHostNotAllowedError)

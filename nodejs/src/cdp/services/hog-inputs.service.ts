@@ -17,6 +17,26 @@ export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const EMAIL_INPUT_TYPES = ['native_email', 'email']
 
+// Email fields that become headers or the plain-text part, where an HTML entity shows up literally.
+// `html` and `preheader` are not here: both are written into the HTML body, so their output stays escaped.
+const EMAIL_PLAIN_TEXT_FIELDS = [
+    'subject',
+    'text',
+    'replyTo',
+    'cc',
+    'bcc',
+    'to.email',
+    'to.name',
+    'from.email',
+    'from.name',
+]
+
+const ACCESS_TOKEN_PLACEHOLDER_PURPOSE = 'integration-access-token-placeholder'
+
+const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_TOKEN_PLACEHOLDER}${integrationId}`
+
+const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
+
 export class HogInputsService {
     constructor(
         private integrationManager: IntegrationManagerService,
@@ -67,7 +87,10 @@ export class HogInputsService {
                     const { design: _design, ...rest } = value
                     value = rest
                 }
-                return formatLiquidInput(value, newGlobals, key, liquidBudget)
+                const plainTextKeys = EMAIL_INPUT_TYPES.includes(schemaTypes[key])
+                    ? new Set(EMAIL_PLAIN_TEXT_FIELDS.map((field) => `${key}.${field}`))
+                    : undefined
+                return formatLiquidInput(value, newGlobals, key, liquidBudget, plainTextKeys)
             }
             if (templating === 'hog' && input?.bytecode) {
                 try {
@@ -170,6 +193,20 @@ export class HogInputsService {
         return result
     }
 
+    // The fetch step swaps these values for the token wherever they appear in the request, so they must not be
+    // something a request can contain unless the function read it from these inputs.
+    private accessTokenPlaceholder(integrationId: number): string {
+        const base = accessTokenPlaceholderBase(integrationId)
+        return signedAccessTokenPlaceholder(base, this.encryptedFields.sign(ACCESS_TOKEN_PLACEHOLDER_PURPOSE, base))
+    }
+
+    public acceptedAccessTokenPlaceholders(integrationId: number): string[] {
+        const base = accessTokenPlaceholderBase(integrationId)
+        return this.encryptedFields
+            .signatures(ACCESS_TOKEN_PLACEHOLDER_PURPOSE, base)
+            .map((signature) => signedAccessTokenPlaceholder(base, signature))
+    }
+
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
         newGlobals?: HogFunctionInvocationGlobalsWithInputs,
@@ -233,7 +270,7 @@ export class HogInputsService {
                 ...integration.sensitive_config,
                 ...(integration.sensitive_config.access_token || integration.config.access_token
                     ? {
-                          access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
+                          access_token: this.accessTokenPlaceholder(integration.id),
                           access_token_raw:
                               integration.sensitive_config.access_token ?? integration.config.access_token,
                       }
@@ -347,7 +384,8 @@ export const formatLiquidInput = (
     value: unknown,
     globals: HogFunctionInvocationGlobalsWithInputs,
     key?: string,
-    budget: LiquidRenderBudget = new LiquidRenderBudget()
+    budget: LiquidRenderBudget = new LiquidRenderBudget(),
+    plainTextKeys?: ReadonlySet<string>
 ): any => {
     if (value === null || value === undefined) {
         return value
@@ -355,7 +393,9 @@ export const formatLiquidInput = (
 
     if (typeof value === 'string') {
         try {
-            return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget)
+            return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget, {
+                escapeHtml: !(key && plainTextKeys?.has(key)),
+            })
         } catch (error) {
             // The renderer's message names the template line the owner has to fix, so it stays as is.
             const message = error instanceof Error ? error.message : String(error)
@@ -364,14 +404,14 @@ export const formatLiquidInput = (
     }
 
     if (Array.isArray(value)) {
-        return value.map((item) => formatLiquidInput(item, globals, key, budget))
+        return value.map((item) => formatLiquidInput(item, globals, key, budget, plainTextKeys))
     }
 
     if (typeof value === 'object' && value !== null) {
         return Object.fromEntries(
             Object.entries(value).map(([key2, value]) => [
                 key2,
-                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2, budget),
+                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2, budget, plainTextKeys),
             ])
         )
     }

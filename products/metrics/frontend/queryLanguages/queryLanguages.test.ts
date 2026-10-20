@@ -351,6 +351,19 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
         'lossless',
     ],
     [
+        'sum(rate(http_requests_total{job=~"$job"}[${window}]))',
+        {
+            clauses: [
+                clause({
+                    metricName: 'http_requests_total',
+                    aggregation: 'rate',
+                    filters: [{ key: 'job', op: 'regex', value: '^$job$' }],
+                }),
+            ],
+        },
+        'lossy',
+    ],
+    [
         'sum(increase(jobs_total[1h]))',
         { clauses: [clause({ metricName: 'jobs_total', aggregation: 'increase' })] },
         'lossy',
@@ -683,7 +696,7 @@ describe('metrics query languages', () => {
             expect(parsePromQL(printPromQL(parsed))).toEqual(parsed)
         })
 
-        it.each(['sum(', 'x{a=b}', 'x{a="b}', 'sum by (a (x)', '}', 'x[5m', '', 'sum(x) @ end()'])(
+        it.each(['sum(', 'x{a=b}', 'x{a="b}', 'sum by (a (x)', '}', 'x[5m', '', 'sum(x) @ end()', 'sum(up) / $scale2'])(
             'rejects %j with a position',
             (text) => {
                 expect(() => parsePromQL(text)).toThrow(PromQLParseError)

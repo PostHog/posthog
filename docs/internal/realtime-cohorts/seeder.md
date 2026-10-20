@@ -276,6 +276,7 @@ When every chunk of a run is confirmed and the planning proof is stamped, the se
 If unconfirmed chunks show up after the move anyway, it reverts the run to `seeding`.
 
 A watcher then tails the marker topic and records, per participation, which partitions have reported.
+A `reconcile_withheld` marker instead supersedes its participation at once, in the same transaction that records the watcher's position, and counts `seeder_reconcile_cohorts_withheld_total{kind, reason}`.
 When every cohort of the run has all 64 markers, the seeder marks them all complete at once, with no further check.
 To call a cohort short, the seeder first needs proof that no more markers are coming: the processor's seed consumer must have committed past every reconcile request, and the watcher must have read the marker topic to the end captured after that.
 Until that proof arrives, the run's complete cohorts wait with the short ones.

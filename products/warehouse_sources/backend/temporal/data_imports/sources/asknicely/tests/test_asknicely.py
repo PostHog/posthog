@@ -175,12 +175,6 @@ class TestAsknicely:
         assert result.urls == [build_stats_url("acme")]
         assert result.saved_states == []
 
-    def test_unknown_endpoint_raises(self) -> None:
-        result = self._driver().run("nope", [])
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown AskNicely endpoint" in str(result.raised)
-        assert result.requests == []
-
     def test_sync_session_disables_capture_and_redirects(self) -> None:
         # Survey bodies stay out of HTTP sample capture, and the X-apikey header must never be
         # replayed to a redirect target.

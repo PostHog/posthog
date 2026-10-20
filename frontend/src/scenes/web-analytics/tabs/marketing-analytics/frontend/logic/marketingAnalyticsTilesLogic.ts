@@ -88,6 +88,7 @@ export interface marketingAnalyticsTilesLogicValues {
     loading: boolean // marketingAnalyticsLogic
     marketingChartSourceIds: string[] // marketingAnalyticsLogic
     shouldFilterTestAccounts: boolean // marketingAnalyticsLogic
+    sourcesInitialLoading: boolean // marketingAnalyticsLogic
     tileColumnSelection: validColumnsForTiles // marketingAnalyticsLogic
     defaultColumns: string[] // marketingAnalyticsTableLogic
     query: DataTableNode | null // marketingAnalyticsTableLogic
@@ -138,7 +139,7 @@ export interface marketingAnalyticsTilesLogicMeta {
             campaignBreakdownTile: QueryTile | null
         ) => QueryTile[]
         campaignCostsBreakdown: (
-            loading: boolean,
+            sourcesInitialLoading: boolean,
             query: DataTableNode | null,
             dateFilter: {
                 dateFrom: string | null
@@ -174,6 +175,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'createMarketingDataWarehouseNodes',
                 'marketingChartSourceIds',
                 'loading',
+                'sourcesInitialLoading',
                 'draftConversionGoal',
                 'chartDisplayType',
                 'tileColumnSelection',
@@ -413,7 +415,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
         ],
         campaignCostsBreakdown: [
             (s) => [
-                s.loading,
+                // Not `loading`: nulling the query on every background refresh unmounts the
+                // table and refetches it each time the user returns to the tab.
+                s.sourcesInitialLoading,
                 s.query,
                 s.dateFilter,
                 s.draftConversionGoal,
@@ -425,7 +429,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.includeConversionGoals,
             ],
             (
-                loading: boolean,
+                sourcesInitialLoading: boolean,
                 query: DataTableNode,
                 dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 draftConversionGoal: ConversionGoalFilter | null,
@@ -436,7 +440,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 shouldFilterTestAccounts: boolean,
                 includeConversionGoals: boolean
             ): DataTableNode | null => {
-                if (loading) {
+                if (sourcesInitialLoading) {
                     return null
                 }
                 let marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined

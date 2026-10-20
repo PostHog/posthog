@@ -21,10 +21,6 @@ class TestLinearbSource:
         errors = self.source.get_non_retryable_errors()
         assert any("403 Client Error" in key for key in errors)
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["teams"])
-        assert [s.name for s in schemas] == ["teams"]
-
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_message"),
         [

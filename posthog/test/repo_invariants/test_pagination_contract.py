@@ -20,18 +20,17 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
     "products.cdp.backend.api.hog_function_template.PublicHogFunctionTemplateViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountViewSet",
-    "products.dashboards.backend.api.dashboard.LegacyInsightViewSet",
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
-    "products.product_analytics.backend.presentation.insight_ee.EnterpriseInsightsViewSet",
     "products.reminders.backend.api.reminder.ReminderViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
 }
 
 EXISTING_CUSTOM_LIST_VIEWSETS = {
+    "products.aeo.backend.presentation.views.AEOPromptViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
-    "ee.api.subscription.SubscriptionDeliveryViewSet",
-    "ee.api.subscription.SubscriptionViewSet",
+    "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
+    "products.subscriptions.backend.presentation.views.SubscriptionViewSet",
     "ee.clickhouse.views.experiment_saved_metrics.ExperimentSavedMetricViewSet",
     "ee.clickhouse.views.person.EnterprisePersonViewSet",
     "ee.clickhouse.views.person.LegacyEnterprisePersonViewSet",
@@ -105,6 +104,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunViewSet",
     "products.batch_exports.backend.presentation.views.file_download.FileDownloadBatchExportOnDemandViewSet",
+    # Lists at most MAX_LIBRARIES_PER_TEAM (100) libraries, so it has no pages.
+    "products.business_knowledge.backend.api.libraries.KnowledgeLibraryViewSet",
     "products.business_knowledge.backend.api.playground.BusinessKnowledgePlaygroundChatViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeGapSuggestionViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeSourceViewSet",
@@ -115,6 +116,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.cohorts.backend.api.staff_tools.CohortsStaffToolsViewSet",
     "products.conversations.backend.api.ai_context.AIContextAccountPropertiesViewSet",
     "products.conversations.backend.api.ai_reply_playbook.AIReplyPlaybookViewSet",
+    "products.conversations.backend.api.signing_secret.SigningSecretViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.announcements.AnnouncementViewSet",
     "products.customer_analytics.backend.presentation.views.customer_tasks.CustomerTaskViewSet",
@@ -200,7 +202,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.notebooks.backend.presentation.views.reusable_widget.ReusableWidgetViewSet",
     "products.notifications.backend.presentation.views.NotificationsViewSet",
     "products.product_analytics.backend.presentation.events_retention.EventsRetentionViewSet",
-    "products.product_analytics.backend.presentation.insight_ee.EnterpriseInsightsViewSet",
+    "products.product_analytics.backend.presentation.insight.InsightViewSet",
     "products.product_tours.backend.api.product_tour.ProductTourViewSet",
     "products.replay_vision.backend.api.observations.ReplayObservationViewSet",
     "products.replay_vision.backend.api.observations.SessionReplayObservationViewSet",
@@ -217,6 +219,10 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.review_hog.backend.presentation.views.resolution.ReviewResolutionConfigViewSet",
     "products.review_hog.backend.presentation.views.reviews.ReviewRecentReviewsViewSet",
     "products.review_hog.backend.presentation.views.validators.ReviewValidatorConfigViewSet",
+    # Counts and hover details must use the same complete seven-day window.
+    "products.signals.backend.presentation.inbox_summary.InboxSummaryViewSet",
+    # Returns one team's onboarding state as a single document, so there is nothing to paginate.
+    "products.signals.backend.presentation.onboarding.InboxOnboardingViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",

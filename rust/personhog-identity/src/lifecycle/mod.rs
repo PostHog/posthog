@@ -23,6 +23,7 @@ use personhog_proto::personhog::lifecycle::v1::{
     DeletePersonOutcome, DeletePersonResult, DeletePersonsRequest, DeletePersonsResponse,
 };
 
+use crate::config::OutboxWrites;
 use crate::leader::LifecycleLeader;
 use crate::lifecycle::delete::{
     DeleteDriver, DeleteOutcome, OUTCOME_DELETED, OUTCOME_NOT_FOUND, OUTCOME_SKIPPED_CONFLICT,
@@ -42,6 +43,7 @@ impl PersonHogLifecycleService {
         tables: crate::config::IdentityTables,
         leader_call_concurrency: usize,
         num_partitions: u32,
+        outbox_writes: OutboxWrites,
     ) -> Self {
         Self {
             engine,
@@ -50,6 +52,7 @@ impl PersonHogLifecycleService {
                 tables,
                 leader_call_concurrency,
                 num_partitions,
+                outbox_writes,
             ),
         }
     }

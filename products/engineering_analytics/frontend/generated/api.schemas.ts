@@ -152,7 +152,7 @@ export const FrictionGroupEnumApi = {
 } as const
 
 export interface FrictionGroupShareApi {
-    /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+    /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and failed queue attempts), or rework (own failures and extra pushes).
      *
      * * `ci` - CI
      * * `review` - Review
@@ -1491,7 +1491,7 @@ export interface PullRequestFrictionBreakdownApi {
      */
     queue_seconds: number | null
     /**
-     * Times the merge queue removed the pull request. Null without queue data.
+     * Merge queue attempts where at least one workflow run failed. A failed check the queue does not require leaves the pull request in the queue, so this is an upper bound on the times the queue removed it. Null when the pull request never entered the merge queue.
      * @nullable
      */
     kickout_count: number | null
@@ -2030,6 +2030,16 @@ export interface RepoOverviewApi {
      * @nullable
      */
     merge_queue_billable_minutes_prev: number | null
+    /**
+     * Slice of billable_minutes from jobs that ran on the Depot CI engine; null when the job-level source isn't synced.
+     * @nullable
+     */
+    depot_ci_billable_minutes: number | null
+    /**
+     * Depot CI billable minutes over the previous window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    depot_ci_billable_minutes_prev: number | null
     /** PRs merged in the window with at least one corroborated merge-queue gate run: the population behind every merge_queue_* landing stat. All authors, bots included. */
     merge_queue_merged_pr_count: number
     /** Queue-landed merges over the previous window. */

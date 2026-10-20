@@ -43,10 +43,6 @@ class TestAviatorSource:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["queue_stats"])
-        assert [s.name for s in schemas] == ["queue_stats"]
-
     @parameterized.expand(
         [
             # Only the date-windowed analytics endpoint has a genuine server-side filter, so it is the

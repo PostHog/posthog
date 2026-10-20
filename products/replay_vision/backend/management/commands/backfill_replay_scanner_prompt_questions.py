@@ -13,7 +13,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--include-inline",
             action="store_true",
-            help="Also give inline scanners a template's question; they never get a model-written one",
+            help="Also give built-in inline scanners their written question; inline scanners never get a model-written one",
         )
         parser.add_argument("--limit", type=int, default=None, help="Stop after writing this many questions")
         parser.add_argument("--dry-run", action="store_true", help="Count the scanners due a question, write nothing")

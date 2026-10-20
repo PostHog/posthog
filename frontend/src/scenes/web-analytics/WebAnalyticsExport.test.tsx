@@ -1,5 +1,6 @@
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import type { WebVitalsRow } from '~/queries/nodes/WebVitals/definitions'
 import {
     DataTableNode,
     NodeKind,
@@ -26,24 +27,32 @@ const webVitalsQuery: WebVitalsQuery = {
     properties: [],
     source: {
         kind: NodeKind.TrendsQuery,
-        series: [],
+        series: (['LCP', 'CLS'] as const).map((metric) => ({
+            kind: NodeKind.EventsNode,
+            event: '$web_vitals',
+            custom_name: metric,
+            math: PropertyMathType.P90,
+            math_property: `$web_vitals_${metric}_value`,
+        })),
     },
 }
 
-const webVitalsResponse: WebVitalsQueryResponse = {
-    results: [
-        {
-            action: { custom_name: 'LCP', math: PropertyMathType.P90 },
-            days: ['2026-09-01', '2026-09-02'],
-            data: [2400, 2600],
-        },
-        {
-            action: { custom_name: 'CLS', math: PropertyMathType.P90 },
-            days: ['2026-09-01', '2026-09-02'],
-            data: [0.04, 0.05],
-        },
-    ],
-}
+const webVitalsRows: WebVitalsRow[] = [
+    {
+        action: { custom_name: 'LCP', math: PropertyMathType.P90 },
+        order: 0,
+        days: ['2026-09-01', '2026-09-02'],
+        data: [2400, 2600],
+    },
+    {
+        action: { custom_name: 'CLS', math: PropertyMathType.P90 },
+        order: 1,
+        days: ['2026-09-01', '2026-09-02'],
+        data: [0.04, 0.05],
+    },
+]
+
+const webVitalsResponse: WebVitalsQueryResponse = { results: webVitalsRows }
 
 const pathBreakdownQuery: WebVitalsPathBreakdownQuery = {
     kind: NodeKind.WebVitalsPathBreakdownQuery,

@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator, UserType } from '~/types'
+import { AvailableFeature, PropertyFilterType, PropertyOperator, UserType } from '~/types'
 
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { GraphsTab, ProductTab, TileId } from './common'
@@ -976,5 +976,45 @@ describe('webAnalyticsLogic warmablePresetShortId', () => {
 
         expect(logic.values.appliedPresetShortId).toBe('abc123')
         expect(logic.values.warmablePresetShortId).toBeNull()
+    })
+})
+
+describe('webAnalyticsLogic path cleaning filters', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        featureFlagLogic.mount()
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            organization: {
+                ...MOCK_DEFAULT_USER.organization,
+                available_product_features: [{ key: AvailableFeature.PATHS_ADVANCED, name: 'Paths advanced' }],
+            },
+        } as UserType)
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        [PropertyOperator.Exact, PropertyOperator.IsCleanedPathExact],
+        [PropertyOperator.IsNot, PropertyOperator.IsCleanedPathNotExact],
+        [PropertyOperator.IContains, PropertyOperator.IContains],
+    ])('rewrites a %s path filter to %s', (operator, expectedOperator) => {
+        webAnalyticsFilterLogic.actions.setWebAnalyticsFilters([
+            { key: '$pathname', value: ['/user/:id'], operator, type: PropertyFilterType.Event },
+        ])
+
+        expect(logic.values.webAnalyticsFilters).toEqual([
+            { key: '$pathname', value: ['/user/:id'], operator: expectedOperator, type: PropertyFilterType.Event },
+        ])
     })
 })

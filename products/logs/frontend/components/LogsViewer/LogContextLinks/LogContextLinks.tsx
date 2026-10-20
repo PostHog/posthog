@@ -16,6 +16,7 @@ import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getDistinctIdWithKey, getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import type { TraceDialogEntryPoint } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
 import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 import { type ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 
@@ -29,6 +30,11 @@ export type LogContextLinksSurface = 'drawer' | 'row'
 const TRACE_DATA_ATTR: Record<LogContextLinksSurface, string> = {
     drawer: 'logs-details-view-trace',
     row: 'logs-row-view-trace',
+}
+
+const TRACE_DIALOG_ENTRY_POINT: Record<LogContextLinksSurface, TraceDialogEntryPoint> = {
+    drawer: 'log_details',
+    row: 'log_expanded_row',
 }
 
 export interface LogContextLinksProps {
@@ -74,7 +80,16 @@ export function LogContextLinks({
                     traceId={traceId}
                     spanId={log.span_id}
                     timestamp={log.timestamp}
-                    onClick={(event) => openTraceDialog(event, { traceId, spanId: log.span_id, ts: log.timestamp })}
+                    onClick={(event) =>
+                        openTraceDialog(
+                            event,
+                            { traceId, spanId: log.span_id, ts: log.timestamp },
+                            {
+                                entryPoint: TRACE_DIALOG_ENTRY_POINT[surface],
+                                openedFrom: { body: log.cleanBody, severity: log.severity_text },
+                            }
+                        )
+                    }
                     size="xsmall"
                     type="secondary"
                     data-attr={TRACE_DATA_ATTR[surface]}

@@ -154,6 +154,7 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         evaluation_key=request.evaluation_key,
         sent=outcome.sent,
         skipped_without_transport=outcome.skipped_without_transport,
+        emitted=outcome.emitted,
     )
 
 
@@ -163,13 +164,31 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: AlertDeliveryRequest) -> None:
+        """Delivers each part in turn, so a split evaluation's sends to one destination never overlap.
+
+        A part that fails does not stop the parts after it. The first failure fails the run once
+        every part has had its attempts.
+        """
+        if inputs.parts <= 1:
+            await self._deliver(inputs)
+            return
+        failures: list[ActivityError] = []
+        for part in range(inputs.parts):
+            try:
+                await self._deliver(replace(inputs, part=part))
+            except ActivityError as error:
+                failures.append(error)
+        if failures:
+            raise failures[0]
+
+    async def _deliver(self, request: AlertDeliveryRequest) -> None:
         busy_deadline: dt.datetime | None = None
         while True:
             started_at = workflow.now()
             try:
                 await workflow.execute_activity(
                     alerts_platform_deliver_preview_activity,
-                    inputs,
+                    request,
                     start_to_close_timeout=DELIVERY_START_TO_CLOSE,
                     schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -186,6 +205,16 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
             await workflow.sleep(BUSY_RETRY_DELAY)
 
 
+def delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:
+    """The id of an evaluation's delivery. A re-run of the same occasion reuses it, so one delivery
+    runs whichever caller starts it."""
+    return f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}"
+
+
+def delivery_execution_timeout(delivery: AlertDeliveryRequest) -> dt.timedelta:
+    return DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts)
+
+
 async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
     """Starts one delivery workflow per request, from inside a source's evaluation workflow.
 
@@ -193,16 +222,19 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
     key names a window or a slot but not the alert, so two alerts in one slot do not collide. A
     re-run of the same occasion reuses the ids, and a reused id raises, so one delivery already
     started does not stop the rest.
+
+    A request split into parts still starts one workflow, which delivers the parts in turn, so its
+    deadline is one part's times the count.
     """
     results = await asyncio.gather(
         *(
             workflow.start_child_workflow(
                 AlertsPlatformDeliverPreviewWorkflow.run,
                 delivery,
-                id=f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}",
+                id=delivery_workflow_id(delivery),
                 task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
+                execution_timeout=delivery_execution_timeout(delivery),
             )
             for delivery in deliveries
         ),

@@ -3,9 +3,13 @@ import { type MouseEvent, useCallback } from 'react'
 
 import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
 
-import { traceDialogLogic } from './traceDialogLogic'
+import { type OpenTraceDialogOptions, traceDialogLogic } from './traceDialogLogic'
 
-export type OpenTraceDialogHandler = (event: MouseEvent | null, trace: TraceLinkParams) => boolean
+export type OpenTraceDialogHandler = (
+    event: MouseEvent | null,
+    trace: TraceLinkParams,
+    options: OpenTraceDialogOptions
+) => boolean
 
 /**
  * Opens a trace in the dialog in place of navigating to Tracing. Returns false when it did not, so
@@ -18,7 +22,7 @@ export function useOpenTraceDialog(): OpenTraceDialogHandler {
 
     // Stable while the flag holds, so callers can list it in a memo's dependencies.
     return useCallback(
-        (event, trace) => {
+        (event, trace, options) => {
             if (!dialogEnabled) {
                 return false
             }
@@ -26,7 +30,7 @@ export function useOpenTraceDialog(): OpenTraceDialogHandler {
                 return false
             }
             event?.preventDefault()
-            openTraceDialog(trace)
+            openTraceDialog(trace, options)
             return true
         },
         [dialogEnabled, openTraceDialog]

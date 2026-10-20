@@ -7,7 +7,7 @@ Imported from `ready()`, so it stays light: no models, no query layer.
 """
 
 from dataclasses import replace
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import NAMESPACE_URL, uuid5
 
@@ -21,7 +21,9 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDescription,
 )
 from products.logs.backend.alert_evaluation_key import window_end_of
+from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.logs_url_params import build_logs_url_params, has_filter_values
+from products.logs.backend.platform_source_config import filters_of, logs_alert_url
 
 # A resolve reports the count that ended the firing, so it is not a breach. A held check, which
 # only moves a paging incident, can be either, so it gets a neutral label.
@@ -32,11 +34,9 @@ _LABELS = {
 
 
 def describe_logs_transition(*, project_id: int, transition: AnnouncedTransition) -> SourceDescription:
-    # `source_config` holds the alert's filters beside the platform's `condition` key, which none
-    # of the readers below look at.
     return SourceDescription(
         details=_details(transition),
-        context=_context(transition.source_config),
+        context=_context(filters_of(transition.source_config)),
         data_link=MessageLink(label="View logs", url=_logs_url(project_id, transition)),
     )
 
@@ -53,7 +53,13 @@ def _details(transition: AnnouncedTransition) -> tuple[MessageDetail, ...]:
         f"{count} {noun} in {condition['window_minutes']}m "
         f"(threshold: {condition['threshold_operator']} {condition['threshold_count']})"
     )
-    return (MessageDetail(label=_LABELS.get(transition.kind, "Count"), value=summary),)
+    # A grouped alert sends one message per group, so each one names the group it is about.
+    group = tuple(
+        MessageDetail(label=group_column.label, value=transition.labels[column])
+        for column, group_column in GROUP_COLUMNS.items()
+        if column in transition.labels
+    )
+    return (*group, MessageDetail(label=_LABELS.get(transition.kind, "Count"), value=summary))
 
 
 def _context(filters: dict[str, Any]) -> tuple[str, ...]:
@@ -75,7 +81,7 @@ def _logs_url(project_id: int, transition: AnnouncedTransition) -> str:
     return absolute_uri(f"/project/{project_id}/logs" + (f"?{params}" if params else ""))
 
 
-def _in_utc(transition: AnnouncedTransition) -> AnnouncedTransition:
+def in_utc(transition: AnnouncedTransition) -> AnnouncedTransition:
     # History rows come back from ClickHouse without a zone. A link or a body with zoneless times
     # reads them in whatever zone the reader is in.
     if transition.occurred_at.tzinfo is not None:
@@ -83,13 +89,49 @@ def _in_utc(transition: AnnouncedTransition) -> AnnouncedTransition:
     return replace(transition, occurred_at=transition.occurred_at.replace(tzinfo=UTC))
 
 
-def _window_params(transition: AnnouncedTransition) -> str:
-    # The window the check counted, so the link opens on the logs that decided it. The window end
-    # can sit before the record time, because the check clamps it to the ingestion checkpoint.
+def check_window_end(transition: AnnouncedTransition) -> datetime:
+    """The end of the window the check counted, so a link opens on the logs that decided it.
+
+    The window end can sit before the record time, because the check clamps it to the ingestion checkpoint.
+    """
     window_end = window_end_of(transition.evaluation_key)
-    date_to = _in_utc(replace(transition, occurred_at=window_end) if window_end else transition).occurred_at
+    return in_utc(replace(transition, occurred_at=window_end) if window_end else transition).occurred_at
+
+
+def _window_params(transition: AnnouncedTransition) -> str:
+    date_to = check_window_end(transition)
     date_from = date_to - timedelta(minutes=transition.condition["window_minutes"])
-    return build_logs_url_params(transition.source_config, date_from=date_from, date_to=date_to)
+    return build_logs_url_params(_group_filters(transition), date_from=date_from, date_to=date_to)
+
+
+def _group_filters(transition: AnnouncedTransition) -> dict[str, Any]:
+    """The alert's filters narrowed to the group a transition is about, so a link opens its logs only.
+
+    The group's value replaces any list the alert has for that column, in its own field and in each
+    `filterGroup` selection of the column. An alert with a list counted only logs inside it, so the
+    group's value is one of them and the link narrows, never widens.
+    """
+    filters = dict(filters_of(transition.source_config))
+    selected: dict[str, str] = {}
+    for column, group_column in GROUP_COLUMNS.items():
+        if column in transition.labels:
+            filters[group_column.filter_key] = [transition.labels[column]]
+            selected[group_column.filter_group_key] = transition.labels[column]
+    if selected and isinstance(filters.get("filterGroup"), dict):
+        # The logs scene ignores the field when `filterGroup` selects the same column.
+        filters["filterGroup"] = _narrowed(filters["filterGroup"], selected)
+    return filters
+
+
+def _narrowed(node: Any, selected: dict[str, str]) -> Any:
+    """A copy of a filter group whose include selections of the `selected` columns hold only their value."""
+    if not isinstance(node, dict):
+        return node
+    if isinstance(node.get("values"), list):
+        return {**node, "values": [_narrowed(child, selected) for child in node["values"]]}
+    if node.get("type") == "log" and node.get("operator") == "exact" and node.get("key") in selected:
+        return {**node, "value": [selected[node["key"]]]}
+    return node
 
 
 _LEGACY_WEBHOOK_TYPES: Final = {
@@ -113,10 +155,10 @@ def legacy_logs_webhook_body(
     Its template rendered a lone placeholder as the value's own type, so counts stay numbers and
     filter lists stay lists here too.
     """
-    transition = _in_utc(transition)
+    transition = in_utc(transition)
     occurred_at = transition.occurred_at
-    filters = transition.source_config
-    alert_url = absolute_uri(f"/project/{project_id}/logs/alerts/{alert_id}")
+    filters = filters_of(transition.source_config)
+    alert_url = logs_alert_url(project_id, alert_id)
     data: dict[str, Any] = {
         "alert_id": alert_id,
         "alert_name": alert_name,

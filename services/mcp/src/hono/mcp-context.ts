@@ -4,7 +4,12 @@ import type { McpMode } from '@/lib/utils'
 
 export interface MCPClientContext extends Pick<
     RequestProperties,
-    'mcpClientName' | 'mcpClientVersion' | 'mcpProtocolVersion' | 'mcpConsumer' | 'mcpVendorClient'
+    | 'mcpClientName'
+    | 'mcpClientVersion'
+    | 'mcpProtocolVersion'
+    | 'mcpConsumer'
+    | 'mcpVendorClient'
+    | 'mcpElicitationUrlSupported'
 > {}
 
 export interface MCPRequestContext
@@ -44,6 +49,7 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
         mcpClientName: props.mcpClientName,
         mcpClientVersion: props.mcpClientVersion,
         mcpProtocolVersion: props.mcpProtocolVersion,
+        mcpElicitationUrlSupported: props.mcpElicitationUrlSupported,
         transport: props.transport,
         mcpSessionId: props.mcpSessionId,
         mcpConversationId: props.mcpConversationId,

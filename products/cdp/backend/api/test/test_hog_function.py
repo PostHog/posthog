@@ -12,6 +12,7 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
@@ -1178,9 +1179,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "order": 0,
                 },
                 "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopwQKcL10Y5Yg8s8Gswibi1pCMfjwSnKwod91SMtLKgNfAU4EPZ6GxA77xCHIjaTLueR3qx-hy2Pu3W0r5Rh1hWy0bq01uIdulQ_LhxkQgpj",
+                {"secret": True},
+                [],
             ),
             (
-                "dictionary_without_templating",
+                "dictionary_paired_with_plain_dictionary",
                 {
                     "key": "secret_headers",
                     "type": "dictionary",
@@ -1192,20 +1195,47 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"Authorization": "Bearer I AM SECRET"},
                 {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0},
                 None,
+                {"secret": True, "value": {"Authorization": "********"}},
+                [{"key": "headers", "type": "dictionary", "label": "Headers", "required": False}],
+            ),
+            (
+                "dictionary_without_plain_pair",
+                {
+                    "key": "account_lookup",
+                    "type": "dictionary",
+                    "label": "Account lookup",
+                    "secret": True,
+                    "required": False,
+                    "templating": False,
+                },
+                {"I AM SECRET": "account-1"},
+                {"value": {"I AM SECRET": "account-1"}, "order": 0},
+                None,
+                {"secret": True},
+                [],
             ),
         ]
     )
     def test_secret_inputs_not_returned(
-        self, _name, schema, secret_value, expected_encrypted_input, expected_ciphertext, *args
+        self,
+        _name,
+        schema,
+        secret_value,
+        expected_encrypted_input,
+        expected_ciphertext,
+        expected_masked,
+        other_schemas,
+        *args,
     ):
         payload = {
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
-            "inputs_schema": [schema],
+            "inputs_schema": [schema, *other_schemas],
             "inputs": {schema["key"]: {"value": secret_value}},
             "type": "destination",
         }
-        expectation = {schema["key"]: {"secret": True}}
+        unset_inputs = {other["key"]: None for other in other_schemas}
+        expectation = {schema["key"]: expected_masked, **unset_inputs}
         # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
         with time_machine.travel("2024-01-01T00:01:00Z", tick=False):
             with patch("os.urandom", return_value=b"\x00" * 16):
@@ -1218,7 +1248,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Finally check the DB has the real value
         obj = HogFunction.objects.get(id=res.json()["id"])
-        assert obj.inputs == {}
+        assert obj.inputs == unset_inputs
         assert obj.encrypted_inputs == {schema["key"]: expected_encrypted_input}
 
         raw_encrypted_inputs = get_db_field_value("encrypted_inputs", obj.id)
@@ -1638,6 +1668,34 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "order": 3,
             },
         }
+
+    @parameterized.expand([("actions", str), ("events", str), ("actions", float)])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_filter_action_needs_viewer_access_unless_already_used(self, filter_list: str, id_type: type):
+        action = Action.objects.create(
+            team=self.team, name="restricted", steps_json=[{"event": "$pageview"}], created_by=self.user
+        )
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
+        filters = {filter_list: [{"id": id_type(action.id), "name": "restricted", "type": "actions", "order": 0}]}
+        stored = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/", data={**EXAMPLE_FULL, "filters": filters}
+        )
+        assert stored.status_code == status.HTTP_201_CREATED, stored.json()
+        self.client.force_login(self._create_user("destination-member@example.com"))
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/", data={**EXAMPLE_FULL, "filters": filters}
+        )
+        edited = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{stored.json()['id']}/",
+            data={"name": "Renamed", "filters": filters},
+        )
+
+        assert created.status_code == status.HTTP_400_BAD_REQUEST, created.json()
+        assert HogFunction.objects.filter(team=self.team).count() == 1
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
 
     def test_generates_filters_bytecode(self, *args):
         action = Action.objects.create(
