@@ -277,9 +277,9 @@ tools:
             List all workflows in the project. Returns workflows with their name, description, status
             (draft/active/archived), version, trigger configuration, tags, and timestamps. Pass search=<text> to find a
             workflow by its name, description or a tag, or, when none of those match, by a step name or the subject,
-            preheader or body text of an email it sends (live or pending draft), and read its id. Most workflows-* tools take that
-            value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it as
-            'workflow_id'. Pass tags='["growth"]' (a JSON-encoded list) to return only workflows that carry at least
+            preheader or body text of an email it sends (live or pending draft), and read its id. Most workflows-* tools
+            take that value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it
+            as 'workflow_id'. Pass tags='["growth"]' (a JSON-encoded list) to return only workflows that carry at least
             one of those tags.
         ui_app: workflow-list
     workflows-list-batch-jobs:
@@ -586,8 +586,8 @@ tools:
             trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
             drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
             content fields stage a draft (published with workflows-publish) while name, description and tags apply
-            immediately. tags replaces the whole tag list, so send the tags to keep as well as the new ones.
-            Status changes go through workflows-enable / workflows-archive.
+            immediately. tags replaces the whole tag list, so send the tags to keep as well as the new ones. Status
+            changes go through workflows-enable / workflows-archive.
         exclude_params:
             - status
             - actions
