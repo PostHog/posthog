@@ -4043,7 +4043,14 @@ def _post_untagged_question_prompt(slack: SlackIntegration, integration: Integra
     return True
 
 
-def _untagged_question_click(payload: dict) -> tuple[str, dict[str, Any], Integration] | None:
+@frozen
+class _UntaggedQuestionClick:
+    context_token: str
+    context: dict[str, Any]
+    integration: Integration
+
+
+def _untagged_question_click(payload: dict) -> _UntaggedQuestionClick | None:
     """The live prompt context and its integration, or None when the prompt is stale or not the clicker's."""
     context_token = _extract_context_token(payload)
     context = _decode_picker_context(context_token) if context_token else None
@@ -4065,7 +4072,7 @@ def _untagged_question_click(payload: dict) -> tuple[str, dict[str, Any], Integr
     )
     if integration is None:
         return None
-    return context_token, context, integration
+    return _UntaggedQuestionClick(context_token=context_token, context=context, integration=integration)
 
 
 def _handle_untagged_question_run(payload: dict) -> HttpResponse:
@@ -4074,7 +4081,7 @@ def _handle_untagged_question_run(payload: dict) -> HttpResponse:
     if click is None:
         _delete_ephemeral_via_response_url(response_url)
         return HttpResponse(status=200)
-    context_token, context, integration = click
+    context_token, context, integration = click.context_token, click.context, click.integration
     slack_user_id = context["slack_user_id"]
     event = context.get("event")
 
@@ -4125,7 +4132,7 @@ def _handle_untagged_question_dismiss(payload: dict) -> HttpResponse:
     click = _untagged_question_click(payload)
     _delete_ephemeral_via_response_url(payload.get("response_url", ""))
     if click is not None:
-        context_token, context, integration = click
+        context_token, context, integration = click.context_token, click.context, click.integration
         cache.delete(_picker_context_cache_key(context_token))
         capture_slack_event(
             integration, "slack app unprompted answer dismissed", slack_user_id=context["slack_user_id"]
@@ -4140,7 +4147,7 @@ def _handle_untagged_question_turn_off(payload: dict) -> HttpResponse:
     if click is None:
         _delete_ephemeral_via_response_url(response_url)
         return HttpResponse(status=200)
-    context_token, context, integration = click
+    context_token, context, integration = click.context_token, click.context, click.integration
     slack_user_id = context["slack_user_id"]
     cache.delete(_picker_context_cache_key(context_token))
     set_untagged_question_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.NEVER)
