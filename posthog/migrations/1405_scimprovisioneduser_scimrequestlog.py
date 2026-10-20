@@ -9,17 +9,54 @@ import posthog.uuidt
 MODELS_TO_MOVE = ("scimprovisioneduser", "scimrequestlog")
 
 
+def _copy_permission_assignments(apps, db_alias, source_permission, target_permission):
+    User = apps.get_model("posthog", "User")
+    Group = apps.get_model("auth", "Group")
+    assignment_models = (
+        (User._meta.get_field("user_permissions").remote_field.through, "user_id"),
+        (Group._meta.get_field("permissions").remote_field.through, "group_id"),
+    )
+
+    for assignment_model, assignee_field in assignment_models:
+        assignee_ids = (
+            assignment_model.objects.using(db_alias)
+            .filter(permission_id=source_permission.pk)
+            .values_list(assignee_field, flat=True)
+        )
+        assignment_model.objects.using(db_alias).bulk_create(
+            [
+                assignment_model(**{assignee_field: assignee_id, "permission_id": target_permission.pk})
+                for assignee_id in assignee_ids
+            ],
+            ignore_conflicts=True,
+        )
+
+
+def _merge_permissions(apps, db_alias, source, target):
+    Permission = apps.get_model("auth", "Permission")
+
+    for source_permission in Permission.objects.using(db_alias).filter(content_type=source):
+        target_permission = (
+            Permission.objects.using(db_alias).filter(content_type=target, codename=source_permission.codename).first()
+        )
+        if target_permission:
+            _copy_permission_assignments(apps, db_alias, source_permission, target_permission)
+            source_permission.delete(using=db_alias)
+        else:
+            source_permission.content_type = target
+            source_permission.save(using=db_alias, update_fields=["content_type"])
+
+
 def _move_content_types(apps, schema_editor, from_label, to_label):
     db_alias = schema_editor.connection.alias
     ContentType = apps.get_model("contenttypes", "ContentType")
-    Permission = apps.get_model("auth", "Permission")
 
     for model_name in MODELS_TO_MOVE:
         source = ContentType.objects.using(db_alias).filter(app_label=from_label, model=model_name).first()
         target = ContentType.objects.using(db_alias).filter(app_label=to_label, model=model_name).first()
 
         if source and target:
-            Permission.objects.using(db_alias).filter(content_type=source).update(content_type=target)
+            _merge_permissions(apps, db_alias, source, target)
             source.delete(using=db_alias)
         elif source:
             source.app_label = to_label
