@@ -11228,30 +11228,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `21` - Everyone in the project can edit
-     * * `37` - Only those invited to this dashboard can edit
-     */
-    export type RestrictionLevelEnum = typeof RestrictionLevelEnum[keyof typeof RestrictionLevelEnum];
-
-
-    export const RestrictionLevelEnum = {
-      Number21: 21,
-      Number37: 37,
-    } as const;
-
-    /**
-     * * `21` - Can view dashboard
-     * * `37` - Can edit dashboard
-     */
-    export type PrivilegeLevelEnum = typeof PrivilegeLevelEnum[keyof typeof PrivilegeLevelEnum];
-
-
-    export const PrivilegeLevelEnum = {
-      Number21: 21,
-      Number37: 37,
-    } as const;
-
-    /**
      * Warnings attached to the query response that produced an insight's results.
      */
     export type _InsightResultWarnings = (DataWarehouseSyncWarning | AccessControlFilterWarning)[];
@@ -11375,8 +11351,6 @@ export namespace Schemas {
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
       readonly is_sample: boolean;
-      readonly effective_restriction_level: RestrictionLevelEnum;
-      readonly effective_privilege_level: PrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -28009,19 +27983,11 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: unknown[];
-      /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
-       *
-       * * `21` - Everyone in the project can edit
-       * * `37` - Only those invited to this dashboard can edit */
-      restriction_level?: RestrictionLevelEnum;
-      readonly effective_restriction_level: RestrictionLevelEnum;
-      readonly effective_privilege_level: PrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
          * @nullable
          */
       readonly user_access_level: string | null;
-      readonly access_control_version: string;
       /** @nullable */
       last_refresh?: string | null;
       /** @nullable */
@@ -28108,19 +28074,11 @@ export namespace Schemas {
       readonly deleted: boolean;
       readonly creation_mode: DashboardCreationModeEnum;
       tags?: unknown[];
-      /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
-       *
-       * * `21` - Everyone in the project can edit
-       * * `37` - Only those invited to this dashboard can edit */
-      readonly restriction_level: RestrictionLevelEnum;
-      readonly effective_restriction_level: RestrictionLevelEnum;
-      readonly effective_privilege_level: PrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
          * @nullable
          */
       readonly user_access_level: string | null;
-      readonly access_control_version: string;
       /** @nullable */
       readonly last_refresh: string | null;
       readonly team_id: number;
@@ -28609,142 +28567,6 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
-    }
-
-    export type DashboardWriteOpenApiFilters = { [key: string]: unknown };
-
-    /**
-     * @nullable
-     */
-    export type DashboardWriteOpenApiVariables = { [key: string]: unknown } | null;
-
-    /**
-     * @nullable
-     */
-    export type DashboardWriteOpenApiPersistedFilters = { [key: string]: unknown } | null;
-
-    /**
-     * @nullable
-     */
-    export type DashboardWriteOpenApiPersistedVariables = { [key: string]: unknown } | null;
-
-    /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
-     * @nullable
-     */
-    export type DashboardWriteOpenApiGroupTitles = {[key: string]: string} | null;
-
-    export type DashboardWriteOpenApiTilesItem = { [key: string]: unknown };
-
-    /**
-     * Serializer mixin that handles tags for objects.
-     */
-    export interface DashboardWriteOpenApi {
-      readonly id: number;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      description?: string;
-      pinned?: boolean;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly last_accessed_at: string | null;
-      /** @nullable */
-      readonly last_viewed_at: string | null;
-      /**
-         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
-         * @nullable
-         */
-      readonly folder: string | null;
-      /**
-         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
-         * @nullable
-         */
-      readonly file_system_id: string | null;
-      /**
-         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
-         * @nullable
-         */
-      readonly file_system_path: string | null;
-      readonly is_shared: boolean;
-      deleted?: boolean;
-      readonly creation_mode: DashboardCreationModeEnum;
-      readonly filters: DashboardWriteOpenApiFilters;
-      /** @nullable */
-      readonly variables: DashboardWriteOpenApiVariables;
-      /**
-         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
-         * @nullable
-         */
-      breakdown_colors?: BreakdownColorConfig[] | null;
-      /**
-         * ID of the color theme used for chart visualizations.
-         * @nullable
-         */
-      data_color_theme_id?: number | null;
-      tags?: unknown[];
-      /**
-         * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
-         * @minimum 21
-         * @maximum 21
-         */
-      restriction_level?: number;
-      readonly effective_restriction_level: RestrictionLevelEnum;
-      readonly effective_privilege_level: PrivilegeLevelEnum;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-      readonly access_control_version: string;
-      /** @nullable */
-      last_refresh?: string | null;
-      /** @nullable */
-      readonly persisted_filters: DashboardWriteOpenApiPersistedFilters;
-      /** @nullable */
-      readonly persisted_variables: DashboardWriteOpenApiPersistedVariables;
-      readonly team_id: number;
-      /**
-         * List of quick filter IDs associated with this dashboard
-         * @nullable
-         */
-      quick_filter_ids?: string[] | null;
-      /** Dashboard display settings. */
-      readonly customization: DashboardCustomization;
-      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
-       *
-       * * `tight` - tight
-       * * `condensed` - condensed
-       * * `standard` - standard
-       * * `relaxed` - relaxed
-       * * `wide` - wide */
-      grid_spacing?: TileSpacingEnum;
-      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
-       *
-       * * `vertical` - vertical
-       * * `horizontal` - horizontal
-       * * `stable` - stable */
-      layout_compaction?: LayoutCompactionEnum;
-      /**
-         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
-         * @nullable
-         */
-      group_titles?: DashboardWriteOpenApiGroupTitles;
-      /** @nullable */
-      readonly tiles: readonly DashboardWriteOpenApiTilesItem[] | null;
-      /** Template key to create the dashboard from a predefined template. */
-      use_template?: string;
-      /**
-         * ID of an existing dashboard to duplicate.
-         * @nullable
-         */
-      use_dashboard?: number | null;
-      /** When deleting, also delete insights that are only on this dashboard. */
-      delete_insights?: boolean;
-      _create_in_folder?: string;
     }
 
     export interface DataCatalogCertification {
@@ -30185,6 +30007,8 @@ export namespace Schemas {
       stage: DataSuggestionStageEnum;
       /** The main planned step kinds after the trigger, in order. */
       step_outline: DataSuggestionStepKindEnum[];
+      /** Whether PostHog prepared this suggestion ahead of time with its workflow already built. Build it with save_draft to save the draft and stop offering the suggestion. */
+      premade: boolean;
     }
 
     export interface DataSuggestionBuildRequest {
@@ -31270,6 +31094,7 @@ export namespace Schemas {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -32675,6 +32500,7 @@ export namespace Schemas {
       Square: 'Square',
       Zoom: 'Zoom',
       Trello: 'Trello',
+      TrafficStars: 'TrafficStars',
       Monday: 'Monday',
       ClickUp: 'ClickUp',
       Confluence: 'Confluence',
@@ -34094,6 +33920,7 @@ export namespace Schemas {
        * * `Square` - Square
        * * `Zoom` - Zoom
        * * `Trello` - Trello
+       * * `TrafficStars` - TrafficStars
        * * `Monday` - Monday
        * * `ClickUp` - ClickUp
        * * `Confluence` - Confluence
@@ -36802,6 +36629,7 @@ export namespace Schemas {
        * * `Square` - Square
        * * `Zoom` - Zoom
        * * `Trello` - Trello
+       * * `TrafficStars` - TrafficStars
        * * `Monday` - Monday
        * * `ClickUp` - ClickUp
        * * `Confluence` - Confluence
@@ -48932,6 +48760,7 @@ export namespace Schemas {
        * * `Square` - Square
        * * `Zoom` - Zoom
        * * `Trello` - Trello
+       * * `TrafficStars` - TrafficStars
        * * `Monday` - Monday
        * * `ClickUp` - ClickUp
        * * `Confluence` - Confluence
@@ -50371,6 +50200,7 @@ export namespace Schemas {
        * * `Square` - Square
        * * `Zoom` - Zoom
        * * `Trello` - Trello
+       * * `TrafficStars` - TrafficStars
        * * `Monday` - Monday
        * * `ClickUp` - ClickUp
        * * `Confluence` - Confluence
@@ -56492,6 +56322,7 @@ export namespace Schemas {
      * * `running` - Running
      * * `paused_by_user` - Paused By User
      * * `paused_by_system` - Paused By System
+     * * `dry_run` - Dry Run
      * * `not_running` - Not Running
      */
     export type SuggestionsScoutStatusEnum = typeof SuggestionsScoutStatusEnum[keyof typeof SuggestionsScoutStatusEnum];
@@ -56501,19 +56332,34 @@ export namespace Schemas {
       Running: 'running',
       PausedByUser: 'paused_by_user',
       PausedBySystem: 'paused_by_system',
+      DryRun: 'dry_run',
       NotRunning: 'not_running',
     } as const;
+
+    export interface SuggestionsSample {
+      /** Whether an email step of the live version has enough tracked sends, over enough time, for PostHog to judge it. */
+      readonly reached: boolean;
+      /** Tracked sends (sends with open tracking on) from the live version's busiest email step in the last 7 days. */
+      readonly tracked_sends: number;
+      /** Tracked sends an email step needs before PostHog judges it. */
+      readonly required_sends: number;
+      /** When the live version was published. PostHog waits 48 hours before judging it. */
+      readonly version_live_since: string;
+    }
 
     export interface HogFlowOptimization {
       /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
-      /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+      /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on. A scout in dry run runs but files nothing until someone turns on writing to the inbox in its scout settings.
        *
        * * `running` - Running
        * * `paused_by_user` - Paused By User
        * * `paused_by_system` - Paused By System
+       * * `dry_run` - Dry Run
        * * `not_running` - Not Running */
       readonly scout_status: SuggestionsScoutStatusEnum;
+      /** How close the live version is to the sample PostHog needs before it suggests anything. Null while suggestions are on but the scout is not running, or when the workflow has no email step. */
+      readonly sample: SuggestionsSample | null;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -83615,8 +83461,6 @@ export namespace Schemas {
       readonly last_modified_at?: string;
       readonly last_modified_by?: UserBasic;
       readonly is_sample?: boolean;
-      readonly effective_restriction_level?: RestrictionLevelEnum;
-      readonly effective_privilege_level?: PrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -84646,12 +84490,6 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: string[];
-      /**
-         * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
-         * @minimum 21
-         * @maximum 21
-         */
-      restriction_level?: number;
       /**
          * List of quick filter IDs associated with this dashboard.
          * @nullable
@@ -97882,6 +97720,7 @@ export namespace Schemas {
 
     /**
      * * `get_it_merged` - Get it merged
+     * * `make_it_green` - Make it green
      * * `suggested_prompt` - Suggested prompt
      */
     export type ReportTaskActionKindEnum = typeof ReportTaskActionKindEnum[keyof typeof ReportTaskActionKindEnum];
@@ -97889,6 +97728,7 @@ export namespace Schemas {
 
     export const ReportTaskActionKindEnum = {
       GetItMerged: 'get_it_merged',
+      MakeItGreen: 'make_it_green',
       SuggestedPrompt: 'suggested_prompt',
     } as const;
 
@@ -103851,9 +103691,10 @@ export namespace Schemas {
      * One report action that starts an agent run, with whether the report offers it now.
      */
     export interface SignalReportTaskAction {
-      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `suggested_prompt` sends one of the prompts the report suggests.
+      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI on the report's open pull request and stops without merging it. `suggested_prompt` sends one of the prompts the report suggests.
        *
        * * `get_it_merged` - Get it merged
+       * * `make_it_green` - Make it green
        * * `suggested_prompt` - Suggested prompt */
       action: ReportTaskActionKindEnum;
       /** Whether a run of this action can start now. */
@@ -103892,6 +103733,7 @@ export namespace Schemas {
       /** The action to run. Use a value from the actions list.
        *
        * * `get_it_merged` - Get it merged
+       * * `make_it_green` - Make it green
        * * `suggested_prompt` - Suggested prompt */
       action: ReportTaskActionKindEnum;
       /**
@@ -105067,6 +104909,7 @@ export namespace Schemas {
        * * `Square` - Square
        * * `Zoom` - Zoom
        * * `Trello` - Trello
+       * * `TrafficStars` - TrafficStars
        * * `Monday` - Monday
        * * `ClickUp` - ClickUp
        * * `Confluence` - Confluence
@@ -106537,6 +106380,7 @@ export namespace Schemas {
        * * `Square` - Square
        * * `Zoom` - Zoom
        * * `Trello` - Trello
+       * * `TrafficStars` - TrafficStars
        * * `Monday` - Monday
        * * `ClickUp` - ClickUp
        * * `Confluence` - Confluence
@@ -107974,6 +107818,7 @@ export namespace Schemas {
        * * `Square` - Square
        * * `Zoom` - Zoom
        * * `Trello` - Trello
+       * * `TrafficStars` - TrafficStars
        * * `Monday` - Monday
        * * `ClickUp` - ClickUp
        * * `Confluence` - Confluence
@@ -110909,19 +110754,6 @@ export namespace Schemas {
     export interface SurveySummarizeRequest {
       /** When true, bypass cached summaries and regenerate. Defaults to false. */
       force_refresh?: boolean;
-    }
-
-    export interface TaggerCreate {
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfigurationWrite | null;
     }
 
     export interface TaggerUpdate {
