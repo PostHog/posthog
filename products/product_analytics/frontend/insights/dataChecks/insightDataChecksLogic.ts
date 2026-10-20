@@ -29,7 +29,7 @@ import type {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { isEventsNode, isInsightQueryWithSeries, isInsightVizNode } from '~/queries/utils'
+import { isEventsNode, isInsightQueryWithSeries, isInsightVizNode, shouldQueryBeAsync } from '~/queries/utils'
 import { SidePanelTab } from '~/types'
 import type { AnyPropertyFilter, InsightLogicProps, TeamPublicType, TeamType } from '~/types'
 
@@ -525,9 +525,16 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             })
             posthog.capture('insight data check fix applied', { check: check.key, fix: 'add_filter_rule' })
         },
-        // The project's filter decides what the checks report, so they run again once it changes.
+        // The project's filter decides what the checks report, so they run again once it changes. A chart that applies
+        // the filter loads again first, and its forced refresh runs the checks when it ends.
         updateCurrentTeamSuccess: ({ payload }) => {
-            if (payload && 'test_account_filters' in payload) {
+            if (!payload || !('test_account_filters' in payload)) {
+                return
+            }
+            const source = values.checkedQuery?.source
+            if (source?.filterTestAccounts) {
+                actions.loadData(shouldQueryBeAsync(source) ? 'force_async' : 'force_blocking')
+            } else {
                 actions.checkData(true)
             }
         },
