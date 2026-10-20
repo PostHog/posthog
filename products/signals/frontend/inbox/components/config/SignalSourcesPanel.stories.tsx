@@ -5,7 +5,6 @@ import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -356,7 +355,6 @@ export const SourceConfigsUnavailable: Story = {
 
 /** Replay vision opened: user-created scanners as sub-rows, capped at eight, with a filter. */
 export const ReplayVisionExpanded: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByText('Replay vision', { exact: true }))
     },
@@ -364,7 +362,6 @@ export const ReplayVisionExpanded: Story = {
 
 /** Error tracking opened: a fixed list of signal types, so no filter, no cap, and no New button. */
 export const ErrorTrackingExpanded: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByText('Error tracking', { exact: true }))
     },
