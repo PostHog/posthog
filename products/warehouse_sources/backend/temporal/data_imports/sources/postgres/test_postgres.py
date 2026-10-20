@@ -1800,6 +1800,28 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — a view/column's
+            # own PL/pgSQL function raising a custom access-check error during our read.
+            "Access denied: No user ID provided\nCONTEXT:  PL/pgSQL function reject_anonymous_reads(uuid) line 9 at RAISE",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "RaiseException: Access denied: No user ID provided",
+        ],
+    )
+    def test_custom_function_access_denied_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Custom function access-denied error should be non-retryable: {error_msg}"
+
+    def test_custom_function_access_denied_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "Access denied: No user ID provided"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Custom function access-denied error should surface an actionable message"
+        assert "auth.uid()" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)).
             'user mapping not found for user "svc_role", server "remote_server"',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
