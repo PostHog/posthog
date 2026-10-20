@@ -124,7 +124,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
                     }
                 >
                     <SharingModal
-                        title="Dashboard permissions & sharing"
+                        title="Share dashboard"
                         isOpen={isSharingOpen}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}

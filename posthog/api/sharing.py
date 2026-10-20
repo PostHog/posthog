@@ -382,8 +382,7 @@ class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serialize
             filtered_data = {k: v for k, v in value.items() if k in known_fields}
 
             validated_settings = SharingConfigurationSettings.model_validate(filtered_data, strict=False)
-            result = validated_settings.model_dump(exclude_none=True)
-            return result
+            return validated_settings.model_dump(exclude_none=True)
         except Exception as e:
             capture_exception(e)
             raise serializers.ValidationError("Invalid settings format")
@@ -1423,6 +1422,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             merged_data = base_settings.model_dump()
             for field_name in base_settings.model_fields.keys():
                 if field_name in request.GET:
+                    # Branding is the owner's choice and is validated on save, so a viewer's URL must not override it
+                    if field_name == "showOrganizationLogo":
+                        continue
                     raw_value = request.GET.get(field_name)
                     if field_name == "theme":
                         if raw_value in {"light", "dark", "system"}:
@@ -1451,6 +1453,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             AvailableFeature.WHITE_LABELLING
         ):
             exported_data.update({"whitelabel": True})
+            logo_media_id = resource.team.organization.logo_media_id
+            if resource.dashboard and final_settings.showOrganizationLogo and logo_media_id:
+                exported_data["brandLogoMediaId"] = str(logo_media_id)
 
         if final_settings.noHeader:
             exported_data.update({"noHeader": True})

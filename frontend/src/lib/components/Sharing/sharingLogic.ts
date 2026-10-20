@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getInsightId } from 'scenes/insights/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -40,6 +41,7 @@ const defaultSharingSettings = {
     showInspector: false,
     hideExtraDetails: false,
     theme: 'system',
+    showOrganizationLogo: false,
 }
 
 const propsToApiParams = async (
@@ -77,15 +79,18 @@ export interface sharingLogicValues {
     isSharingSettingsSubmitting: boolean
     isSharingSettingsValid: boolean
     params: any
+    settingsBeingSaved: Record<string, boolean>
     shareLink: string
     sharingAllowed: boolean
     sharingConfiguration: SharingConfigurationType | null
     sharingConfigurationLoading: boolean
+    sharingEnabledUpdating: boolean
     sharingSettings: {
         hideExtraDetails: boolean
         legend: boolean
         noHeader: boolean
         showInspector: boolean
+        showOrganizationLogo: boolean
         theme: string
         whitelabel: boolean
     }
@@ -97,6 +102,7 @@ export interface sharingLogicValues {
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         },
@@ -112,6 +118,7 @@ export interface sharingLogicValues {
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         },
@@ -148,6 +155,7 @@ export interface sharingLogicActions {
         legend: boolean
         noHeader: boolean
         showInspector: boolean
+        showOrganizationLogo: boolean
         theme: string
         whitelabel: boolean
     }) => {
@@ -156,9 +164,19 @@ export interface sharingLogicActions {
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         }
+    }
+    setDashboardBranding: (branding: {
+        setting: 'showOrganizationLogo' | 'whitelabel'
+        showOrganizationLogo: boolean
+        whitelabel: boolean
+    }) => {
+        setting: 'showOrganizationLogo' | 'whitelabel'
+        showOrganizationLogo: boolean
+        whitelabel: boolean
     }
     setIsEnabled: (enabled: boolean) => boolean
     setIsEnabledFailure: (
@@ -190,6 +208,13 @@ export interface sharingLogicActions {
         sharingConfiguration: SharingConfigurationType | null
         payload?: boolean
     }
+    setSharingSettingSaving: (
+        setting: string,
+        saving: boolean
+    ) => {
+        saving: boolean
+        setting: string
+    }
     setSharingSettingsManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -206,6 +231,7 @@ export interface sharingLogicActions {
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         }>
@@ -215,6 +241,7 @@ export interface sharingLogicActions {
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         }>
@@ -234,6 +261,7 @@ export interface sharingLogicActions {
         legend: boolean
         noHeader: boolean
         showInspector: boolean
+        showOrganizationLogo: boolean
         theme: string
         whitelabel: boolean
     }) => {
@@ -242,6 +270,7 @@ export interface sharingLogicActions {
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         }
@@ -251,6 +280,7 @@ export interface sharingLogicActions {
         legend: boolean
         noHeader: boolean
         showInspector: boolean
+        showOrganizationLogo: boolean
         theme: string
         whitelabel: boolean
     }) => {
@@ -259,6 +289,7 @@ export interface sharingLogicActions {
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         }
@@ -269,7 +300,10 @@ export interface sharingLogicActions {
     touchSharingSettingsField: (key: string) => {
         key: string
     }
-    updateSettings: (settings: Record<string, any>) => Record<string, any>
+    updateSettings: ({ settings, setting }: { setting: string; settings: Record<string, unknown> }) => {
+        settings: Record<string, unknown>
+        setting: string
+    }
     updateSettingsFailure: (
         error: string,
         errorObject?: any
@@ -279,10 +313,16 @@ export interface sharingLogicActions {
     }
     updateSettingsSuccess: (
         sharingConfiguration: SharingConfigurationType | null,
-        payload?: Record<string, any>
+        payload?: {
+            settings: Record<string, unknown>
+            setting: string
+        }
     ) => {
         sharingConfiguration: SharingConfigurationType | null
-        payload?: Record<string, any>
+        payload?: {
+            settings: Record<string, unknown>
+            setting: string
+        }
     }
 }
 
@@ -352,13 +392,33 @@ export const sharingLogic = kea<sharingLogicType>([
     actions({
         togglePreview: true,
         reloadIframe: true,
+        setSharingSettingSaving: (setting: string, saving: boolean) => ({ setting, saving }),
+        setDashboardBranding: (branding: {
+            whitelabel: boolean
+            showOrganizationLogo: boolean
+            setting: 'whitelabel' | 'showOrganizationLogo'
+        }) => branding,
     }),
     reducers({
         showPreview: [true, { togglePreview: (state) => !state }],
         iframeKey: [0, { reloadIframe: (state) => state + 1 }],
+        sharingEnabledUpdating: [
+            false,
+            {
+                setIsEnabled: () => true,
+                setIsEnabledSuccess: () => false,
+                setIsEnabledFailure: () => false,
+            },
+        ],
+        settingsBeingSaved: [
+            {} as Record<string, boolean>,
+            {
+                setSharingSettingSaving: (state, { setting, saving }) => ({ ...state, [setting]: saving }),
+            },
+        ],
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ props, actions, cache }) => ({
         sharingConfiguration: [
             null as SharingConfigurationType | null,
             {
@@ -377,8 +437,31 @@ export const sharingLogic = kea<sharingLogicType>([
                         password_required,
                     })
                 },
-                updateSettings: async (settings: Record<string, any>) => {
-                    return await api.sharing.update(await propsToApiParams(props), { settings })
+                updateSettings: async ({
+                    settings,
+                    setting,
+                }: {
+                    settings: Record<string, unknown>
+                    setting: string
+                }) => {
+                    actions.setSharingSettingSaving(setting, true)
+                    const saveVersion = (cache.settingsSaveVersion ?? 0) + 1
+                    cache.settingsSaveVersion = saveVersion
+                    try {
+                        const save = (cache.settingsSaveQueue ?? Promise.resolve())
+                            .catch(() => null)
+                            .then(async () => api.sharing.update(await propsToApiParams(props), { settings }))
+                        cache.settingsSaveQueue = save
+                        return await save
+                    } catch (error) {
+                        lemonToast.error('Could not save sharing settings. Please try again.')
+                        if (saveVersion === cache.settingsSaveVersion) {
+                            actions.loadSharingConfiguration()
+                        }
+                        throw error
+                    } finally {
+                        actions.setSharingSettingSaving(setting, false)
+                    }
                 },
             },
         ],
@@ -406,11 +489,44 @@ export const sharingLogic = kea<sharingLogicType>([
             if (name === 'whitelabel' && props.insightShortId) {
                 posthog.capture(`insight whitelabel toggled`, { is_whitelabelled: value })
             }
+            if (name === 'showOrganizationLogo' && props.dashboardId) {
+                posthog.capture(`dashboard custom branding updated`, {
+                    dashboard_id: props.dashboardId,
+                    setting: name,
+                    has_value: !!value,
+                })
+            }
             // Auto-save all embed config changes to settings
             if (values.sharingConfiguration) {
                 actions.updateSettings({
-                    ...values.sharingConfiguration.settings,
-                    [name as string]: value,
+                    settings: {
+                        ...values.sharingConfiguration.settings,
+                        ...values.sharingSettings,
+                    },
+                    setting: String(name),
+                })
+            }
+        },
+        setDashboardBranding: ({ whitelabel, showOrganizationLogo, setting }) => {
+            const nextSettings = { ...values.sharingSettings, whitelabel, showOrganizationLogo }
+            if (props.dashboardId && whitelabel !== values.sharingSettings.whitelabel) {
+                posthog.capture('dashboard whitelabel toggled', {
+                    dashboard_id: props.dashboardId,
+                    is_whitelabelled: whitelabel,
+                })
+            }
+            if (props.dashboardId && showOrganizationLogo !== values.sharingSettings.showOrganizationLogo) {
+                posthog.capture('dashboard custom branding updated', {
+                    dashboard_id: props.dashboardId,
+                    setting: 'showOrganizationLogo',
+                    has_value: showOrganizationLogo,
+                })
+            }
+            actions.setSharingSettingsValues(nextSettings)
+            if (values.sharingConfiguration) {
+                actions.updateSettings({
+                    settings: { ...values.sharingConfiguration.settings, ...nextSettings },
+                    setting,
                 })
             }
         },
@@ -503,6 +619,7 @@ export const sharingLogic = kea<sharingLogicType>([
                 width: string
             }) =>
                 `<iframe ${Object.entries(iframeProperties)
+                    .filter(([key]) => key !== 'key')
                     .map(([key, value]) => {
                         if (value === true) {
                             return key.toLowerCase()

@@ -47,6 +47,22 @@ describe('Exporter (shared dashboard)', () => {
         document.title = initialTitle
     })
 
+    it.each([ExportType.Scene, ExportType.Embed])('shows the custom logo in the %s view', (type) => {
+        const { container } = render(
+            <Exporter
+                {...makeDashboardExport({
+                    type,
+                    whitelabel: true,
+                    brandLogoMediaId: 'logo-id',
+                })}
+            />
+        )
+
+        const logo = container.querySelector('[data-attr="shared-dashboard-brand-logo"]')
+        expect(logo?.getAttribute('src')).toContain('/uploaded_media/logo-id')
+        expect(logo?.closest('a')).toBeNull()
+    })
+
     it('shows auto refresh text in header', () => {
         const { getAllByText } = render(<Exporter {...makeDashboardExport()} />)
 
