@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import field
 from types import MappingProxyType
-from typing import Any
 
 from posthog.schema import HogQLFilters, HogQLQueryModifiers, HogQLVariable
 
@@ -31,14 +30,10 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.trino_locator import TrinoTableLocator
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.placeholders import find_placeholders
-from posthog.hogql.printer.trino_hogql import TrinoHogQLPrinter
-from posthog.hogql.printer.utils import prepare_and_print_ast
-from posthog.hogql.resolver import resolve_types
-from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.transforms.trino.contracts import TrinoCompilation
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode
@@ -67,12 +62,7 @@ class TrinoCatalogManifest:
     week_start_day: WeekStartDay = WeekStartDay.SUNDAY
 
 
-@frozen
-class TrinoManifestTranspilerResult:
-    sql: str
-    values: dict[str, Any]
-    hogql: str | None = None
-    print_columns: tuple[str, ...] = ()
+TrinoManifestTranspilerResult = TrinoCompilation
 
 
 @frozen
@@ -367,74 +357,39 @@ def transpile_hogql_to_trino_with_database(
     A DirectTrinoTable carries its own physical locator, so ``locators`` is only needed for
     tables that do not, such as the managed core tables.
     """
-    _validate_pure_inputs(filters=filters, variables=variables, modifiers=modifiers)
-    placeholders: dict[str, ast.Expr] | None = (
-        {key: ast.Constant(value=value) for key, value in values.items()} if values else None
+    from posthog.hogql.transforms.trino.compiler import (
+        compile_trino_query,  # noqa: PLC0415 -- avoids a compiler/manifest import cycle
     )
-    node = parse_select(query, placeholders=placeholders) if isinstance(query, str) else clone_expr(query, True)
-    if default_limit is not None:
-        for select_query in extract_select_queries(node):
-            if select_query.limit is None:
-                select_query.limit = ast.Constant(value=default_limit)
-    unsupported_placeholders = find_placeholders(node)
-    if (
-        unsupported_placeholders.has_filters
-        or unsupported_placeholders.placeholder_fields
-        or unsupported_placeholders.placeholder_expressions
-    ):
-        raise TrinoLoweringError(
-            "TRINO_PURE_PLACEHOLDER_UNSUPPORTED",
-            "unresolved placeholder",
-            node,
-            detail="Pure Trino transpilation only accepts constant values supplied by the caller.",
-        )
-    _UnsupportedSemanticFeatureFinder().visit(node)
 
-    table_locators = locators if locators is not None else {}
-
-    def create_context() -> HogQLContext:
-        return HogQLContext(
-            database=database,
-            team_id=None,
-            team=None,
-            user=None,
-            enable_select_queries=True,
-            limit_top_select=limit_top_select,
-            limit_context=limit_context,
-            modifiers=HogQLQueryModifiers(
-                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                convertToProjectTimezone=(
-                    modifiers.convertToProjectTimezone
-                    if modifiers is not None and modifiers.convertToProjectTimezone is not None
-                    else convert_to_project_timezone
-                ),
+    context = HogQLContext(
+        database=database,
+        team_id=None,
+        team=None,
+        user=None,
+        enable_select_queries=True,
+        limit_top_select=limit_top_select,
+        limit_context=limit_context,
+        modifiers=HogQLQueryModifiers(
+            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            convertToProjectTimezone=(
+                modifiers.convertToProjectTimezone
+                if modifiers is not None and modifiers.convertToProjectTimezone is not None
+                else convert_to_project_timezone
             ),
-            restricted_properties=set(),
-            trino_table_locators=table_locators,
-            timezone=database.get_timezone(),
-            week_start_day=database.get_week_start_day(),
-        )
-
-    context = create_context()
-    hogql: str | None = None
-    print_columns: list[str] = []
-    if include_hogql:
-        hogql_context = create_context()
-        prepared_hogql = resolve_types(clone_expr(node), hogql_context, dialect="trino")
-        hogql = TrinoHogQLPrinter(context=hogql_context).visit(prepared_hogql)
-        if isinstance(prepared_hogql, ast.SelectQuery | ast.SelectSetQuery):
-            columns_query = (
-                next(extract_select_queries(prepared_hogql))
-                if isinstance(prepared_hogql, ast.SelectSetQuery)
-                else prepared_hogql
-            )
-            for select_node in columns_query.select:
-                if isinstance(select_node, ast.Alias):
-                    print_columns.append(select_node.alias)
-                else:
-                    stack: list[ast.AST] = [prepared_hogql] if isinstance(prepared_hogql, ast.SelectQuery) else []
-                    print_columns.append(TrinoHogQLPrinter(context=hogql_context, stack=stack).visit(select_node))
-    sql, _ = prepare_and_print_ast(node, context, dialect="trino", pretty=pretty)
-    return TrinoManifestTranspilerResult(
-        sql=sql, values=dict(context.values), hogql=hogql, print_columns=tuple(print_columns)
+        ),
+        restricted_properties=set(),
+        trino_table_locators=locators or {},
+        timezone=database.get_timezone(),
+        week_start_day=database.get_week_start_day(),
+    )
+    return compile_trino_query(
+        query,
+        context=context,
+        values=values,
+        filters=filters,
+        variables=variables,
+        modifiers=modifiers,
+        default_limit=default_limit,
+        include_hogql=include_hogql,
+        pretty=pretty,
     )

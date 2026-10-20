@@ -370,11 +370,62 @@ class TestCompileHogQLToTrinoSQL:
                 bypass_warehouse_access_control=True,
             )
 
+        assert compiled.fingerprint == without_diagnostics.fingerprint
+        assert "translation_source" in compiled.dependencies
         assert (compiled.sql, compiled.values) == (without_diagnostics.sql, without_diagnostics.values)
         assert (round_trip.sql, round_trip.values) == (compiled.sql, compiled.values)
         assert '"org_catalog"."posthog"."events_production"' in compiled.sql
         assert "signup" in compiled.values.values()
         assert "translation_source" in compiled.hogql
+
+    @pytest.mark.django_db
+    def test_materialized_dependency_definition_changes_fingerprint_without_changing_sql(self) -> None:
+        organization = Organization.objects.create(name="trino-dependency-freshness")
+        team = Team.objects.create(organization=organization)
+        columns = {"value": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
+        table = DataWarehouseTable.objects.create(
+            team=team,
+            name="upstream",
+            format="Parquet",
+            url_pattern="https://example.com/model.parquet",
+            columns=columns,
+        )
+        saved = DataWarehouseSavedQuery.objects.create(
+            team=team,
+            name="upstream",
+            table=table,
+            is_materialized=True,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+            columns=columns,
+        )
+        with (
+            mock.patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=_membership(team_id=team.pk, organization_id=str(organization.pk)),
+            ),
+        ):
+            first = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query="SELECT value FROM upstream"),
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+            )
+            saved.query = {"kind": "HogQLQuery", "query": "SELECT 2 AS value"}
+            saved.save()
+            second = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query="SELECT value FROM upstream"),
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+            )
+        assert first.sql == second.sql
+        assert first.values == second.values
+        assert first.fingerprint != second.fingerprint
 
     def test_fails_closed_without_a_ready_catalog(self) -> None:
         team = _team()

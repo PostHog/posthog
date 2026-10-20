@@ -6227,6 +6227,7 @@ class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    code: str | None = Field(default=None, description="Stable diagnostic code for programmatic handling.")
     end: int | None = None
     fix: str | None = None
     message: str

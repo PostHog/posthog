@@ -24,6 +24,40 @@ second = catalog.transpile("SELECT count() FROM events")
 
 Pure transpilation accepts caller-supplied constant values. It rejects unresolved placeholders, action and cohort references, tables absent from the manifest, non-leaf warehouse column types, and invalid or incomplete manifest entries. Callers needing Django-backed semantics must select the explicit expansion mode described below.
 
+## Shared compilation and editor diagnostics
+
+`compile_trino_query(...)` is the shared compilation boundary for manifest callers,
+SQL Editor validation and execution, and Django-backed managed model translation.
+Its caller supplies the authorized schema context and an explicit `TrinoExpansionMode`.
+The result includes SQL, named values, output columns, dependency names, a versioned
+compilation fingerprint, and compatibility warnings. The final detached transpiler
+continues to have no team, user, or schema database.
+
+Editor metadata uses the same input checks and compiler as execution. Unsupported
+constructs return an error with a stable `code` and source span. Known approximate
+quantile differences return `TRINO_APPROXIMATE_QUANTILE_PARITY` warnings without
+making the query invalid. Successful validation establishes compilation compatibility;
+it does not certify equal ClickHouse results or successful execution against a connector.
+
+The default-off `managed-warehouse-trino-editor` flag opts dynamic, system-managed
+warehouse connections into Django semantic expansion for HogQL reads after the existing
+managed Trino engine selection is enabled. The server verifies the connection's
+project and managed credential identity, then resolves the ready catalog and authoritative
+project table mapping. An external Trino connection never gains PostHog semantic expansion
+from its name or dialect. Raw SQL retains its existing engine path.
+
+Managed HogQL reads expand actions and saved queries with the requesting user's permissions.
+Every physical dependency must have a Trino binding. Cohorts that require unexported backing
+tables fail compilation, as do contexts with property-level restrictions. Reads use renewable
+service credentials, the direct Trino result cap and deadline, and cancellation signals.
+Model writes retain their separate Temporal executor and publication lifecycle.
+
+Compilation fingerprints include the compiler version, SQL and parameters, referenced table
+bindings and field types, project timezone/week start, and referenced saved-model definitions.
+Increment `TRINO_COMPILER_VERSION` when compiler semantics change; this version also partitions
+Trino query caches. Model materialization compiles each current definition before execution,
+including incremental filters, and does not execute stored translation SQL.
+
 ## Curated warehouse fields in manifests
 
 Physical imports can expose different names and types from the HogQL schema. Supply
@@ -62,7 +96,7 @@ inputs are bounded or the caller applies explicit experimental rewrites.
 
 ## Query Editor connection integration
 
-The connection integration advertises `TrinoAdapter.dialect = "trino"`. Selecting a Trino connection for a HogQL query calls the same pure transpiler as managed compilation, handing it the connection-scoped database directly. It does not enable Django semantic expansion. Catalog introspection through `system.information_schema` keeps running on the ClickHouse path. Editor validation prints with the same dialect and rejects the same unsupported features, so a query that validates also compiles.
+The connection integration advertises `TrinoAdapter.dialect = "trino"`. Selecting an external Trino connection for a HogQL query uses the shared compiler in pure mode with the connection-scoped database. Managed HogQL opt-in uses the server-resolved Django mode described above. Catalog introspection through `system.information_schema` keeps running on the ClickHouse path. Editor validation prints with the same dialect and rejects the same unsupported features, so a query that validates also compiles.
 
 Table and field lookup follow Trino's case-insensitive identifier rules for discovered tables and columns, including table-qualified column references; explicit aliases keep their written case. Printed relations use the connection's catalog, schema, and physical table name. Tables outside the selected connection are absent from the connection-scoped database. Actions, cohorts, saved queries, content-carrying query filters, variables, and Django-only modifiers receive the pure compiler's existing unsupported-feature errors; a content-free filters object and modifiers carried as explicit nulls pass through.
 
@@ -278,7 +312,7 @@ Trino enforces tenant capacity and query queueing.
 Model builds and alias passes submit work without application-level global or organization admission limits.
 Their synchronous client calls use a dedicated executor with Python's default pool size, separate from the general database thread pool.
 
-The client enforces a 15-minute execution deadline and sends cancellation through the active Trino cursor when the activity is canceled or its deadline expires.
+The client enforces a six-hour execution deadline and sends cancellation through the active Trino cursor when the activity is canceled or its deadline expires.
 Activities heartbeat every second under a two-minute heartbeat timeout, and workflow cancellation waits for activity cleanup.
 Alias passes use a five-minute total deadline and cancel the active Trino cursor when the deadline expires.
 

@@ -510,55 +510,41 @@ class HogQLQueryExecutor:
             for lazy_table_type in extract_lazy_table_types(query_type)
         )
 
-    def _prepare_pure_trino_query(self) -> _PreparedExecution | None:
+    def _prepare_trino_query(self) -> _PreparedExecution | None:
         source = self._resolve_direct_source()
         if source is None or self.connection_id is None:
-            raise InternalHogQLError("Pure Trino compilation requires a selected connection.")
+            raise InternalHogQLError("Trino compilation requires a selected connection.")
 
-        database = Database.create_for(
-            team=self.team,
-            user=self.user,
-            user_access_control=self.context.user_access_control,
-            modifiers=self.query_modifiers,
-            timings=self.timings,
-            connection_id=self.connection_id,
-            bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
-            trigger="executor",
+        from posthog.hogql.transforms.trino.compiler import (
+            compile_trino_query,  # noqa: PLC0415 -- loads only for selected Trino targets
         )
+        from posthog.hogql.transforms.trino.editor import prepare_trino_editor_target  # noqa: PLC0415
 
         limit_context = self.limit_context or LimitContext.QUERY
-        direct_context = dataclasses.replace(
-            self.context,
-            is_direct_query=True,
-            team_id=self.team.pk,
+        target = prepare_trino_editor_target(
             team=self.team,
-            enable_select_queries=True,
-            timings=self.timings,
-            modifiers=self.query_modifiers,
-            limit_context=limit_context,
-            database=database,
+            user=self.user,
+            source=source,
+            modifiers=self.modifiers,
+            context=dataclasses.replace(
+                self.context,
+                modifiers=self.query_modifiers,
+                limit_context=limit_context,
+                limit_top_select=limit_context not in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY),
+            ),
         )
-
+        direct_context = target.context
         # Catalog introspection describes the connection but reads nothing from it. Route such a
         # query to the ClickHouse path in _prepare_execution, where these tables exist.
         if self._references_information_schema(direct_context):
             return None
-
-        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the optional backend only for Trino queries
-            transpile_hogql_to_trino_with_database,
-        )
-
-        transpiled = transpile_hogql_to_trino_with_database(
+        transpiled = compile_trino_query(
             self.select_query,
-            database=database,
+            context=direct_context,
+            expansion_mode=target.expansion_mode,
             filters=self.filters,
             variables=self.variables,
             modifiers=self.modifiers,
-            # The team-effective value, so a team-level timezone setting is honored even when the
-            # caller sets no modifiers of its own.
-            convert_to_project_timezone=self.query_modifiers.convertToProjectTimezone,
-            limit_top_select=limit_context not in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY),
-            limit_context=limit_context,
             default_limit=get_default_limit_for_context(limit_context),
             pretty=self.pretty if self.pretty is not None else True,
             include_hogql=True,
@@ -865,7 +851,7 @@ class HogQLQueryExecutor:
         adapter = get_adapter_for_source(source, team=self.team) if source is not None else None
         self._compilation_adapter = adapter
         if adapter is not None and adapter.engine == "trino":
-            trino_execution = self._prepare_pure_trino_query()
+            trino_execution = self._prepare_trino_query()
             if trino_execution is not None:
                 return trino_execution
 

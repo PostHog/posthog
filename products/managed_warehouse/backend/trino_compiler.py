@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import field
-from typing import TYPE_CHECKING, Any, cast
+from dataclasses import field, replace
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter
 from rest_framework import status
+
+from posthog.hogql.errors import QueryError
 
 from posthog.dataclasses import frozen
 
@@ -16,10 +18,11 @@ from products.managed_warehouse.backend.table_binding import build_trino_table_l
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from posthog.schema import HogQLQuery
+    from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
+    from posthog.hogql.context import HogQLContext
     from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest
 
     from posthog.models import Team, User
@@ -40,8 +43,8 @@ TRINO_PURE_REJECTION_TOTAL = Counter(
 )
 
 
-class TrinoTargetUnavailable(RuntimeError):
-    pass
+class TrinoTargetUnavailable(QueryError):
+    feature_code = "TRINO_TARGET_UNAVAILABLE"
 
 
 @frozen
@@ -70,7 +73,7 @@ class PreparedTrinoCompiler:
         except TrinoLoweringError as error:
             TRINO_PURE_REJECTION_TOTAL.labels(feature_code=error.feature_code).inc()
             raise
-        return TrinoCompiledQuery(sql=transpiled.sql, values=transpiled.values, hogql=transpiled.hogql)
+        return transpiled
 
 
 def _reject_pure_compilation(error: Exception, *, feature_code: str) -> None:
@@ -179,7 +182,7 @@ def prepare_hogql_to_trino_compiler(
             TrinoLoweringError(
                 "TRINO_PURE_CORE_TABLE_OVERRIDE",
                 "core table manifest",
-                detail="Managed warehouse compilation owns the core table physical mappings.",
+                detail="Managed warehouse compilation owns the events and persons physical mappings.",
             ),
             feature_code="TRINO_PURE_CORE_TABLE_OVERRIDE",
         )
@@ -253,112 +256,126 @@ def compile_hogql_to_trino_sql(
             catalog_manifest=catalog_manifest,
         ).compile(query, include_hogql=include_hogql)
 
-    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.transforms.trino.compiler import (  # noqa: PLC0415 -- loads the optional backend only for Trino compilation
+        compilation_fingerprint,
+        compile_trino_query,
+    )
+
+    context = prepare_django_trino_context(
+        team_id,
+        team=team,
+        user=user,
+        user_access_control=user_access_control,
+        modifiers=query.modifiers,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
+    context.limit_top_select = limit_top_select
+    context.limit_context = limit_context
+    TRINO_COMPILATION_TOTAL.labels(mode=expansion_mode.value).inc()
+    compiled = compile_trino_query(
+        query.query,
+        context=context,
+        expansion_mode=expansion_mode,
+        values=query.values,
+        filters=query.filters,
+        variables=query.variables,
+        modifiers=query.modifiers,
+        include_hogql=include_hogql,
+        select_transform=select_transform,
+    )
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+
+    model_definitions = dict(
+        DataWarehouseSavedQuery.objects.filter(
+            team_id=team_id,
+            deleted=False,
+            name__in=compiled.dependencies,
+        ).values_list("name", "query")
+    )
+    return replace(
+        compiled,
+        fingerprint=compilation_fingerprint(
+            {
+                "compilation": compiled.fingerprint,
+                "models": model_definitions,
+            }
+        ),
+    )
+
+
+def prepare_django_trino_context(
+    team_id: int,
+    *,
+    team: Team | None = None,
+    user: User | None = None,
+    user_access_control: UserAccessControl | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
+    bypass_warehouse_access_control: bool = False,
+) -> HogQLContext:
     from posthog.hogql.context import HogQLContext  # noqa: PLC0415
     from posthog.hogql.database.database import Database  # noqa: PLC0415
-    from posthog.hogql.filters import replace_filters  # noqa: PLC0415
     from posthog.hogql.modifiers import create_default_modifiers_for_team  # noqa: PLC0415
-    from posthog.hogql.parser import parse_select, sanitize_client_parser_mode  # noqa: PLC0415
-    from posthog.hogql.placeholders import find_placeholders, replace_placeholders  # noqa: PLC0415
-    from posthog.hogql.printer.trino_hogql import (
-        TrinoHogQLPrinter,  # noqa: PLC0415 -- keeps compiler imports off Django startup
-    )
-    from posthog.hogql.printer.utils import prepare_and_print_ast  # noqa: PLC0415
-    from posthog.hogql.resolver import resolve_types  # noqa: PLC0415 -- keeps compiler imports off Django startup
-    from posthog.hogql.variables import replace_variables  # noqa: PLC0415
-    from posthog.hogql.visitor import clone_expr  # noqa: PLC0415
 
     from posthog.models.team.team import Team  # noqa: PLC0415
 
     team = team or Team.objects.get(pk=team_id)
+    if team.pk != team_id:
+        raise TrinoTargetUnavailable("The provided team does not match the requested project")
     organization_id = str(team.organization_id)
     catalog_name = get_ready_trino_catalog_name(organization_id)
     if catalog_name is None:
         raise TrinoTargetUnavailable("The organization does not have a ready Trino catalog")
-
     membership = get_org_team_membership(organization_id, team_id)
-    if membership is None:
+    if (
+        membership is None
+        or not membership.enabled
+        or membership.team_id != team_id
+        or str(membership.organization_id) != organization_id
+    ):
         raise TrinoTargetUnavailable("The project does not have an authoritative physical table mapping")
-
-    TRINO_COMPILATION_TOTAL.labels(mode=expansion_mode.value).inc()
-    if expansion_mode != TrinoExpansionMode.DJANGO:
-        raise ValueError(f"Unknown Trino expansion mode: {expansion_mode}")
-
-    query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
-    placeholder_values: dict[str, ast.Expr] | None = (
-        {key: ast.Constant(value=value) for key, value in query.values.items()} if query.values else None
-    )
-    parsed = parse_select(
-        query.query,
-        placeholders=placeholder_values,
-        parser_mode=sanitize_client_parser_mode(query_modifiers.parserMode),
-    )
-
+    effective_modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database.create_for(
         team_id,
         team=team,
         user=user,
         user_access_control=user_access_control,
-        modifiers=query_modifiers,
+        modifiers=effective_modifiers,
         # Preserve an explicit trusted-internal bypass; the public default remains fail-closed.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
         trigger="trino",
     )
-    placeholders = find_placeholders(parsed)
-    if placeholders.has_filters:
-        parsed = replace_filters(parsed, query.filters, team, database=database)
-    if query.variables:
-        parsed = replace_variables(parsed, list(query.variables.values()), team)
-    if placeholders.placeholder_fields or placeholders.placeholder_expressions:
-        variables: dict[str, Any] = {}
-        replacements: dict[str, Any] = {"variables": variables, **(placeholder_values or {})}
-        if query.variables:
-            for variable in query.variables.values():
-                variables[variable.code_name] = variable.value
-        parsed = cast("ast.SelectQuery | ast.SelectSetQuery", replace_placeholders(parsed, replacements))
-    if select_transform is not None:
-        parsed = select_transform(parsed)
-
-    trino_table_locators = build_trino_table_locators(
-        database,
-        team_id,
-        catalog_name=catalog_name,
-        table_names=membership.table_names,
-    )
-    trino_context = HogQLContext(
+    return HogQLContext(
         team_id=team_id,
         team=team,
         user=user,
         user_access_control=user_access_control,
         enable_select_queries=True,
-        limit_top_select=limit_top_select,
-        limit_context=limit_context,
-        modifiers=query_modifiers,
+        limit_top_select=False,
+        modifiers=effective_modifiers,
+        database=database,
         # Match the access-controlled database above instead of widening it during resolution.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
-        database=database,
-        trino_table_locators=trino_table_locators,
+        trino_table_locators=build_trino_table_locators(
+            database,
+            team_id,
+            catalog_name=catalog_name,
+            table_names=membership.table_names,
+        ),
     )
-    hogql_ast = clone_expr(parsed) if include_hogql else None
-    trino_sql, _ = prepare_and_print_ast(parsed, trino_context, dialect="trino")
 
-    hogql_pretty: str | None = None
-    if hogql_ast is not None:
-        hogql_context = HogQLContext(
-            team_id=team_id,
-            team=team,
-            user=user,
-            user_access_control=user_access_control,
-            enable_select_queries=True,
-            limit_top_select=limit_top_select,
-            limit_context=limit_context,
-            modifiers=query_modifiers,
-            bypass_warehouse_access_control=bypass_warehouse_access_control,
-            database=database,
-            trino_table_locators=trino_table_locators,
-            restricted_properties=trino_context.restricted_properties,
-        )
-        resolved_hogql = resolve_types(hogql_ast, hogql_context, dialect="trino")
-        hogql_pretty = TrinoHogQLPrinter(context=hogql_context).visit(resolved_hogql)
 
-    return TrinoCompiledQuery(sql=trino_sql, values=dict(trino_context.values), hogql=hogql_pretty)
+def is_managed_trino_editor_connection(team_id: int, connection_id: str) -> bool:
+    from posthog.ph_client import feature_enabled_or_false  # noqa: PLC0415
+
+    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
+
+    source = ExternalDataSource.objects.filter(team_id=team_id, id=connection_id, deleted=False).first()
+    if source is None or not source.is_dynamic_managed_warehouse:
+        return False
+    return feature_enabled_or_false(
+        "managed-warehouse-trino-editor",
+        str(team_id),
+        groups={"organization": str(source.team.organization_id), "project": str(team_id)},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
