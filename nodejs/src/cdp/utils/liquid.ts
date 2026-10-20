@@ -84,33 +84,46 @@ const decodeLiquidTags = (template: string): string => {
     return out + template.slice(cursor)
 }
 
+const createLiquid = (outputEscape: 'escape' | undefined): Liquid => {
+    const liquid = new Liquid({
+        outputEscape,
+        // Render partials from an in-memory map only: this disables LiquidJS's filesystem-backed
+        // partial loading, so user-controlled templates can't read local files via include/render/layout.
+        templates: {},
+        parseLimit: LIQUID_PARSE_LIMIT_CHARS,
+        renderLimit: LIQUID_RENDER_LIMIT_MS,
+        memoryLimit: LIQUID_MEMORY_LIMIT_UNITS,
+    })
+    for (const name of LIQUID_UNBOUNDED_FILTERS) {
+        liquid.registerFilter(name, () => {
+            throw new Error(`liquid filter ${name} is not supported`)
+        })
+    }
+    return liquid
+}
+
+export type LiquidRenderOptions = {
+    // Only for output that is never parsed as HTML, such as an email subject or its plain-text part.
+    escapeHtml?: boolean
+}
+
 export class LiquidRenderer {
     private static _liquid: Liquid | null = null
+    private static _plainTextLiquid: Liquid | null = null
 
     private static get liquid(): Liquid {
-        if (!this._liquid) {
-            this._liquid = new Liquid({
-                outputEscape: 'escape',
-                // Render partials from an in-memory map only: this disables LiquidJS's filesystem-backed
-                // partial loading, so user-controlled templates can't read local files via include/render/layout.
-                templates: {},
-                parseLimit: LIQUID_PARSE_LIMIT_CHARS,
-                renderLimit: LIQUID_RENDER_LIMIT_MS,
-                memoryLimit: LIQUID_MEMORY_LIMIT_UNITS,
-            })
-            for (const name of LIQUID_UNBOUNDED_FILTERS) {
-                this._liquid.registerFilter(name, () => {
-                    throw new Error(`liquid filter ${name} is not supported`)
-                })
-            }
-        }
-        return this._liquid
+        return (this._liquid ??= createLiquid('escape'))
+    }
+
+    private static get plainTextLiquid(): Liquid {
+        return (this._plainTextLiquid ??= createLiquid(undefined))
     }
 
     static renderWithHogFunctionGlobals(
         template: string,
         globals: HogFunctionInvocationGlobalsWithInputs,
-        budget: LiquidRenderBudget = new LiquidRenderBudget()
+        budget: LiquidRenderBudget = new LiquidRenderBudget(),
+        { escapeHtml = true }: LiquidRenderOptions = {}
     ): string {
         // Checked before decoding so the decoder never sees a string LiquidJS would reject anyway.
         if (template.length > LIQUID_PARSE_LIMIT_CHARS) {
@@ -130,7 +143,8 @@ export class LiquidRenderer {
 
         const start = performance.now()
         try {
-            const result: string = this.liquid.parseAndRenderSync(decodeLiquidTags(template), context, {
+            const liquid = escapeHtml ? this.liquid : this.plainTextLiquid
+            const result: string = liquid.parseAndRenderSync(decodeLiquidTags(template), context, {
                 renderLimit: budget.remainingMs(),
             })
             // String length is O(1) on a V8 rope, so this rejects a huge result before anything flattens it.

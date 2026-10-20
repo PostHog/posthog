@@ -232,13 +232,12 @@ describe('RecipientPreferencesService', () => {
                 loggerSpy.mockRestore()
             })
 
-            it('should throw error if no email identifier is found', async () => {
+            it('should not skip when no email identifier is found, so the send records the missing recipient', async () => {
                 const action = createEmailAction('', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
 
-                await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
-                    `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
-                )
+                await expect(service.shouldSkipAction(invocation, action)).resolves.toBeNull()
+                expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
 
             it('should return true if recipient is opted out of all marketing messaging', async () => {
