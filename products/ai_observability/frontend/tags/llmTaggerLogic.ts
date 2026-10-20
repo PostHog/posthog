@@ -429,16 +429,10 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                     },
                 }
 
-                if (props.id === 'new') {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use taggersCreate() from 'products/ai_observability/frontend/generated/api' instead.
-                    await api.create(`api/projects/${teamLogic.values.currentTeamId}/taggers/`, payload)
-                    lemonToast.success('Tagger created')
-                } else {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use taggersPartialUpdate() from 'products/ai_observability/frontend/generated/api' instead.
-                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/taggers/${props.id}/`, payload)
-                    lemonToast.success('Tagger updated')
-                }
-                // Reload list before navigating so the new/updated tagger is visible
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use taggersPartialUpdate() from 'products/ai_observability/frontend/generated/api' instead.
+                await api.update(`api/projects/${teamLogic.values.currentTeamId}/taggers/${props.id}/`, payload)
+                lemonToast.success('Tagger updated')
+                // Reload list before navigating so the updated tagger is visible
                 llmTaggersLogic.findMounted()?.actions.loadTaggers()
                 router.actions.push(urls.aiObservabilityTags())
             },

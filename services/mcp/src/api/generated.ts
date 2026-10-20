@@ -110801,19 +110801,6 @@ export namespace Schemas {
       force_refresh?: boolean;
     }
 
-    export interface TaggerCreate {
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfigurationWrite | null;
-    }
-
     export interface TaggerUpdate {
       /** @maxLength 400 */
       name: string;

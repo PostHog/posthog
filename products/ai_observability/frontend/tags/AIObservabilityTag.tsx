@@ -43,6 +43,7 @@ import {
 } from '../settings/providerKeyStateUtils'
 import { HOG_TAGGER_EXAMPLES } from './hogTaggerExamples'
 import { HogTestResult, TagRun, llmTaggerLogic } from './llmTaggerLogic'
+import { TaggersDeprecationBanner } from './TaggersDeprecationBanner'
 import { Tagger, TaggerConditionSet } from './types'
 
 const DEFAULT_HOG_SOURCE = `// Return a list of tag names that apply to this generation
@@ -581,29 +582,22 @@ function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
                                 type="primary"
                                 onClick={submitTaggerForm}
                                 loading={isTaggerFormSubmitting}
-                                disabledReason={!taggerFormChanged && id !== 'new' ? 'No changes to save' : undefined}
+                                disabledReason={!taggerFormChanged ? 'No changes to save' : undefined}
                             >
-                                {id === 'new' ? 'Create tagger' : 'Save changes'}
+                                Save changes
                             </LemonButton>
                         </AccessControlAction>
                         <LemonButton type="secondary" to={urls.aiObservabilityTags()}>
                             Cancel
                         </LemonButton>
-                        {id !== 'new' && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Tagger}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    status="danger"
-                                    className="ml-auto"
-                                    onClick={deleteTagger}
-                                >
-                                    Delete
-                                </LemonButton>
-                            </AccessControlAction>
-                        )}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Tagger}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton type="secondary" status="danger" className="ml-auto" onClick={deleteTagger}>
+                                Delete
+                            </LemonButton>
+                        </AccessControlAction>
                     </div>
                 </div>
             </Form>
@@ -741,6 +735,14 @@ export function AIObservabilityTag({ id }: { id?: string }): JSX.Element {
     const { setActiveTab } = useActions(llmTaggerLogic({ id: taggerId }))
     const providerKeyIssue = tagger?.enabled ? getTaggerProviderKeyIssue(tagger, providerKeys) : null
 
+    if (isNew) {
+        return (
+            <SceneContent>
+                <TaggersDeprecationBanner />
+            </SceneContent>
+        )
+    }
+
     if (taggerLoading) {
         return (
             <SceneContent>
@@ -751,12 +753,13 @@ export function AIObservabilityTag({ id }: { id?: string }): JSX.Element {
 
     return (
         <SceneContent>
+            <TaggersDeprecationBanner />
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex justify-between items-start pb-4 border-b">
                     <div className="space-y-2">
-                        <h1 className="text-2xl font-semibold">{isNew ? 'New tagger' : tagger?.name || 'Tagger'}</h1>
-                        {!isNew && tagger && (
+                        <h1 className="text-2xl font-semibold">{tagger?.name || 'Tagger'}</h1>
+                        {tagger && (
                             <div className="flex items-center gap-2">
                                 <LemonTag type={tagger.enabled ? 'success' : 'default'}>
                                     {tagger.enabled ? 'Enabled' : 'Disabled'}
@@ -792,24 +795,20 @@ export function AIObservabilityTag({ id }: { id?: string }): JSX.Element {
                 )}
 
                 <LemonTabs
-                    activeKey={isNew ? 'configuration' : activeTab}
+                    activeKey={activeTab}
                     onChange={(key) => setActiveTab(key as 'runs' | 'configuration')}
                     data-attr="llma-tagger-tabs"
                     tabs={[
-                        ...(!isNew
-                            ? [
-                                  {
-                                      key: 'runs',
-                                      label: 'Runs',
-                                      content: (
-                                          <div className="max-w-6xl">
-                                              <TagRunsChart id={taggerId} />
-                                              <TagRunsTable id={taggerId} />
-                                          </div>
-                                      ),
-                                  },
-                              ]
-                            : []),
+                        {
+                            key: 'runs',
+                            label: 'Runs',
+                            content: (
+                                <div className="max-w-6xl">
+                                    <TagRunsChart id={taggerId} />
+                                    <TagRunsTable id={taggerId} />
+                                </div>
+                            ),
+                        },
                         {
                             key: 'configuration',
                             label: 'Configuration',

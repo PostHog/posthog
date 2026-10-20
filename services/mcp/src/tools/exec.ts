@@ -567,6 +567,8 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
             : base
     },
+    'llma-tagger-create': () =>
+        'Tool "llma-tagger-create" was removed because taggers are deprecated. To tag or classify generations, use "llma-evaluation-create" with output_type="categorical", output_config.selection_mode="multiple", and one option per tag in output_config.options. The tagger prompt goes in evaluation_config.prompt.',
     'event-definitions-list': () =>
         'Tool "event-definitions-list" was removed. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
