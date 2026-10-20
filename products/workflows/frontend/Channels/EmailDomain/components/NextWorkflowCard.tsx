@@ -56,19 +56,18 @@ function NextWorkflow({
                 <div className="flex flex-col gap-1 min-w-0">
                     <span className="text-xs uppercase tracking-wide text-secondary">Next</span>
                     <h2 className="m-0 text-xl font-semibold">Send your first email from {domain}</h2>
-                    <p className="m-0 text-sm text-secondary">
-                        {suggestionsShown ? (
-                            <>
-                                Start from a blank workflow, or from one made from the events your project sends. Pick{' '}
-                                {sender} as the sender.
-                            </>
-                        ) : (
-                            <>
-                                Start with a welcome email that goes out when someone signs up. We open the Welcome
-                                email sequence template so you can pick {sender} as the sender.
-                            </>
-                        )}
-                    </p>
+                    {/* Keyed apart, so the mode switch replaces the paragraph rather than its text nodes. */}
+                    {suggestionsShown ? (
+                        <p key="suggestions" className="m-0 text-sm text-secondary">
+                            Start from a blank workflow, or from one made from the events your project sends. Pick{' '}
+                            {sender} as the sender.
+                        </p>
+                    ) : (
+                        <p key="template" className="m-0 text-sm text-secondary">
+                            Start with a welcome email that goes out when someone signs up. We open the Welcome email
+                            sequence template so you can pick {sender} as the sender.
+                        </p>
+                    )}
                 </div>
             </div>
             {!suggestionsShown && (
