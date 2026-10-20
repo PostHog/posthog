@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import date
 from typing import Any
 
@@ -14,6 +15,7 @@ from posthog.hogql_queries.utils.result_series import (
     get_series_key,
 )
 from posthog.models import Team, User
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.week_start_day import WeekStartDay
 
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
@@ -241,13 +243,15 @@ def insight_series(
     response = _run(team, user, bounded, filters, variables, blocking)
     formula = bool(trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"))
     several = len(source.get("series") or []) > 1
-    action_names = get_action_names(team, source)
+    # `_run` executes the upgraded query, which stamps `kind` on series saved without one.
+    series_source = upgrade(deepcopy(source))
+    action_names = get_action_names(team, series_source)
     series: dict[str, list[tuple[date, float]]] = {}
     averaged: list[str] = []
-    for result in _visible(source, response.get("results") or []):
+    for result in _visible(series_source, response.get("results") or []):
         if not result.get("days"):
             continue
-        node = get_result_series(source, result)
+        node = get_result_series(series_source, result)
         shown = str(result.get("label") or "Series")
         series_label = (get_series_key(node, action_names) or "All events") if node is not None else None
         custom_name = get_series_custom_name(node, action_names) if node is not None else None

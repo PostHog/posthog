@@ -100,6 +100,12 @@ class TestSeriesNames(SimpleTestCase):
                 {"signed up · Chrome": False, "Logins · Chrome": False},
             ),
             (
+                "a series saved without a kind takes its event",
+                [{"event": "signed up"}],
+                [_result("signed up")],
+                {"signed up": False},
+            ),
+            (
                 "first group occurrences add up",
                 [
                     {**SIGNED_UP, "math": "first_time_for_group"},
