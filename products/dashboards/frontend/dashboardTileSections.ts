@@ -106,6 +106,23 @@ export function stackSectionLayouts(sectionLayouts: Layout[]): Layout {
     })
 }
 
+export function hasSectionLayoutChanged(before: Layout, after: Layout): boolean {
+    const beforeById = new Map(before.map((item) => [item.i, item]))
+    return (
+        before.length !== after.length ||
+        after.some((item) => {
+            const previous = beforeById.get(item.i)
+            return (
+                !previous ||
+                previous.x !== item.x ||
+                previous.y !== item.y ||
+                previous.w !== item.w ||
+                previous.h !== item.h
+            )
+        })
+    )
+}
+
 /** Group keys that start closed: the viewer's own choice wins over the dashboard's saved default. */
 export function getCollapsedTileGroupKeys({
     tiles,
