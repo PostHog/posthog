@@ -567,6 +567,7 @@ class TestResumableRestEndpoints:
         assert result.raised is None
         assert "starting_after" not in result.requests[0].json()["pagination"]
         assert result.requests[0].json()["query"]["value"] == 1700000000
+        assert result.requests[0].json()["sort"] == {"field": "updated_at", "order": "ascending"}
 
     @pytest.mark.parametrize(
         "endpoint,selector,state,expected_url,expected_params",
