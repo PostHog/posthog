@@ -1,6 +1,7 @@
 use axum::{extract::State, http::HeaderMap};
 use bytes::Bytes;
 use chrono_tz::Tz;
+use personhog_common::client::RouterClient;
 use serde::Serialize;
 use serde_json::Value;
 use std::{
@@ -105,6 +106,8 @@ pub struct FeatureFlagEvaluationContext {
     pub only_use_override_person_properties: bool,
     /// Budget shared by all persons DB work in this evaluation. `None` disables the deadline.
     pub persons_db_deadline: Option<std::time::Duration>,
+    /// Set only for teams that read hash key overrides through personhog.
+    pub personhog_hash_key_reader: Option<RouterClient>,
 }
 
 /// SDK type classification based on user-agent parsing.

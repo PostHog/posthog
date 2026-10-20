@@ -23,6 +23,8 @@ common-database = { path = "../common/database" }
 common-kafka = { path = "../common/kafka", optional = true }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
+personhog-common = { path = "../personhog-common" }
+personhog-proto = { path = "../personhog-proto" }
 envconfig = { workspace = true }
 governor = { workspace = true }
 limiters = { path = "../common/limiters" }

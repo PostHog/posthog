@@ -346,6 +346,9 @@ pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
 // Labels: result="empty" (no overrides found) | result="has_overrides" (overrides exist)
 pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total";
 pub const FLAG_HASH_KEY_REPLICA_CHECK: &str = "flags_hash_key_override_replica_check_total";
+// Successful hash key override reads, in ms. Labels: source="sql" | "personhog".
+// The sql value excludes the pool acquire, which flags_db_connection_time measures.
+pub const FLAG_HASH_KEY_OVERRIDE_READ_TIME: &str = "flags_hash_key_override_read_time_ms";
 
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";

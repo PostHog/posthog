@@ -334,6 +334,7 @@ async fn test_evaluate_feature_flags() {
         detailed_analysis: false,
         only_use_override_person_properties: false,
         persons_db_deadline: None,
+        personhog_hash_key_reader: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -422,6 +423,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         detailed_analysis: false,
         only_use_override_person_properties: false,
         persons_db_deadline: None,
+        personhog_hash_key_reader: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -818,6 +820,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         detailed_analysis: false,
         only_use_override_person_properties: false,
         persons_db_deadline: None,
+        personhog_hash_key_reader: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -904,6 +907,7 @@ async fn test_evaluate_feature_flags_details() {
         detailed_analysis: false,
         only_use_override_person_properties: false,
         persons_db_deadline: None,
+        personhog_hash_key_reader: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -1065,6 +1069,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         detailed_analysis: false,
         only_use_override_person_properties: false,
         persons_db_deadline: None,
+        personhog_hash_key_reader: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -1150,6 +1155,7 @@ async fn test_long_distinct_id() {
         detailed_analysis: false,
         only_use_override_person_properties: false,
         persons_db_deadline: None,
+        personhog_hash_key_reader: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -1760,6 +1766,7 @@ async fn test_parallel_path_matches_sequential_results() {
         detailed_analysis: false,
         only_use_override_person_properties: false,
         persons_db_deadline: None,
+        personhog_hash_key_reader: None,
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4())
         .await
@@ -1794,6 +1801,7 @@ async fn test_parallel_path_matches_sequential_results() {
         detailed_analysis: false,
         only_use_override_person_properties: false,
         persons_db_deadline: None,
+        personhog_hash_key_reader: None,
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
         .await
@@ -1889,6 +1897,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         detailed_analysis: false,
         only_use_override_person_properties: false,
         persons_db_deadline: None,
+        personhog_hash_key_reader: None,
     };
 
     // Test with realtime cohort evaluation ENABLED
@@ -1929,6 +1938,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         detailed_analysis: false,
         only_use_override_person_properties: false,
         persons_db_deadline: None,
+        personhog_hash_key_reader: None,
     };
 
     let request_id = Uuid::new_v4();
