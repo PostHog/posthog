@@ -10,6 +10,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,6 +18,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
     DASHBOARD_WIDGET_CATALOG_GROUPS,
+    type DashboardWidgetCatalogGroup,
     type ResolvedDashboardWidgetCatalogEntry,
     type DashboardWidgetCatalogKey,
     getDashboardWidgetGroupIcon,
@@ -73,10 +75,19 @@ function AddWidgetCatalogPicker({
     )
 }
 
+function getPickerGroups(featureFlags: Record<string, boolean | string>): DashboardWidgetCatalogGroup[] {
+    return DASHBOARD_WIDGET_CATALOG_GROUPS.map((group) => ({
+        ...group,
+        widgets: group.widgets.filter(({ entry }) => !entry.creationFlag || !!featureFlags[entry.creationFlag]),
+    })).filter((group) => group.widgets.length > 0)
+}
+
 export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetModalProps): JSX.Element {
     const { addWidgetSelectedTypes, addWidgetCollapsedGroups } = useValues(dashboardLogic)
     const { toggleAddWidgetSelectedType, toggleAddWidgetCollapsedGroup } = useActions(dashboardLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const pickerGroups = getPickerGroups(featureFlags)
     const selectedTypes = new Set(addWidgetSelectedTypes)
     const collapsedGroups = new Set(addWidgetCollapsedGroups)
 
@@ -108,7 +119,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                 <>
                     <span>Bring context from your different PostHog products into one dashboard.</span>
                     <span className="mt-2 flex flex-wrap gap-2" data-attr="dashboard-widget-product-badges">
-                        {[...DASHBOARD_WIDGET_CATALOG_GROUPS]
+                        {[...pickerGroups]
                             .sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
                             .map((group) => {
                                 const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
@@ -157,7 +168,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                     className="grid grid-cols-1 @min-[56rem]/add-widget-modal:grid-cols-2 gap-x-3 gap-y-4"
                     aria-label="Widget types"
                 >
-                    {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group, groupIndex) => {
+                    {pickerGroups.map((group, groupIndex) => {
                         const productIntro = getDashboardWidgetGroupProductIntro(group.groupId)
                         // Nudge only when the product's setup requirement (a project setting) is unmet.
                         const showProductIntro =
