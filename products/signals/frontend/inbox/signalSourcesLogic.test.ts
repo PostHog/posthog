@@ -280,35 +280,32 @@ describe('signalSourcesLogic', () => {
         createConfig.mockRestore()
     })
 
-    it('pins sources before connected tools and filters the catalog without hiding PostHog sources', () => {
+    // The roster shows what runs and the catalog shows the rest. A regression that lists the whole
+    // registry in the roster again, or filters the catalog wrong, fails here.
+    it('rosters connected sources and filters the catalog', () => {
+        logic.actions.loadSourceConfigsSuccess([])
         sourcesDataLogic.actions.loadSourcesSuccess({
             results: [
                 { ...githubSource, source_type: 'Jira' },
-                { ...githubSource, id: 'source-bugsnag', source_type: 'Bugsnag' },
                 { ...githubSource, id: 'source-gitea', source_type: 'Gitea' },
             ],
             next: null,
             previous: null,
         })
-        logic.actions.loadSourceConfigsSuccess([])
         expect(
-            logic.values.rosterGroups
-                .find((group) => group.id === 'external')
-                ?.agents.slice(0, 8)
-                .map((agent) => agent.source)
-        ).toEqual(['github', 'linear', 'zendesk', 'sentry', 'jira', 'bugsnag', 'gitea', 'aha'])
+            logic.values.rosterGroups.find((group) => group.id === 'external')?.agents.map((agent) => agent.source)
+        ).toEqual(['jira', 'gitea'])
         expect(logic.values.externalSourceStates.jira).toMatchObject({ connected: true, requiresSetup: false })
         expect(logic.values.externalSourceStates.sentry).toMatchObject({ connected: false, requiresSetup: true })
+
         logic.actions.setSourceCategory('Error tracking')
         logic.actions.setSourceSearchQuery('SENTRY')
         expect(
-            logic.values.filteredRosterGroups
-                .find((group) => group.id === 'external')
-                ?.agents.map((source) => source.source)
-        ).toEqual(['sentry'])
-        expect(
-            logic.values.filteredRosterGroups.find((group) => group.id === 'posthog')?.agents.length
-        ).toBeGreaterThan(0)
+            logic.values.sourceCatalog.map((group) => [group.category, group.items.map((item) => item.agent.source)])
+        ).toEqual([['Error tracking', ['sentry']]])
+        logic.actions.closeSourceCatalog()
+        expect(logic.values.sourceCatalog.length).toBeGreaterThan(1)
+        expect(logic.values.rosterGroups.find((group) => group.id === 'posthog')?.agents.length).toBeGreaterThan(0)
     })
 
     it('carries the card guidance onto an error tracking signal type turned on later', async () => {
