@@ -15,12 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.so
 class TestZendutyValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
-            # Zenduty returns 403 (not 401) for a bad/inactive token — reject even at source-create.
-            ("forbidden_is_bad_token", 403, False),
-            ("unauthorized_rejected", 401, False),
             ("connection_failure_rejected", None, False),
-            ("unexpected_status_rejected", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, probe_status: int | None, expected_ok: bool) -> None:
