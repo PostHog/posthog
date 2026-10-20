@@ -271,7 +271,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         )
         self.mock_flag_payload = payload_patch.start()
         self.addCleanup(payload_patch.stop)
-        # Patched at the endpoint's seam, so no case reaches the flags service.
         blocklist_patch = patch("posthog.api.wizard.http.wizard_identity_blocked", return_value=False)
         self.mock_blocklist = blocklist_patch.start()
         self.addCleanup(blocklist_patch.stop)
