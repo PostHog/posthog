@@ -312,6 +312,8 @@ class ConsumerMetrics:
     coalesced_set_batches: Histogram
     coalesced_set_runs: Histogram
     coalesced_set_rows: Histogram
+    heartbeat_reconnects_total: Counter
+    heartbeat_reconnect_failures_total: Counter
 
 
 COALESCED_SET_BATCHES_BUCKETS = (1, 2, 4, 8, 16, 32, 64, 128, 256)
@@ -339,6 +341,15 @@ COALESCED_SET_ROWS = Histogram(
     buckets=COALESCED_SET_ROWS_BUCKETS,
 )
 
+HEARTBEAT_RECONNECTS_TOTAL = Counter(
+    "warehouse_pg_consumer_heartbeat_reconnects_total",
+    "Batch heartbeats that replaced a dropped group connection with a new one",
+)
+HEARTBEAT_RECONNECT_FAILURES_TOTAL = Counter(
+    "warehouse_pg_consumer_heartbeat_reconnect_failures_total",
+    "Batch heartbeats that could not open a new group connection or renew the lease on it",
+)
+
 DELTA_CONSUMER_METRICS = ConsumerMetrics(
     batches_processed_total=BATCHES_PROCESSED_TOTAL,
     batch_processing_duration_seconds=BATCH_PROCESSING_DURATION_SECONDS,
@@ -353,6 +364,8 @@ DELTA_CONSUMER_METRICS = ConsumerMetrics(
     coalesced_set_batches=COALESCED_SET_BATCHES,
     coalesced_set_runs=COALESCED_SET_RUNS,
     coalesced_set_rows=COALESCED_SET_ROWS,
+    heartbeat_reconnects_total=HEARTBEAT_RECONNECTS_TOTAL,
+    heartbeat_reconnect_failures_total=HEARTBEAT_RECONNECT_FAILURES_TOTAL,
 )
 
 _metrics_by_prefix: dict[str, ConsumerMetrics] = {}
@@ -429,6 +442,14 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
             f"{p}_coalesced_set_rows",
             "Rows per set loaded as a single write",
             buckets=COALESCED_SET_ROWS_BUCKETS,
+        ),
+        heartbeat_reconnects_total=Counter(
+            f"{p}_heartbeat_reconnects_total",
+            "Batch heartbeats that replaced a dropped group connection with a new one",
+        ),
+        heartbeat_reconnect_failures_total=Counter(
+            f"{p}_heartbeat_reconnect_failures_total",
+            "Batch heartbeats that could not open a new group connection or renew the lease on it",
         ),
     )
     _metrics_by_prefix[prefix] = metrics

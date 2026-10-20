@@ -72,6 +72,8 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     CLAIMABLE_GROUPS,
     DEPTH_PROBE_TIMEOUTS_TOTAL,
     DEPTH_SAMPLE_AGE_SECONDS,
+    HEARTBEAT_RECONNECT_FAILURES_TOTAL,
+    HEARTBEAT_RECONNECTS_TOTAL,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
     QUEUE_SAMPLE_GAUGES,
@@ -4148,36 +4150,226 @@ class TestDispatchGroups:
             await task
 
 
+_CONSUMER_MODULE = (
+    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer"
+)
+
+
+def _reconnect_counts() -> tuple[float, float]:
+    return HEARTBEAT_RECONNECTS_TOTAL._value.get(), HEARTBEAT_RECONNECT_FAILURES_TOTAL._value.get()
+
+
+def _bounded_sleep(limit: int = 10) -> Any:
+    calls = 0
+
+    async def fast_sleep(_seconds: float) -> None:
+        nonlocal calls
+        calls += 1
+        if calls > limit:
+            raise AssertionError("heartbeat loop did not exit after lease loss")
+
+    return fast_sleep
+
+
 class TestBatchHeartbeat:
+    @pytest.mark.parametrize(
+        "error,closed,broken,per_group_connections,expect_reconnect",
+        [
+            pytest.param(
+                psycopg.OperationalError("the connection is closed"), True, False, True, True, id="closed_connection"
+            ),
+            pytest.param(
+                psycopg.OperationalError("server closed the connection unexpectedly"),
+                False,
+                False,
+                True,
+                True,
+                id="dropped_mid_query",
+            ),
+            pytest.param(
+                psycopg.InterfaceError("connection already closed"), False, False, True, True, id="interface_error"
+            ),
+            pytest.param(psycopg.OperationalError("broken pipe"), False, True, True, True, id="broken_connection"),
+            pytest.param(psycopg.errors.AdminShutdown("terminating"), False, False, True, True, id="admin_shutdown"),
+            pytest.param(ConnectionError("blip"), False, False, True, False, id="non_psycopg_blip"),
+            pytest.param(psycopg.errors.DeadlockDetected("deadlock"), False, False, True, False, id="deadlock"),
+            pytest.param(
+                psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+                False,
+                False,
+                True,
+                False,
+                id="statement_timeout",
+            ),
+            pytest.param(
+                psycopg.OperationalError("the connection is closed"),
+                True,
+                False,
+                False,
+                False,
+                id="advisory_lock_adapter_keeps_its_session",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_transient_renewal_failure_does_not_end_heartbeat(self):
-        # A single pgbouncer/network blip previously killed the heartbeat
-        # silently for the rest of the batch: renewals stopped, the lease
-        # expired under a healthy owner, and another pod could re-claim the
-        # batch mid-apply. The loop must survive transient errors and only
-        # stop when the lease is genuinely lost.
+    async def test_renewal_failure_reconnects_only_for_a_dead_connection(
+        self, error, closed, broken, per_group_connections, expect_reconnect
+    ):
         consumer = _make_consumer()
-        renew = AsyncMock(side_effect=[ConnectionError("blip"), True, False])
+        old_conn = _make_healthy_conn(closed=closed, broken=broken)
+        new_conn = _make_healthy_conn()
+        renew = AsyncMock(side_effect=[error, True, False])
         refresh = AsyncMock()
-
-        sleep_count = 0
-
-        async def fast_sleep(_seconds):
-            nonlocal sleep_count
-            sleep_count += 1
-            if sleep_count > 10:
-                raise AssertionError("heartbeat loop did not exit after lease loss")
+        before = _reconnect_counts()
 
         with (
             patch.object(consumer._adapter, "renew_lease", renew),
             patch.object(consumer._adapter, "update_status", refresh),
+            patch.object(consumer._adapter, "per_group_connections", per_group_connections),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=new_conn) as mock_connect,
+            patch.object(batch_consumer_module.asyncio, "sleep", _bounded_sleep()),
+        ):
+            await consumer._batch_heartbeat(old_conn, _make_batch(), attempt=1)
+
+        after = _reconnect_counts()
+        renew_conns = [call.args[0] for call in renew.await_args_list]
+        refresh.assert_awaited_once()
+        if expect_reconnect:
+            # The failed tick renews once on the new connection, and every later tick stays on it.
+            assert renew_conns == [old_conn, new_conn, new_conn]
+            assert refresh.await_args.args[0] is new_conn
+            mock_connect.assert_awaited_once()
+            old_conn.close.assert_awaited_once()
+            assert consumer._group_conns[(1, "schema-1")] is new_conn
+            assert after == (before[0] + 1, before[1])
+        else:
+            assert renew_conns == [old_conn, old_conn, old_conn]
+            assert refresh.await_args.args[0] is old_conn
+            mock_connect.assert_not_awaited()
+            old_conn.close.assert_not_awaited()
+            assert consumer._group_conns == {}
+            assert after == before
+
+    @pytest.mark.parametrize(
+        "connect_side_effect,renew_side_effect,expected_renew_conns",
+        [
+            pytest.param(
+                [psycopg.OperationalError("connection refused"), "new"],
+                ["dropped", "dropped", True, False],
+                ["old", "old", "new", "new"],
+                id="dial_fails_then_succeeds_next_tick",
+            ),
+            pytest.param(
+                ["new"],
+                ["dropped", psycopg.OperationalError("server closed the connection unexpectedly"), True, False],
+                ["old", "new", "new", "new"],
+                id="renew_on_new_connection_fails_then_succeeds_next_tick",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_failed_reconnect_counts_a_failure_and_retries_next_tick(
+        self, connect_side_effect, renew_side_effect, expected_renew_conns
+    ):
+        consumer = _make_consumer()
+        conns = {"old": _make_healthy_conn(closed=True), "new": _make_healthy_conn()}
+        dropped = psycopg.OperationalError("the connection is closed")
+        renew = AsyncMock(side_effect=[dropped if item == "dropped" else item for item in renew_side_effect])
+        refresh = AsyncMock()
+        before = _reconnect_counts()
+
+        with (
+            patch.object(consumer._adapter, "renew_lease", renew),
+            patch.object(consumer._adapter, "update_status", refresh),
+            patch.object(
+                consumer,
+                "_connect",
+                new_callable=AsyncMock,
+                side_effect=[conns[item] if isinstance(item, str) else item for item in connect_side_effect],
+            ),
+            patch.object(batch_consumer_module.asyncio, "sleep", _bounded_sleep()),
+        ):
+            await consumer._batch_heartbeat(conns["old"], _make_batch(), attempt=1)
+
+        assert [call.args[0] for call in renew.await_args_list] == [conns[name] for name in expected_renew_conns]
+        refresh.assert_awaited_once()
+        assert refresh.await_args.args[0] is conns["new"]
+        assert _reconnect_counts() == (before[0] + 1, before[1] + 1)
+
+
+class TestHeartbeatReconnectInGroup:
+    @staticmethod
+    def _make_consumer_with_sink(process_batch: Any) -> BatchConsumer:
+        config = ConsumerConfig(database_url="postgres://unused:unused@localhost/unused", recovery_grace_seconds=30)
+        consumer = BatchConsumer(config=config, process_batch=process_batch)
+        consumer._poll_conn = _make_healthy_conn()
+        consumer._recovery_conn = _make_healthy_conn()
+        return consumer
+
+    @pytest.mark.parametrize("lease_kept", [True, False], ids=["lease_kept", "lease_lost_during_outage"])
+    @pytest.mark.asyncio
+    async def test_connection_drop_mid_batch(self, lease_kept):
+        old_conn = _make_healthy_conn()
+        new_conn = _make_healthy_conn()
+        renewed_on_new_conn = asyncio.Event()
+        sink_writes: list[str] = []
+        lease = {"held": True}
+        real_sleep = asyncio.sleep
+
+        async def fake_renew(conn, *, team_id, schema_id, owner_token, lease_ttl_seconds):
+            if conn is old_conn and old_conn.closed:
+                raise psycopg.OperationalError("the connection is closed")
+            if conn is new_conn:
+                renewed_on_new_conn.set()
+            return lease["held"]
+
+        async def fake_process(batch, verify_ownership):
+            # A pooler restart kills the group connection while the sink write runs. When the
+            # lease is lost, another worker reclaimed the batch while the connection was down.
+            old_conn.closed = True
+            lease["held"] = lease_kept
+            await asyncio.wait_for(renewed_on_new_conn.wait(), timeout=5)
+            verify_ownership()
+            sink_writes.append(batch.id)
+
+        async def fast_sleep(_seconds: float) -> None:
+            await real_sleep(0)
+
+        consumer = self._make_consumer_with_sink(fake_process)
+
+        with (
+            patch(f"{_CONSUMER_MODULE}.BatchQueue.renew_lease", side_effect=fake_renew) as mock_renew,
+            patch(f"{_CONSUMER_MODULE}.BatchQueue.verify_group_lease_sync", side_effect=lambda *a, **k: lease["held"]),
+            patch(
+                f"{_CONSUMER_MODULE}.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                side_effect=lambda conn, **k: lease["held"],
+            ) as mock_verify,
+            patch(f"{_CONSUMER_MODULE}.BatchQueue.update_status_unless_failed", new_callable=AsyncMock) as mock_status,
+            patch(f"{_CONSUMER_MODULE}.BatchQueue.unlock_for_batches", new_callable=AsyncMock) as mock_unlock,
+            patch.object(consumer._adapter, "should_process_batch", new_callable=AsyncMock, return_value=True),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=[old_conn, new_conn]),
             patch.object(batch_consumer_module.asyncio, "sleep", fast_sleep),
         ):
-            await consumer._batch_heartbeat(AsyncMock(), _make_batch(), attempt=1)
+            await consumer._process_group((1, "schema-1"), [_make_batch()])
 
-        # blip -> continue; renewed -> status refresh; lease lost -> stop
-        assert renew.await_count == 3
-        refresh.assert_awaited_once()
+        assert any(call.args[0] is new_conn for call in mock_renew.await_args_list)
+        written_states = [
+            (call.args[0], call.kwargs["job_state"])
+            for call in mock_status.await_args_list
+            if call.kwargs["job_state"] != SourceBatchStatus.State.EXECUTING.value
+        ]
+        if lease_kept:
+            assert sink_writes == [_make_batch().id]
+            assert written_states == [(new_conn, SourceBatchStatus.State.SUCCEEDED.value)]
+            assert mock_verify.await_args.args[0] is new_conn
+        else:
+            # The pre-commit check fences the write, so only the worker that reclaimed the batch writes it.
+            assert sink_writes == []
+            assert written_states == []
+        assert mock_unlock.await_args.args[0] is new_conn
+        new_conn.close.assert_awaited()
+        assert consumer._group_conns == {}
 
 
 class TestIsRetryableError:

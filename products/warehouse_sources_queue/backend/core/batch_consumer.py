@@ -151,6 +151,22 @@ def _is_transient_connection_error(error: BaseException, conn: psycopg.AsyncConn
     return isinstance(error, psycopg.OperationalError) and (conn.closed or conn.broken)
 
 
+def _is_dead_group_connection_error(error: BaseException, conn: psycopg.AsyncConnection[Any]) -> bool:
+    """Whether a heartbeat error means ``conn`` can never run another query.
+
+    A pooler restart closes the socket, and psycopg then fails every later query on that
+    connection with "the connection is closed", so a retry on it cannot succeed. A deadlock
+    or a statement timeout leaves the connection usable, so those errors keep it.
+    """
+    if conn.closed or conn.broken:
+        return True
+    return (
+        isinstance(error, psycopg.InterfaceError)
+        or _is_connection_dropped_error(error)
+        or _is_admin_shutdown_error(error)
+    )
+
+
 # How libpq and psycopg word a connection that died under an in-flight query. The queue DB
 # sits behind a pooler, so a pool recycle, a failover, or a server-side backend cull leaves
 # the socket gone mid-statement. Nothing committed, so redialing and re-running is enough.
@@ -513,6 +529,9 @@ class BatchConsumer:
         self._recovery_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._in_flight: dict[tuple[int, str], asyncio.Task[None]] = {}
+        # The connection each group task uses for its lease and status writes. The batch
+        # heartbeat replaces an entry when the old connection drops.
+        self._group_conns: dict[tuple[int, str], psycopg.AsyncConnection[Any]] = {}
         # Monotonic stamp of the last reconcile sweep; runs inside the recovery loop so both share one connection.
         self._last_reconcile_monotonic = 0.0
         self._holds_gauge_slot = False
@@ -955,6 +974,7 @@ class BatchConsumer:
         try:
             if owns_conn:
                 group_conn = await self._connect()
+                self._group_conns[key] = group_conn
             else:
                 group_conn = self._poll_conn
                 assert group_conn is not None
@@ -1023,6 +1043,8 @@ class BatchConsumer:
                     )
                     break
         finally:
+            if owns_conn:
+                group_conn = self._group_conns.pop(key, group_conn)
             await self._unlock_group(group_conn, batches, team_id=team_id, schema_id=schema_id)
             if owns_conn and group_conn is not None:
                 try:
@@ -1143,6 +1165,52 @@ class BatchConsumer:
         if not renewed:
             raise OwnershipLostError(f"group lease lost for ({batch.team_id}, {batch.schema_id})")
 
+    def _current_lock_conn(
+        self, batch: PendingBatch, lock_conn: psycopg.AsyncConnection[Any] | None
+    ) -> psycopg.AsyncConnection[Any] | None:
+        """Return the group's live connection, which the batch heartbeat can swap in for ``lock_conn``."""
+        if lock_conn is None:
+            return None
+        return self._group_conns.get(_group_key(batch), lock_conn)
+
+    async def _reconnect_group_conn(
+        self, batch: PendingBatch, dead_conn: psycopg.AsyncConnection[Any], error: Exception
+    ) -> psycopg.AsyncConnection[Any] | None:
+        """Open a new group connection in place of ``dead_conn``. Returns None when the dial fails.
+
+        The group lease is a row that holds the owner token, not a session lock, so the new
+        connection does not lose ownership. The caller renews the lease on it, and
+        ``renew_lease`` extends only a lease that is still live and still ours. A lease that
+        expired while the connection was down stays lost, so a reconnect cannot take back a
+        batch that the recovery sweep has queued again.
+        """
+        try:
+            new_conn = await self._connect()
+        except Exception as connect_error:
+            self._metrics.heartbeat_reconnect_failures_total.inc()
+            logger.warning(
+                self._event("batch_heartbeat_reconnect_failed"),
+                batch_id=batch.id,
+                team_id=batch.team_id,
+                external_data_schema_id=batch.schema_id,
+                error=str(connect_error),
+            )
+            return None
+        self._group_conns[_group_key(batch)] = new_conn
+        self._metrics.heartbeat_reconnects_total.inc()
+        logger.warning(
+            self._event("batch_heartbeat_reconnected"),
+            batch_id=batch.id,
+            team_id=batch.team_id,
+            external_data_schema_id=batch.schema_id,
+            error=str(error),
+        )
+        try:
+            await asyncio.wait_for(dead_conn.close(), timeout=5.0)
+        except Exception:
+            pass
+        return new_conn
+
     def _coalesce(self, batches: list[PendingBatch]) -> list[list[PendingBatch]]:
         if self._process_batches is None:
             return [[batch] for batch in batches]
@@ -1173,35 +1241,53 @@ class BatchConsumer:
         abandons the in-flight batch instead of writing ``succeeded``.
 
         A coalesced set shares one lease and refreshes every constituent's row.
+
+        When the group connection drops, the heartbeat opens a new one, renews the
+        lease on it once, and publishes it in ``_group_conns``. The batch loop then
+        does its post-process writes on the new connection, not on the dead one.
         """
         batch = batches[0]
         interval = max((self._config.recovery_grace_seconds or RECOVERY_GRACE_SECONDS) / 3, 10.0)
         while True:
             await asyncio.sleep(interval)
             try:
-                renewed = await self._adapter.renew_lease(
-                    lock_conn,
-                    team_id=batch.team_id,
-                    schema_id=batch.schema_id,
-                    owner_token=self._owner_token,
-                    lease_ttl_seconds=self._lease_ttl_seconds,
-                )
+                renewed = await self._renew_heartbeat_lease(lock_conn, batch)
             except Exception as e:
-                # A transient blip (pgbouncer bounce, network hiccup) must not
-                # end the heartbeat for the rest of a long batch: with renewals
-                # stopped, the lease expires and the executing row ages past
-                # grace while the owner is still healthily applying — inviting
-                # a concurrent re-claim of a batch that is mid-write. Log and
-                # try again next tick; a genuinely dead connection keeps
-                # failing and the lease-expiry backstop still applies.
-                logger.warning(
-                    self._event("batch_heartbeat_renewal_failed"),
-                    batch_id=batch.id,
-                    team_id=batch.team_id,
-                    external_data_schema_id=batch.schema_id,
-                    error=str(e),
-                )
-                continue
+                if not (self._adapter.per_group_connections and _is_dead_group_connection_error(e, lock_conn)):
+                    # A transient blip (pgbouncer bounce, network hiccup) must not
+                    # end the heartbeat for the rest of a long batch: with renewals
+                    # stopped, the lease expires and the executing row ages past
+                    # grace while the owner is still healthily applying — inviting
+                    # a concurrent re-claim of a batch that is mid-write. Log and
+                    # try again next tick on the same connection.
+                    logger.warning(
+                        self._event("batch_heartbeat_renewal_failed"),
+                        batch_id=batch.id,
+                        team_id=batch.team_id,
+                        external_data_schema_id=batch.schema_id,
+                        error=str(e),
+                    )
+                    continue
+                # A dropped connection fails every later query, so the heartbeat needs a new
+                # one. Advisory-lock adapters skip this branch because their lock belongs to
+                # the old session, and a new session would not hold it.
+                replacement = await self._reconnect_group_conn(batch, lock_conn, e)
+                if replacement is None:
+                    continue
+                lock_conn = replacement
+                try:
+                    renewed = await self._renew_heartbeat_lease(lock_conn, batch)
+                except Exception as retry_error:
+                    self._metrics.heartbeat_reconnect_failures_total.inc()
+                    logger.warning(
+                        self._event("batch_heartbeat_renewal_failed"),
+                        batch_id=batch.id,
+                        team_id=batch.team_id,
+                        external_data_schema_id=batch.schema_id,
+                        error=str(retry_error),
+                        after_reconnect=True,
+                    )
+                    continue
             if not renewed:
                 # Ownership is gone (reclaimed or expired) — never transient: stop
                 # heartbeating so the per-batch ownership checks fence the apply.
@@ -1229,6 +1315,15 @@ class BatchConsumer:
                         external_data_schema_id=member.schema_id,
                         error=str(e),
                     )
+
+    async def _renew_heartbeat_lease(self, lock_conn: psycopg.AsyncConnection[Any], batch: PendingBatch) -> bool:
+        return await self._adapter.renew_lease(
+            lock_conn,
+            team_id=batch.team_id,
+            schema_id=batch.schema_id,
+            owner_token=self._owner_token,
+            lease_ttl_seconds=self._lease_ttl_seconds,
+        )
 
     @contextlib.contextmanager
     def _batch_log_context(self, batch: PendingBatch, attempt: int) -> Iterator[None]:
@@ -1279,6 +1374,7 @@ class BatchConsumer:
     async def _process_single(self, batch: PendingBatch, lock_conn: psycopg.AsyncConnection[Any] | None = None) -> bool:
         """Bind per-batch log context, then process. Returns True only on success."""
         attempt = batch.latest_attempt + 1
+        lock_conn = self._current_lock_conn(batch, lock_conn)
         with self._batch_log_context(batch, attempt):
             # Renew-or-abandon at entry (not a pure verify): re-ups the lease on
             # every batch so a long run of short batches can't expire it at
@@ -1300,6 +1396,7 @@ class BatchConsumer:
         """
         assert self._process_batches is not None
         head = batches[0]
+        lock_conn = self._current_lock_conn(head, lock_conn)
         attempts = {batch.id: batch.latest_attempt + 1 for batch in batches}
         run_uuids = list(dict.fromkeys(batch.run_uuid for batch in batches))
         row_count = sum(batch.row_count for batch in batches)
@@ -1366,6 +1463,9 @@ class BatchConsumer:
 
                 await self._stop_heartbeat(heartbeat_task)
                 heartbeat_task = None
+                lock_conn = self._current_lock_conn(head, lock_conn)
+                if lock_conn is not None:
+                    status_conn = lock_conn
 
                 try:
                     for batch in batches:
@@ -1516,6 +1616,9 @@ class BatchConsumer:
                     except asyncio.CancelledError:
                         pass
                     heartbeat_task = None
+                lock_conn = self._current_lock_conn(batch, lock_conn)
+                if lock_conn is not None:
+                    status_conn = lock_conn
 
                 await self._adapter.after_batch_processed(status_conn, batch=batch)
 
@@ -1546,6 +1649,13 @@ class BatchConsumer:
             self._metrics.batches_processed_total.labels(status="error").inc()
             self._metrics.batch_retry_total.labels(attempt=str(attempt), error_type=type(err).__name__).inc()
 
+            # The failure path reads and writes on the group connection, which the heartbeat shares.
+            await self._stop_heartbeat(heartbeat_task)
+            heartbeat_task = None
+            # After a drop, the failure writes must use the connection the heartbeat swapped in.
+            lock_conn = self._current_lock_conn(batch, lock_conn)
+            if lock_conn is not None:
+                status_conn = lock_conn
             await self._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
             return False
         finally:
@@ -2011,9 +2121,12 @@ ProcessBatchFn = Callable[[PendingBatch], Coroutine[Any, Any, None]]
 ProcessBatchesFn = Callable[[list[PendingBatch]], Coroutine[Any, Any, None]]
 
 
+def _group_key(batch: PendingBatch) -> tuple[int, str]:
+    return getattr(batch, "consumer_group_key", (batch.team_id, batch.schema_id))
+
+
 def _group_by_key(batches: list[PendingBatch]) -> dict[tuple[int, str], list[PendingBatch]]:
     groups: dict[tuple[int, str], list[PendingBatch]] = defaultdict(list)
     for batch in batches:
-        key = getattr(batch, "consumer_group_key", (batch.team_id, batch.schema_id))
-        groups[key].append(batch)
+        groups[_group_key(batch)].append(batch)
     return groups
