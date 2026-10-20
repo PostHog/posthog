@@ -162,12 +162,20 @@ class LogsAlertCondition:
 
     @classmethod
     def of(cls, check: PlatformAlertCheckInput) -> "LogsAlertCondition":
-        condition = check.condition
+        return cls.from_condition(check.condition)
+
+    @classmethod
+    def from_condition(cls, condition: Mapping[str, Any]) -> "LogsAlertCondition":
         return cls(
             threshold_count=condition["threshold_count"],
             threshold_operator=condition["threshold_operator"],
             window_minutes=condition["window_minutes"],
         )
+
+    def breached(self, count: float) -> bool:
+        if self.threshold_operator == LogsAlertConfiguration.ThresholdOperator.ABOVE:
+            return count > self.threshold_count
+        return count < self.threshold_count
 
 
 @frozen
