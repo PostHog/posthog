@@ -261,6 +261,16 @@ class TestVariableAnalysis(APIBaseTest):
                 "must be compared directly to a column",
             ),
             (
+                "comparison_inside_not",
+                "SELECT count() FROM events WHERE NOT (properties.p = {variables.x})",
+                "must be compared directly to a column",
+            ),
+            (
+                "comparison_inside_function",
+                "SELECT count() FROM events WHERE if(properties.p = {variables.x}, 1, 0)",
+                "must be compared directly to a column",
+            ),
+            (
                 "constant_operand",
                 "SELECT count() FROM events WHERE 'fixed' = {variables.x}",
                 "must be compared directly to a column",
