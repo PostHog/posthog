@@ -1,3 +1,5 @@
+import os
+import base64
 import datetime as dt
 from collections.abc import Iterable
 from contextlib import nullcontext
@@ -18,6 +20,10 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
     _classify_refresh_schemas_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trino import (
     TrinoAuthTypeConfig,
@@ -34,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
     TRINO_READ_TIMEOUT_ERROR,
     DiscoveredTrinoTable,
     TrinoColumn,
+    TrinoConfigurationError,
     TrinoImplementation,
     TrinoSchemaDiscoveryError,
     build_trino_select,
@@ -85,49 +92,170 @@ def test_connect_trino_uses_tracked_session_and_closes_resources() -> None:
     session.close.assert_called_once_with()
 
 
+def _completed_trino_response() -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "id": "example_query",
+            "infoUri": "https://example.com/query",
+            "stats": {},
+            "columns": [{"name": "value", "type": "bigint", "typeSignature": {"rawType": "bigint", "arguments": []}}],
+            "data": [[1]],
+        }
+    )
+
+
 @pytest.mark.parametrize(
-    ("host", "port", "use_ssl", "verify_ssl", "expected_trust_env"),
+    ("host", "port", "use_ssl", "verify_ssl", "direct"),
     [
-        ("trino.dw.us.postwh.com", 443, True, True, False),
-        ("trino.dw.eu.postwh.com", 443, True, True, False),
-        ("TRINO.DW.DEV.POSTWH.COM.", 443, True, True, False),
-        ("trino.example.com", 443, True, True, True),
-        ("other.dw.us.postwh.com", 443, True, True, True),
-        ("tenant.dw.dev.postwh.com", 443, True, True, True),
-        ("nested.tenant.dw.us.postwh.com", 443, True, True, True),
-        ("dw.us.postwh.com", 443, True, True, True),
-        ("tenant.dw.us.postwh.com.example.com", 443, True, True, True),
-        ("trino.dw.us.postwh.com", 8443, True, True, True),
-        ("trino.dw.us.postwh.com", 443, False, True, True),
-        ("trino.dw.us.postwh.com", 443, True, False, True),
+        ("trino.dw.us.postwh.com", 443, True, True, True),
+        ("trino.dw.eu.postwh.com", 443, True, True, True),
+        ("TRINO.DW.DEV.POSTWH.COM.", 443, True, True, True),
+        ("example.dw.us.postwh.com", 443, True, True, True),
+        ("example.dw.eu.postwh.com", 443, True, True, True),
+        ("EXAMPLE.DW.DEV.POSTWH.COM.", 443, True, True, True),
+        ("example-1.dw.eu.postwh.com", 443, True, True, True),
+        ("x.dw.us.postwh.com", 443, True, True, True),
+        ("trino.example.com", 443, True, True, False),
+        ("nested.example.dw.us.postwh.com", 443, True, True, False),
+        ("dw.us.postwh.com", 443, True, True, False),
+        ("example.dw.us.postwh.com.example.com", 443, True, True, False),
+        ("example.dw.ap.postwh.com", 443, True, True, False),
+        ("example_.dw.eu.postwh.com", 443, True, True, False),
+        ("-example.dw.eu.postwh.com", 443, True, True, False),
+        ("example-.dw.eu.postwh.com", 443, True, True, False),
+        ("\u212a.dw.eu.postwh.com", 443, True, True, False),
+        ("example.dw.us.postwh.com", 8443, True, True, False),
+        ("example.dw.us.postwh.com", 443, False, True, False),
+        ("example.dw.us.postwh.com", 443, True, False, False),
     ],
 )
 def test_connect_trino_bypasses_proxy_only_for_managed_tls_endpoints(
-    host: str, port: int, use_ssl: bool, verify_ssl: bool, expected_trust_env: bool
+    host: str, port: int, use_ssl: bool, verify_ssl: bool, direct: bool
 ) -> None:
-    connection = MagicMock()
-    session = MagicMock(trust_env=True)
-    auth_type = TrinoAuthTypeConfig(user="posthog", selection="none")
-
     with (
-        patch("trino.dbapi.connect", return_value=connection),
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino.make_tracked_session",
-            return_value=session,
+        patch.dict(
+            os.environ,
+            {
+                "HTTPS_PROXY": "http://proxy.example.com:4750",
+                "HTTP_PROXY": "http://proxy.example.com:4750",
+                "NO_PROXY": "",
+            },
+            clear=True,
         ),
+        scripted_network([_completed_trino_response()]) as network,
         connect_trino(
             _config(
                 host=host,
                 port=port,
                 use_ssl=use_ssl,
                 verify_ssl=verify_ssl,
-                auth_type=auth_type,
+                auth_type=TrinoAuthTypeConfig(user="sql_reader", selection="none"),
             )
-        ),
+        ) as connection,
     ):
-        pass
+        cursor = connection.cursor()
+        cursor.execute("SELECT 1")
+        assert cursor.fetchall() == [[1]]
 
-    assert session.trust_env is expected_trust_env
+    assert len(network.requests_log) == 1
+    assert ("proxy.example.com" not in network.requests_log[0].origin) is direct
+
+
+@pytest.mark.parametrize(
+    ("host", "auth_type", "authorization"),
+    [
+        (
+            "example.dw.us.postwh.com",
+            TrinoAuthTypeConfig(user="sql_reader", selection="password", password="example-password"),
+            "Basic " + base64.b64encode(b"sql_reader:example-password").decode(),
+        ),
+        (
+            "example.dw.eu.postwh.com",
+            TrinoAuthTypeConfig(user="sql_reader", selection="jwt", token="example-token"),
+            "Bearer example-token",
+        ),
+        (
+            "trino.dw.dev.postwh.com",
+            TrinoAuthTypeConfig(user="example.sql_reader", selection="password", password="example-password"),
+            "Basic " + base64.b64encode(b"example.sql_reader:example-password").decode(),
+        ),
+    ],
+)
+def test_connect_trino_preserves_credentials_when_polling(
+    host: str, auth_type: TrinoAuthTypeConfig, authorization: str
+) -> None:
+    with (
+        patch.dict(os.environ, {"HTTPS_PROXY": "http://proxy.example.com:4750", "NO_PROXY": ""}, clear=True),
+        scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "id": "example_query",
+                        "infoUri": "https://example.com/query",
+                        "stats": {},
+                        "nextUri": f"https://{host}:443/v1/statement/example_query",
+                    }
+                ),
+                _completed_trino_response(),
+            ]
+        ) as network,
+        connect_trino(_config(host=host, auth_type=auth_type)) as connection,
+    ):
+        cursor = connection.cursor()
+        cursor.execute("SELECT 1")
+        assert cursor.fetchall() == [[1]]
+
+    assert [request.method for request in network.requests_log] == ["POST", "GET"]
+    assert all("proxy.example.com" not in request.origin for request in network.requests_log)
+    assert all(request.headers["authorization"] == authorization for request in network.requests_log)
+    assert all(request.headers["x-trino-user"] == auth_type.user for request in network.requests_log)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "https://other.example.com/v1/statement/example_query",
+        "https://other.dw.eu.postwh.com/v1/statement/example_query",
+        "http://example.dw.eu.postwh.com/v1/statement/example_query",
+        "https://example.dw.eu.postwh.com:444/v1/statement/example_query",
+        "https://injected@example.dw.eu.postwh.com/v1/statement/example_query",
+    ],
+)
+def test_connect_trino_rejects_polling_outside_the_managed_origin(target: str) -> None:
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        scripted_network(
+            [
+                ScriptedResponse(
+                    json={"id": "example_query", "infoUri": "https://example.com/query", "stats": {}, "nextUri": target}
+                ),
+                _completed_trino_response(),
+            ]
+        ) as network,
+        pytest.raises(TrinoConfigurationError, match="connection destination"),
+        connect_trino(_config(host="example.dw.eu.postwh.com")) as connection,
+    ):
+        connection.cursor().execute("SELECT 1")
+
+    assert len(network.requests_log) == 1
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_connect_trino_does_not_follow_managed_redirects(status: int) -> None:
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        scripted_network(
+            [
+                ScriptedResponse(status=status, headers={"Location": "https://other.example.com/v1/statement"}),
+                _completed_trino_response(),
+            ]
+        ) as network,
+        pytest.raises(TrinoConfigurationError, match="connection destination"),
+        connect_trino(_config(host="example.dw.eu.postwh.com")) as connection,
+    ):
+        connection.cursor().execute("SELECT 1")
+
+    assert len(network.requests_log) == 1
 
 
 def test_connect_trino_rejects_credentials_over_http() -> None:
