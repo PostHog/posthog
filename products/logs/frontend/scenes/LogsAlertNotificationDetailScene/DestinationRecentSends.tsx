@@ -72,6 +72,10 @@ export function DestinationRecentSends({
                                         <LemonTag type="danger">Failed</LemonTag>
                                         {send.error ? (
                                             <span className="text-xs text-muted break-words">{send.error}</span>
+                                        ) : send.path === 'hog_function' ? (
+                                            <span className="text-xs text-muted">
+                                                The reason is in this event's hog function logs.
+                                            </span>
                                         ) : null}
                                     </div>
                                 ),

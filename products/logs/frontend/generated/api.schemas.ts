@@ -1016,7 +1016,7 @@ export interface LogsAlertDestinationSendApi {
     /** Whether the destination accepted the message. */
     succeeded: boolean
     /**
-     * Why the send failed. Null when it succeeded.
+     * Why a `native` send failed. Null when it succeeded, and for a `hog_function` send, whose reason is in the HogFunction's own logs.
      * @nullable
      */
     error: string | null

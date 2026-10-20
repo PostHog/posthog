@@ -1122,7 +1122,13 @@ class LogsAlertDestinationSendSerializer(serializers.Serializer):
         ),
     )
     succeeded = serializers.BooleanField(help_text="Whether the destination accepted the message.")
-    error = serializers.CharField(allow_null=True, help_text="Why the send failed. Null when it succeeded.")
+    error = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why a `native` send failed. Null when it succeeded, and for a `hog_function` send, "
+            "whose reason is in the HogFunction's own logs."
+        ),
+    )
 
 
 def _build_reason(

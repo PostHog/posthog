@@ -3451,7 +3451,14 @@ class TestLogsAlertDestinationSends(ClickhouseTestMixin, APIBaseTest):
         retrying = "HTTP fetch failed on attempt 1 with status code 503. Retrying."
         self._log("hog_function", firing, "inv-1", now - timedelta(minutes=30), "ERROR", retrying)
         self._log("hog_function", firing, "inv-1", now - timedelta(minutes=29), "INFO", "Function completed in 12ms.")
-        self._log("hog_function", resolved, "inv-2", now - timedelta(minutes=20), "ERROR", "Error executing function")
+        self._log(
+            "hog_function",
+            resolved,
+            "inv-2",
+            now - timedelta(minutes=20),
+            "ERROR",
+            "Error executing function: POST https://hooks.example.com/token-abc failed",
+        )
         # Still retrying, so neither sent nor failed yet.
         self._log("hog_function", firing, "inv-3", now - timedelta(minutes=5), "DEBUG", "Executing function")
         self._log("hog_function", firing, "inv-3", now - timedelta(minutes=5), "ERROR", retrying)
@@ -3467,6 +3474,7 @@ class TestLogsAlertDestinationSends(ClickhouseTestMixin, APIBaseTest):
             (send["hog_function_id"], send["path"], send["succeeded"], send["error"]) for send in response.json()
         ] == [
             (firing, "native", False, "Webhook returned 500"),
-            (resolved, "hog_function", False, "Error executing function"),
+            # Its log lines can quote a webhook URL, and reading them needs `hog_function:read`.
+            (resolved, "hog_function", False, None),
             (firing, "hog_function", True, None),
         ]

@@ -1373,7 +1373,8 @@ class DestinationSend:
     """One message sent to one destination, on either delivery path, with how it went.
 
     `destination_id` is the HogFunction the send was for, which names its event kind.
-    `error` is set only when it failed, and is text the destination's owner may already read.
+    `error` is set only for a failed native send. A HogFunction failure has none, because its log
+    lines can quote credential-bearing inputs.
     """
 
     destination_id: str

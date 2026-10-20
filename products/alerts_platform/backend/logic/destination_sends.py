@@ -5,6 +5,10 @@ several per invocation, so an invocation is one send. It is sent once the functi
 failed on an error that no retry follows. A failed fetch that retries logs an error ending in
 "Retrying." under the same invocation, so such a line is not an outcome. An invocation with
 neither is still running and is left out.
+
+Only a native failure carries its reason. A HogFunction's log lines can quote its inputs, a
+credential-bearing webhook URL among them, and reading them needs `hog_function:read`, so its
+failures carry no text here.
 """
 
 from collections.abc import Collection
@@ -39,7 +43,7 @@ FROM (
 
     SELECT log_source_id AS destination_id, min(timestamp) AS sent_at, %(hog_function_path)s AS path,
         countIf(startsWith(message, %(completed_prefix)s)) = 0 AS failed,
-        argMaxIf(message, timestamp, upper(level) = 'ERROR' AND NOT endsWith(message, %(retry_suffix)s)) AS error
+        '' AS error
     FROM log_entries
     WHERE team_id = %(team_id)s
       AND log_source = %(hog_function_source)s
@@ -81,7 +85,7 @@ def recent_destination_sends(
             sent_at=sent_at if sent_at.tzinfo is not None else sent_at.replace(tzinfo=UTC),
             path=DeliveryPath(path),
             succeeded=not failed,
-            error=error if failed else None,
+            error=error if failed and error else None,
         )
         for destination_id, sent_at, path, failed, error in rows
     )
