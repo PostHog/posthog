@@ -81,21 +81,43 @@ def _prepared(**overrides) -> PrepareSandboxForRepositoryOutput:
 _WORKFLOW_ID = "review-pr:42:posthog/posthog:7-sandbox"
 
 
-def _build_tags(*args, **kwargs):
+def _build_tags(
+    ctx: TaskProcessingContext,
+    prepared: PrepareSandboxForRepositoryOutput,
+    use_vm_sandbox: bool,
+    *,
+    workflow_id: str | None = _WORKFLOW_ID,
+) -> dict[str, str]:
     with patch(f"{_PROVISION}.activity") as mock_activity:
-        mock_activity.info.return_value = MagicMock(workflow_id=_WORKFLOW_ID)
-        return _build_sandbox_tags(*args, **kwargs)
+        mock_activity.info.return_value = MagicMock(workflow_id=workflow_id)
+        return _build_sandbox_tags(ctx, prepared, use_vm_sandbox)
 
 
-def test_build_sandbox_tags_includes_all_identifiers():
-    tags = _build_tags(_context(), _prepared(), use_vm_sandbox=False)
+@pytest.mark.parametrize(
+    ("workflow_prefix", "expected_label"),
+    [
+        ("task-processing", "task-processing"),
+        ("review-pr:42:example/demo:7:validation-c3", "review-pr-42-example-demo-7-validation-c3"),
+        ("scheduled.daily_report", "scheduled.daily_report"),
+        ("review-pr:42:example/" + "r" * 80 + ":7:validation", "review-pr-42-example-" + "r" * 42),
+    ],
+)
+def test_build_sandbox_tags_includes_all_identifiers(workflow_prefix: str, expected_label: str) -> None:
+    task_id = "00000000-0000-4000-8000-000000000001"
+    run_id = "00000000-0000-4000-8000-000000000002"
+    tags = _build_tags(
+        _context(task_id=task_id, run_id=run_id),
+        _prepared(),
+        use_vm_sandbox=False,
+        workflow_id=f"{workflow_prefix}-{task_id}-{run_id}",
+    )
 
     assert tags == {
-        "task_id": "task-123",
-        "task_run_id": "run-456",
+        "task_id": task_id,
+        "task_run_id": run_id,
         "origin_product": "error_tracking",
         "team_id": "42",
-        "workflow_id": _WORKFLOW_ID,
+        "workflow_label": expected_label,
         "image_source": "base_image",
         "sandbox_runtime": "gvisor",
     }
@@ -116,9 +138,10 @@ def test_build_sandbox_tags_reflects_image_source(image_source):
 
 
 def test_build_sandbox_tags_drops_none_values():
-    tags = _build_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False)
+    tags = _build_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False, workflow_id=None)
 
     assert "origin_product" not in tags
+    assert "workflow_label" not in tags
     assert all(isinstance(value, str) for value in tags.values())
 
 
