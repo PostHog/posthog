@@ -18,6 +18,22 @@ export interface ImageBinding {
 export type ApprovedImages = {[image: string]: ImageBinding}
 export type ChannelBindings = {[image: string]: {[channel: string]: DestinationBinding}}
 
+export function approvedImages(image: string, registry: string, destinationRegistry: string, destinationsText: string): ApprovedImages {
+  const destinations: unknown = JSON.parse(destinationsText || '[]')
+  if (!Array.isArray(destinations)) throw new Error('Approved destinations must be an infrastructure-configured array')
+  const resolved = destinations.map((value: unknown): DestinationBinding => {
+    const binding = value as DestinationBinding
+    if (!binding || typeof binding !== 'object' || Object.keys(binding).sort().join(',') !== 'owner,registry,replicas,repository' ||
+        typeof binding.owner !== 'string' || !binding.owner || typeof binding.repository !== 'string' || !binding.repository ||
+        binding.registry !== destinationRegistry ||
+        !Array.isArray(binding.replicas) || binding.replicas.some(replica => typeof replica !== 'string' || !replica)) {
+      throw new Error(`Invalid approved destination: ${JSON.stringify(value)}`)
+    }
+    return binding
+  })
+  return {[image]: {sourceRepository: CANONICAL_SOURCE_REPOSITORY, registry, repository: image, destinations: resolved}}
+}
+
 export function bindChannels(policy: Policy, approved: ApprovedImages): ChannelBindings {
   const destinations = new Set<string>()
   const resolved: ChannelBindings = Object.create(null)

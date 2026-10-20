@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import * as path from 'path'
 import {run} from '../src/inspect'
+import {approvedImages} from '../src/shared-image'
 
 jest.mock('@actions/core', () => ({getInput: jest.fn(), setOutput: jest.fn(), setFailed: jest.fn()}))
 
@@ -18,6 +19,28 @@ const inputs: Record<string, string> = {
 }
 
 describe('inspect action inputs and outputs', () => {
+  test.each([
+    ['approved coordinates', 'another-image', [destination], {
+      'another-image': {sourceRepository: 'PostHog/posthog', registry: 'source.example.com', repository: 'another-image', destinations: [destination]}
+    }],
+    ['another approved image', 'posthog-cloud', [destination], {
+      'posthog-cloud': {sourceRepository: 'PostHog/posthog', registry: 'source.example.com', repository: 'posthog-cloud', destinations: [destination]}
+    }],
+    ['extra key', 'another-image', [{...destination, extra: true}], null],
+    ['missing replicas', 'another-image', [{...destination, replicas: undefined}], null],
+    ['string replicas', 'another-image', [{...destination, replicas: 'replica.example.com'}], null],
+    ['empty replica', 'another-image', [{...destination, replicas: ['']}], null],
+    ['empty owner', 'another-image', [{...destination, owner: ''}], null],
+    ['empty repository', 'another-image', [{...destination, repository: ''}], null]
+  ] as const)('approved publication map: %s', (_name, image, destinations, expected) => {
+    const resolve = (): ReturnType<typeof approvedImages> => approvedImages(image, 'source.example.com', destination.registry, JSON.stringify(destinations))
+    if (expected === null) {
+      expect(resolve).toThrow(`Invalid approved destination: ${JSON.stringify(destinations[0])}`)
+    } else {
+      expect(resolve()).toStrictEqual(expected)
+    }
+  })
+
   test.each(['inspect', ''])('resolves approved bindings with operation %s', operation => {
     jest.mocked(core.getInput).mockImplementation(name => name === 'shared-image-operation' ? operation : inputs[name] || '')
     run()
