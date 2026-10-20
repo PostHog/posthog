@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -11,6 +12,8 @@ import type { InsightVizNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 import type { InsightShortId } from '~/types'
+
+import type { InsightDataCheckApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { insightDataChecksLogic } from './insightDataChecksLogic'
 
@@ -281,5 +284,29 @@ describe('insightDataChecksLogic', () => {
 
         expect(vizData.values.querySource?.filterTestAccounts).toBe(true)
         expect(sentSources.map((source) => !!source.filterTestAccounts)).toEqual([false, true])
+    })
+
+    it("adds the check's rule to the project's filter, then checks again", async () => {
+        const rule = { key: 'email', type: 'person', operator: 'is_not', value: ['qa@example.com'] }
+        const savedFilters: unknown[] = []
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/': async ({ request }) => {
+                    const body = (await request.json()) as { test_account_filters: unknown[] }
+                    savedFilters.push(body.test_account_filters)
+                    return [200, { ...teamLogic.values.currentTeam, ...body }]
+                },
+            },
+        })
+        const existing = teamLogic.values.currentTeam?.test_account_filters ?? []
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, () =>
+            logic.actions.addFilterRule({ key: 'internal_users', filter_to_add: rule } as InsightDataCheckApi)
+        ).toFinishAllListeners()
+
+        expect(savedFilters).toEqual([[...existing, rule]])
+        expect(dataChecks).toHaveBeenCalledTimes(2)
     })
 })

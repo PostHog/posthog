@@ -15,6 +15,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -30,7 +31,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { isEventsNode, isInsightQueryWithSeries, isInsightVizNode } from '~/queries/utils'
 import { SidePanelTab } from '~/types'
-import type { InsightLogicProps, TeamPublicType, TeamType } from '~/types'
+import type { AnyPropertyFilter, InsightLogicProps, TeamPublicType, TeamType } from '~/types'
 
 import { insightsDataChecksCreate } from 'products/product_analytics/frontend/generated/api'
 import type {
@@ -41,7 +42,7 @@ import type {
     InsightDataChecksStatusEnumApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { postHogAIPromptOf, removesBotTraffic } from './dataCheckText'
+import { isFinding, postHogAIPromptOf, removesBotTraffic } from './dataCheckText'
 
 /** The insight query the server checks. The server reads the events from the query this chart runs. */
 export interface DataChecksQuery {
@@ -64,6 +65,7 @@ export interface insightDataChecksLogicValues {
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    currentTeamLoading: boolean // teamLogic
     checkAgainRequested: boolean
     checkedQuery: DataChecksQuery | null
     checks: InsightDataCheckApi[]
@@ -77,7 +79,6 @@ export interface insightDataChecksLogicValues {
     lastResult: InsightDataChecksApi | null
     postHogAIOpen: boolean
     queryFiltersTestAccounts: boolean
-    refreshing: boolean
     requestedQuery: DataChecksQuery | null
     result: InsightDataChecksApi | null
     status: InsightDataChecksStatus
@@ -102,13 +103,6 @@ export interface insightDataChecksLogicActions {
         pollOnly: boolean
         queryId: string
         refresh: RefreshType | undefined
-    } // insightVizDataLogic
-    loadDataFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
     } // insightVizDataLogic
     loadDataSuccess: (
         response:
@@ -169,6 +163,17 @@ export interface insightDataChecksLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
+    updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
+    updateCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | TeamType,
+        payload?: Partial<TeamType>
+    ) => {
+        currentTeam: TeamPublicType | TeamType
+        payload?: Partial<TeamType>
+    } // teamLogic
+    addFilterRule: (check: InsightDataCheckApi) => {
+        check: InsightDataCheckApi
+    }
     checkData: (again?: boolean) => {
         again: boolean
     }
@@ -229,7 +234,6 @@ export interface insightDataChecksLogicMeta {
             lastResult: InsightDataChecksApi | null,
             checks: InsightDataCheckApi[]
         ) => InsightDataCheckApi[]
-        refreshing: (status: InsightDataChecksStatus, visibleChecks: InsightDataCheckApi[]) => boolean
         queryFiltersTestAccounts: (checkedQuery: DataChecksQuery | null) => boolean
         checks: (result: InsightDataChecksApi | null) => InsightDataCheckApi[]
         findings: (checks: InsightDataCheckApi[]) => InsightDataCheckApi[]
@@ -264,20 +268,23 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'currentTeamLoading'],
             sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab'],
         ],
         actions: [
             insightVizDataLogic(props),
-            ['loadData', 'loadDataSuccess', 'loadDataFailure', 'updateQuerySource'],
+            ['loadData', 'loadDataSuccess', 'updateQuerySource'],
             featureFlagLogic,
             ['setFeatureFlags'],
             sidePanelStateLogic,
             ['openSidePanel'],
+            teamLogic,
+            ['updateCurrentTeam', 'updateCurrentTeamSuccess'],
         ],
     })),
     actions({
+        addFilterRule: (check: InsightDataCheckApi) => ({ check }),
         checkData: (again: boolean = false) => ({ again }),
         closeLabel: true,
         setFiltersTestAccounts: (filtersTestAccounts: boolean, check: InsightDataCheckKeyEnumApi) => ({
@@ -370,7 +377,6 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                     dataChecksRun?.ok ? dataChecksRun.result : lastResult,
             },
         ],
-        // Held until the checks run again, so the result from before the change cannot be acted on twice.
     }),
     selectors({
         postHogAIOpen: [
@@ -438,11 +444,6 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 checks: InsightDataCheckApi[]
             ): InsightDataCheckApi[] => (status === 'checking' ? (lastResult?.checks ?? []) : checks),
         ],
-        refreshing: [
-            (s) => [s.status, s.visibleChecks],
-            (status: InsightDataChecksStatus, visibleChecks: InsightDataCheckApi[]): boolean =>
-                status === 'checking' && visibleChecks.length > 0,
-        ],
         // The chart's own toggle, which changes before the checks run again.
         queryFiltersTestAccounts: [
             (s) => [s.checkedQuery],
@@ -454,8 +455,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         ],
         findings: [
             (s) => [s.checks],
-            (checks: InsightDataCheckApi[]): InsightDataCheckApi[] =>
-                checks.filter((check) => check.level === 'warning' || check.level === 'problem'),
+            (checks: InsightDataCheckApi[]): InsightDataCheckApi[] => checks.filter(isFinding),
         ],
         labelOpen: [
             (s) => [s.status, s.labelHeldOpen],
@@ -510,9 +510,26 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             if (values.postHogAIOpen) {
                 return
             }
-            // A leading "!" sends the prompt as soon as the panel opens.
-            actions.openSidePanel(SidePanelTab.Max, `!${postHogAIPromptOf(check)}`)
+            actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(postHogAIPromptOf(check)))
             posthog.capture('insight data check fix applied', { check: check.key, fix: 'posthog_ai' })
+        },
+        addFilterRule: ({ check }) => {
+            if (!check.filter_to_add) {
+                return
+            }
+            actions.updateCurrentTeam({
+                test_account_filters: [
+                    ...(values.currentTeam?.test_account_filters ?? []),
+                    check.filter_to_add as AnyPropertyFilter,
+                ],
+            })
+            posthog.capture('insight data check fix applied', { check: check.key, fix: 'add_filter_rule' })
+        },
+        // The project's filter decides what the checks report, so they run again once it changes.
+        updateCurrentTeamSuccess: ({ payload }) => {
+            if (payload && 'test_account_filters' in payload) {
+                actions.checkData(true)
+            }
         },
         reportDataChecksViewed: () => {
             // pinned: analytics event name, renaming breaks dashboards

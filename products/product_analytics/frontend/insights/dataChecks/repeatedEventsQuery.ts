@@ -1,5 +1,7 @@
+import { hogql } from '~/queries/utils'
+
 // Matches the check's window on the server, so the query lists the same repeats the check counted.
-const REPEAT_WINDOW_MILLISECONDS = 100
+export const REPEAT_WINDOW_MILLISECONDS = 100
 
 export interface RepeatedEventsScope {
     events: string[]
@@ -8,15 +10,11 @@ export interface RepeatedEventsScope {
     sampleRate: number
 }
 
-function sqlString(value: string): string {
-    return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
-}
-
 export function repeatedEventsQueryOf({ events, dateFrom, dateTo, sampleRate }: RepeatedEventsScope): string {
-    const eventFilter = events.length ? `event IN (${events.map(sqlString).join(', ')}) AND ` : ''
-    const sample = sampleRate < 1 ? ` SAMPLE ${Number(sampleRate.toPrecision(3))}` : ''
+    const eventFilter = events.length ? hogql`event IN ${events} AND ` : ''
+    const sample = sampleRate < 1 ? hogql` SAMPLE ${Number(sampleRate.toPrecision(3))}` : ''
     // The partition matches the check's, so an event counts as a repeat only when nothing but its time differs.
-    return `-- Events sent again by the same person less than ${REPEAT_WINDOW_MILLISECONDS} ms apart, on the days the check read
+    return hogql`-- Events sent again by the same person less than ${REPEAT_WINDOW_MILLISECONDS} ms apart, on the days the check read
 SELECT timestamp, event, distinct_id, url, library, library_version, milliseconds_after_previous
 FROM (
     SELECT
@@ -46,8 +44,8 @@ FROM (
             ),
             timestamp
         ) AS milliseconds_after_previous
-    FROM events${sample}
-    WHERE ${eventFilter}toDate(timestamp) >= toDate(${sqlString(dateFrom)}) AND toDate(timestamp) <= toDate(${sqlString(dateTo)})
+    FROM events${hogql.raw(sample)}
+    WHERE ${hogql.raw(eventFilter)}toDate(timestamp) >= toDate(${dateFrom}) AND toDate(timestamp) <= toDate(${dateTo})
 )
 WHERE milliseconds_after_previous < ${REPEAT_WINDOW_MILLISECONDS}
 ORDER BY timestamp DESC

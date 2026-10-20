@@ -1,14 +1,16 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { capitalizeFirstLetter, humanList, pluralize } from 'lib/utils/strings'
 
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { getFilterLabel } from '~/taxonomy/helpers'
 
 import type {
     InsightDataCheckApi,
     InsightDataCheckKeyEnumApi,
     InsightDataCheckSkipReasonEnumApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
+
+import { REPEAT_WINDOW_MILLISECONDS } from './repeatedEventsQuery'
 
 export interface DataCheckText {
     /** The same whatever the result, so a row reads as the check it is. */
@@ -61,22 +63,13 @@ function eventCount(check: InsightDataCheckApi): string {
     return check.scaled ? `about ${count}` : count
 }
 
-/** The examples, then how many more there are, such as "a, b and 3 other hosts". */
-function examplesOf(examples: string[], total: number | null, other: string): string | null {
-    if (!examples.length) {
-        return null
-    }
-    const others = (total ?? examples.length) - examples.length
-    if (others > 0) {
-        return `${examples.join(', ')} and ${pluralize(others, other)}`
-    }
-    const last = examples[examples.length - 1]
-    return examples.length > 1 ? `${examples.slice(0, -1).join(', ')} and ${last}` : last
+// Below 1% a share rounds to 0%, so the text gives a count instead.
+function percentOf(share: number | null): string | null {
+    return share !== null && share >= 0.01 ? percentage(share, 0) : null
 }
 
-function shareOf(check: InsightDataCheckApi, part: number): number | null {
-    const share = check.share !== null && check.events ? (check.share * part) / check.events : null
-    return share !== null && share >= 0.01 ? Math.round(share * 100) : null
+function shareOf(check: InsightDataCheckApi, part: number): string | null {
+    return percentOf(check.share !== null && check.events ? (check.share * part) / check.events : null)
 }
 
 export interface FilterCheckParts {
@@ -87,14 +80,14 @@ export interface FilterCheckParts {
 
 const NOTHING: FilterCheckParts = { caught: null, missed: null }
 
-function isFinding(check: InsightDataCheckApi): boolean {
+export function isFinding(check: InsightDataCheckApi): boolean {
     return check.level === 'warning' || check.level === 'problem'
 }
 
 function internalUsersParts(check: InsightDataCheckApi, filtersTestAccounts: boolean): FilterCheckParts {
     const removed = check.removed_by_filter
-    const removedShare = removed ? shareOf(check, removed) : null
-    const caughtAmount = removedShare !== null ? `${removedShare}% of these events` : pluralize(removed ?? 0, 'event')
+    const removedPercent = removed ? shareOf(check, removed) : null
+    const caughtAmount = removedPercent ? `${removedPercent} of these events` : pluralize(removed ?? 0, 'event')
     return {
         caught:
             removed && !filtersTestAccounts
@@ -106,7 +99,7 @@ function internalUsersParts(check: InsightDataCheckApi, filtersTestAccounts: boo
                   noun: 'user',
                   examples: check.top_emails,
                   fallback: "Your team's emails",
-                  excludeLabel: check.filter_to_add ? 'Exclude these users' : 'Edit filter',
+                  excludeLabel: 'Exclude these users',
               }
             : null,
     }
@@ -168,18 +161,10 @@ export function filterCheckParts(
     }
 }
 
-function eventNamesOf(events: string[]): string | null {
-    return examplesOf(
-        events.map((event) => getCoreFilterDefinition(event, TaxonomicFilterGroupType.Events)?.label ?? event),
-        null,
-        'other event'
-    )
-}
-
 export function repeatedEventsTextOf(check: InsightDataCheckApi): { found: string; causes: string } {
-    const names = eventNamesOf(check.top_events)
+    const names = humanList(check.top_events.map((event) => getFilterLabel(event, TaxonomicFilterGroupType.Events)))
     return {
-        found: `${names ? `${names} events are` : 'Some events are'} sent twice by the same person, less than 100 ms apart.`,
+        found: `${names ? `${names} events are` : 'Some events are'} sent twice by the same person, less than ${REPEAT_WINDOW_MILLISECONDS} ms apart.`,
         causes:
             "This could be because your event is set up twice, you're re-firing an event that's sent automatically, " +
             "or there's a bug in your code. It could even be that PostHog is initialized twice.",
@@ -189,12 +174,13 @@ export function repeatedEventsTextOf(check: InsightDataCheckApi): { found: strin
 // The prompt holds only counts. Event names, hosts and emails come from captured events, which anyone with the
 // project token can send, so PostHog AI reads them through its tools instead of as part of the request.
 export function postHogAIPromptOf(check: InsightDataCheckApi): string {
-    const share = check.share !== null && check.share >= 0.01 ? ` (${Math.round(check.share * 100)}% of them)` : ''
+    const percent = percentOf(check.share)
+    const share = percent ? ` (${percent} of them)` : ''
     switch (check.key) {
         case 'duplicate_events':
             return (
                 `The data checks on this insight found ${eventCount(check)} events${share} sent twice by the same ` +
-                'person less than 100 ms apart. Find which events they are and why, for example the event being set ' +
+                `person less than ${REPEAT_WINDOW_MILLISECONDS} ms apart. Find which events they are and why, for example the event being set ` +
                 'up twice, my code re-firing an event PostHog sends automatically, a bug in my code, or PostHog being ' +
                 'initialized twice, and tell me how to fix it.'
             )
@@ -235,9 +221,7 @@ export function dataCheckText(check: InsightDataCheckApi, filtersTestAccounts: b
         }
         return { name, result: check.events ? `Almost none (${eventCount(check)} events)` : 'None found' }
     }
-    const amount =
-        check.share !== null && check.share >= 0.01
-            ? `${check.scaled ? 'About ' : ''}${Math.round(check.share * 100)}%`
-            : capitalizeFirstLetter(eventCount(check))
+    const percent = percentOf(check.share)
+    const amount = percent ? `${check.scaled ? 'About ' : ''}${percent}` : capitalizeFirstLetter(eventCount(check))
     return { name, result: `${amount} of these events` }
 }

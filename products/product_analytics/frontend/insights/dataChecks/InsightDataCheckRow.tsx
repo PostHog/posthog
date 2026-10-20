@@ -10,7 +10,7 @@ import type {
     InsightDataCheckLevelEnumApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { FILTER_CHECK_KEYS, dataCheckText } from './dataCheckText'
+import { FILTER_CHECK_KEYS, dataCheckText, isFinding } from './dataCheckText'
 import { DuplicateEventsDetails } from './DuplicateEventsDetails'
 import { FilterCheckDetails } from './FilterCheckDetails'
 import { insightDataChecksLogic } from './insightDataChecksLogic'
@@ -22,15 +22,15 @@ const LEVEL_LABELS: Record<InsightDataCheckLevelEnumApi, string> = {
     skipped: 'Not checked',
 }
 
-function LevelIcon({ level }: { level: InsightDataCheckApi['level'] }): JSX.Element {
-    if (level === 'passed') {
+function LevelIcon({ check }: { check: InsightDataCheckApi }): JSX.Element {
+    if (check.level === 'passed') {
         return <IconCheck className="size-4 text-(--success-foreground)" />
     }
-    if (level === 'warning' || level === 'problem') {
+    if (isFinding(check)) {
         return (
             <IconWarning
                 className={
-                    level === 'problem'
+                    check.level === 'problem'
                         ? 'size-4 text-(--destructive-foreground)'
                         : 'size-4 text-(--warning-foreground)'
                 }
@@ -47,16 +47,16 @@ export function InsightDataCheckRow({
     insightProps: InsightLogicProps
     check: InsightDataCheckApi
 }): JSX.Element {
-    const { filtersTestAccounts, refreshing } = useValues(insightDataChecksLogic(insightProps))
+    const { filtersTestAccounts, status } = useValues(insightDataChecksLogic(insightProps))
     const text = dataCheckText(check, filtersTestAccounts)
     const dependsOnFilter = FILTER_CHECK_KEYS.includes(check.key)
-    const foundRepeats = check.key === 'duplicate_events' && (check.level === 'warning' || check.level === 'problem')
+    const foundRepeats = check.key === 'duplicate_events' && isFinding(check)
     const hasDetails = dependsOnFilter || foundRepeats
 
     const header = (
         <span className="flex items-start gap-2">
             <span className="flex h-5 w-4 shrink-0 items-center justify-center">
-                <LevelIcon level={check.level} />
+                <LevelIcon check={check} />
             </span>
             <span className="flex flex-col">
                 {/* No size of its own, so the name takes the text size that quill gives a popover. */}
@@ -67,7 +67,7 @@ export function InsightDataCheckRow({
                 <Text
                     size="xs"
                     variant="muted"
-                    className={refreshing ? 'animate-pulse motion-reduce:animate-none' : undefined}
+                    className={status === 'checking' ? 'animate-pulse motion-reduce:animate-none' : undefined}
                     render={<span />}
                 >
                     {text.result}
