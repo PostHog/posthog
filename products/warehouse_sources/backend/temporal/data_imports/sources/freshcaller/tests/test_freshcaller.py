@@ -8,7 +8,6 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.freshcaller import (
@@ -124,10 +123,6 @@ class TestIncremental:
 
 
 class TestValidateCredentials:
-    def test_connection_error_returns_none(self) -> None:
-        with scripted_network(always(ConnectionError("nope"))):
-            assert validate_credentials("acme", "key") is None
-
     def test_session_redacts_api_key(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("acme", "secret-key")

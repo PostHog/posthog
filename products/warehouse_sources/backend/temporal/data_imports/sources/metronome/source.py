@@ -150,7 +150,7 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             caption="Create an API token in Metronome under **Developer > API tokens**. Metronome shows the token once, so copy it before closing the dialog.",
             docsUrl="https://posthog.com/docs/cdp/sources/metronome",
             iconPath="/static/services/metronome.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

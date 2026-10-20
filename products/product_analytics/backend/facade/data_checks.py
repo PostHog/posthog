@@ -21,6 +21,7 @@ def run_insight_data_checks(
     """Check the events an insight query reads for internal users, local traffic, bots and events sent twice.
 
     The checks read the events as `user`. They do not run when a property they read is hidden from that person.
-    The internal users check matches only the member emails and verified domains that `email_access` allows.
+    The internal users check matches only the member emails and verified domains that `email_access` allows, and
+    names the emails it finds only when `email_access` allows person emails.
     """
     return insight_data_checks.run_insight_data_checks(query, team, user, email_access=email_access)

@@ -96,7 +96,7 @@ class GoLoginSource(ResumableSource[GoLoginSourceConfig, GoLoginResumeConfig]):
             label="GoLogin",
             iconPath="/static/services/gologin.png",
             caption="Find your GoLogin API key in Settings > API.",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
