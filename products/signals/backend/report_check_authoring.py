@@ -21,6 +21,7 @@ from functools import partial
 from typing import Literal
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 import structlog
@@ -534,11 +535,12 @@ def _arm_pending_checks(
             and check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
             and bool(check.config.get("monitoring"))
         )
+        resuming_monitoring = interim and check.last_run_at is not None and check.last_run_at >= resolved_at
         if interim:
             last_sample_at = max(resolved_at, check.last_run_at or resolved_at)
             delay = (
                 MONITORING_ERROR_RETRY_AFTER
-                if check.last_run_at is not None and check.last_run_at >= resolved_at and check.consecutive_errors > 0
+                if resuming_monitoring and check.consecutive_errors > 0
                 else timedelta(minutes=monitoring_interval_minutes(check.run_interval_minutes))
             )
             next_run_at = min(
@@ -572,6 +574,7 @@ def _arm_pending_checks(
                 next_run_at=next_run_at,
                 measurement_start_at=resolved_at if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD else None,
                 expires_at=expires_at,
+                consecutive_errors=0 if interim and not resuming_monitoring else F("consecutive_errors"),
                 updated_at=armed_at,
             )
         )

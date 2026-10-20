@@ -2870,20 +2870,40 @@ class TestPendingChecks(APIBaseTest):
             assert self.report.artefacts.filter(type="check_observation").count() == 2
 
     def test_a_delayed_monitoring_callback_cannot_arm_a_newer_period(self) -> None:
-        check = self._pending()
         now = timezone.now()
         old_start = now - timedelta(days=3)
         new_start = now - timedelta(hours=1)
         with (
             time_machine.travel(now, tick=False),
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            patch(
+                "products.signals.backend.report_check_monitoring.measure_metric",
+                side_effect=RuntimeError("query failed"),
+            ),
         ):
-            with self.captureOnCommitCallbacks(execute=False) as old_callbacks:
+            check = create_check(
+                report=self.report,
+                title="Errors stay low",
+                kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+                config=_threshold_config(monitoring={"reference_period_minutes": 10080, "threshold_scaling": "linear"}),
+                soak_minutes=7 * 1440,
+                attribution=ArtefactAttribution.system(),
+            )
+            with self.captureOnCommitCallbacks(execute=True):
                 self.report.save(
                     update_fields=self.report.transition_to(
                         SignalReport.Status.MONITORING, monitoring_started_at=old_start
                     )
                 )
+            check.consecutive_errors = MAX_CONSECUTIVE_CHECK_ERRORS - 2
+            check.save(update_fields=["consecutive_errors"])
+            with time_machine.travel(old_start + timedelta(days=1), tick=False):
+                run_due_report_checks()
+            check.refresh_from_db()
+            assert check.consecutive_errors == MAX_CONSECUTIVE_CHECK_ERRORS - 1
+            with self.captureOnCommitCallbacks(execute=False) as old_callbacks:
+                self.report.save(update_fields=self.report.transition_to(SignalReport.Status.SUPPRESSED))
+                self.report.save(update_fields=self.report.transition_to(self.report.restore_target_status()))
             self.report.save(update_fields=self.report.transition_to(SignalReport.Status.READY))
             with self.captureOnCommitCallbacks(execute=False) as new_callbacks:
                 self.report.save(
@@ -2901,6 +2921,12 @@ class TestPendingChecks(APIBaseTest):
             check.refresh_from_db()
             assert check.status == SignalReportCheck.Status.ACTIVE
             assert check.measurement_start_at == new_start
+            assert check.next_run_at == new_start + timedelta(days=1)
+            with time_machine.travel(check.next_run_at, tick=False):
+                run_due_report_checks()
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert check.consecutive_errors == 1
 
     def test_restoring_monitoring_rearms_checks_from_the_original_period(self) -> None:
         check = self._pending()
