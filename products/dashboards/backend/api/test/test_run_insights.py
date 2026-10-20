@@ -8,13 +8,14 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import DateRange, EventsNode, InsightVizNode, TrendsFilter, TrendsQuery
+from posthog.schema import ActionsNode, CompareFilter, DateRange, EventsNode, InsightVizNode, TrendsFilter, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.api.dashboard import DashboardsViewSet
 from products.dashboards.backend.constants import RUN_INSIGHTS_MIN_TILE_CHARS
@@ -106,6 +107,25 @@ class TestDashboardRunInsights(APIBaseTest):
         self.assertTrue(isinstance(result, str) or isinstance(result, list))
         if isinstance(result, str):
             self.assertIn("|", result)
+
+    def test_optimized_format_labels_compared_totals_with_their_ranges_and_saved_series_names(self) -> None:
+        action = Action.objects.create(team=self.team, name="Purchase made", steps_json=[{"event": "purchase"}])
+        query = InsightVizNode(
+            source=TrendsQuery(
+                series=[ActionsNode(id=action.pk, name="Old purchase name")],
+                dateRange=DateRange(date_from="-7d"),
+                trendsFilter=TrendsFilter(display="BoldNumber"),
+                compareFilter=CompareFilter(compare=True),
+            ),
+        ).model_dump()
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": query, "dashboards": [dashboard_id]})
+
+        result = self._run(dashboard_id, refresh="blocking")["results"][0]["insight"]["result"]
+
+        assert isinstance(result, str)
+        self.assertEqual(result.count("Aggregated value for Old purchase name"), 2)
+        self.assertNotIn("All time", result)
 
     @parameterized.expand([("json",), ("optimized",)])
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
