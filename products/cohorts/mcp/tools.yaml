@@ -98,6 +98,9 @@ tools:
     cohorts-list:
         operation: cohorts_list
         enabled: true
+        sdk:
+            namespace: cohorts
+            method: list
         scopes:
             - cohort:read
         annotations:
@@ -177,6 +180,9 @@ tools:
     cohorts-retrieve:
         operation: cohorts_retrieve
         enabled: true
+        sdk:
+            namespace: cohorts
+            method: get
         scopes:
             - cohort:read
         annotations:

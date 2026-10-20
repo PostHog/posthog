@@ -7,10 +7,28 @@
  */
 import { z } from 'zod'
 
+const SdkNamesSchema = z
+    .object({
+        namespace: z
+            .string()
+            .regex(/^[a-z][a-zA-Z0-9]*$/)
+            .refine(
+                (name) => !['context', 'project', 'then', 'constructor', 'prototype'].includes(name),
+                'Reserved SDK namespace'
+            ),
+        method: z
+            .string()
+            .regex(/^[a-z][a-zA-Z0-9]*$/)
+            .refine((name) => !['then', 'constructor', 'prototype'].includes(name), 'Reserved SDK method'),
+    })
+    .strict()
+
 export const ToolConfigSchema = z
     .object({
         operation: z.string(),
         enabled: z.boolean(),
+        /** Optional SDK naming overrides; every registered MCP tool is exported by default. */
+        sdk: SdkNamesSchema.optional(),
         /**
          * Why the tool stays off. Scaffold sync removes an `enabled: false` entry without one as a
          * leftover stub, so every disabled entry records a decision. Rejected on an enabled tool.
@@ -552,6 +570,7 @@ export const FEATURE_NAME_PATTERN = /^[a-z][a-z0-9_]*$/
 
 export const QueryWrapperToolConfigSchema = z
     .object({
+        sdk: SdkNamesSchema.optional(),
         /** Name of the definition in schema.json (e.g. "AssistantTrendsQuery") */
         schema_ref: z.string(),
         enabled: z.boolean(),
