@@ -114,6 +114,21 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
 }
 
 
+def exit_condition_that_runs(trigger_type: str | None, exit_condition: str | None) -> str | None:
+    """The exit condition a run of this trigger actually follows.
+
+    The executor re-checks the trigger only for an event trigger, so on any other trigger "exit when the
+    trigger no longer matches" never fires.
+    """
+    if trigger_type == "event":
+        return exit_condition
+    if exit_condition == HogFlowExitCondition.TRIGGER_NOT_MATCHED:
+        return HogFlowExitCondition.ONLY_AT_END
+    if exit_condition == HogFlowExitCondition.TRIGGER_NOT_MATCHED_OR_CONVERSION:
+        return HogFlowExitCondition.CONVERSION
+    return exit_condition
+
+
 def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(HogFlow.OriginProduct.choices)

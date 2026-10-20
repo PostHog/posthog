@@ -9,6 +9,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
+    exit_condition_that_runs,
 )
 from products.workflows.backend.services.hog_flow_reads import (
     BROADCAST_STATUSES,
@@ -41,4 +42,5 @@ __all__ = [
     "list_workflows",
     "workflow_from_fields",
     "workflow_publish_impact",
+    "exit_condition_that_runs",
 ]

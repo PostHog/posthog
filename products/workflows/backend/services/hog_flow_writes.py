@@ -14,7 +14,12 @@ from products.workflows.backend.facade.contracts import (
     WorkflowWriteResult,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
-from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, ROW_SCOPED_TRIGGER_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import (
+    BILLABLE_ACTION_TYPES,
+    ROW_SCOPED_TRIGGER_TYPES,
+    HogFlow,
+    exit_condition_that_runs,
+)
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.hog_flow_content import DRAFT_CONTENT_FIELDS, snapshot_flow_content
@@ -140,6 +145,10 @@ def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
             derived["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
         elif (validated_data.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
             del derived["exit_condition"]
+        else:
+            derived["exit_condition"] = exit_condition_that_runs(
+                (derived.get("trigger") or {}).get("type"), derived["exit_condition"]
+            )
     if "billable_action_types" in derived:
         derived["billable_action_types"] = sorted(
             {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}

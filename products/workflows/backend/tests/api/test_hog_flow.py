@@ -4949,6 +4949,28 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("schedule_trigger_not_matched", "schedule", "exit_on_trigger_not_matched", "exit_only_at_end"),
+            (
+                "schedule_trigger_not_matched_or_conversion",
+                "schedule",
+                "exit_on_trigger_not_matched_or_conversion",
+                "exit_on_conversion",
+            ),
+            ("schedule_conversion", "schedule", "exit_on_conversion", "exit_on_conversion"),
+            ("event_trigger_not_matched", "event", "exit_on_trigger_not_matched", "exit_on_trigger_not_matched"),
+        ]
+    )
+    def test_hog_flow_stores_the_exit_condition_its_trigger_can_run(self, _name, trigger_type, sent, stored):
+        flow = self._make_delay_flow({"delay_duration": "5m"}, status="draft")
+        if trigger_type == "schedule":
+            flow["actions"][0]["config"] = {"type": "schedule"}
+        flow["exit_condition"] = sent
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["exit_condition"] == stored
+
+    @parameterized.expand(
+        [
             (
                 "locked_trigger_becomes_row_scoped",
                 "event",
@@ -4965,6 +4987,14 @@ class TestHogFlowAPI(APIBaseTest):
                 {"name": "Renamed"},
                 "exit_on_conversion",
             ),
+            (
+                "locked_trigger_stops_being_an_event_trigger",
+                "event",
+                "schedule",
+                "exit_on_trigger_not_matched",
+                {"exit_condition": "exit_on_trigger_not_matched"},
+                "exit_only_at_end",
+            ),
         ]
     )
     def test_update_without_actions_derives_exit_condition_from_the_locked_trigger(
@@ -4980,6 +5010,7 @@ class TestHogFlowAPI(APIBaseTest):
                 "table_name": "postgres.table_1",
                 "filters": {"properties": []},
             },
+            "schedule": {"type": "schedule"},
         }
         trigger_action = {"id": "trigger_node", "name": "trigger_1", "type": "trigger"}
         response = self.client.post(
