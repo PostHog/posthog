@@ -45,6 +45,7 @@ class CardTrial(TypedDict, total=False):
     trial_index: int
     expected: list[dict[str, object]]
     catalog: list[dict[str, object]]
+    configured_goals: list[dict[str, object]]
     request_model: str
     request_max_tokens: int
     request_sha256: str
@@ -147,7 +148,13 @@ def _dry_response(case: RecommendationCardCase) -> httpx.Response:
                                 "reason": "Synthetic transport fixture.",
                                 "intent": item.intent,
                                 "amount_property": item.amount_property,
-                                "questions": [],
+                                "questions": (
+                                    ["Confirm the amount units and currency."]
+                                    if item.intent == "revenue"
+                                    else ["Confirm how the action identifies a first customer."]
+                                    if item.intent == "customer"
+                                    else []
+                                ),
                             }
                             for item in case.expected
                         ],
@@ -279,6 +286,7 @@ def run_card_evaluation(
                         "trial_index": trial,
                         "expected": [asdict(item) for item in case.expected],
                         "catalog": [candidate.model_dump(mode="json") for candidate in candidates],
+                        "configured_goals": list(case.configured_goals),
                         "status": "running",
                     }
                     records.append(current)
@@ -294,6 +302,16 @@ def run_card_evaluation(
                     with ExitStack() as case_stack:
                         stage = "generation"
                         case_stack.enter_context(patch.object(service, "candidates", return_value=candidates))
+                        case_stack.enter_context(
+                            patch.object(
+                                service,
+                                "configured_goals",
+                                return_value=[
+                                    production.ConfiguredConversionGoal.model_validate(goal)
+                                    for goal in case.configured_goals
+                                ],
+                            )
+                        )
                         if dry_run:
                             case_stack.enter_context(
                                 patch.object(httpx.HTTPTransport, "handle_request", return_value=_dry_response(case))

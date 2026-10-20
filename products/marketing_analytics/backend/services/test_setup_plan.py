@@ -15,7 +15,6 @@ from products.marketing_analytics.backend.services.conversion_goals_inspector im
     ConversionGoalsListResponse,
     ConversionGoalSummary,
 )
-from products.marketing_analytics.backend.services.event_suggestions import CandidateEvent, EventSuggestionsResponse
 from products.marketing_analytics.backend.services.mapping_suggester import (
     SourceMappingSuggestion,
     UtmMappingSuggestionsResponse,
@@ -147,7 +146,6 @@ class SetupPlanTestCase(SimpleTestCase):
             conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
         )
         self.attribution = _attribution()
-        self.candidates = EventSuggestionsResponse(candidates=[])
         self.campaigns: list[Campaign] = []
         self.utm_events: dict[tuple[str, str], int] = {}
         self.goal_flags: dict[str, dict] = {"g1": {"counts_as_revenue": True, "counts_as_customer": True}}
@@ -159,7 +157,6 @@ class SetupPlanTestCase(SimpleTestCase):
         attribute_by_target = {
             "get_marketing_diagnostic": "diagnostic",
             "get_attribution_health": "attribution",
-            "suggest_conversion_goals": "candidates",
             "get_campaigns_with_spend_async": "campaigns",
             "get_utm_campaign_catalogue_async": "utm_events",
             "_load_goal_flags": "goal_flags",
@@ -334,21 +331,29 @@ class TestRanking(SetupPlanTestCase):
 
     @pytest.mark.asyncio
     async def test_unblocking_action_outranks_a_higher_volume_one(self):
-        # Connecting the platform unblocks the goal-flag work, so it must come first
-        # even though the goal suggestion carries far more event volume.
         self.diagnostic = MarketingDiagnosticResponse(
             integrations=[_integration("meta_ads", "MetaAds", status="events_only", matched=10, paid=10)],
             overall_status="degraded",
-            conversion_goals=ConversionGoalsListResponse(goals=[_goal(count=5_000_000)]),
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
         )
-        self.goal_flags = {"g1": {}}
+        self.utm_mappings = UtmMappingSuggestionsResponse(
+            source_suggestions=[
+                SourceMappingSuggestion(
+                    raw_utm_source="fb-ads",
+                    suggested_target="meta_ads",
+                    suggested_target_display_name="Meta Ads",
+                    reason="The source matches a known Meta Ads alias.",
+                    event_count_30d=5_000_000,
+                )
+            ]
+        )
 
         plan = await get_setup_plan(self.team)
 
         kinds = [s.kind for s in plan.suggestions]
         assert kinds[0] == SuggestionKind.CONNECT_SOURCE
-        assert SuggestionKind.MARK_GOAL_AS_REVENUE in kinds
-        assert kinds.index(SuggestionKind.CONNECT_SOURCE) < kinds.index(SuggestionKind.MARK_GOAL_AS_REVENUE)
+        assert SuggestionKind.ADD_SOURCE_MAPPING in kinds
+        assert kinds.index(SuggestionKind.CONNECT_SOURCE) < kinds.index(SuggestionKind.ADD_SOURCE_MAPPING)
 
     @pytest.mark.asyncio
     async def test_errors_outrank_warnings_at_equal_unblocking(self):
@@ -453,16 +458,20 @@ class TestReadiness(SetupPlanTestCase):
 
     @pytest.mark.asyncio
     async def test_readiness_links_back_to_the_blocking_suggestions(self):
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[_integration()],
+            overall_status="healthy",
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal(misconfigured=True)], has_misconfigured=True),
+        )
         self.goal_flags = {"g1": {}}
 
         plan = await get_setup_plan(self.team)
 
-        # An exact set: "non-empty and a subset" also passes when `_blockers` ignores the
-        # capability and returns everything. Both are present here; only one unlocks ROAS.
         roas = self._readiness(plan, Capability.ROAS)
-        assert {s.id for s in plan.suggestions} == {"mark_goal_as_revenue:any", "mark_goal_as_customer:any"}
-        assert set(roas.blocked_by) == {"mark_goal_as_revenue:any"}
-        assert set(self._readiness(plan, Capability.CAC).blocked_by) == {"mark_goal_as_customer:any"}
+        assert {s.id for s in plan.suggestions} == {"fix_conversion_goal:g1"}
+        assert set(roas.blocked_by) == {"fix_conversion_goal:g1"}
+        assert set(self._readiness(plan, Capability.CAC).blocked_by) == {"fix_conversion_goal:g1"}
+        assert self._readiness(plan, Capability.ATTRIBUTION).blocked_by == []
 
     @pytest.mark.asyncio
     async def test_roas_names_both_gaps_when_spend_is_missing_too(self):
@@ -533,34 +542,19 @@ class TestReadiness(SetupPlanTestCase):
 
 class TestConversionGoals(SetupPlanTestCase):
     @pytest.mark.asyncio
-    async def test_names_the_best_candidate_event_when_no_goals_exist(self):
+    async def test_missing_goals_are_reported_without_heuristic_recommendations(self):
         self.diagnostic = MarketingDiagnosticResponse(
             integrations=[_integration()],
             overall_status="healthy",
             conversion_goals=ConversionGoalsListResponse(goals=[]),
         )
-        self.candidates = EventSuggestionsResponse(
-            candidates=[
-                CandidateEvent(
-                    event_name="purchase_completed",
-                    last_30d_count=4200,
-                    distinct_users_30d=3100,
-                    pct_with_utm_source=0.82,
-                    pct_with_utm_campaign=0.8,
-                    top_utm_sources=[("google", 2000)],
-                    is_already_a_goal=False,
-                    suggestion_score=0.9,
-                    suggestion_reason="high volume, well tagged",
-                )
-            ]
-        )
         self.goal_flags = {}
 
         plan = await get_setup_plan(self.team)
 
-        create = next(s for s in plan.suggestions if s.kind == SuggestionKind.CREATE_CONVERSION_GOAL)
-        assert "purchase_completed" in create.evidence
-        assert "4,200" in create.evidence
+        assert plan.suggestions == []
+        assert next(r for r in plan.readiness if r.capability == Capability.ROAS).status == ReadinessStatus.BLOCKED
+        assert plan.summary == "Some metrics are not ready yet. Review their setup requirements."
 
     @pytest.mark.asyncio
     async def test_misconfigured_goal_is_an_error(self):
@@ -577,15 +571,13 @@ class TestConversionGoals(SetupPlanTestCase):
         assert "deleted action" in fix.evidence
 
     @pytest.mark.asyncio
-    async def test_goal_flag_suggestions_are_never_batch_applied(self):
+    async def test_existing_goals_without_flags_do_not_generate_heuristic_recommendations(self):
         self.goal_flags = {"g1": {}}
 
         plan = await get_setup_plan(self.team)
 
-        flag_kinds = {SuggestionKind.MARK_GOAL_AS_REVENUE, SuggestionKind.MARK_GOAL_AS_CUSTOMER}
-        flags = [s for s in plan.suggestions if s.kind in flag_kinds]
-        assert flags
-        assert all(s.safe_to_batch is False for s in flags)
+        assert plan.suggestions == []
+        assert next(r for r in plan.readiness if r.capability == Capability.CAC).status == ReadinessStatus.BLOCKED
 
 
 class TestConnectSourceNeedsPaidEvidence(SetupPlanTestCase):

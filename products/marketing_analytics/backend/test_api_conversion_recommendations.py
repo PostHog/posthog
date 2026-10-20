@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -15,6 +16,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_val
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
 from products.event_definitions.backend.models.event_property import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -84,10 +87,16 @@ class TestConversionRecommendations(APIBaseTest):
         self.assertEqual(enqueue.call_count, 1)
         runs = ConversionRecommendationRun.objects.for_team(self.team.pk)
         runs.filter(pk=first["id"]).update(
-            status="completed", results={"recommendations": [], "limitations": ["No suitable sources"]}
+            status="completed",
+            completed_at=timezone.now() + timedelta(minutes=1),
+            results={"recommendations": [], "limitations": ["No suitable sources"]},
         )
+        with time_machine.travel("2026-10-01T13:00:59Z", tick=False), patch(QUEUE) as enqueue:
+            cooldown = self.client.post(self.base + "/start", {"refresh": True}).json()
+        self.assertEqual(cooldown["latest_run"]["id"], first["id"])
+        enqueue.assert_not_called()
         with (
-            time_machine.travel("2026-10-01T12:01:00Z", tick=False),
+            time_machine.travel("2026-10-01T13:01:00Z", tick=False),
             patch(QUEUE) as enqueue,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -122,6 +131,11 @@ class TestConversionRecommendations(APIBaseTest):
         self.assertEqual(response["latest_run"]["status"], "failed")
         self.assertIn("Could not start", response["latest_run"]["error"])
         enqueue.assert_not_called()
+        with patch(QUEUE) as enqueue, self.captureOnCommitCallbacks(execute=True):
+            retry = self.client.post(self.base + "/start", {"refresh": True}).json()
+        self.assertNotEqual(retry["latest_run"]["id"], response["latest_run"]["id"])
+        self.assertEqual(retry["latest_run"]["status"], "pending")
+        enqueue.assert_called_once()
 
     def test_flag_membership_and_project_scope_are_enforced(self) -> None:
         self.organization.available_product_features = []
@@ -206,7 +220,7 @@ class TestConversionRecommendations(APIBaseTest):
                                 "reason": "This may record completed payments.",
                                 "intent": "revenue",
                                 "amount_property": amount,
-                                "questions": [],
+                                "questions": ["Confirm whether amount includes tax."],
                             }
                         ]
                     },
@@ -234,7 +248,8 @@ class TestConversionRecommendations(APIBaseTest):
         self.assertEqual(proposal["amount_property"], amount if has_amount else None)
         self.assertEqual(proposal["intent"], "revenue" if has_amount else "conversion")
         self.assertEqual(proposal["candidate"]["count"], 20)
-        self.assertTrue(proposal["questions"])
+        self.assertEqual(proposal["questions"][0], "Confirm whether amount includes tax.")
+        self.assertEqual(len(proposal["questions"]), 1 if has_amount else 2)
         self.assertEqual(self.team.marketing_analytics_config.conversion_goals, [])
 
     @parameterized.expand([("duplicate", "event:order_settled", "completed"), ("unknown", "event:unknown", "failed")])
@@ -249,6 +264,21 @@ class TestConversionRecommendations(APIBaseTest):
             date_from=now - timedelta(days=30),
             date_to=now,
         )
+        config = get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
+        config.conversion_goals = [
+            {
+                "kind": "EventsNode",
+                "event": "membership_renewed",
+                "name": "membership_renewed",
+                "conversion_goal_name": "Membership renewals",
+                "math": "sum",
+                "math_property": "paid_total",
+                "counts_as_revenue": True,
+                "properties": [{"key": "email", "value": "private@example.com", "type": "event"}],
+                "schema_map": {},
+            }
+        ]
+        config.save()
         client = MagicMock()
         client.with_options.return_value = client
         client.__enter__.return_value = client
@@ -285,6 +315,25 @@ class TestConversionRecommendations(APIBaseTest):
             patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client),
         ):
             ConversionRecommendationService(self.team, self.user).execute(str(run.id))
+        payload = json.loads(client.messages.create.call_args.kwargs["messages"][0]["content"])
+        self.assertEqual(
+            payload["configured_goals"],
+            [
+                {
+                    "source_ref": "event:membership_renewed",
+                    "name": "Membership renewals",
+                    "kind": "EventsNode",
+                    "counts_as_revenue": True,
+                    "counts_as_customer": False,
+                    "math": "sum",
+                    "amount_property": "paid_total",
+                    "has_filters": True,
+                }
+            ],
+        )
+        self.assertNotIn("private@example.com", json.dumps(payload))
+        config.refresh_from_db()
+        self.assertEqual(len(config.conversion_goals), 1)
         run.refresh_from_db()
         self.assertEqual(run.status, expected_status)
         if expected_status == "completed":

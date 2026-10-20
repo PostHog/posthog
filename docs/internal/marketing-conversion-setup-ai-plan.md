@@ -10,10 +10,14 @@ The existing Marketing analytics setup flag must also be enabled.
 A start request begins the first analysis after checking permission to generate.
 The first analysis covers 30 days; later analyses cover 14 days and require an explicit refresh request.
 Runs and completed results are stored per project, so reading saved state does not start another analysis.
+After a successful scan, a project waits one hour from completion before starting another scan.
+Failed scans can be retried immediately, and active scans are reused.
+The backend enforces this interval for UI and MCP requests; it never starts a scheduled rescan.
 An update retains the last completed recommendations while it runs.
 Interrupted runs become failed after five minutes and require an explicit retry.
 
-Each recommendation includes its source event or action, an explanation, a proposed intent (conversion, customer, or revenue), and business questions to review.
+Each recommendation includes its source event or action, an explanation, a proposed intent (conversion, customer, or revenue), and up to two actionable checks specific to the proposed goal.
+Count-only suggestions do not ask about revenue units, currency, or hypothetical revenue upgrades.
 A revenue suggestion must reference a numeric property observed in the source metadata.
 A missing amount mapping downgrades the suggestion to a conversion and adds a question about the missing mapping.
 Numeric metadata alone does not prove that a value is money; the user still needs to confirm units, currency, payment status, and duplicate handling.
@@ -29,7 +33,11 @@ The scan does not inspect warehouse tables or create views.
 Starting analysis requires project admin access, AI data-processing consent, the feature flag, and `marketing_analytics:write` for scoped API keys.
 The worker rechecks access, consent, and the flag before reading source data.
 Read-only MCP sessions cannot start analysis.
-The model receives aggregate evidence and source metadata, without individual event payloads or person records.
+The model receives aggregate evidence, source metadata, and summaries of existing goals, including goals absent from the recent candidate catalog.
+Summaries include source identity, name, measurement, revenue/customer flags, and whether filters apply; they omit filter values, individual event payloads, and person records.
+Configured action summaries respect action access controls.
+Selection prioritizes distinct business outcomes not already measured, and can return no suggestions when only weaker steps from an already measured journey remain.
+The backend also drops suggestions for sources marked as already configured.
 Generation uses the Go AI gateway and the production prompt and tool schema.
 
 ## API and MCP
@@ -43,6 +51,10 @@ Starting a run persists an analysis record and enqueues a task after the transac
 Concurrent starts reuse an active run, and repeated initial requests reuse the existing run.
 The start endpoint is limited to five requests per hour per user.
 
+The setup plan no longer generates rules that suggest creating conversion goals or enabling Revenue or Customer.
+Misconfigured goal warnings and integration diagnostics remain available.
+Without AI recommendations enabled, users configure goals manually; capability readiness still explains missing revenue or customer definitions.
+
 ## Frontend follow-up
 
 The Setup integration ships separately and consumes these endpoints.
@@ -54,7 +66,7 @@ The backend and MCP tools do not depend on that integration.
 Backend tests cover run reuse, refresh windows, permissions, consent, source filtering, output validation, and goal preservation.
 MCP tests cover tool schemas, feature flag gating, and access from read-only sessions.
 
-The standalone recommendation evaluation uses nine synthetic business cases and calls the same generator, gateway client, tool schema, and parser as production.
+The standalone recommendation evaluation uses eleven synthetic business cases and calls the same generator, gateway client, tool schema, and parser as production.
 It does not exercise discovery queries, permissions, persistence, or Celery; those have separate tests.
 A deterministic dry run checks the evaluation plumbing without calling a model:
 

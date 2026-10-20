@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from posthog.dataclasses import frozen
+
 
 @dataclass(frozen=True, kw_only=True)
 class CardExpectation:
@@ -11,11 +13,12 @@ class CardExpectation:
     amount_property: str | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class RecommendationCardCase:
     name: str
     candidates: tuple[dict[str, object], ...]
     expected: tuple[CardExpectation, ...]
+    configured_goals: tuple[dict[str, object], ...] = ()
 
 
 def recommendation_card_cases() -> tuple[RecommendationCardCase, ...]:
@@ -151,6 +154,59 @@ def recommendation_card_cases() -> tuple[RecommendationCardCase, ...]:
                 },
             ),
             expected=(CardExpectation(source_ref="action:4106", intent="customer"),),
+        ),
+        RecommendationCardCase(
+            name="completed_enrollment_already_measured",
+            configured_goals=(
+                {
+                    "source_ref": "event:enrollment_confirmed",
+                    "name": "Confirmed enrollment",
+                    "kind": "EventsNode",
+                    "counts_as_revenue": True,
+                    "math": "sum",
+                    "amount_property": "tuition_paid",
+                },
+            ),
+            candidates=(
+                {
+                    "source_ref": "action:4201",
+                    "kind": "ActionsNode",
+                    "action_id": 4201,
+                    "name": "Course page viewed",
+                    "description": "A visitor reads the course catalog. This is browsing before enrollment.",
+                },
+                {
+                    "source_ref": "action:4202",
+                    "kind": "ActionsNode",
+                    "action_id": 4202,
+                    "name": "Enrollment form opened",
+                    "description": "A visitor opens the enrollment form before submitting or paying tuition.",
+                },
+            ),
+            expected=(),
+        ),
+        RecommendationCardCase(
+            name="distinct_lead_alongside_existing_sales",
+            configured_goals=(
+                {
+                    "source_ref": "event:course_sale_paid",
+                    "name": "Self-service course sales",
+                    "kind": "EventsNode",
+                    "counts_as_revenue": True,
+                    "math": "sum",
+                    "amount_property": "paid_total",
+                },
+            ),
+            candidates=(
+                {
+                    "source_ref": "action:4203",
+                    "kind": "ActionsNode",
+                    "action_id": 4203,
+                    "name": "Corporate training consultation booked",
+                    "description": "A company books a consultation for custom team training. This sales-led service is separate from self-service course purchases.",
+                },
+            ),
+            expected=(CardExpectation(source_ref="action:4203", intent="conversion"),),
         ),
         RecommendationCardCase(
             name="routine_activity_only",

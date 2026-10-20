@@ -27,7 +27,7 @@ def generate_conversion_recommendations(team_id: int, run_id: str) -> None:
         ConversionRecommendationRun.objects.for_team(team_id).filter(pk=run_id).update(
             status=ConversionRecommendationRun.Status.FAILED,
             completed_at=timezone.now(),
-            error="The requesting user no longer has access. Update recommendations with an active account.",
+            error="The requesting user no longer has access. Sign in with an active account and scan again.",
         )
         return
     ConversionRecommendationService(team, user).execute(run_id)
