@@ -2268,6 +2268,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `flag_live_after_end` - Flag Live After End
  * * `flag_live_before_launch` - Flag Live Before Launch
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+ * * `multiple_variants_share` - Multiple Variants Share
  * * `no_metric` - No Metric
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
@@ -2286,6 +2287,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     FlagLiveAfterEnd: 'flag_live_after_end',
     FlagLiveBeforeLaunch: 'flag_live_before_launch',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+    MultipleVariantsShare: 'multiple_variants_share',
     NoMetric: 'no_metric',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
@@ -2347,6 +2349,7 @@ export interface ExperimentHealthFindingApi {
      * * `flag_live_after_end` - Flag Live After End
      * * `flag_live_before_launch` - Flag Live Before Launch
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -3176,6 +3179,8 @@ export interface ExperimentHealthInputsConditionSetTrafficApi {
     calls: number
     /** The calls that the flag service evaluated. Only those name a condition set. Local evaluation in a server SDK and a bootstrapped value name none. */
     remotely_evaluated_calls: number
+    /** The people who got a variant from a call without a flag version that is no local evaluation in a server SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`. */
+    people_assigned_outside: number
 }
 
 export interface ExperimentHealthInputsReaderAccessApi {

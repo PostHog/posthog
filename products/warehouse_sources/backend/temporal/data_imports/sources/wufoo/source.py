@@ -133,7 +133,7 @@ Your **subdomain** is the account name in your Wufoo URL — e.g. `acme` for `ac
 Your **API key** is on the **API Information** page of any form (log in, open a form in the Form Manager, then click **API Information**). The same key works across every form on the account.""",
             iconPath="/static/services/wufoo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/wufoo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -201,7 +201,13 @@ def _endpoint_requests(
             params["date_from"] = _history_start(
                 should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC).date()
             )
-        yield {"path": settings["path"], "params": params}, {}
+        if settings.get("snapshot_date"):
+            params["date"] = datetime.now(UTC).date().isoformat()
+        # Rank Tracker reports one device per request, so each device is read and its rows are tagged with it.
+        for device in settings.get("devices", []):
+            yield {"path": settings["path"], "params": {**params, "device": device}}, {"device": device}
+        if not settings.get("devices"):
+            yield {"path": settings["path"], "params": params}, {}
 
 
 def _history_start(should_use_incremental_field: bool, last_value: Any, today: date) -> str:

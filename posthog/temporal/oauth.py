@@ -128,6 +128,8 @@ INTERACTIVE_RUN_SCOPE = "interactive_run:read"
 
 INTERNAL_SCOPES: list[str] = [
     "task:write",
+    # Inbox endpoints move from `task:*` to `inbox:*` scopes, so a run carries both until the move ends.
+    "inbox:write",
     "llm_gateway:read",
     # Provenance marker: proves a token was minted here (server-side), not obtained by a
     # user via the consent flow or a personal API key. `internal_run` is an internal scope,
@@ -346,12 +348,12 @@ MCP_SCOPE_PRESETS = (
 )
 
 # Withheld from `signals_research`, which is otherwise the `read_only` resolution.
-# `task:write` reaches every posture through `INTERNAL_SCOPES`, but it is inert wherever the
-# MCP server runs in read-only mode, which strips every tool not annotated read-only.
+# `task:write` and `inbox:write` reach every posture through `INTERNAL_SCOPES`, but they are inert
+# wherever the MCP server runs in read-only mode, which strips every tool not annotated read-only.
 # `signals_research` turns that mode off so its two scratchpad tools survive, and that alone
-# would hand the research stage the whole task-write toolset — including setting a report's
-# state. The stage reads data and returns findings; the pipeline persists them afterwards.
-RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
+# would hand the research stage the whole task-write and inbox-write toolset — including setting
+# a report's state. The stage reads data and returns findings; the pipeline persists them afterwards.
+RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write", "inbox:write"})
 
 
 def scout_scope_posture(
@@ -442,7 +444,7 @@ def resolve_scopes(
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal, *scratchpad]
         elif scopes == "signals_research":
             # The report research run: reads, plus durable memory, and nothing else. See
-            # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
+            # `RESEARCH_WITHHELD_SCOPES` for why `task:write` and `inbox:write` come back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             if include_internal_scopes:
                 reads.append("signal_scout_internal:read")

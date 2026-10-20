@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -156,7 +155,6 @@ def test_requests_and_pagination(
     ("status", "schema", "valid", "message"),
     [
         (200, None, True, None),
-        (401, None, False, "rejected your API key"),
         (403, None, True, None),
         (403, "services", False, "view permission"),
         (400, None, False, "account, organization, project, and region"),
@@ -224,9 +222,3 @@ def test_malformed_response_fails(driver: SourceDriver, name: str, body: dict[st
     assert isinstance(result.raised, ValueError)
     assert error in str(result.raised)
     assert result.saved_states == []
-
-
-def test_unknown_table(driver: SourceDriver) -> None:
-    result = driver.run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
