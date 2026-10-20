@@ -19,7 +19,7 @@ export interface ViewRef {
     name: string
 }
 
-/** How this phone shows a pin. Device-local; a missing entry means Row. */
+/** How this phone shows a pin. Device-local; the Views list can choose a default when no preference exists. */
 export interface PinDisplay {
     mode: PinDisplayMode
     /** A dashboard pin in Number or Chart mode reads this tile's insight with `from_dashboard`. */

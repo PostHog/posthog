@@ -45,11 +45,7 @@ export function ModeSegment({ value, available, onChange, variant, name, testIDF
                 return (
                     <Pressable44
                         key={mode}
-                        onPress={() => {
-                            if (!selected) {
-                                onChange(mode)
-                            }
-                        }}
+                        onPress={() => onChange(mode)}
                         disabled={disabled}
                         accessibilityRole="radio"
                         accessibilityLabel={LABEL[mode]}

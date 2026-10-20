@@ -13,7 +13,7 @@ import type { PinDisplay } from '@/model/views'
 export interface PinPrefs {
     /** Dense local ranks, keyed by shortcut id. A pin without one sorts after the ranked pins. */
     rank: Record<string, number>
-    /** Keyed by shortcut id. A missing entry means Row. */
+    /** Keyed by shortcut id. A missing entry allows an automatic display on the Views list. */
     display: Record<string, PinDisplay>
 }
 

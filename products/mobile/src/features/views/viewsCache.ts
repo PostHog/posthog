@@ -19,6 +19,10 @@ export const viewsKeys = {
     all: (scope: ProjectScope | null) => ['views', ...scopeKey(scope)] as const,
     shortcuts: (scope: ProjectScope | null) => [...viewsKeys.all(scope), 'shortcuts'] as const,
     recentDashboards: (scope: ProjectScope | null) => [...viewsKeys.all(scope), 'recent_dashboards'] as const,
+    smartPinDisplays: (scope: ProjectScope | null, pins: string) =>
+        [...viewsKeys.all(scope), 'smart_pin_displays', pins] as const,
+    pinMetadata: (scope: ProjectScope | null, shortId: string) =>
+        [...viewsKeys.all(scope), 'pin_metadata', shortId] as const,
     browseDashboards: (scope: ProjectScope | null) => [...viewsKeys.all(scope), 'browse', 'dashboards'] as const,
     browseInsights: (scope: ProjectScope | null) => [...viewsKeys.all(scope), 'browse', 'insights'] as const,
     searchDashboards: (scope: ProjectScope | null, search: string) =>

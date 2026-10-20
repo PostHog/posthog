@@ -1,5 +1,5 @@
 import { setAuthProvider } from './client'
-import { getInsightSummary } from './insights'
+import { fetchInsightMetadata, getInsightSummary } from './insights'
 
 describe('insight summary', () => {
     beforeEach(() =>
@@ -17,6 +17,17 @@ describe('insight summary', () => {
         await expect(getInsightSummary('a/b')).resolves.toEqual({ name: 'Count', description: null })
         expect(fetch).toHaveBeenCalledWith(
             'https://example.com/api/projects/7/insights/a%2Fb/?refresh=force_cache',
+            expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token' }) })
+        )
+    })
+    test('reads only metadata for an all-digit short id without resolving it as a primary key', async () => {
+        globalThis.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            text: async () => JSON.stringify({ results: [{ id: 9, short_id: '1234', name: 'Signups' }] }),
+        })
+        await expect(fetchInsightMetadata('1234')).resolves.toMatchObject({ id: 9, short_id: '1234' })
+        expect(fetch).toHaveBeenCalledWith(
+            'https://example.com/api/projects/7/insights/?basic=true&short_id=1234&refresh=force_cache',
             expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token' }) })
         )
     })
