@@ -4,6 +4,8 @@ schedule_materialization used to clear is_materialized on any error, a Temporal 
 and nothing turns it back on. Give this command the saved query ids from the captured
 scheduling errors. It skips a query that is deleted or materialized again, and schedules the
 rest. A query that fails to schedule again goes back to off, so the summary reports it.
+Ctrl-C also puts the query in progress back to off, so the next run tries it again. A terminal
+hangup or a SIGKILL ends the process before that step, so run --apply under nohup.
 
     python manage.py reenable_materialization --ids-file ids.txt              # dry-run
     python manage.py reenable_materialization --ids-file ids.txt --apply
@@ -57,10 +59,14 @@ class Command(BaseCommand):
             try:
                 self._reenable(saved_query)
             except Exception as e:
-                saved_query.is_materialized = False
-                saved_query.save(update_fields=["is_materialized"])
+                self._switch_off(saved_query)
                 self.stdout.write(f"failed saved_query={saved_query.id}: {e}")
                 failed += 1
+            except BaseException:
+                # The candidates are only queries that are off, so a query left on by an interrupted
+                # recovery is never picked up again. Switch it off before the interruption ends the run.
+                self._switch_off(saved_query)
+                raise
             else:
                 reenabled += 1
 
@@ -82,6 +88,10 @@ class Command(BaseCommand):
             reconcile_dag_schedules(dag)
         # A failed first enable leaves the node a VIEW, and a DAG run skips a VIEW node as ephemeral.
         promote_view_nodes_to_matview(saved_query)
+
+    def _switch_off(self, saved_query: DataWarehouseSavedQuery) -> None:
+        saved_query.is_materialized = False
+        saved_query.save(update_fields=["is_materialized"])
 
     def _parse_ids(self, raw: str, ids_file: Path | None) -> set[UUID]:
         tokens = [token.strip() for token in raw.split(",")]
