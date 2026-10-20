@@ -31,6 +31,8 @@ class TestServiceHealthValidation(APIBaseTest):
             ("bad_span_scope", {"query": {"spanScope": "root"}}),
             ("bad_order_by", {"query": {"orderBy": "name"}}),
             ("reversed_baseline", {"query": {}, "baselineDateRange": {"date_from": "-1d", "date_to": "-2d"}}),
+            ("future_window", {"query": {"dateRange": {"date_from": "2099-01-01T00:00:00Z"}}}),
+            ("future_baseline", {"query": {}, "baselineDateRange": {"date_from": "2099-01-01T00:00:00Z"}}),
             ("limit_too_small", {"query": {"limit": 0}}),
             ("limit_too_large", {"query": {"limit": 1000}}),
             ("bad_date", {"query": {"dateRange": {"date_from": "yesterday-ish"}}}),
@@ -115,6 +117,13 @@ class TestServiceHealthValidation(APIBaseTest):
         detail = response.json()["detail"]
         self.assertIn('{"date_from": "-30m"}', detail)
         self.assertIn("baselineDateRange", detail)
+
+    def test_byte_cap_on_a_one_minute_window_recommends_seconds(self):
+        with patch(RUNNER_PATH, side_effect=CHQueryErrorTooManyBytes("too many bytes")):
+            response = self.client.post(
+                _url(self.team.id), {"query": {"dateRange": {"date_from": "-1m"}}}, format="json"
+            )
+        self.assertIn('{"date_from": "-30s"}', response.json()["detail"])
 
 
 class TestServiceHealthResponse(_TraceSpansTestBase):

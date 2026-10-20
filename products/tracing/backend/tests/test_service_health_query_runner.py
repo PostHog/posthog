@@ -106,6 +106,17 @@ class TestClassifyService(SimpleTestCase):
         )
         self.assertTrue(reason.startswith("no spans since 08:30Z"), reason)
 
+    def test_sparse_baseline_is_not_silent(self):
+        status, _ = classify_service(
+            current=None,
+            baseline=_stats(30, last_seen=CURRENT_FROM - dt.timedelta(minutes=30)),
+            has_baseline=True,
+            window_from=CURRENT_FROM,
+            window_to=CURRENT_TO,
+            baseline_minutes=60,
+        )
+        self.assertNotEqual(status, ServiceHealthStatus.SILENT)
+
     def test_no_current_spans_is_not_silent_inside_the_gap(self):
         status, _ = classify_service(
             current=None,

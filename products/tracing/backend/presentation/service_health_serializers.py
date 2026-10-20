@@ -1,3 +1,4 @@
+import datetime as dt
 from zoneinfo import ZoneInfo
 
 from drf_spectacular.utils import extend_schema_field
@@ -70,8 +71,11 @@ class ServiceHealthRequestSerializer(serializers.Serializer):
             ("dateRange", attrs["query"].get("dateRange")),
             ("baselineDateRange", attrs.get("baselineDateRange")),
         ):
-            start, end = (normalize_tracing_window((window or {}).get(key)) for key in ("date_from", "date_to"))
-            if start and end and relative_date_parse(start, UTC) >= relative_date_parse(end, UTC):
+            if window is None:
+                continue
+            start = normalize_tracing_window(window.get("date_from")) or "-1h"
+            end = normalize_tracing_window(window.get("date_to"))
+            if relative_date_parse(start, UTC) >= (relative_date_parse(end, UTC) if end else dt.datetime.now(UTC)):
                 raise serializers.ValidationError({name: "date_from must be before date_to."})
         return attrs
 

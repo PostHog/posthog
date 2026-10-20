@@ -116,10 +116,18 @@ def classify_service(
     has_baseline: bool,
     window_from: dt.datetime,
     window_to: dt.datetime,
+    baseline_minutes: float | None = None,
 ) -> tuple[Status, str]:
     if current is None or not current.requests:
         quiet_for = window_to - baseline.last_seen if baseline is not None else dt.timedelta(0)
-        if baseline is not None and baseline.requests >= SILENT_MIN_BASELINE_REQUESTS and quiet_for >= SILENT_GAP:
+        minutes = baseline_minutes or max((window_to - window_from).total_seconds() / 60, 1.0)
+        expected = baseline.requests / minutes * SILENT_GAP.total_seconds() / 60 if baseline is not None else 0.0
+        if (
+            baseline is not None
+            and baseline.requests >= SILENT_MIN_BASELINE_REQUESTS
+            and quiet_for >= SILENT_GAP
+            and expected >= SILENT_MIN_EXPECTED_IN_GAP
+        ):
             since = _since(baseline.last_seen, window_to)
             return Status.SILENT, f"no spans since {since} (baseline {baseline.requests} req)"
         return Status.OK, f"no spans; baseline {baseline.requests if baseline else 0} req is too few to call silent"
@@ -190,8 +198,14 @@ class ServiceHealthQueryRunner:
         return {"current": _range(self.current), "baseline": baseline, "timezone": "UTC"}
 
     def byte_cap_message(self) -> str:
-        minutes = max(int((self.current[1] - self.current[0]).total_seconds() / 120), 1)
-        window = f"-{minutes // 60}h" if minutes % 60 == 0 else f"-{minutes}m"
+        seconds = max(int((self.current[1] - self.current[0]).total_seconds() / 2), 1)
+        window = (
+            f"-{seconds // 3600}h"
+            if seconds % 3600 == 0
+            else f"-{seconds // 60}m"
+            if seconds % 60 == 0
+            else f"-{seconds}s"
+        )
         baseline = " and a shorter baselineDateRange" if self.params.compare == Compare.CUSTOM else ""
         return (
             f'This query read more than the 10 GB cap. Retry with a shorter dateRange, at most {{"date_from": "{window}"}}{baseline}, '
@@ -262,6 +276,7 @@ class ServiceHealthQueryRunner:
             has_baseline=self.baseline is not None and not cut,
             window_from=self.current[0],
             window_to=self.current[1],
+            baseline_minutes=(self.baseline[1] - self.baseline[0]).total_seconds() / 60 if self.baseline else None,
         )
         live = current if current is not None and current.requests else None
         delta_pp = p95_change = None
