@@ -124,18 +124,18 @@ def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
 
 
 def _unreadable_type_advice(unreadable_type: str) -> str:
-    if unreadable_type.startswith("Variant("):
-        return (
-            "The column mixes value types, for example `if(x, count(), -1)` or `if(x, 1, 'none')`. "
-            "Make every branch return the same type, for example with `toString()` or `toFloat64()`."
-        )
     if unreadable_type.startswith("AggregateFunction("):
         return (
-            "The column holds a partial aggregate, as stored in pre-aggregated tables such as `raw_sessions`. "
-            "Finish it with the matching -Merge function, such as `argMinMerge(column)`, or query the `sessions` "
-            "table, which returns finished values."
+            "The column holds a stored aggregate state. "
+            "Wrap it in the matching -Merge function, for example `argMinMerge(column)`, to get the final value."
         )
-    return "Convert the column with `toString()`."
+    if unreadable_type.startswith("Variant("):
+        return (
+            "The column mixes value types. This usually comes from `UNION ALL` branches, `coalesce()` or "
+            "`ifNull()` arguments, or `if()` branches that return different types. "
+            "Make them return one type, for example with `toString()` or `toFloat()`."
+        )
+    return "Convert the column to a basic type such as a string, number, or date, or leave it out of the results."
 
 
 def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType":

@@ -126,8 +126,12 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertEqual(ctx.exception.error_type, "validation")
         self.assertEqual(ctx.exception.error_code, "unknown_type")
-        self.assertIn("type `AggregateFunction(argMin, String", str(ctx.exception))
-        self.assertIn("the matching -Merge function", str(ctx.exception))
+        self.assertEqual(
+            str(ctx.exception),
+            "This query returns a column of type `AggregateFunction(argMin, String, DateTime64(6, 'UTC'))`, which "
+            "PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the matching "
+            "-Merge function, for example `argMinMerge(column)`, to get the final value.",
+        )
 
     @parameterized.expand(
         [

@@ -185,19 +185,34 @@ class TestWrapClickhouseQueryError:
             (
                 "aggregate_state",
                 "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))",
-                "Finish it with the matching -Merge function",
+                "This query returns a column of type `AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))`, "
+                "which PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the "
+                "matching -Merge function, for example `argMinMerge(column)`, to get the final value.",
             ),
-            ("mixed_branch_types", "Variant(String, UInt8)", "Make every branch return the same type"),
-            ("other_type", "JSON", "Convert the column with `toString()`."),
+            (
+                "mixed_value_types",
+                "Variant(Int64, UInt64)",
+                "This query returns a column of type `Variant(Int64, UInt64)`, which PostHog can't send back in "
+                "results. The column mixes value types. This usually comes from `UNION ALL` branches, `coalesce()` "
+                "or `ifNull()` arguments, or `if()` branches that return different types. Make them return one "
+                "type, for example with `toString()` or `toFloat()`.",
+            ),
+            (
+                "other_type",
+                "JSON",
+                "This query returns a column of type `JSON`, which PostHog can't send back in results. Convert the "
+                "column to a basic type such as a string, number, or date, or leave it out of the results.",
+            ),
         ]
     )
-    def test_unreadable_result_type_gives_advice_for_its_type(self, _name: str, column_type: str, advice: str) -> None:
+    def test_unreadable_result_type_names_the_fix_for_its_type(
+        self, _name: str, column_type: str, expected_message: str
+    ) -> None:
         wrapped = wrap_clickhouse_query_error(UnknownTypeError(f"Unknown type {column_type}"))
 
         assert isinstance(wrapped, CHQueryErrorUnknownType)
         assert wrapped.code_name == "unknown_type"
-        assert f"column of type `{column_type}`" in str(wrapped)
-        assert advice in str(wrapped)
+        assert str(wrapped) == expected_message
 
     def test_bad_get_hides_unrecognized_raw_message(self) -> None:
         err = ServerException(
