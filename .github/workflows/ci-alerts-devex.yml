@@ -156,7 +156,8 @@ jobs:
                   exit 1
 
     check-image-builds:
-        if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push'
+        # A rolling two-hour window needs no reconcile after each master push, so the cron is enough.
+        if: github.event_name != 'workflow_run'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:

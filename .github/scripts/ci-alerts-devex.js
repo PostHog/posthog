@@ -415,11 +415,11 @@ async function startDiagnosisAgent({ url, fetchImpl, sleep, core }, payload) {
 
 // The bot's own open incident, identified purely by message metadata — no other
 // app sets this event_type, so it is unambiguous without knowing our bot id.
-async function findActiveIncident(slack, channel) {
+async function findActiveIncident(slack, channel, eventType = INCIDENT_EVENT_TYPE) {
     const { messages = [] } = await slack.history({ channel, limit: HISTORY_LIMIT })
     for (const message of messages) {
         const payload = message.metadata?.event_payload
-        if (message.metadata?.event_type === INCIDENT_EVENT_TYPE && payload?.status === 'active') {
+        if (message.metadata?.event_type === eventType && payload?.status === 'active') {
             return { ts: message.ts, payload }
         }
     }
@@ -748,3 +748,4 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 module.exports.formatDuration = formatDuration
 module.exports.fetchWorkflowRuns = fetchWorkflowRuns
 module.exports.defaultSlackClient = defaultSlackClient
+module.exports.findActiveIncident = findActiveIncident

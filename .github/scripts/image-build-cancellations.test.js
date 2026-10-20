@@ -8,20 +8,19 @@ const imageBuildCancellations = require('./image-build-cancellations')
 const context = { repo: { owner: 'PostHog', repo: 'posthog' } }
 
 function cancelledRuns(name, count) {
-    return Array.from({ length: count }, (_, i) => ({
-        name,
-        conclusion: 'cancelled',
-        html_url: `https://github.com/runs/${name}/${i}`,
-    }))
+    return Array.from({ length: count }, (_, i) => ({ name, html_url: `https://github.com/runs/${name}/${i}` }))
 }
 
+// Returns the runs only for a query scoped to cancelled master push runs in a time window, so a
+// script that drops a filter and would count every run sees none here.
 function fakeGithub(runsByWorkflow) {
     return {
         rest: {
             actions: {
-                listWorkflowRuns: async ({ workflow_id }) => ({
-                    data: { workflow_runs: runsByWorkflow[workflow_id] || [] },
-                }),
+                listWorkflowRuns: async ({ workflow_id, branch, event, status, created }) => {
+                    const scoped = branch === 'master' && event === 'push' && status === 'cancelled' && created?.startsWith('>=')
+                    return { data: { workflow_runs: scoped ? runsByWorkflow[workflow_id] || [] : [] } }
+                },
             },
         },
     }

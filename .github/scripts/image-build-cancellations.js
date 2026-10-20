@@ -10,10 +10,9 @@
 // a rolling window, and the bot's own anchor message (found by its Slack metadata) carries the
 // open/resolved state.
 
-const { defaultSlackClient } = require('./ci-alerts-devex')
+const { defaultSlackClient, findActiveIncident } = require('./ci-alerts-devex')
 
 const EVENT_TYPE = 'image_build_cancellations'
-const HISTORY_LIMIT = 100
 const ACTIVE_COLOR = '#E01E5A'
 const RESOLVED_COLOR = '#2EB67D'
 
@@ -27,14 +26,6 @@ function findCancellingWorkflows(cancelledRuns, threshold) {
             count: runs.length,
             newestRunUrl: runs[0].html_url,
         }))
-}
-
-async function findActiveAlert(slack, channel) {
-    const { messages = [] } = await slack.history({ channel, limit: HISTORY_LIMIT })
-    const anchor = messages.find(
-        (message) => message.metadata?.event_type === EVENT_TYPE && message.metadata.event_payload?.status === 'active'
-    )
-    return anchor ? { ts: anchor.ts } : null
 }
 
 function buildActiveMessage(cancelling, { owner, repo, lookbackMinutes }) {
@@ -96,7 +87,7 @@ module.exports = async ({ context, github }, { now: _now, slack: _slack } = {}) 
         })
     )
     const cancelling = findCancellingWorkflows(cancelledRuns, threshold)
-    const active = await findActiveAlert(slack, channel)
+    const active = await findActiveIncident(slack, channel, EVENT_TYPE)
 
     if (cancelling.length > 0) {
         const message = buildActiveMessage(cancelling, { owner, repo, lookbackMinutes })
@@ -111,5 +102,3 @@ module.exports = async ({ context, github }, { now: _now, slack: _slack } = {}) 
         await slack.update({ channel, ts: active.ts, ...buildResolvedMessage(), metadata })
     }
 }
-
-module.exports.findCancellingWorkflows = findCancellingWorkflows
