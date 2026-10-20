@@ -293,7 +293,7 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
   Operating rules:
   - Deploy order, per region: the ClickHouse user and its token grant for both worker identities, then the token mount with `CLICKHOUSE_EXPERIMENTS_USER` and `CLICKHOUSE_EXPERIMENTS_PASSWORD_FILE` on both worker deployments, then this code, then the flag for one organization at a time. A query sent as a user the cluster does not know fails, so the flag goes on only after the first two steps are live.
-  - Verify with the `user` column of `system.query_log` for the organization's recalculation queries, not with the flag state. A worker without the username env or the token file falls back to `default` with no error.
+  - Verify with the `user` column of `system.query_log` for the organization's recalculation queries, not with the flag state. A worker without `CLICKHOUSE_EXPERIMENTS_USER` or `CLICKHOUSE_EXPERIMENTS_PASSWORD_FILE` falls back to `default` with no error. A worker with both variables set but no file at that path still sends `experiments`, with an empty password, so its queries fail authentication and the activity retries them.
   - To roll back, turn the flag off. The next attempt of each metric uses the `default` routing, with no deploy and no workflow change.
 
 - **No saved-metric snapshot.** Each calc activity that processes a saved/shared metric re-queries the M2M through-model to resolve the metric definition. For a 5–10 metric experiment this is fine; for larger experiments the per-call query starts to add up. Tracked as a deferred optimization (snapshot resolved metric dicts on the recalc row at discovery time).
