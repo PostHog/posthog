@@ -972,6 +972,72 @@ class FakePersonHogClient:
             response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=person.version)
         return response
 
+    # ── Consistency scan reads ───────────────────────────────────────
+
+    def get_distinct_id_rows(
+        self, request: person_pb2.GetDistinctIdRowsRequest, timeout: float | None = None
+    ) -> person_pb2.GetDistinctIdRowsResponse:
+        """Mapping rows, live or tombstoned, for mappings the fake tracks per person."""
+        self.calls.append(_Call("get_distinct_id_rows", request))
+        if len(request.distinct_ids) > 1000:
+            raise ValueError("Maximum 1000 distinct ids per request")
+        wanted = set(request.distinct_ids)
+        response = person_pb2.GetDistinctIdRowsResponse()
+        rows = []
+        for (team_id, person_id), mappings in self._distinct_ids.items():
+            if team_id != request.team_id:
+                continue
+            person = self._persons_by_id.get((team_id, person_id))
+            for mapping in mappings:
+                if mapping.distinct_id not in wanted:
+                    continue
+                row = person_pb2.DistinctIdRow(
+                    distinct_id=mapping.distinct_id,
+                    person_id=person_id,
+                    version=mapping.version or 0,
+                    is_deleted=(team_id, mapping.distinct_id) in self._tombstoned_distinct_ids,
+                )
+                if person is not None:
+                    row.person_uuid = person.uuid
+                    row.person_is_deleted = person.is_deleted
+                rows.append(row)
+        response.rows.extend(sorted(rows, key=lambda r: r.distinct_id))
+        return response
+
+    def list_persons_for_team(
+        self, request: person_pb2.ListPersonsForTeamRequest, timeout: float | None = None
+    ) -> person_pb2.ListPersonsForTeamResponse:
+        self.calls.append(_Call("list_persons_for_team", request))
+        limit = request.limit or 1000
+        if not 1 <= limit <= 10_000:
+            raise ValueError("limit must be between 1 and 10000")
+        persons = sorted(
+            (
+                p
+                for (team_id, person_id), p in self._persons_by_id.items()
+                if team_id == request.team_id
+                and person_id > request.after_person_id
+                and (not request.HasField("before_person_id") or person_id < request.before_person_id)
+            ),
+            key=lambda p: p.id,
+        )[:limit]
+        response = person_pb2.ListPersonsForTeamResponse()
+        for person in persons:
+            response.persons.add(
+                id=person.id,
+                uuid=person.uuid,
+                version=person.version,
+                is_deleted=person.is_deleted,
+                has_live_distinct_ids=any(
+                    (request.team_id, d.distinct_id) not in self._tombstoned_distinct_ids
+                    for d in self._distinct_ids.get((request.team_id, person.id), [])
+                ),
+                created_at_ms=person.created_at,
+            )
+        if len(persons) == limit:
+            response.next_after_person_id = persons[-1].id
+        return response
+
     # ── Assertion helpers ────────────────────────────────────────────
 
     def assert_called(self, method: str, *, times: int | None = None) -> list[_Call]:
