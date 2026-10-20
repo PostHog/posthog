@@ -250,7 +250,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/appfigures/appfigures.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/appfigures/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/appfollow/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/applovin/applovin.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/applovin/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/appsflyer/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/appsignal/appsignal.py
@@ -859,7 +858,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pabbly_subscriptions_billing/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/packagist/packagist.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/packagist/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/paddle/paddle.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pagerduty/pagerduty.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pagerduty/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pandadoc/pandadoc.py
@@ -1200,8 +1198,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/woocommerce/woocommerce.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wordpress/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wordpress/wordpress.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/workable/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/workable/workable.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workday/workday.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/workos.py

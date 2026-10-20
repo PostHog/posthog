@@ -682,6 +682,8 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     clickhouse?: string
     /** Returned columns */
     columns?: any[]
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[]
     /** Types of returned columns */
     types?: any[]
     /** Query explanation output */
@@ -6319,7 +6321,11 @@ export interface BiasRisk {
     multiple_variant_percentage: number
 }
 
-export type ExperimentExposureHealthFindingCode = 'zero_exposures' | 'srm' | 'bias_risk_multiple_excluded'
+export type ExperimentExposureHealthFindingCode =
+    | 'zero_exposures'
+    | 'srm'
+    | 'bias_risk_multiple_excluded'
+    | 'multiple_variants_share'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 

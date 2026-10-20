@@ -246,6 +246,7 @@ export const FEATURE_FLAGS = {
     SCOUTS_TOOL_ACCESS: 'scouts-tool-access', // owner: #team-self-driving, gates the per-scout MCP tool list in the inbox scout settings (also checked server-side)
     SELF_DRIVING_FREE_TRIAL: 'self-driving-free-trial', // owner: #team-self-driving, the org is on a Self-driving free trial: reports only, no pull requests (also checked server-side)
     SELF_DRIVING_QUOTA_ENFORCEMENT: 'self-driving-quota-enforcement', // owner: #team-self-driving, gates self-driving PR-limit enforcement (also checked server-side)
+    SELF_DRIVING_UBP: 'self-driving-ubp', // owner: #team-self-driving
     SELF_OPTIMISING_WORKFLOWS: 'self-optimising-workflows', // owner: #team-workflows, gates agent-suggested workflow changes (also checked server-side)
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
@@ -279,6 +280,7 @@ export const FEATURE_FLAGS = {
     AI_OBSERVABILITY_TRACE_REDESIGN: 'ai-observability-trace-redesign', // owner: #team-ai-observability, gates the redesigned trace view
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_15_MINUTE_INTERVAL: 'alerts-15-minute-interval', // owner: #team-analytics-platform, gates 15-minute insight alert interval
+    ALERTS_DESTINATION_CUSTOMIZATION: 'alerts-destination-customization', // owner: #team-logs, gates the custom message tag and edit notice on logs alert destinations
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
     ALERTS_LLM_DETECTOR: 'alerts-llm-detector', // owner: #team-analytics-platform, gates the AI anomaly detector for insight alerts
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
@@ -380,13 +382,13 @@ export const FEATURE_FLAGS = {
     INBOX_SELF_DRIVING_EMPTY_STATE: 'inbox-self-driving-empty-state',
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_TIME_WINDOW: 'inbox-time-window', // owner: #team-self-driving, gates the created-in window filter on the inbox report list
+    INBOX_UI_ONBOARDING: 'inbox-ui-onboarding', // owner: #team-self-driving, multivariate control/test-ui/test-github
     INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT: 'insight-alerts-empty-state',
     INSIGHT_DATA_CHECKS: 'insight-data-checks', // owner: @sampennington #team-product-analytics, checks the events behind an insight and shows the result on the insight page
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
     INSIGHT_EXPORT_NUDGE: 'insight-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported an insight toward a recurring subscription
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
     INTERNAL_FEEDBACK_WIDGET: 'internal-feedback-widget', // owner: @adamleithp, gates the staff UI feedback bar that posts to Slack
-    JEV_CHART_AUTODETECTION: 'jev-chart-autodetection', // owner: #team-data-tools
     JS_SNIPPET_VERSIONING: 'js-snippet-versioning', // owner: #team-client-libraries
     LEGACY_OAUTH_RECONNECT_WARNING: 'legacy-oauth-reconnect-warning', // owner: @jabahamondes #team-web-analytics — kill-switch for the retiring-OAuth-app reconnect banner
     LIVE_EVENTS_RICH_FILTERS: 'live-events-rich-filters', // owner: @jordanm-posthog #team-web-analytics
@@ -442,7 +444,7 @@ export const FEATURE_FLAGS = {
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-posthog-ai
-    MAX_HANDS_FREE: 'max-hands-free', // owner: #team-posthog-ai
+    MAX_WEB_ANALYTICS_NUDGE: 'posthog-ai-web-analytics-nudge', // owner: @jordanm-posthog #team-web-analytics
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
     MCP_ANALYTICS_LEADERBOARD_HOME: 'mcp-analytics-leaderboard-home', // owner: #team-mcp-analytics, trial of the public leaderboard layout on the MCP analytics home tab
     MCP_GATEWAY: 'mcp-gateway', // owner: #team-context-mcp — gates the MCP gateway UI AND backend enforcement of built-in agent MCP access (delegated-only installs + restricted sandbox token scope); roll out by organization
@@ -460,8 +462,6 @@ export const FEATURE_FLAGS = {
     NEW_COMMAND_K_SEARCH: 'new-command-k-search', // owner: @adamleithp #team-platform-ux, gates the Command K search with smart filters
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
-    NOTEBOOK_GENERATED_WIDGETS: 'notebook-generated-widgets', // owner: #team-data-tools
-    NOTEBOOK_JUPYTER_MODE: 'notebook-jupyter-mode', // owner: #team-data-tools, lays notebooks out and drives them like JupyterLab
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h
     NOTEBOOK_SHARING: 'notebook-sharing', // owner: @reecejones #team-platform-features
     ONBOARDING_WIZARD_CLOUD_RUN: 'onboarding-wizard-cloud-run', // owner: @fercgomes #team-growth multivariate=control,test — gates the "open a PR for me" cloud wizard option on the install step
@@ -595,7 +595,6 @@ export const FEATURE_FLAGS = {
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISION_ENTRYPOINT_REPLAY_FILTERS: 'vision-entrypoint-replay-filters', // owner: #team-replay, cross-sell entry point from the replay filters panel
     VISION_EXPERIMENT_SCANNER: 'experiment-scanner', // owner: #team-replay, experiment scanners overall: the type in the scanner editor, creating one from experiments, and the variants tab
-    VISION_GOAL_FLOW_V3: 'vision-goal-flow-v3', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)

@@ -145,7 +145,6 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=(),
             form_fields=(),
             filter_fields=(),
-            creation_flag="notebook-generated-widgets",
         ),
         ACTIVITY_EVENTS_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=ACTIVITY_EVENTS_LIST_WIDGET_TYPE,

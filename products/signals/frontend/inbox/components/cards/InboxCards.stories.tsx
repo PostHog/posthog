@@ -276,7 +276,7 @@ const rankedReports: SignalReport[] = [
         ranking: {
             ...RANKING,
             scores: { open: 0.91, action: 0.78, fixed: 0.33, pr_merged: 0.52 },
-            lifts: { open: 1.1, action: 2.1, fixed: 2.2, pr_merged: 2.6 },
+            lifts: { open: 0.6, action: 2.1, fixed: 6.0, pr_merged: 2.6 },
         },
     }),
     makeReport({

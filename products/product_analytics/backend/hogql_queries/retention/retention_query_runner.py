@@ -393,8 +393,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             else DEFAULT_INTERVAL
         )
 
+        date_range = self.query.dateRange
+        if self.is_24h_window_calculation and date_range and date_range.excludeIncompletePeriods:
+            # Rolling 24-hour windows end mid-day, so clipping at the period boundary would drop completed returns
+            date_range = date_range.model_copy(update={"excludeIncompletePeriods": None})
+
         return QueryDateRangeWithIntervals(
-            date_range=self.query.dateRange,
+            date_range=date_range,
             total_intervals=total_intervals,
             team=self.team,
             interval=interval,
