@@ -45,13 +45,18 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
 
         deadline = monotonic() + 20
         common = {
-            "cluster": CLICKHOUSE_CLUSTER,
             "prefix": f"{team_id}_{client_query_id}_",
             "fallback": settings.CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER,
         }
         try:
             legacy = submit_legacy_metadata(
-                {**common, "operation": "legacy_cancel", "connection": metadata_connection()}, deadline=deadline
+                {
+                    **common,
+                    "operation": "legacy_cancel",
+                    "cluster": CLICKHOUSE_CLUSTER,
+                    "connection": metadata_connection(),
+                },
+                deadline=deadline,
             )
         except Exception as exc:
             legacy = Future()
@@ -61,6 +66,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
                 {
                     **common,
                     "operation": "native_cancel",
+                    "cluster": settings.CLICKHOUSE_EVENTS_CLUSTER,
                     "connection": metadata_connection(native_host=native_host, team_id=team_id),
                 },
                 deadline=deadline,

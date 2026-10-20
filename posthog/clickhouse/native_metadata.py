@@ -35,7 +35,6 @@ def metadata_connection(
     if native_host:
         kwargs["verify"] = settings.CLICKHOUSE_VERIFY
     elif polling and settings.CLICKHOUSE_USE_HTTP:
-        # sync_execute polls the legacy cluster over HTTP under this setting, so the worker keeps that transport.
         kwargs.pop("ca_certs", None)
         kwargs.update(transport="http", ca_cert=settings.CLICKHOUSE_CA, verify=settings.QUERYSERVICE_VERIFY)
     return kwargs

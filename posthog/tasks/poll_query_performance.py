@@ -7,6 +7,8 @@ from itertools import groupby
 from time import perf_counter
 from typing import Any, Optional
 
+from django.conf import settings
+
 from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
@@ -78,7 +80,7 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
                 {
                     "operation": "poll",
                     "sql": SYSTEM_PROCESSES_SQL,
-                    "cluster": CLICKHOUSE_CLUSTER,
+                    "cluster": settings.CLICKHOUSE_EVENTS_CLUSTER,
                     "connection": metadata_connection(native_host=native_host, polling=True),
                 },
                 polling=True,
@@ -118,11 +120,9 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
         raw_results = []
     # Publish healthy legacy results before waiting on the separate native cluster.
     yield _format_results(raw_results)
-    if not native_host:
-        return
-    remaining = min(3.0, Polling.SOFT_TIME_LIMIT_SECONDS - 1 - (perf_counter() - started))
     if native is None:
         return
+    remaining = min(3.0, Polling.SOFT_TIME_LIMIT_SECONDS - 1 - (perf_counter() - started))
     try:
         yield _format_results(native.result(timeout=max(0.0, remaining)))
     except TimeoutError:
