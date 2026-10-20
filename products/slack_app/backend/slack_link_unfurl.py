@@ -146,7 +146,6 @@ _INVITE_REDIS_TIMEOUT_SECONDS = 0.3
 _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
     "TrendsQuery": "Trends",
     "FunnelsQuery": "Funnel",
-    "FunnelCorrelationQuery": "Funnel correlation",
     "RetentionQuery": "Retention",
     "PathsQuery": "Paths",
     "PathsV2Query": "Journeys",

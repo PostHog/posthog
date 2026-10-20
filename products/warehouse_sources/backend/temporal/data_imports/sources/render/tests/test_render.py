@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.render import RenderSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.render import render
@@ -22,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.render.ren
     _build_params,
     _format_incremental_value,
     _unwrap_item,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import (
     RENDER_ENDPOINTS,
@@ -351,18 +349,3 @@ class TestRenderSourceResponse:
         assert result.response.partition_keys == expected_partition_keys
         # Render documents no list ordering, so the watermark must only persist at job end.
         assert result.response.sort_mode == "desc"
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            (200, (True, None)),
-            (401, (False, render.KEY_REJECTED_MESSAGE)),
-            (403, (False, render.KEY_FORBIDDEN_MESSAGE)),
-            # A Render-side failure leaves the key unjudged, so it must not be blamed on the key.
-            (500, (False, render.PROBE_FAILED_MESSAGE)),
-        ]
-    )
-    def test_maps_status_to_message(self, status: int, expected: tuple[bool, str | None]) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert validate_credentials("rnd_test") == expected

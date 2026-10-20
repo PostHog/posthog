@@ -19,7 +19,6 @@ from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
-    AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
@@ -36,7 +35,6 @@ from products.tasks.backend.constants import (
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
-    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     SANDBOX_ROTATION_FEATURE_FLAG,
     STORE_SKILLS_STATE_KEY,
     SUBSCRIPTION_PLAN_NAMES,
@@ -156,8 +154,7 @@ class TaskProcessingContext:
     overlap_clone_boot_enabled: bool = False
     # Captured at workflow start so the warmup decision stays stable across retries.
     desktop_workspace_warm_enabled: bool = False
-    # Captured at workflow start so the agent-proxy stream lifetime stays deterministic across retries.
-    agent_proxy_keep_stream_open: bool = False
+    agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
     # rtk command-output compression is on by default (the sandbox image ships the binary).
@@ -391,41 +388,6 @@ class TaskProcessingContext:
             "service_tier": self.service_tier,
             "initial_permission_mode": self.initial_permission_mode,
         }
-
-
-@StepTimer("flag_streaming")
-def _is_agent_proxy_keep_stream_open_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-    state: dict | None = None,
-) -> bool:
-    state_override = (state or {}).get("agent_proxy_keep_stream_open")
-    if isinstance(state_override, bool):
-        return state_override
-
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("agent_proxy_keep_stream_open_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context(
-        "agent_proxy_keep_stream_open_flag_checked",
-        run_id=run_id,
-        agent_proxy_keep_stream_open=enabled,
-    )
-    return enabled
 
 
 def _is_peer_messaging_enabled(
@@ -667,26 +629,13 @@ def _benjamin_fraction_value(value: object) -> float:
     return float(value)
 
 
-@StepTimer("flag_event_ingest")
-def _is_sandbox_event_ingest_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-    state: dict | None = None,
-) -> bool:
-    # Slack runs must stay on the relay path regardless of the flag or any
+def _is_sandbox_event_ingest_enabled(*, run_id: str, state: dict | None = None) -> bool:
+    # Slack runs must stay on the relay path regardless of any
     # override: the permission auto-responder only runs in relay_sandbox_events,
     # so a legacy Slack run in ingest mode would stall forever on its first
     # gated tool call.
     if is_slack_interaction_state(state):
         return False
-
-    # Local dev disables the analytics SDK, so the captured flag below is always False there.
-    # Pointing ingest at the local agent-proxy is the opt-in and must win over the captured value;
-    # prod (DEBUG off) still gates on the flag.
-    if settings.DEBUG and settings.TASKS_AGENT_PROXY_INGEST_URL:
-        return True
 
     state_override = (state or {}).get("sandbox_event_ingest_enabled")
     if isinstance(state_override, bool):
@@ -697,27 +646,7 @@ def _is_sandbox_event_ingest_enabled(
         )
         return state_override
 
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                SANDBOX_EVENT_INGEST_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("sandbox_event_ingest_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context(
-        "sandbox_event_ingest_flag_checked",
-        run_id=run_id,
-        sandbox_event_ingest_enabled=enabled,
-    )
-    return enabled
+    return True
 
 
 @StepTimer("flag_agent_telemetry")
@@ -1434,19 +1363,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         _ensure_codex_account_connected(model_access.owner_id, run_id)
     claude_model_access = model_access.access_for("claude")
     codex_model_access = model_access.access_for("codex")
-    pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
-    sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
-    if model_access.kind == "own-subscription" or (
-        pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool)
-    ):
-        sandbox_event_ingest_enabled = True
-    else:
-        sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
-            distinct_id=distinct_id,
-            organization_id=organization_id,
-            run_id=run_id,
-            state=state,
-        )
+    sandbox_event_ingest_enabled = model_access.kind == "own-subscription" or _is_sandbox_event_ingest_enabled(
+        run_id=run_id, state=state
+    )
     emit_agent_log(
         run_id,
         "debug",
@@ -1569,17 +1488,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id,
         "debug",
         f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run",
-    )
-    agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"agent_proxy_keep_stream_open: {agent_proxy_keep_stream_open} for this task run",
     )
     rtk_enabled = _is_rtk_enabled(
         distinct_id=distinct_id,
@@ -1761,7 +1669,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_hogland_hotplug_golden=use_hogland_hotplug_golden,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
         desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
-        agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
         benjamin_enabled=benjamin_enabled,
