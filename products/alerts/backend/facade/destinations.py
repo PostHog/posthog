@@ -38,7 +38,6 @@ from ..logic import (
     destination_configs,
     destination_eligibility,
     destinations,
-    flow_port,
     insight_alert_destinations,
 )
 from .contracts import (
@@ -329,6 +328,9 @@ def flow_ports(
     transition_by_event_id: Mapping[str, AlertEventKind],
 ) -> Iterator[FlowPort]:
     """Each customized destination of the given alerts, with the workflow that would replace it."""
+    # The port reaches the alerts platform API, which loads temporalio, and this facade loads at startup.
+    from ..logic import flow_port  # noqa: PLC0415 — keeps temporalio off the django.setup() path
+
     return flow_port.flow_ports(
         team_id=team_id,
         alerts=alerts,
@@ -339,6 +341,8 @@ def flow_ports(
 
 def flow_port_report_lines(ports: Iterable[FlowPort]) -> Iterator[str]:
     """One line per destination, then its rewrites and issues, then the counts. Never prints an input value."""
+    from ..logic import flow_port  # noqa: PLC0415 — keeps temporalio off the django.setup() path
+
     return flow_port.flow_port_report_lines(ports)
 
 
