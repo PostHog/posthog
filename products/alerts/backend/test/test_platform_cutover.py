@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
@@ -77,6 +78,16 @@ class TestInsightPlatformCutover(APIBaseTest):
         (result,) = cut_over_team(self.team.id, now=NOW)
 
         assert result.skipped == reason
+        alert.refresh_from_db()
+        assert alert.owner == "source"
+
+    def test_an_alert_in_a_child_environment_stays_with_insight(self) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        alert = create_insight_alert(environment, next_check_at=NOW + timedelta(minutes=3))
+
+        (result,) = cut_over_team(environment.id, now=NOW)
+
+        assert result.skipped == CutoverSkip.ENVIRONMENT
         alert.refresh_from_db()
         assert alert.owner == "source"
 
