@@ -49,6 +49,7 @@ const seed = (revision: string): void => {
 const invoke = async (executable: string, args: string[], configuration: CommandOptions): Promise<string> => {
   if (executable === 'git') return jest.requireActual<typeof import('../src/shared-image-command')>('../src/shared-image-command').command('git', args, configuration)
   if (executable === 'aws') {
+    if (args[args.indexOf('--registry-id') + 1] !== '123456789012') throw new Error('Unexpected fixture registry ID')
     const repository = args[args.indexOf('--repository-name') + 1]
     const entries = tags.get(repository) ?? new Map<string, string>()
     if (args[1] === 'list-images') {

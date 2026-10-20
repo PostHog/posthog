@@ -6,6 +6,7 @@ import {mkdtempSync, rmSync, writeFileSync} from 'fs'
 import {tmpdir} from 'os'
 import {command} from '../src/shared-image-command'
 import {run} from '../src/inspect'
+import * as publisher from '../src/shared-image-publisher'
 
 jest.mock('@actions/core', () => ({getInput: jest.fn(), setOutput: jest.fn(), setFailed: jest.fn()}))
 
@@ -64,6 +65,36 @@ describe('inspect action inputs and outputs', () => {
 })
 
 describe('publisher input gates', () => {
+  test.each([true, false])('publication step reports blocked=%s', async blocked => {
+    const environment = {...process.env}
+    const scratch = mkdtempSync(path.join(tmpdir(), 'shared-image-results-'))
+    const publish = jest.spyOn(publisher, 'publishChannels').mockResolvedValue([
+      {channel: 'posthog-cloud/worker', decision: blocked ? 'blocked' : 'published'},
+      {channel: 'posthog-cloud/other', decision: 'published'}
+    ])
+    try {
+      const event = path.join(scratch, 'event.json')
+      writeFileSync(event, JSON.stringify({repository: {default_branch: 'main'}}))
+      process.env.GITHUB_EVENT_PATH = event
+      process.env.GITHUB_REF = 'refs/heads/main'
+      process.env.GITHUB_EVENT_NAME = 'push'
+      const publishInputs: Record<string, string> = {
+        ...inputs, 'shared-image-operation': 'publish',
+        'shared-image-registry': '123456789012.dkr.ecr.us-east-1.amazonaws.com',
+        'shared-image-budgets': '{}'
+      }
+      jest.mocked(core.getInput).mockImplementation(name => publishInputs[name] || '')
+      await run()
+      expect(publish).toHaveBeenCalledTimes(1)
+      if (blocked) expect(core.setFailed).toHaveBeenCalledWith('One or more shared-image channels are blocked; inspect publication evidence')
+      else expect(core.setFailed).not.toHaveBeenCalled()
+    } finally {
+      publish.mockRestore()
+      process.env = environment
+      rmSync(scratch, {recursive: true, force: true})
+    }
+  })
+
   test.each([['publish', 'shared-image-registry']])('requires %s input %s through the Actions runtime input contract', async (operation, missing) => {
     const actual = jest.requireActual<typeof core>('@actions/core')
     const environment = {...process.env}
