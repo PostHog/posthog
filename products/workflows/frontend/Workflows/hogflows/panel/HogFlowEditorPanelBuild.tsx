@@ -11,201 +11,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { HogFunctionTemplateType } from '~/types'
 
-import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { destinationPickerFilter } from './destinationPickerFilter'
-// Side-effect imports: register product-specific trigger and action nodes
-import '../registry'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-
-import { PERSON_DEPENDENT_ACTION_TYPES, workflowLogic } from '../../workflowLogic'
+import { workflowLogic } from '../../workflowLogic'
 import { setHogFlowDragImage } from '../dragPreview'
-import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
+import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import { DEFAULT_DELAY_DURATION, getDelayDescription } from '../steps/stepDelayLogic'
 import { HogFlowAction } from '../types'
-
-export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
-    {
-        type: 'function_email',
-        name: 'Email',
-        description: 'Send an email to the user.',
-        config: {
-            template_id: 'template-email',
-            inputs: {},
-        },
-    },
-    {
-        type: 'function_sms',
-        name: 'SMS',
-        description: 'Send an SMS to the user.',
-        config: {
-            template_id: 'template-twilio',
-            inputs: {},
-        },
-    },
-    {
-        type: 'function',
-        name: 'Slack',
-        description: 'Send a Slack message to the user.',
-        config: { template_id: 'template-slack', inputs: {} },
-    },
-    {
-        type: 'function',
-        name: 'Webhook',
-        description: 'Send a Webhook to the user.',
-        config: { template_id: 'template-webhook', inputs: {} },
-    },
-]
-
-const PUSH_NOTIFICATION_ACTION_NODE: CreateActionType = {
-    type: 'function_push',
-    name: 'Push',
-    description: 'Send a push notification to the user.',
-    config: { template_id: 'template-native-push', inputs: {} },
-}
-
-const AI_TASK_ACTION_NODE: CreateActionType = {
-    type: 'function',
-    name: 'Create AI task',
-    description: 'Start an AI agent task with instructions from this workflow.',
-    config: {
-        template_id: 'template-posthog-create-task',
-        // Pinned rather than relying on the template default: the engine only reads
-        // action.config.inputs at execution time, and this value is what turns a 409
-        // "task limit reached" reply into a graceful skip instead of a failed step.
-        inputs: { non_failure_status_codes: { value: [409] } },
-    },
-    output_variable: { key: 'task', result_path: null, label: 'Task' },
-}
-
-const RUN_SCOUT_ACTION_NODE: CreateActionType = {
-    type: 'function',
-    name: 'Run scout',
-    description: 'Start a Signals scout run. The scout explores as it does on its schedule.',
-    config: {
-        template_id: 'template-posthog-run-scout',
-        // Same reason as the AI-task node above: 409 (run in flight, scout paused, cooldown,
-        // budget, or quota) is backpressure the step should skip on, not fail.
-        inputs: { non_failure_status_codes: { value: [409] } },
-    },
-    output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
-}
-
-const CLASSIFY_ACTION_NODE: CreateActionType = {
-    type: 'function',
-    name: 'Classify with AI',
-    description: 'Ask an AI model to pick one category for the context. Branch on the result with a condition step.',
-    config: { template_id: 'template-posthog-classify', inputs: {} },
-    output_variable: [
-        { key: 'category', result_path: 'category', label: 'Category' },
-        { key: 'confidence', result_path: 'confidence', label: 'Confidence' },
-    ],
-}
-
-const REPLAY_VISION_ACTION_NODE: CreateActionType = {
-    type: 'function',
-    name: 'Replay Vision',
-    description: "Ask about, categorize, score or summarize the triggering event's session recording.",
-    config: { template_id: 'template-posthog-replay-vision', inputs: {} },
-    output_variable: { key: 'replay_vision', result_path: null, label: 'Replay Vision' },
-}
-
-export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
-    {
-        type: 'delay',
-        name: 'Delay',
-        description: getDelayDescription({ delay_duration: DEFAULT_DELAY_DURATION }),
-        config: { delay_duration: DEFAULT_DELAY_DURATION },
-    },
-    {
-        type: 'wait_until_time_window',
-        name: 'Time window',
-        description: 'Wait for the next allowed time window before continuing.',
-        config: {
-            timezone: null,
-            day: 'any',
-            time: 'any',
-        },
-    },
-    {
-        type: 'wait_until_condition',
-        name: 'Wait until',
-        description: 'Wait until a matching event fires or a condition is met, up to a maximum duration.',
-        branchEdges: 1,
-        config: {
-            condition: { filters: null },
-            max_wait_duration: '5m',
-        },
-    },
-]
-
-export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
-    {
-        type: 'conditional_branch',
-        name: 'Conditional branch',
-        description: 'Branch using conditions on event or person properties.',
-        branchEdges: 1,
-        config: {
-            conditions: [
-                {
-                    filters: {},
-                },
-            ],
-        },
-    },
-    {
-        type: 'random_cohort_branch',
-        name: 'Cohort branch',
-        description: 'Randomly branch off based on cohort percentages.',
-        branchEdges: 1,
-        config: {
-            cohorts: [
-                {
-                    percentage: 50,
-                },
-            ],
-        },
-    },
-]
-
-export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
-    {
-        type: 'function',
-        name: 'Set variable',
-        description: 'Set a workflow variable.',
-        config: { template_id: 'template-posthog-set-variable', inputs: {} },
-    },
-    {
-        type: 'function',
-        name: 'Capture event',
-        description: 'Capture an event to PostHog.',
-        config: { template_id: 'template-posthog-capture', inputs: {} },
-    },
-    {
-        type: 'function',
-        name: 'Update person property',
-        description: 'Set properties of a person in PostHog.',
-        config: { template_id: 'template-posthog-update-person-properties', inputs: {} },
-    },
-    {
-        type: 'function',
-        name: 'Set group property',
-        description: 'Set properties of a group in PostHog.',
-        config: { template_id: 'template-posthog-group-identify', inputs: {} },
-    },
-]
-
-const TEMPLATE_IDS_AT_TOP_LEVEL: string[] = [
-    ...ACTION_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
-    ...DELAY_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
-    ...LOGIC_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
-    ...POSTHOG_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
-    ...getRegisteredActionNodeCategories().flatMap((cat) =>
-        cat.nodes.map((action) => (action.config as any).template_id)
-    ),
-].filter((t) => !!t)
+import { destinationStep, isBetaStep, isPickableDestination, workflowStepSections } from '../workflowStepCatalog'
 
 function HogFlowEditorToolbarNode({
     action,
@@ -284,8 +96,6 @@ function HogFlowEditorToolbarSection({
     )
 }
 
-const customFilterFunction = destinationPickerFilter(TEMPLATE_IDS_AT_TOP_LEVEL)
-
 function HogFunctionTemplatesChooser({
     onActionSelect,
 }: {
@@ -293,7 +103,7 @@ function HogFunctionTemplatesChooser({
 }): JSX.Element {
     const logic = hogFunctionTemplateListLogic({
         type: 'destination',
-        customFilterFunction,
+        customFilterFunction: isPickableDestination,
     })
 
     const { loading, filteredTemplates, filters } = useValues(logic)
@@ -328,15 +138,7 @@ function HogFunctionTemplatesChooser({
                                 {filteredTemplates.map((template: HogFunctionTemplateType) => (
                                     <li key={template.type}>
                                         <HogFlowEditorToolbarNode
-                                            action={{
-                                                type: 'function',
-                                                name: template.name,
-                                                description:
-                                                    typeof template.description === 'string'
-                                                        ? template.description
-                                                        : '',
-                                                config: { template_id: template.id, inputs: {} },
-                                            }}
+                                            action={destinationStep(template)}
                                             onActionSelect={onActionSelect}
                                         >
                                             <div className="py-1 flex items-center gap-1 flex-1">
@@ -373,129 +175,41 @@ export function HogFlowEditorPanelBuild({
     const { currentTeam } = useValues(teamLogic)
     const { isRowScopedTrigger } = useValues(workflowLogic)
 
-    const registeredCategories = getRegisteredActionNodeCategories(featureFlags)
-
-    // Warehouse-triggered workflows have no person, so don't offer person-dependent steps at all.
-    const hideIfRowScoped = (nodes: CreateActionType[]): CreateActionType[] =>
-        isRowScopedTrigger ? nodes.filter((node) => !PERSON_DEPENDENT_ACTION_TYPES.has(node.type)) : nodes
-
-    // Scouts and Replay Vision belong to the project's main environment, and the server refuses their steps
-    // elsewhere. currentTeam is required: while it loads, both sides of the comparison are undefined.
-    const isMainEnvironment = !!currentTeam && currentTeam.id === currentTeam.project_id
-
-    const delayNodes = hideIfRowScoped(DELAY_NODES_TO_SHOW)
-    const logicNodes = hideIfRowScoped(LOGIC_NODES_TO_SHOW)
+    const sections = workflowStepSections({ featureFlags, currentTeam, isRowScopedTrigger })
 
     return (
         <div
             className={`flex flex-col overflow-y-auto${className ? ` ${className}` : ''}`}
             data-attr="workflow-add-action"
         >
-            <HogFlowEditorToolbarSection title="Dispatch">
-                {ACTION_NODES_TO_SHOW.map((node, index) => (
-                    <HogFlowEditorToolbarNode
-                        key={`${node.type}-${index}`}
-                        action={node}
-                        onActionSelect={onActionSelect}
-                    />
-                ))}
-                {featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS] && (
-                    <HogFlowEditorToolbarNode
-                        key="push-notifications"
-                        action={PUSH_NOTIFICATION_ACTION_NODE}
-                        onActionSelect={onActionSelect}
-                    />
-                )}
-                <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
-            </HogFlowEditorToolbarSection>
-
-            {(featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] ||
-                featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] ||
-                isMainEnvironment) && (
+            {sections.map((section) => (
                 <HogFlowEditorToolbarSection
+                    key={section.key}
                     title={
-                        <span className="inline-flex items-center gap-1">
-                            AI <IconSparkles />
-                        </span>
+                        section.key === 'ai' ? (
+                            <span className="inline-flex items-center gap-1">
+                                {section.title} <IconSparkles />
+                            </span>
+                        ) : (
+                            section.title
+                        )
                     }
                 >
-                    {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
+                    {section.steps.map((action, index) => (
                         <HogFlowEditorToolbarNode
-                            key="ai-task"
-                            action={AI_TASK_ACTION_NODE}
+                            key={`${action.type}-${index}`}
+                            action={action}
                             onActionSelect={onActionSelect}
                         >
-                            <span className="inline-flex items-center gap-1.5">
-                                {AI_TASK_ACTION_NODE.name}
-                                <LemonTag type="completion">Beta</LemonTag>
-                            </span>
+                            {isBetaStep(action) ? (
+                                <span className="inline-flex items-center gap-1.5">
+                                    {action.name}
+                                    <LemonTag type="completion">Beta</LemonTag>
+                                </span>
+                            ) : undefined}
                         </HogFlowEditorToolbarNode>
-                    )}
-                    {isMainEnvironment && (
-                        <HogFlowEditorToolbarNode
-                            key="run-scout"
-                            action={RUN_SCOUT_ACTION_NODE}
-                            onActionSelect={onActionSelect}
-                        />
-                    )}
-                    {featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] && (
-                        <HogFlowEditorToolbarNode
-                            key="classify"
-                            action={CLASSIFY_ACTION_NODE}
-                            onActionSelect={onActionSelect}
-                        />
-                    )}
-                    {isMainEnvironment && (
-                        <HogFlowEditorToolbarNode
-                            key="replay-vision"
-                            action={REPLAY_VISION_ACTION_NODE}
-                            onActionSelect={onActionSelect}
-                        />
-                    )}
-                </HogFlowEditorToolbarSection>
-            )}
-
-            <HogFlowEditorToolbarSection title="Delays">
-                {delayNodes.map((action, index) => (
-                    <HogFlowEditorToolbarNode
-                        key={`${action.type}-${index}`}
-                        action={action}
-                        onActionSelect={onActionSelect}
-                    />
-                ))}
-            </HogFlowEditorToolbarSection>
-
-            {logicNodes.length > 0 && (
-                <HogFlowEditorToolbarSection title="Audience split">
-                    {logicNodes.map((action, index) => (
-                        <HogFlowEditorToolbarNode
-                            key={`${action.type}-${index}`}
-                            action={action}
-                            onActionSelect={onActionSelect}
-                        />
                     ))}
-                </HogFlowEditorToolbarSection>
-            )}
-
-            <HogFlowEditorToolbarSection title="PostHog actions">
-                {POSTHOG_NODES_TO_SHOW.map((action, index) => (
-                    <HogFlowEditorToolbarNode
-                        key={`${action.type}-${index}`}
-                        action={action}
-                        onActionSelect={onActionSelect}
-                    />
-                ))}
-            </HogFlowEditorToolbarSection>
-
-            {registeredCategories.map((cat) => (
-                <HogFlowEditorToolbarSection key={cat.label} title={cat.label}>
-                    {cat.nodes.map((action, index) => (
-                        <HogFlowEditorToolbarNode
-                            key={`${action.type}-${index}`}
-                            action={action}
-                            onActionSelect={onActionSelect}
-                        />
-                    ))}
+                    {section.key === 'dispatch' && <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />}
                 </HogFlowEditorToolbarSection>
             ))}
         </div>
