@@ -618,3 +618,15 @@ class TestEarliestTimestampRouting(BaseTest):
         execute.assert_called_once()
         self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
         self.assertIn("events_json", execute.call_args.args[0])
+
+    def test_route_keys_never_collide_with_legacy_event_keys(self) -> None:
+        legacy_events_json_event = datetime.datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC"))
+        cache.set(
+            _get_earliest_timestamp_cache_key(self.team, EventsNode(event="events_json")), legacy_events_json_event
+        )
+        native = datetime.datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+        with (
+            patch("posthog.hogql.query.sync_execute", return_value=([(native,)], [("timestamp", "DateTime")])),
+            events_route_scope(HogQLQueryModifiers(useNewEventsSchema=True)),
+        ):
+            self.assertEqual(get_earliest_timestamp_from_series(self.team, [EventsNode(event=None)]), native)
