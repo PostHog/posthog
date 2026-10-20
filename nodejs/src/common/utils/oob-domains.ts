@@ -56,15 +56,16 @@ function firstSightInWindow(key: string, now: number): boolean {
     return true
 }
 
-// A host of printable ascii needs no IDNA pass, because domainToASCII would only lowercase it.
-const ASCII_HOST_RE = /^[\x21-\x7e]+$/
+// A host of letters, digits, dots, hyphens and underscores needs no IDNA pass, because
+// domainToASCII would only lowercase it.
+const PLAIN_HOST_RE = /^[A-Za-z0-9._-]+$/
 
 function canonicalizeHost(host: string): string | null {
     // domainToASCII applies the IDNA mapping the resolver queries, so a fullwidth or uppercase form
     // of a listed name reaches the same entry. It returns an empty string for a name the codec
     // rejects. Such a string is not a host, and matching it would put a form the parser refused,
-    // such as one carrying a fullwidth @, into a log line.
-    const canonical = ASCII_HOST_RE.test(host) ? host.toLowerCase() : domainToASCII(host)
+    // such as one carrying a fullwidth @ or a colon, into a log line.
+    const canonical = PLAIN_HOST_RE.test(host) ? host.toLowerCase() : domainToASCII(host)
     if (!canonical) {
         return null
     }

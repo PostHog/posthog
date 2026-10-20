@@ -29,6 +29,7 @@ describe('oob-domains', () => {
         ['a listed name behind userinfo', 'user@abc.oast.me', null],
         ['a listed name behind fullwidth userinfo', 'user＠abc.oast.me', null],
         ['a listed name behind a fullwidth slash', 'user／abc.oast.me', null],
+        ['a listed name behind a colon the codec rejects', 'client:secret.abc.oast.me', null],
         ['a raw URL whose path ends in a listed name', 'https://evil.example/abc.oast.me', null],
         ['an unlisted host', 'example.com', null],
         ['an empty host', '', null],
