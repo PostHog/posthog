@@ -110,6 +110,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     ATTIO = "Attio", "Attio"
     SNAPCHATADS = "SnapchatAds", "SnapchatAds"
     LINEAR = "Linear", "Linear"
+    LITELLM = "LiteLLM", "LiteLLM"
     INTERCOM = "Intercom", "Intercom"
     AMPLITUDE = "Amplitude", "Amplitude"
     MIXPANEL = "Mixpanel", "Mixpanel"
@@ -147,6 +148,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SQUARE = "Square", "Square"
     ZOOM = "Zoom", "Zoom"
     TRELLO = "Trello", "Trello"
+    TRAFFICSTARS = "TrafficStars", "TrafficStars"
     MONDAY = "Monday", "Monday"
     CLICKUP = "ClickUp", "ClickUp"
     CONFLUENCE = "Confluence", "Confluence"
@@ -799,6 +801,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     LAMBDALABS = "LambdaLabs", "LambdaLabs"
     LANGSMITH = "LangSmith", "LangSmith"
     LINODE = "Linode", "Linode"
+    LISTMONK = "Listmonk", "Listmonk"
     LLAMACLOUD = "LlamaCloud", "LlamaCloud"
     MEM0 = "Mem0", "Mem0"
     METRIPORT = "Metriport", "Metriport"
@@ -1180,6 +1183,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     LOOPRETURNS = "LoopReturns", "LoopReturns"
     MASTODON = "Mastodon", "Mastodon"
     MEETUP = "Meetup", "Meetup"
+    MEGAPHONE = "Megaphone", "Megaphone"
     MEMBERFUL = "Memberful", "Memberful"
     MERCADOPAGO = "MercadoPago", "MercadoPago"
     METEOSTAT = "Meteostat", "Meteostat"
@@ -1467,6 +1471,8 @@ class ExternalDataSourceType(LabeledStrEnum):
     LEANTIME = "Leantime", "Leantime"
     TESTOMATIO = "Testomatio", "Testomatio"
     GOOGLEADMOB = "GoogleAdMob", "GoogleAdMob"
+    KLAR = "Klar", "Klar"
+    CONECTOCRM = "ConectoCRM", "ConectoCRM"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

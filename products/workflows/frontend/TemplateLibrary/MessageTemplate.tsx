@@ -37,6 +37,7 @@ import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './mes
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { QuillMessageTemplateActions } from './QuillMessageTemplateActions'
 import { SendTestEmailModal } from './SendTestEmailModal'
 import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
 import { TransactionalEmailApiExample } from './TransactionalEmailApiExample'
@@ -85,6 +86,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isDiscardingDraft,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
@@ -215,34 +217,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         ) : undefined
                     }
                     actions={
-                        <>
-                            <LemonDivider vertical />
-                            <LemonButton
-                                data-attr="send-test-message-template"
-                                type="secondary"
-                                onClick={() => setSendTestEmailModalOpen(true)}
-                                disabledReason={!template.content.email?.subject ? 'Add a subject first' : undefined}
-                                size="small"
-                            >
-                                Send test
-                            </LemonButton>
-                            {templateChanged && !draftsEnabled && (
-                                <LemonButton
-                                    data-attr="cancel-message-template"
-                                    type="secondary"
-                                    onClick={() => resetTemplate(originalTemplate)}
-                                    size="small"
-                                >
-                                    Discard changes
-                                </LemonButton>
-                            )}
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                form="template"
-                                onClick={submitTemplate}
-                                loading={isTemplateSubmitting || templateLoading}
-                                disabledReason={
+                        todayRailNav ? (
+                            <QuillMessageTemplateActions
+                                isNew={props.id === 'new'}
+                                sendTestDisabledReason={
+                                    !template.content.email?.subject ? 'Add a subject first' : undefined
+                                }
+                                saveDisabledReason={
                                     draftsEnabled && isSavingDraft
                                         ? 'Saving your draft'
                                         : draftsEnabled && !hasDraft && !hasUnsavedChanges
@@ -253,79 +234,133 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                               ? 'Name is required'
                                               : undefined
                                 }
-                                size="small"
-                                sideAction={
-                                    draftsEnabled
-                                        ? {
-                                              'data-attr': 'message-template-draft-actions',
-                                              'aria-label': 'More draft actions',
-                                              dropdown: {
-                                                  placement: 'bottom-end',
-                                                  overlay: (
-                                                      <LemonMenuOverlay
-                                                          items={[
-                                                              {
-                                                                  label: 'Discard draft',
-                                                                  icon: <IconTrash />,
-                                                                  status: 'danger',
-                                                                  onClick: discardDraft,
-                                                                  disabledReason: !hasDraft
-                                                                      ? 'There is no draft to discard'
-                                                                      : isSavingDraft || isDiscardingDraft
-                                                                        ? 'Wait for the draft to finish saving'
-                                                                        : undefined,
-                                                                  'data-attr': 'message-template-discard-draft',
-                                                              },
-                                                          ]}
-                                                      />
-                                                  ),
-                                              },
-                                          }
-                                        : undefined
+                                duplicateDisabledReason={
+                                    templateChanged ? 'Save your changes before duplicating' : undefined
                                 }
-                            >
-                                {props.id === 'new' ? 'Create' : draftsEnabled ? 'Publish' : 'Save'}
-                            </LemonButton>
-                            <More
-                                size="small"
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            data-attr="save-as-new-template"
-                                            fullWidth
-                                            onClick={() => setIsSaveTemplateModalOpen(true)}
-                                        >
-                                            Save as new template
-                                        </LemonButton>
-                                        {props.id !== 'new' && (
-                                            <>
-                                                <LemonButton
-                                                    data-attr="duplicate-message-template"
-                                                    fullWidth
-                                                    onClick={duplicateTemplate}
-                                                    disabledReason={
-                                                        hasUnsavedChanges
-                                                            ? 'Save your changes before duplicating'
-                                                            : undefined
-                                                    }
-                                                >
-                                                    Duplicate
-                                                </LemonButton>
-                                                <LemonDivider />
-                                                <LemonButton
-                                                    data-attr="delete-message-template"
-                                                    status="danger"
-                                                    fullWidth
-                                                    onClick={deleteTemplate}
-                                                >
-                                                    Delete
-                                                </LemonButton>
-                                            </>
-                                        )}
-                                    </>
-                                }
+                                templateChanged={templateChanged && !draftsEnabled}
+                                saving={isTemplateSubmitting || templateLoading}
+                                onSendTest={() => setSendTestEmailModalOpen(true)}
+                                onDiscard={() => resetTemplate(originalTemplate)}
+                                onSave={submitTemplate}
+                                onSaveAsNew={() => setIsSaveTemplateModalOpen(true)}
+                                onDuplicate={duplicateTemplate}
+                                onDelete={deleteTemplate}
                             />
-                        </>
+                        ) : (
+                            <>
+                                <LemonDivider vertical />
+                                <LemonButton
+                                    data-attr="send-test-message-template"
+                                    type="secondary"
+                                    onClick={() => setSendTestEmailModalOpen(true)}
+                                    disabledReason={
+                                        !template.content.email?.subject ? 'Add a subject first' : undefined
+                                    }
+                                    size="small"
+                                >
+                                    Send test
+                                </LemonButton>
+                                {templateChanged && !draftsEnabled && (
+                                    <LemonButton
+                                        data-attr="cancel-message-template"
+                                        type="secondary"
+                                        onClick={() => resetTemplate(originalTemplate)}
+                                        size="small"
+                                    >
+                                        Discard changes
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    form="template"
+                                    onClick={submitTemplate}
+                                    loading={isTemplateSubmitting || templateLoading}
+                                    disabledReason={
+                                        draftsEnabled && isSavingDraft
+                                            ? 'Saving your draft'
+                                            : draftsEnabled && !hasDraft && !hasUnsavedChanges
+                                              ? 'No changes to publish'
+                                              : !draftsEnabled && !templateChanged && props.id !== 'new'
+                                                ? 'No changes to save'
+                                                : !template.name
+                                                  ? 'Name is required'
+                                                  : undefined
+                                    }
+                                    size="small"
+                                    sideAction={
+                                        draftsEnabled
+                                            ? {
+                                                  'data-attr': 'message-template-draft-actions',
+                                                  'aria-label': 'More draft actions',
+                                                  dropdown: {
+                                                      placement: 'bottom-end',
+                                                      overlay: (
+                                                          <LemonMenuOverlay
+                                                              items={[
+                                                                  {
+                                                                      label: 'Discard draft',
+                                                                      icon: <IconTrash />,
+                                                                      status: 'danger',
+                                                                      onClick: discardDraft,
+                                                                      disabledReason: !hasDraft
+                                                                          ? 'There is no draft to discard'
+                                                                          : isSavingDraft || isDiscardingDraft
+                                                                            ? 'Wait for the draft to finish saving'
+                                                                            : undefined,
+                                                                      'data-attr': 'message-template-discard-draft',
+                                                                  },
+                                                              ]}
+                                                          />
+                                                      ),
+                                                  },
+                                              }
+                                            : undefined
+                                    }
+                                >
+                                    {props.id === 'new' ? 'Create' : draftsEnabled ? 'Publish' : 'Save'}
+                                </LemonButton>
+                                <More
+                                    size="small"
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                data-attr="save-as-new-template"
+                                                fullWidth
+                                                onClick={() => setIsSaveTemplateModalOpen(true)}
+                                            >
+                                                Save as new template
+                                            </LemonButton>
+                                            {props.id !== 'new' && (
+                                                <>
+                                                    <LemonButton
+                                                        data-attr="duplicate-message-template"
+                                                        fullWidth
+                                                        onClick={duplicateTemplate}
+                                                        disabledReason={
+                                                            hasUnsavedChanges
+                                                                ? 'Save your changes before duplicating'
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        Duplicate
+                                                    </LemonButton>
+                                                    <LemonDivider />
+                                                    <LemonButton
+                                                        data-attr="delete-message-template"
+                                                        status="danger"
+                                                        fullWidth
+                                                        onClick={deleteTemplate}
+                                                    >
+                                                        Delete
+                                                    </LemonButton>
+                                                </>
+                                            )}
+                                        </>
+                                    }
+                                />
+                            </>
+                        )
                     }
                 />
 

@@ -16,6 +16,7 @@ import {
     SCRATCHPAD_FETCH_LIMIT,
     SCRATCHPAD_PREVIEW_CHARS,
     describeLoadedSpan,
+    entriesForSkill,
     scratchpadLogic,
 } from './scratchpadLogic'
 
@@ -35,6 +36,9 @@ const TRUNCATED = entry('pattern:long', 'x'.repeat(SCRATCHPAD_PREVIEW_CHARS))
 const ALSO_TRUNCATED = entry('pattern:also-long', 'y'.repeat(SCRATCHPAD_PREVIEW_CHARS))
 const WHOLE = entry('pattern:short', 'a short note')
 const fullBodyFor = (key: string): string => `${key} full body, tail included`
+const SCOUT = 'signals-scout-daily-digest'
+// Only the per-scout read returns this entry, as on a busy project where it sits outside the window.
+const SCOUT_ONLY = entry('pattern:scout-only', 'z'.repeat(SCRATCHPAD_PREVIEW_CHARS))
 
 describe('scratchpadLogic', () => {
     let logic: ReturnType<typeof scratchpadLogic.build>
@@ -51,6 +55,9 @@ describe('scratchpadLogic', () => {
                     const key = params.get('key')
                     if (key) {
                         return [200, [entry(key, fullBodyFor(key))]]
+                    }
+                    if (params.get('skill_name')) {
+                        return [200, [SCOUT_ONLY]]
                     }
                     return [200, [TRUNCATED, ALSO_TRUNCATED, WHOLE]]
                 },
@@ -76,6 +83,20 @@ describe('scratchpadLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(searchRequests[0].get('content_max_chars')).toEqual(String(SCRATCHPAD_PREVIEW_CHARS))
+    })
+
+    it('reads one scout from the server and expands an entry the shared window does not hold', async () => {
+        logic.actions.loadScoutEntries(SCOUT)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(searchRequests[0].get('skill_name')).toEqual(SCOUT)
+        expect(entriesForSkill(logic.values.scoutEntries, SCOUT)).toEqual([SCOUT_ONLY])
+        expect(entriesForSkill(logic.values.scoutEntries, 'signals-scout-other')).toBeNull()
+
+        logic.actions.toggleEntry(SCOUT_ONLY.key)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.fullContentByKey[SCOUT_ONLY.key]).toEqual(fullBodyFor(SCOUT_ONLY.key))
     })
 
     it('fetches the full body by exact key when a truncated entry is expanded', async () => {
@@ -129,8 +150,8 @@ describe('scratchpadLogic', () => {
         expect(logic.values.expandedKeys).toEqual([TRUNCATED.key])
     })
 
-    // The roster's "learned" count and the scout page's memory panel read `entries`; a fleet search
-    // must land somewhere else or it silently shrinks a scout's memory until the next reload.
+    // The roster's "learned" count reads `entries`; a fleet search must land somewhere else or it
+    // silently shrinks that count until the next reload.
     it('keeps the unfiltered window intact while a search runs', async () => {
         useMocks({
             get: {
@@ -179,9 +200,8 @@ describe('scratchpadLogic', () => {
         expect(logic.values.recentlyLearnedCountCapped).toBe(false)
     })
 
-    // Ledger filters narrow what is listed and nothing else. The roster's "learned" count and the
-    // scout page's memory panel read `entries`, so a filter that reached them would silently shrink
-    // numbers the reader never asked about.
+    // Ledger filters narrow what is listed and nothing else. The roster's "learned" count reads
+    // `entries`, so a filter that reached it would silently shrink a number the reader never asked about.
     it('combines the client-side filters and leaves the loaded window intact', async () => {
         const rows = [
             { ...entry('pattern:apm:p95', 'note'), created_by_skill: 'signals-scout-apm' },

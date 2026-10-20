@@ -586,6 +586,6 @@ def crates_io_source(
         items=lambda: get_rows(endpoint=endpoint, crates=crates, logger=logger),
         primary_keys=config.primary_keys,
         # No server-side ordering to rely on; rows are grouped per crate as fetched.
-        sort_mode="asc",
+        sort_mode=None,
         **partition_kwargs,
     )
