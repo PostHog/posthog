@@ -80,7 +80,7 @@ The token inherits your user role, so the connecting user needs read access to t
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

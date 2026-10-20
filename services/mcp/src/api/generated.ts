@@ -5270,6 +5270,48 @@ export namespace Schemas {
       explicitDate?: boolean | null;
     }
 
+    export type DataWarehouseNodeResponse = { [key: string]: unknown } | null;
+
+    export interface DataWarehouseNode {
+      custom_name?: string | null;
+      distinct_id_field: string;
+      dw_source_type?: string | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      id: string;
+      id_field: string;
+      kind?: 'DataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      response?: DataWarehouseNodeResponse;
+      table_name: string;
+      timestamp_field: string;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface MarketingAnalyticsCostFallback {
+      /**
+         * @minItems 1
+         * @maxItems 200
+         */
+      series: DataWarehouseNode[];
+      /**
+         * @minItems 1
+         * @maxItems 200
+         */
+      sourceIds: string[];
+    }
+
     export interface PropertyGroupFilter {
       type: FilterLogicalOperator;
       values: PropertyGroupFilterValue[];
@@ -5339,35 +5381,6 @@ export namespace Schemas {
       /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: EventsNodeResponse;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type DataWarehouseNodeResponse = { [key: string]: unknown } | null;
-
-    export interface DataWarehouseNode {
-      custom_name?: string | null;
-      distinct_id_field: string;
-      dw_source_type?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
-      id: string;
-      id_field: string;
-      kind?: 'DataWarehouseNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
-      response?: DataWarehouseNodeResponse;
-      table_name: string;
-      timestamp_field: string;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -5708,6 +5721,8 @@ export namespace Schemas {
       /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
       interval?: IntervalType | null;
       kind?: 'TrendsQuery';
+      /** Live series for a Marketing cost trend when materialization coverage is incomplete. */
+      marketingAnalyticsCostFallback?: MarketingAnalyticsCostFallback | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
@@ -24910,6 +24925,8 @@ export namespace Schemas {
       is_first_party: boolean;
       /** Whether the user must choose to keep or disconnect this application, because it set up one of the user's organizations and PostHog has not verified it */
       requires_access_confirmation: boolean;
+      /** Whether the application registered itself, through dynamic client registration or a client ID metadata document. MCP clients connect this way; applications PostHog registers do not. */
+      is_self_registered: boolean;
     }
 
     /**
@@ -70473,6 +70490,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `legacy` - Default onboarding
+     * * `simple` - Simple onboarding
+     */
+    export type OnboardingFlowVariantEnum = typeof OnboardingFlowVariantEnum[keyof typeof OnboardingFlowVariantEnum];
+
+
+    export const OnboardingFlowVariantEnum = {
+      Legacy: 'legacy',
+      Simple: 'simple',
+    } as const;
+
+    /**
      * The first-run session that was started for the requester.
      */
     export interface OnboardingSession {
@@ -70564,6 +70593,11 @@ export namespace Schemas {
          * @maxLength 64
          */
       step_at_skip?: string;
+      /** Which onboarding flow the user skipped from, for analytics only.
+       *
+       * * `legacy` - Default onboarding
+       * * `simple` - Simple onboarding */
+      flow_variant?: OnboardingFlowVariantEnum;
     }
 
     /**
@@ -96703,7 +96737,6 @@ export namespace Schemas {
 
 
     export const ReleaseStatus = {
-      Alpha: 'alpha',
       Beta: 'beta',
       Ga: 'ga',
     } as const;

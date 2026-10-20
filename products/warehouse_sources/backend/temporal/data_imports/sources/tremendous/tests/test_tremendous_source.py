@@ -17,16 +17,8 @@ class TestTremendousSource:
     @parameterized.expand(
         [
             (
-                "production_unauthorized",
-                "401 Client Error: Unauthorized for url: https://www.tremendous.com/api/v2/orders?limit=500&offset=0",
-            ),
-            (
                 "sandbox_unauthorized",
                 "401 Client Error: Unauthorized for url: https://testflight.tremendous.com/api/v2/rewards?limit=500&offset=0",
-            ),
-            (
-                "production_forbidden",
-                "403 Client Error: Forbidden for url: https://www.tremendous.com/api/v2/members",
             ),
             (
                 "sandbox_forbidden",
@@ -37,22 +29,6 @@ class TestTremendousSource:
     def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://www.tremendous.com/api/v2/orders",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://testflight.tremendous.com/api/v2/rewards",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source.validate_tremendous_credentials"

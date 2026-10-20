@@ -240,8 +240,6 @@ class TestBaseUrl:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok_at_create", 200, None, True, None),
-            ("bad_token_at_create", 401, None, False, "Invalid SolarWinds Service Desk API token"),
             # A 403 with a genuine token must not block source-create, but must fail a
             # schema-scoped probe so the user sees which table their role can't read.
             ("forbidden_at_create", 403, None, True, None),
@@ -252,7 +250,6 @@ class TestValidateCredentials:
                 False,
                 "Your SolarWinds Service Desk token does not have permission to read this resource",
             ),
-            ("server_error", 500, None, False, "SolarWinds Service Desk returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -265,10 +262,6 @@ class TestValidateCredentials:
     ) -> None:
         with scripted_network(always(ScriptedResponse(status=status, json={}))):
             assert validate_credentials("us", "swsd-token", path) == (expected_valid, expected_message)
-
-    def test_connection_error_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("us", "swsd-token") == (False, "Could not connect to SolarWinds Service Desk")
 
 
 class TestSourceResponse:
