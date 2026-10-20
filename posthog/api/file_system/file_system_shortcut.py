@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
+from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.models.file_system.constants import DEFAULT_SURFACE, RETIRED_FILE_SYSTEM_TYPES, surface_q
@@ -62,9 +63,23 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> FileSystemShortcut:
         request = self.context["request"]
         team = self.context["get_team"]()
+        surface = self.context.get("file_system_surface", DEFAULT_SURFACE)
         with transaction.atomic():
             # Two stars added at once would otherwise read the same last order and share it.
             lock_user_shortcuts(team.pk, request.user.pk)
+            # Starring the same item twice must not add a second row: nothing in the schema stops
+            # it, and `bulk_update` already dedupes on this key, so a single star has to agree.
+            duplicate = FileSystemShortcut.objects.filter(
+                surface_q(surface),
+                team=team,
+                user=request.user,
+                path=validated_data.get("path"),
+                type=validated_data.get("type") or "",
+                ref=validated_data.get("ref"),
+                href=validated_data.get("href"),
+            ).first()
+            if duplicate is not None:
+                return duplicate
             # Place new shortcuts at the end of the user's current order so they don't jump
             # ahead of items the user has explicitly reordered.
             last_order = (
@@ -77,7 +92,7 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
             file_system_shortcut = FileSystemShortcut.objects.create(
                 team=team,
                 user=request.user,
-                surface=self.context.get("file_system_surface", DEFAULT_SURFACE),
+                surface=surface,
                 **validated_data,
             )
         return file_system_shortcut
@@ -164,6 +179,8 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset).filter(user=self.request.user)
+        # A starred row hidden by its product stays hidden here too.
+        queryset = apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
         # Destroy keeps retired rows, so that a user can still remove a shortcut that no other action returns.
         if self.action != "destroy":
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)

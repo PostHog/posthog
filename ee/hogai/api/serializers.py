@@ -7,6 +7,8 @@ from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.schema import ApprovalDecisionStatus
+
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -19,7 +21,7 @@ from products.tasks.backend.facade.run_config import REASONING_EFFORTS, LLMProvi
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.research_agent.graph import ResearchAgentGraph
-from ee.hogai.tool import PENDING_APPROVAL_STATUS
+from ee.hogai.tool import ApprovalRequest, pending_approval_proposal_id
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
@@ -94,11 +96,15 @@ async def aget_conversation_state(
         # Extract interrupt payloads from pending tasks — the single source of truth for payload data.
         interrupt_payloads: dict[str, dict[str, Any]] = {}
         for task in snapshot.tasks:
+            if task.result is not None:
+                continue
             for interrupt in task.interrupts:
-                if isinstance(interrupt.value, dict) and interrupt.value.get("status") == PENDING_APPROVAL_STATUS:
-                    proposal_id = interrupt.value.get("proposal_id")
-                    if proposal_id:
-                        interrupt_payloads[proposal_id] = interrupt.value
+                proposal_id = pending_approval_proposal_id(interrupt.value)
+                if proposal_id:
+                    value = interrupt.value
+                    interrupt_payloads[proposal_id] = (
+                        value.model_dump() if isinstance(value, ApprovalRequest) else value
+                    )
 
         return ConversationStateResult(
             state=state, has_unsupported_content=False, interrupt_payloads=interrupt_payloads
@@ -379,6 +385,12 @@ class ConversationSerializer(ConversationMinimalSerializer):
             decision_status = decision_data.get("decision_status")
             if not tool_name or not preview or not decision_status:
                 continue
+            if (
+                decision_status == ApprovalDecisionStatus.PENDING
+                and cached_state.state is not None
+                and proposal_id not in cached_state.interrupt_payloads
+            ):
+                decision_status = ApprovalDecisionStatus.AUTO_REJECTED
 
             # Get payload from checkpoint interrupts (single source of truth)
             payload = cached_state.interrupt_payloads.get(proposal_id, {}).get("payload", {})

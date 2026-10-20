@@ -152,7 +152,7 @@ export const FrictionGroupEnumApi = {
 } as const
 
 export interface FrictionGroupShareApi {
-    /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+    /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and failed queue attempts), or rework (own failures and extra pushes).
      *
      * * `ci` - CI
      * * `review` - Review
@@ -1491,7 +1491,7 @@ export interface PullRequestFrictionBreakdownApi {
      */
     queue_seconds: number | null
     /**
-     * Times the merge queue removed the pull request. Null without queue data.
+     * Merge queue attempts where at least one workflow run failed. A failed check the queue does not require leaves the pull request in the queue, so this is an upper bound on the times the queue removed it. Null when the pull request never entered the merge queue.
      * @nullable
      */
     kickout_count: number | null
@@ -2030,6 +2030,16 @@ export interface RepoOverviewApi {
      * @nullable
      */
     merge_queue_billable_minutes_prev: number | null
+    /**
+     * Slice of billable_minutes from jobs that ran on the Depot CI engine; null when the job-level source isn't synced.
+     * @nullable
+     */
+    depot_ci_billable_minutes: number | null
+    /**
+     * Depot CI billable minutes over the previous window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    depot_ci_billable_minutes_prev: number | null
     /** PRs merged in the window with at least one corroborated merge-queue gate run: the population behind every merge_queue_* landing stat. All authors, bots included. */
     merge_queue_merged_pr_count: number
     /** Queue-landed merges over the previous window. */
@@ -3283,6 +3293,10 @@ export type EngineeringAnalyticsTeamCiActivityParams = {
      */
     owner_team: string
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -3314,6 +3328,10 @@ export type EngineeringAnalyticsTeamCiHealthParams = {
      */
     owner_team?: string
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -3332,6 +3350,10 @@ export type EngineeringAnalyticsTeamMergeTrendParams = {
      * Team slug to scope to (as returned by team_ci_health), matched against the GitHub org team slug of the source's team_members snapshot. The literal 'unowned' names an ownership gap, not an org team, and has no merge trend.
      */
     owner_team: string
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

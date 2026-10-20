@@ -1,11 +1,8 @@
-import json
-from typing import Any, Optional
+from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.ashby import (
     ASHBY_BASE_URL,
@@ -13,81 +10,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.ashb
     AshbyAPIError,
     AshbyResumeConfig,
     _errors_from_payload,
-    ashby_source,
     check_access,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# check_access builds its own tracked session in the ashby module.
-ASHBY_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.ashby.ashby.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source import AshbySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ashby import AshbySourceConfig
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _page(
-    items: list[dict[str, Any]],
-    *,
-    more: bool = False,
-    next_cursor: Optional[str] = None,
-) -> Response:
+def _page(items: list[dict[str, Any]], *, more: bool = False, next_cursor: str | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {"success": True, "results": items, "moreDataAvailable": more}
     if next_cursor is not None:
         body["nextCursor"] = next_cursor
-    return _response(body)
+    return ScriptedResponse(json=body)
 
 
-def _make_manager(resume_state: AshbyResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return snapshots of each request AT SEND TIME.
-
-    ``request.json`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append(
-            {
-                "url": request.url,
-                "method": request.method,
-                "json": dict(request.json or {}),
-                "auth": request.auth,
-            }
-        )
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str = "candidates", manager: Optional[mock.MagicMock] = None, api_key: str = "dummy-key"):
-    return ashby_source(
-        api_key=api_key,
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager if manager is not None else _make_manager(),
-    )
+def _driver() -> SourceDriver:
+    return SourceDriver(AshbySource(), AshbySourceConfig(api_key="dummy-key"))
 
 
 class TestErrorsFromPayload:
@@ -105,264 +47,186 @@ class TestErrorsFromPayload:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_no_more_data(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _page([{"id": "1"}], more=True, next_cursor="c1"),
-                _page([{"id": "2"}], more=False),
-            ],
+    def test_paginates_until_no_more_data(self) -> None:
+        result = _driver().run(
+            "candidates",
+            [_page([{"id": "1"}], more=True, next_cursor="c1"), _page([{"id": "2"}])],
         )
 
-        rows = _rows(_source("candidates"))
-
-        assert rows == [{"id": "1"}, {"id": "2"}]
+        assert result.raised is None
+        assert result.rows == [{"id": "1"}, {"id": "2"}]
         # First call has no cursor, second forwards nextCursor; limit is sent in the JSON body.
-        assert "cursor" not in snapshots[0]["json"]
-        assert snapshots[1]["json"]["cursor"] == "c1"
-        assert snapshots[0]["json"]["limit"] == 100
-        assert snapshots[0]["url"] == f"{ASHBY_BASE_URL}/candidate.list"
-        assert snapshots[0]["method"] == "POST"
+        assert "cursor" not in result.requests[0].json()
+        assert result.requests[1].json()["cursor"] == "c1"
+        assert result.requests[0].json()["limit"] == 100
+        assert result.urls[0] == f"{ASHBY_BASE_URL}/candidate.list"
+        assert result.requests[0].method == "POST"
         # Ashby authenticates via HTTP Basic: API key as username, empty password.
-        assert snapshots[0]["auth"].username == "dummy-key"
-        assert snapshots[0]["auth"].password == ""
+        assert result.requests[0].headers["authorization"] == "Basic ZHVtbXkta2V5Og=="
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding_each_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([{"id": "1"}], more=True, next_cursor="c1"),
-                _page([{"id": "2"}], more=False),
-            ],
+    def test_saves_state_after_yielding_each_page(self) -> None:
+        result = _driver().run(
+            "candidates",
+            [_page([{"id": "1"}], more=True, next_cursor="c1"), _page([{"id": "2"}])],
         )
-        manager = _make_manager()
+        assert result.raised is None
+        assert result.saved_states == [AshbyResumeConfig(cursor="c1")]
 
-        _rows(_source("candidates", manager))
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "candidates",
+            [_page([{"id": "9"}])],
+            resume_state=AshbyResumeConfig(cursor="resume-cursor"),
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": "9"}]
+        assert result.requests[0].json()["cursor"] == "resume-cursor"
 
-        manager.save_state.assert_called_once_with(AshbyResumeConfig(cursor="c1"))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_page([{"id": "9"}], more=False)])
-        manager = _make_manager(AshbyResumeConfig(cursor="resume-cursor"))
-
-        rows = _rows(_source("candidates", manager))
-
-        assert rows == [{"id": "9"}]
-        assert snapshots[0]["json"]["cursor"] == "resume-cursor"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_more_data_unavailable_even_with_cursor(self, MockSession) -> None:
+    def test_stops_when_more_data_unavailable_even_with_cursor(self) -> None:
         # Ashby can return a nextCursor alongside moreDataAvailable=false — that must terminate.
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "1"}], more=False, next_cursor="c9")])
-        manager = _make_manager()
-
-        rows = _rows(_source("candidates", manager))
-
-        assert rows == [{"id": "1"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        result = _driver().run("candidates", [_page([{"id": "1"}], next_cursor="c9")])
+        assert result.raised is None
+        assert result.rows == [{"id": "1"}]
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
     @pytest.mark.parametrize("status_code", [401, 403])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_http_auth_errors_raise_matchable_error(self, MockSession, status_code: int) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}, status_code=status_code)])
+    def test_http_auth_errors_raise_matchable_error(self, status_code: int) -> None:
+        result = _driver().run("candidates", [ScriptedResponse(status=status_code, json={})])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert f"{status_code} Client Error" in str(result.raised)
 
-        with pytest.raises(requests.HTTPError) as exc:
-            _rows(_source("candidates"))
-        assert f"{status_code} Client Error" in str(exc.value)
+    def test_success_false_auth_error_raises_matchable_api_error(self) -> None:
+        result = _driver().run(
+            "candidates",
+            [ScriptedResponse(json={"success": False, "errors": ["Missing permission: candidatesRead"]})],
+        )
+        assert isinstance(result.raised, AshbyAPIError)
+        assert AUTH_ERROR_HINT in str(result.raised)
+        assert "Missing permission: candidatesRead" in str(result.raised)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_success_false_auth_error_raises_matchable_api_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"success": False, "errors": ["Missing permission: candidatesRead"]})])
-
-        with pytest.raises(AshbyAPIError) as exc:
-            _rows(_source("candidates"))
-        assert AUTH_ERROR_HINT in str(exc.value)
-        assert "Missing permission: candidatesRead" in str(exc.value)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_success_false_non_auth_error_raises_without_auth_hint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"success": False, "errors": ["validation failed"]})])
-
-        with pytest.raises(AshbyAPIError) as exc:
-            _rows(_source("candidates"))
-        assert AUTH_ERROR_HINT not in str(exc.value)
-        assert "validation failed" in str(exc.value)
-
-
-class FakeResponse:
-    def __init__(
-        self, status_code: int = 200, json_data: Optional[dict[str, Any]] = None, raise_json: bool = False
-    ) -> None:
-        self.status_code = status_code
-        self._json = json_data if json_data is not None else {}
-        self.text = str(self._json)
-        self._raise_json = raise_json
-
-    @property
-    def ok(self) -> bool:
-        return 200 <= self.status_code < 300
-
-    def json(self) -> dict[str, Any]:
-        if self._raise_json:
-            raise ValueError("no json")
-        return self._json
+    def test_success_false_non_auth_error_raises_without_auth_hint(self) -> None:
+        result = _driver().run(
+            "candidates", [ScriptedResponse(json={"success": False, "errors": ["validation failed"]})]
+        )
+        assert isinstance(result.raised, AshbyAPIError)
+        assert AUTH_ERROR_HINT not in str(result.raised)
+        assert "validation failed" in str(result.raised)
 
 
 class TestCheckAccess:
     @pytest.mark.parametrize(
         "response, expected_status",
         [
-            (FakeResponse(json_data={"success": True, "results": []}), 200),
-            (FakeResponse(status_code=401), 401),
-            (FakeResponse(status_code=403), 403),
-            (FakeResponse(json_data={"success": False, "errors": ["Missing permission"]}), 403),
-            (FakeResponse(json_data={"success": False, "errors": ["bad request"]}), 400),
-            (FakeResponse(status_code=500), 500),
-            (FakeResponse(raise_json=True), 0),
+            (ScriptedResponse(json={"success": True, "results": []}), 200),
+            (ScriptedResponse(status=401), 401),
+            (ScriptedResponse(status=403), 403),
+            (ScriptedResponse(json={"success": False, "errors": ["Missing permission"]}), 403),
+            (ScriptedResponse(json={"success": False, "errors": ["bad request"]}), 400),
+            (ScriptedResponse(status=500), 500),
+            (ScriptedResponse(body=b"not json"), 0),
         ],
     )
-    def test_status_mapping(self, response: FakeResponse, expected_status: int) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = response
-        with mock.patch(ASHBY_SESSION_PATCH, return_value=session):
+    def test_status_mapping(self, response: ScriptedResponse, expected_status: int) -> None:
+        with scripted_network([response]):
             status, _message = check_access("k", "department.list")
         assert status == expected_status
 
     def test_probes_endpoint_with_basic_auth(self) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = FakeResponse(json_data={"success": True, "results": []})
-        with mock.patch(ASHBY_SESSION_PATCH, return_value=session):
+        with scripted_network([_page([])]) as network:
             check_access("k", "department.list")
-        call = session.post.call_args
-        assert call.args[0] == f"{ASHBY_BASE_URL}/department.list"
-        assert call.kwargs["auth"] == ("k", "")
-        assert call.kwargs["json"] == {"limit": 1}
+        request = network.requests_log[0]
+        assert request.url == f"{ASHBY_BASE_URL}/department.list"
+        assert request.headers["authorization"] == "Basic azo="
+        assert request.json() == {"limit": 1}
 
     def test_connection_error_returns_zero(self) -> None:
-        session = mock.MagicMock()
-        session.post.side_effect = Exception("boom")
-        with mock.patch(ASHBY_SESSION_PATCH, return_value=session):
+        with scripted_network([ConnectionResetError("boom")]):
             status, message = check_access("k", "department.list")
         assert status == 0
         assert message is not None
 
 
 class TestFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_calls_the_child_once_per_parent_and_injects_the_parent_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_calls_the_child_once_per_parent_and_injects_the_parent_id(self) -> None:
+        result = _driver().run(
+            "application_history",
             [
-                _page([{"id": "app-1"}, {"id": "app-2"}], more=False),
-                _page([{"id": "h-1", "stageNumber": 0}], more=False),
-                _page([{"id": "h-2", "stageNumber": 0}], more=False),
+                _page([{"id": "app-1"}, {"id": "app-2"}]),
+                _page([{"id": "h-1", "stageNumber": 0}]),
+                _page([{"id": "h-2", "stageNumber": 0}]),
             ],
         )
-
-        rows = _rows(_source("application_history"))
-
+        assert result.raised is None
         # application.listHistory rows carry no applicationId, so the fan-out has to add it —
         # without it the table can't be joined back to applications and its key isn't unique.
-        assert rows == [
+        assert result.rows == [
             {"id": "h-1", "stageNumber": 0, "applicationId": "app-1"},
             {"id": "h-2", "stageNumber": 0, "applicationId": "app-2"},
         ]
-        assert [snapshot["url"] for snapshot in snapshots] == [
+        assert result.urls == [
             f"{ASHBY_BASE_URL}/application.list",
             f"{ASHBY_BASE_URL}/application.listHistory",
             f"{ASHBY_BASE_URL}/application.listHistory",
         ]
-        assert snapshots[1]["json"] == {"applicationId": "app-1", "limit": 100}
-        assert snapshots[2]["json"] == {"applicationId": "app-2", "limit": 100}
+        assert result.requests[1].json() == {"applicationId": "app-1", "limit": 100}
+        assert result.requests[2].json() == {"applicationId": "app-2", "limit": 100}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_child_sends_only_the_resolve_param(self, MockSession) -> None:
+    def test_unpaginated_child_sends_only_the_resolve_param(self) -> None:
         # interviewStage.list takes interviewPlanId and nothing else — Ashby rejects a `limit`.
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+        result = _driver().run(
+            "interview_stages",
             [
-                _page([{"id": "plan-1"}], more=False),
-                _page([{"id": "stage-1", "interviewPlanId": "plan-1"}], more=False),
+                _page([{"id": "plan-1"}]),
+                _page([{"id": "stage-1", "interviewPlanId": "plan-1"}]),
             ],
         )
+        assert result.raised is None
+        assert result.rows == [{"id": "stage-1", "interviewPlanId": "plan-1"}]
+        assert result.requests[1].json() == {"interviewPlanId": "plan-1"}
 
-        rows = _rows(_source("interview_stages"))
-
-        assert rows == [{"id": "stage-1", "interviewPlanId": "plan-1"}]
-        assert snapshots[1]["json"] == {"interviewPlanId": "plan-1"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_at_the_parent_that_was_in_progress(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _page([{"id": "app-1"}, {"id": "app-2"}], more=False),
-                _page([{"id": "h-2"}], more=False),
-            ],
+    def test_resumes_at_the_parent_that_was_in_progress(self) -> None:
+        result = _driver().run(
+            "application_history",
+            [_page([{"id": "app-1"}, {"id": "app-2"}]), _page([{"id": "h-2"}])],
+            resume_state=AshbyResumeConfig(parent_index=1, child_cursor="half-way"),
         )
-        manager = _make_manager(AshbyResumeConfig(parent_index=1, child_cursor="half-way"))
+        assert result.raised is None
+        assert result.rows == [{"id": "h-2", "applicationId": "app-2"}]
+        assert result.requests[1].json()["cursor"] == "half-way"
 
-        rows = _rows(_source("application_history", manager))
-
-        assert rows == [{"id": "h-2", "applicationId": "app-2"}]
-        assert snapshots[1]["json"]["cursor"] == "half-way"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_each_finished_parent_against_its_page_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_checkpoints_each_finished_parent_against_its_page_cursor(self) -> None:
+        result = _driver().run(
+            "application_history",
             [
                 _page([{"id": "app-1"}], more=True, next_cursor="p2"),
-                _page([{"id": "h-1"}], more=False),
-                _page([{"id": "app-2"}], more=False),
-                _page([{"id": "h-2"}], more=False),
+                _page([{"id": "h-1"}]),
+                _page([{"id": "app-2"}]),
+                _page([{"id": "h-2"}]),
             ],
         )
-        manager = _make_manager()
-
-        _rows(_source("application_history", manager))
-
+        assert result.raised is None
         # The second parent is recorded against "p2" — the cursor that fetched the page it is on,
         # not the one that fetched the page before it.
-        assert manager.save_state.call_args_list == [
-            mock.call(AshbyResumeConfig(parent_cursor=None, parent_index=1)),
-            mock.call(AshbyResumeConfig(parent_cursor="p2", parent_index=1)),
+        assert result.saved_states == [
+            AshbyResumeConfig(parent_cursor=None, parent_index=1),
+            AshbyResumeConfig(parent_cursor="p2", parent_index=1),
         ]
 
 
 class TestNestedRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_interview_events_are_read_from_the_schedule_listing(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_interview_events_are_read_from_the_schedule_listing(self) -> None:
+        result = _driver().run(
+            "interview_events",
             [
                 _page(
                     [
                         {"id": "sched-1", "interviewEvents": [{"id": "ev-1"}, {"id": "ev-2"}]},
                         {"id": "sched-2", "interviewEvents": []},
-                    ],
-                    more=False,
+                    ]
                 )
             ],
         )
-
-        rows = _rows(_source("interview_events"))
-
-        assert rows == [{"id": "ev-1"}, {"id": "ev-2"}]
-        assert snapshots[0]["url"] == f"{ASHBY_BASE_URL}/interviewSchedule.list"
+        assert result.raised is None
+        assert result.rows == [{"id": "ev-1"}, {"id": "ev-2"}]
+        assert result.urls[0] == f"{ASHBY_BASE_URL}/interviewSchedule.list"

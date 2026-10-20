@@ -11,6 +11,7 @@ import type {
     AutoresearchModelApi,
     AutoresearchPipelineApi,
     AutoresearchRunApi,
+    AutoresearchSuggestionApi,
     AutoresearchTrainingRunApi,
 } from './generated/api.schemas'
 
@@ -29,6 +30,10 @@ const pipeline = {
     cadence_days: 1,
     iteration_budget: 20,
     iteration_budget_remaining: 6,
+    iterations_per_run: 5,
+    research_interval_days: 7,
+    training_phase: 'maintain',
+    next_research_at: '2026-11-12T00:00:00Z',
     success_auc: null,
     plateau_iterations: 5,
     output_person_property: 'p_file_shared_7d',
@@ -104,11 +109,24 @@ const runs = [
     },
 ] as unknown as AutoresearchRunApi[]
 
+const challenger = {
+    ...champion,
+    id: '0190c3f2-0000-7000-8000-0000000000c2',
+    role: 'challenger',
+    holdout_score: 0.84,
+    realized_score: 0.83,
+    source_training_run: 'training-4',
+    agent_description: 'Gradient boosting with share counts measured up to midnight.',
+    promoted_at: null,
+    created_at: '2026-02-25T11:00:00Z',
+} as unknown as AutoresearchModelApi
+
 function iteration(
     iteration_number: number,
     status: 'kept' | 'discarded' | 'crashed',
     holdout_score: number | null,
-    agent_description: string
+    agent_description: string,
+    summary: string | null = null
 ): Record<string, unknown> {
     return {
         iteration_number,
@@ -116,7 +134,11 @@ function iteration(
         holdout_score,
         train_score: null,
         agent_description,
-        model_spec: { model_class: 'sklearn.ensemble.HistGradientBoostingClassifier', model_params: { max_depth: 4 } },
+        summary,
+        model_spec: {
+            model_class: 'sklearn.ensemble.HistGradientBoostingClassifier',
+            model_params: { max_depth: 4, learning_rate: 0.05, random_state: 7 },
+        },
     }
 }
 
@@ -145,8 +167,9 @@ const onlinePerformance = {
             confusion: {
                 top_10: { tp: 480, fp: 4220, fn: 930, tn: 41370, n_flagged: 4700, precision: 0.1021, recall: 0.3404 },
                 top_20: { tp: 735, fp: 8665, fn: 675, tn: 36925, n_flagged: 9400, precision: 0.0782, recall: 0.5213 },
-                likely: { tp: 0, fp: 0, fn: 1410, tn: 45590, n_flagged: 0, precision: null, recall: 0 },
+                likely: { tp: 700, fp: 3700, fn: 710, tn: 41890, n_flagged: 4400, precision: 0.1591, recall: 0.4965 },
             },
+            likely_threshold: 0.09,
             calibration_bins: [
                 { n: 37600, mean_p_y: 0.01, positive_rate: 0.008 },
                 { n: 4700, mean_p_y: 0.08, positive_rate: 0.07 },
@@ -157,12 +180,81 @@ const onlinePerformance = {
             validated_at: '2026-02-21T03:00:00Z',
         }))
         .reverse(),
+    segment_thresholds: {
+        likely_threshold: 0.09,
+        possible_threshold: 0.03,
+        likely_lift: 3,
+        base_rate: 0.03,
+        base_rate_dates: 5,
+        base_rate_source: 'realized',
+        champion_mean_p_y: 0.033,
+        champion_base_rate: 0.03,
+        scores_miscalibrated: false,
+    },
 }
+
+const newestRun = {
+    id: 'training-4',
+    pipeline: PIPELINE_ID,
+    task_url: null,
+    status: 'completed',
+    iteration_count: 3,
+    best_holdout_score: 0.84,
+    reader_summary:
+        'Found why scores on real outcomes lagged. Training counted shares up to a random time of day, but scoring counts them up to midnight. Its model is now scored next to the live one.',
+    next_steps: [
+        'Check the midnight cutoff on two more weeks of outcomes.',
+        'Try shares per active day.',
+        'Drop features that never rank in the top ten.',
+    ],
+    summary: {
+        distillation: 'MATCHED CUTOFFS. Midnight cutoffs close most of the gap between holdout and realized AUC.',
+        recommended_next: 'Validate on more matured dates before any new features.',
+        kept_ladder: [],
+        dead_ends: [
+            { iteration_number: 1, holdout_score: 0.82, model_class: 'x', agent_description: 'Hour of day weights.' },
+        ],
+    },
+    iterations: [
+        iteration(
+            0,
+            'kept',
+            0.82,
+            'SHIPPED BUNDLE. Re-scored the live recipe the way the scoring job runs it, to get a fair baseline.',
+            'Re-scored the live recipe the way scoring runs it'
+        ),
+        iteration(1, 'discarded', 0.82, 'Weight training rows by hour of day. No gain over the baseline.'),
+        iteration(
+            2,
+            'kept',
+            0.84,
+            'Moved every training cutoff to midnight to match how scoring counts shares. This closes part of the gap.',
+            'Moved training cutoffs to midnight'
+        ),
+    ],
+    error: '',
+    started_at: '2026-02-25T09:00:00Z',
+    completed_at: '2026-02-25T09:39:00Z',
+    created_at: '2026-02-25T09:00:00Z',
+}
+
+const suggestions = [
+    {
+        id: 'suggestion-1',
+        pipeline: PIPELINE_ID,
+        prompt: 'Try the number of people each file was shared with.',
+        priority: 'consider',
+        status: 'queued',
+        agent_response: '',
+        created_at: '2026-02-28T09:00:00Z',
+    },
+] as unknown as AutoresearchSuggestionApi[]
 
 const trainingRuns = [
     {
         id: 'training-3',
         pipeline: PIPELINE_ID,
+        kickoff_reason: 'scheduled',
         task_url: null,
         status: 'failed',
         iteration_count: 0,
@@ -180,6 +272,7 @@ const trainingRuns = [
     {
         id: 'training-2',
         pipeline: PIPELINE_ID,
+        kickoff_reason: 'explore',
         task_url: null,
         status: 'completed',
         iteration_count: 5,
@@ -203,6 +296,7 @@ const trainingRuns = [
     {
         id: 'training-1',
         pipeline: PIPELINE_ID,
+        kickoff_reason: 'manual',
         task_url: null,
         status: 'completed',
         iteration_count: 4,
@@ -235,11 +329,16 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/`]: pipeline,
-                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/models/`]: toPaginatedResponse([champion]),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/models/`]: toPaginatedResponse([
+                    champion,
+                    challenger,
+                ]),
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/runs/`]: toPaginatedResponse(runs),
-                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/training_runs/`]:
-                    toPaginatedResponse(trainingRuns),
-                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/suggestions/`]: toPaginatedResponse([]),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/training_runs/`]: toPaginatedResponse([
+                    newestRun,
+                    ...trainingRuns,
+                ]),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/suggestions/`]: toPaginatedResponse(suggestions),
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/online_performance/`]: onlinePerformance,
             },
         }),
@@ -270,6 +369,24 @@ export const AgentResearchNarrow: Story = {
     },
 }
 
+// Runs from before the plain-language notes existed: the brief falls back to a line built from the scores.
+export const AgentResearchWithoutReaderNotes: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/models/`]: toPaginatedResponse([champion]),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/training_runs/`]:
+                    toPaginatedResponse(trainingRuns),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/suggestions/`]: toPaginatedResponse([]),
+            },
+        }),
+    ],
+    parameters: {
+        pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=agent_research`,
+        testOptions: { viewportWidths: ['wide'] },
+    },
+}
+
 export const Accuracy: Story = {
     parameters: {
         pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=accuracy`,
@@ -282,7 +399,13 @@ export const AccuracyBeforePrecisionRecall: Story = {
         mswDecorator({
             get: {
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/online_performance/`]: {
-                    rows: onlinePerformance.rows.map((row) => ({ ...row, average_precision: null, confusion: null })),
+                    ...onlinePerformance,
+                    rows: onlinePerformance.rows.map((row) => ({
+                        ...row,
+                        average_precision: null,
+                        confusion: null,
+                        likely_threshold: null,
+                    })),
                 },
             },
         }),
@@ -292,3 +415,97 @@ export const AccuracyBeforePrecisionRecall: Story = {
         testOptions: { viewportWidths: ['wide'] },
     },
 }
+
+function coverageRuns(days: number, perDay: (day: number) => Partial<AutoresearchRunApi>): AutoresearchRunApi[] {
+    return Array.from({ length: days }, (_, day) => ({
+        id: `coverage-${day}`,
+        pipeline: PIPELINE_ID,
+        run_type: 'inference',
+        status: 'completed',
+        error: '',
+        created_at: `2026-02-${String(day + 16).padStart(2, '0')}T03:00:00Z`,
+        ...perDay(day),
+    })) as unknown as AutoresearchRunApi[]
+}
+
+function coverageStory(coverageRunList: AutoresearchRunApi[]): Story {
+    return {
+        decorators: [
+            mswDecorator({
+                get: {
+                    [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/runs/`]: toPaginatedResponse(coverageRunList),
+                },
+            }),
+        ],
+        parameters: {
+            pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=predictions`,
+            testOptions: { viewportWidths: ['wide', 'narrow'] },
+        },
+    }
+}
+
+// Everyone fits under the scoring cap, so each run rescores the whole population.
+export const CoverageBelowCap: Story = coverageStory(
+    coverageRuns(12, (day) => ({
+        rows_scored: 48000,
+        metrics: { rows_eligible: 48000 },
+        coverage: {
+            population: 48000,
+            with_score: day === 0 ? 0 : 48000,
+            never_scored: day === 0 ? 48000 : 0,
+            age_days_avg: day === 0 ? null : 1,
+            age_days_p50: day === 0 ? null : 1,
+            age_days_p90: day === 0 ? null : 1,
+            age_days_max: day === 0 ? null : 1,
+            lookback_days: 30,
+        },
+    }))
+)
+
+// Each run scores 45,000 of 250,000 people, and the first rotation is not complete yet.
+export const CoverageRollingMidCycle: Story = coverageStory(
+    coverageRuns(5, (day) => ({
+        rows_scored: 45000,
+        metrics: { rows_eligible: 250000 },
+        coverage: {
+            population: 250000,
+            with_score: 45000 * day,
+            never_scored: 250000 - 45000 * day,
+            age_days_avg: day === 0 ? null : (day - 1) / 2,
+            age_days_p50: day === 0 ? null : (day - 1) / 2,
+            age_days_p90: day === 0 ? null : (day - 1) * 0.9,
+            age_days_max: day === 0 ? null : day - 1,
+            lookback_days: 30,
+        },
+    }))
+)
+
+// Failed runs leave gaps, so the oldest scores are older than the daily target.
+export const CoverageWithFailedRuns: Story = coverageStory(
+    coverageRuns(14, (day) => {
+        if ([5, 6, 10, 11, 13].includes(day)) {
+            return {
+                status: 'failed',
+                rows_scored: null,
+                metrics: {},
+                coverage: null,
+                error: 'The scoring query timed out.',
+            }
+        }
+        const age = day === 7 || day === 12 ? 3 : 1
+        return {
+            rows_scored: 48000,
+            metrics: { rows_eligible: 48000 },
+            coverage: {
+                population: 48000,
+                with_score: day === 0 ? 0 : 48000,
+                never_scored: day === 0 ? 48000 : 0,
+                age_days_avg: day === 0 ? null : age,
+                age_days_p50: day === 0 ? null : age,
+                age_days_p90: day === 0 ? null : age,
+                age_days_max: day === 0 ? null : age,
+                lookback_days: 30,
+            },
+        }
+    })
+)

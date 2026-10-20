@@ -172,8 +172,6 @@ devbox:
     devbox:ssh:
         click: hogli_commands.devbox.cli:devbox_ssh
         description: SSH into your devbox
-        # exec-replaces the process (os.execvp): completed events can't fire
-        untracked: true
     devbox:exec:
         click: hogli_commands.devbox.cli:devbox_remote_exec
         description: Run a command inside your devbox (non-interactive)
@@ -181,11 +179,9 @@ devbox:
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor
-        untracked: true
     devbox:logs:
         click: hogli_commands.devbox.cli:devbox_logs
         description: Tail devbox build and agent logs
-        # exec-replaces the process (os.execvp): completed events can't fire
         untracked: true
     devbox:destroy:
         click: hogli_commands.devbox.cli:devbox_destroy
@@ -196,8 +192,6 @@ devbox:
     devbox:forward:
         click: hogli_commands.devbox.cli:devbox_forward
         description: Forward PostHog UI to localhost
-        # exec-replaces the process (os.execvp): completed events can't fire
-        untracked: true
     devbox:users:
         click: hogli_commands.devbox.cli:devbox_users
         description: List Coder users (for devbox sharing)
@@ -537,6 +531,11 @@ build:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
             tool definitions (must run after build:openapi-mcp-tools)
+    build:desktop-api-client:
+        bin_script: build-desktop-api-client.sh
+        description: Regenerate the desktop app's typed API client from the OpenAPI
+            schema. Locally, warns and skips when the desktop toolchain is not
+            installed. In CI, a skipped regen fails
     build:openapi-exec-docs:
         cmd: pnpm --filter=@posthog/mcp run generate-exec-docs
         description: Render the MCP exec tool's command reference into the markdown
@@ -588,6 +587,7 @@ build:
                   trap - INT TERM
                   exit "$generation_status"
             - build:openapi-cli-agent-scopes
+            - build:desktop-api-client
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts
             before the schema is generated. Start it with hogli up -d'

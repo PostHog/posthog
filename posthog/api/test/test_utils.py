@@ -1,16 +1,20 @@
 import json
-import requests
 from typing import Any, cast
+
+from posthog.test.base import BaseTest
 
 from django.http import HttpRequest
 from django.test import SimpleTestCase
 from django.test.client import RequestFactory
+
+import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.api.utils import (
     PaginationMode,
+    PublicIPOnlyHttpAdapter,
     canonicalize_encoded_url,
     check_definition_ids_inclusion_field_sql,
     format_paginated_url,
@@ -21,12 +25,10 @@ from posthog.api.utils import (
     parse_actor_property_filters,
     raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
-    validate_authorized_url_wildcards,
-    PublicIPOnlyHttpAdapter,
     strip_url_userinfo,
     unparsed_hostname_in_allowed_url_list,
+    validate_authorized_url_wildcards,
 )
-from posthog.test.base import BaseTest
 
 
 def return_true():
@@ -142,7 +144,7 @@ class TestUtils(BaseTest):
             assert query == "(id = ANY (%(named_key)s::uuid[]))"
             assert ids == ordered_expected_ids
 
-    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
+    # keep in sync with nodejs/tests/utils.test.ts::safeClickhouseString
     def test_safe_clickhouse_string_valid_strings(self):
         valid_strings = [
             "$autocapture",
@@ -168,21 +170,20 @@ class TestUtils(BaseTest):
         for s in valid_strings:
             self.assertEqual(safe_clickhouse_string(s), s)
 
-    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
+    # keep in sync with nodejs/tests/utils.test.ts::safeClickhouseString
     def test_safe_clickhouse_string_surrogates(self):
-        # flake8: noqa
-        self.assertEqual(safe_clickhouse_string("foo \ud83d\ bar"), "foo \\ud83d\\ bar")
-        self.assertEqual(safe_clickhouse_string("\ud83d\ bar"), "\\ud83d\\ bar")
-        self.assertEqual(safe_clickhouse_string("\ud800\ \ud803\ "), "\\ud800\\ \\ud803\\ ")
+        self.assertEqual(safe_clickhouse_string("foo \ud83d\\ bar"), "foo \\ud83d\\ bar")
+        self.assertEqual(safe_clickhouse_string("\ud83d\\ bar"), "\\ud83d\\ bar")
+        self.assertEqual(safe_clickhouse_string("\ud800\\ \ud803\\ "), "\\ud800\\ \\ud803\\ ")
 
-    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
+    # keep in sync with nodejs/tests/utils.test.ts::safeClickhouseString
     def test_safe_clickhouse_string_unicode_non_surrogates(self):
         self.assertEqual(safe_clickhouse_string("✨"), "✨")
-        self.assertEqual(safe_clickhouse_string("foo \u2728\ bar"), "foo \u2728\ bar")
-        self.assertEqual(safe_clickhouse_string("💜 \u1f49c\ 💜"), "💜 \u1f49c\ 💜")
+        self.assertEqual(safe_clickhouse_string("foo \u2728\\ bar"), "foo \u2728\\ bar")
+        self.assertEqual(safe_clickhouse_string("💜 \u1f49c\\ 💜"), "💜 \u1f49c\\ 💜")
 
     def test_raise_if_user_provided_url_unsafe(self):
-        # Sync test cases with plugin-server/src/utils/fetch.test.ts
+        # Sync test cases with nodejs/src/common/utils/request.test.ts
         raise_if_user_provided_url_unsafe("https://google.com?q=20")  # Safe
         raise_if_user_provided_url_unsafe("https://posthog.com")  # Safe
         raise_if_user_provided_url_unsafe("https://posthog.com/foo/bar")  # Safe, with path

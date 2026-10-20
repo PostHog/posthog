@@ -6,7 +6,7 @@ import datetime as dt
 import resource
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from django.conf import settings
 
@@ -23,6 +23,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
     get_handle_cache,
 )
@@ -41,6 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_object_store_permission_denied,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import _delta_table_identity
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    partition_key_from_add_path,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
     note_post_load_phase,
     recorded_phase,
@@ -104,6 +108,11 @@ COMPACT_MIN_TARGET_SIZE_BYTES = 8 * 1024 * 1024
 _COMPACT_TASK_MEMORY_FACTOR = 2
 # Footers of the largest files only: compacted files are the largest, and they set the worst case.
 _COMPACT_RATIO_SAMPLE_FILES = 2
+# deltalite commits after this many bins instead of once at the end. A pass that a deploy or the load
+# worker's stuck-batch timeout stops then keeps the bins it finished, and the next pass plans only the rest.
+COMPACT_MAX_BINS_PER_COMMIT = 16
+
+RebuildCompactOutcome = Literal["compacted", "skipped", "failed"]
 
 
 @frozen
@@ -212,6 +221,8 @@ def removable_file_count(file_sizes: Iterable[int], target_size: int = DEFAULT_C
 
 @frozen
 class _PartitionFileStats:
+    # The `_ph_partition_key` value, or None for an unpartitioned table and the null partition.
+    key: str | None
     size_bytes: int
     removable_files: int
 
@@ -226,11 +237,29 @@ def _partition_file_stats(
         sizes[path.rpartition("/")[0]].append(size or 0)
     return [
         _PartitionFileStats(
+            key=partition_key_from_add_path(directory),
             size_bytes=sum(partition_sizes),
             removable_files=removable_file_count(partition_sizes, target_size),
         )
-        for partition_sizes in sizes.values()
+        for directory, partition_sizes in sizes.items()
     ]
+
+
+def _partitions_up_to(partitions: list[_PartitionFileStats], removable_files: int) -> list[str] | None:
+    """The partitions with the most removable files, until together they reach `removable_files`.
+
+    None means the whole table: it has no partition column, or every partition is needed anyway.
+    """
+    selected: list[str] = []
+    reached = 0
+    for partition in sorted(partitions, key=lambda p: p.removable_files, reverse=True):
+        if reached >= removable_files:
+            break
+        if partition.key is None:
+            return None
+        selected.append(partition.key)
+        reached += partition.removable_files
+    return selected if len(selected) < len(partitions) else None
 
 
 @frozen
@@ -442,7 +471,9 @@ class DeltaMaintenance:
         return plan_compaction(ratio, get_governor().slot_budget_mb())
 
     @recorded_phase("compact")
-    async def _compact(self, table: deltalake.DeltaTable, plan: CompactionPlan | None = None) -> bool:
+    async def _compact(
+        self, table: deltalake.DeltaTable, plan: CompactionPlan | None = None, *, partitions: list[str] | None = None
+    ) -> bool:
         plan = plan or await self._plan_compaction(table)
         target_size = plan.target_size
         if target_size is None:
@@ -469,6 +500,12 @@ class DeltaMaintenance:
         while True:
 
             def _compact_op(size: int = target_size, tasks: int | None = max_concurrent_tasks) -> dict[str, Any]:
+                if partitions:
+                    return table.optimize.compact(
+                        partition_filters=[(PARTITION_KEY, "in", partitions)],
+                        target_size=size,
+                        max_concurrent_tasks=tasks,
+                    )
                 return table.optimize.compact(target_size=size, max_concurrent_tasks=tasks)
 
             try:
@@ -507,7 +544,9 @@ class DeltaMaintenance:
         await self._logger.adebug(json.dumps(compact_stats))
         return True
 
-    async def _compact_with_deltalite(self, table: deltalake.DeltaTable) -> bool | None:
+    async def _compact_with_deltalite(
+        self, table: deltalake.DeltaTable, *, partitions: list[str] | None = None
+    ) -> bool | None:
         """Compact through deltalite's native compaction. None means delta-rs must compact instead.
 
         deltalite streams each bin under byte budgets and caps every output file by its decoded size,
@@ -536,6 +575,8 @@ class DeltaMaintenance:
             # `has_batch_been_committed` would then read a compaction as a committed batch.
             "commit_metadata": {"compact_engine": "deltalite", "job_id": str(self._table.job.id)},
             "min_partition_removable_files": 1,
+            "max_bins_per_commit": COMPACT_MAX_BINS_PER_COMMIT,
+            "partitions": partitions,
         }
 
         def _run() -> dict[str, Any]:
@@ -564,11 +605,14 @@ class DeltaMaintenance:
             await self._log_compact_fallback("unsupported_table")
             return None
         except deltalite.DeltaLiteCommitConflictError:
-            # The retries ran out, or a concurrent writer changed the schema or the partitioning.
-            # Nothing was committed, and the next maintenance pass compacts the table again.
+            # The retries ran out, or a concurrent writer changed the schema or the partitioning. The
+            # chunks committed before the conflict stay, and the next maintenance pass compacts the rest.
+            self._table.note_deltalite_commit(None)
             await self._logger.awarning("compact: deltalite lost to a concurrent commit, not reporting")
             return False
         except Exception as e:
+            # A pass that commits in chunks can fail after some of them, so the handle is behind the log.
+            self._table.note_deltalite_commit(None)
             # The object-store classifiers match the error text, but accept only OS and delta-rs errors.
             as_os_error = OSError(str(e))
             if is_object_store_permission_denied(as_os_error):
@@ -577,8 +621,8 @@ class DeltaMaintenance:
             if is_transient_object_store_error(as_os_error):
                 await self._logger.awarning("compact: transient object-store error, not reporting")
                 raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
-            # A failed deltalite compaction commits nothing and deletes its output files, so delta-rs
-            # can compact the same table safely.
+            # deltalite deletes the output files that no commit names, so delta-rs can compact the table
+            # once the caller rereads the log.
             capture_exception(e)
             await self._log_compact_fallback("deltalite_error")
             return None
@@ -749,29 +793,96 @@ class DeltaMaintenance:
             await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
             return False
 
+        return await self._compact_table(
+            table,
+            lambda planned: triggered(_small_file_fragmentation(planned, table_wide_small_files)),
+            pass_name="compact_if_fragmented",
+            stats=stats,
+        )
+
+    async def _compact_table(
+        self,
+        table: deltalake.DeltaTable,
+        triggered: Callable[[list[_PartitionFileStats]], bool],
+        *,
+        pass_name: str,
+        stats: str,
+        select_partitions: Callable[[list[_PartitionFileStats]], list[str] | None] | None = None,
+    ) -> bool:
+        """Compact with deltalite when it is on, else with delta-rs.
+
+        `select_partitions` limits the pass, from the partition stats at the bin size the engine uses.
+        """
+        partitions = None
+        if select_partitions is not None:
+            partitions = select_partitions(
+                await asyncio.to_thread(_partition_file_stats, table, DEFAULT_COMPACT_TARGET_SIZE_BYTES)
+            )
         if settings.DATA_WAREHOUSE_DELTALITE_COMPACTION:
-            await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
-            compacted = await self._compact_with_deltalite(table)
+            await self._logger.ainfo(f"{pass_name}: triggering compact ({stats})")
+            compacted = await self._compact_with_deltalite(table, partitions=partitions)
             if compacted is not None:
                 return compacted
+            reread = await self._table.get_delta_table()
+            if reread is None:
+                return False
+            table = reread
 
         plan = await self._plan_compaction(table)
         if plan.target_size is None:
-            await self._compact(table, plan)
+            await self._compact(table, plan, partitions=partitions)
             return False
 
         if plan.target_size != DEFAULT_COMPACT_TARGET_SIZE_BYTES:
             # A smaller bin can merge fewer of the files, so the trigger must hold at the planned size too.
-            partitions = await asyncio.to_thread(_partition_file_stats, table, plan.target_size)
-            if not triggered(_small_file_fragmentation(partitions, table_wide_small_files)):
+            planned = await asyncio.to_thread(_partition_file_stats, table, plan.target_size)
+            if not triggered(planned):
                 await self._logger.adebug(
-                    f"compact_if_fragmented: skipping; no files are removable at planned target_size="
-                    f"{plan.target_size} ({stats})"
+                    f"{pass_name}: skipping; no files are removable at planned target_size={plan.target_size} ({stats})"
                 )
                 return False
+            if select_partitions is not None:
+                partitions = select_partitions(planned)
 
-        await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
-        return await self._compact(table, plan)
+        await self._logger.ainfo(f"{pass_name}: triggering compact ({stats})")
+        return await self._compact(table, plan, partitions=partitions)
+
+    async def compact_during_rebuild(self, min_removable_files: int) -> RebuildCompactOutcome:
+        """Compact a table that a rebuild run is still loading, once a compaction removes enough files.
+
+        A rebuild run loads the table from empty, so every file here is one that the same run wrote.
+        One pass compacts only the partitions with the most removable files, up to
+        `min_removable_files`, so a backlog takes several passes instead of one long batch. Never
+        raises an `Exception`: the batch is committed, and the next check or the post-load pass
+        compacts the same files.
+        """
+        try:
+            table = await self._table.get_delta_table()
+            if table is None:
+                return "skipped"
+
+            partitions = await asyncio.to_thread(_partition_file_stats, table, DEFAULT_COMPACT_TARGET_SIZE_BYTES)
+            removable_files = _small_file_fragmentation(partitions, table_wide_small_files=False).total_removable
+            if removable_files < min_removable_files:
+                return "skipped"
+
+            compacted = await self._compact_table(
+                table,
+                lambda planned: (
+                    _small_file_fragmentation(planned, table_wide_small_files=False).total_removable
+                    >= min_removable_files
+                ),
+                pass_name="compact_during_rebuild",
+                stats=(
+                    f"removable_files={removable_files}, partitions={len(partitions)}, "
+                    f"min_removable_files={min_removable_files}"
+                ),
+                select_partitions=lambda stats: _partitions_up_to(stats, min_removable_files),
+            )
+            return "compacted" if compacted else "skipped"
+        except Exception as e:
+            await self._log_maintenance_failure(e, step="compact_during_rebuild")
+            return "failed"
 
     def _vacuumed_during_job(self, watermarks: VacuumWatermarks) -> bool:
         # The pre-write pass vacuums before it writes, and it never checks small files. The post-load
@@ -798,8 +909,10 @@ class DeltaMaintenance:
         can't drift between them. The persisted keys are also merged into the in-memory schema, so
         the post-load pass of the same sync sees the vacuum that the pre-write pass ran.
 
-        The vacuum runs and persists before the compaction, so a compaction that fails on every
-        sync does not stop the vacuum cadence.
+        The vacuum and the compaction are each best-effort. The vacuum runs and persists before the
+        compaction, so a compaction that fails on every sync does not stop the vacuum cadence. A
+        vacuum that fails does not stop the compaction either: the largest tables are the most likely
+        to hit object-store throttling on a vacuum, and they are also the tables that need compaction.
 
         One schema can back two delta tables (snapshot + `_cdc` companion) whose delta versions are
         unrelated numbers, so each table's vacuum cadence gets its own watermark keys — sharing them
@@ -818,30 +931,42 @@ class DeltaMaintenance:
         The watermarks are not persisted either, so the cadence re-attempts the vacuum on the next
         pass instead of waiting for a cleanup that never ran.
         """
+        watermarks: VacuumWatermarks | None = None
+        decision: VacuumDecision | None = None
         try:
             watermarks = VacuumWatermarks.from_config(schema.sync_type_config, is_cdc_companion)
-
             decision = await self.vacuum_if_due(watermarks, VacuumCadence.from_settings())
-            if decision is None:
-                return
-            updates = decision.watermarks.config_updates(watermarks, is_cdc_companion)
+            # None means the table does not exist, and then there is nothing to persist.
+            updates = decision.watermarks.config_updates(watermarks, is_cdc_companion) if decision is not None else None
             if updates:
                 await database_sync_to_async_pool(update_sync_type_config_keys)(
                     schema.id, schema.team_id, updates=updates
                 )
                 schema.sync_type_config = {**(schema.sync_type_config or {}), **updates}
+        except Exception as e:
+            await self._log_maintenance_failure(e, step="vacuum")
 
+        try:
+            # A vacuum that raised leaves no decision, so only an earlier vacuum in this sync enables the
+            # table-wide trigger. Enabling it on each failed attempt would run it on every pass while
+            # the vacuum keeps failing.
+            vacuum_due = decision is not None and decision.reason is not None
+            vacuumed_during_job = watermarks is not None and self._vacuumed_during_job(watermarks)
             await self.compact_if_fragmented(
                 compact_small_files=compact_small_files,
-                table_wide_small_files=compact_small_files
-                and (decision.reason is not None or self._vacuumed_during_job(watermarks)),
+                table_wide_small_files=compact_small_files and (vacuum_due or vacuumed_during_job),
             )
-        except ObjectStorePermissionDeniedError:
-            await self._logger.awarning("Delta maintenance skipped: the object store denied the operation")
-            return
         except Exception as e:
-            if is_transient_maintenance_error(e):
-                await self._logger.awarning(f"Delta maintenance skipped: transient infra error: {e}")
-                return
-            capture_exception(e)
-            await self._logger.aexception(f"Delta maintenance failed: {e}", exc_info=e)
+            await self._log_maintenance_failure(e, step="compact")
+
+    async def _log_maintenance_failure(self, e: Exception, *, step: str) -> None:
+        if isinstance(e, ObjectStorePermissionDeniedError):
+            await self._logger.awarning(
+                "Delta maintenance skipped: the object store denied the operation", maintenance_step=step
+            )
+            return
+        if is_transient_maintenance_error(e):
+            await self._logger.awarning(f"Delta maintenance skipped: transient infra error: {e}", maintenance_step=step)
+            return
+        capture_exception(e)
+        await self._logger.aexception(f"Delta maintenance failed: {e}", exc_info=e, maintenance_step=step)

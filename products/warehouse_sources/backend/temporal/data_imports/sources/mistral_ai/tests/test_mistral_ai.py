@@ -2,37 +2,33 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai import mistral_ai
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mistralai import (
+    MistralAISourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.mistral_ai import (
     MistralAIResumeConfig,
+    MistralAIRetryableError,
     MistralAIUnexpectedResponseError,
     _build_base_params,
     _extract_rows,
     _format_created_after,
-    get_rows,
-    mistral_ai_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.settings import MISTRAL_AI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.source import MistralAISource
 
 
-class _FakeResumableManager:
-    def __init__(self, state: MistralAIResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[MistralAIResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> MistralAIResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: MistralAIResumeConfig) -> None:
-        self.saved.append(data)
+def _driver() -> SourceDriver:
+    return SourceDriver(MistralAISource(), MistralAISourceConfig(api_key="sk-x"))
 
 
 class TestFormatCreatedAfter:
@@ -106,83 +102,56 @@ class TestExtractRows:
 
 
 class TestGetRows:
-    @staticmethod
-    def _run(
-        endpoint: str, manager: _FakeResumableManager, pages_by_index: dict[int, Any], **incremental: Any
-    ) -> tuple[list[dict], list[dict[str, Any]]]:
-        seen_params: list[dict[str, Any]] = []
-
-        def fake_fetch(session: Any, url: str, params: dict[str, Any], logger: Any) -> Any:
-            seen_params.append(params)
-            return pages_by_index[params.get("page", 0)]
-
-        rows: list[dict] = []
-        with (
-            patch.object(mistral_ai, "_fetch_page", fake_fetch),
-            patch.object(mistral_ai, "make_tracked_session", lambda **_: MagicMock()),
-        ):
-            for batch in get_rows(
-                api_key="sk-x",
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=manager,  # type: ignore[arg-type]
-                **incremental,
-            ):
-                rows.extend(batch)
-        return rows, seen_params
-
     def test_unpaginated_endpoint_fetches_once(self) -> None:
         # /v1/models has no pagination; sending page/page_size or looping would be wrong.
-        pages = {0: {"data": [{"id": "m1"}, {"id": "m2"}]}}
-        rows, seen = self._run("models", _FakeResumableManager(), pages)
-        assert rows == [{"id": "m1"}, {"id": "m2"}]
-        assert len(seen) == 1
-        assert "page" not in seen[0]
+        result = _driver().run("models", [ScriptedResponse(json={"data": [{"id": "m1"}, {"id": "m2"}]})])
+        assert result.raised is None
+        assert result.rows == [{"id": "m1"}, {"id": "m2"}]
+        assert result.paths == ["/v1/models"]
+        assert result.params("page") == [None]
+        assert result.params("page_size") == [None]
 
     def test_resumes_from_saved_page(self) -> None:
         # Resuming re-runs earlier pages would duplicate (or, with replace, waste) work; page 0 must be skipped.
-        pages = {1: {"data": [{"id": "f1"}]}, 2: {"data": []}}
-        manager = _FakeResumableManager(MistralAIResumeConfig(page=1))
-        rows, seen = self._run("files", manager, pages)
-        assert rows == [{"id": "f1"}]
-        assert [p["page"] for p in seen] == [1, 2]
+        result = _driver().run(
+            "files",
+            [ScriptedResponse(json={"data": [{"id": "f1"}]}), ScriptedResponse(json={"data": []})],
+            resume_state=MistralAIResumeConfig(page=1),
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": "f1"}]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("page_size") == ["100", "100"]
+        assert result.saved_states == [MistralAIResumeConfig(page=2)]
 
 
 class TestFetchPageRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     def test_retryable_statuses_are_retried(self, _name: str, status: int) -> None:
-        bad = MagicMock(status_code=status)
-        good = MagicMock(status_code=200, ok=True)
-        good.json.return_value = {"data": []}
-        session = MagicMock()
-        session.get.side_effect = [bad, good]
+        result = _driver().run("files", [ScriptedResponse(status=status), ScriptedResponse(json={"data": []})])
+        assert result.raised is None
+        assert result.rows == []
+        assert result.paths == ["/v1/files", "/v1/files"]
 
-        with patch.object(mistral_ai._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = mistral_ai._fetch_page(session, "https://api.mistral.ai/v1/files", {}, MagicMock())
-
-        assert result == {"data": []}
-        assert session.get.call_count == 2
+    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
+    def test_a_status_that_keeps_failing_raises_the_retryable_error(self, _name: str, status: int) -> None:
+        result = _driver().run("files", always(ScriptedResponse(status=status)))
+        assert isinstance(result.raised, MistralAIRetryableError)
+        assert f"status={status}" in str(result.raised)
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_client_errors_are_not_retried(self, _name: str, status: int) -> None:
         # A credential error must surface immediately (so get_non_retryable_errors fails the sync),
         # never spin through the retry budget.
-        resp = MagicMock(status_code=status, ok=False, text="nope")
-        resp.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error", response=resp)
-        session = MagicMock()
-        session.get.return_value = resp
-
-        with pytest.raises(requests.HTTPError):
-            mistral_ai._fetch_page(session, "https://api.mistral.ai/v1/files", {}, MagicMock())
-        assert session.get.call_count == 1
+        result = _driver().run("files", [ScriptedResponse(status=status, json={"error": "nope"})])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.paths == ["/v1/files"]
 
     def test_transient_error_reraised_after_cap(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("reset")
-        with patch.object(mistral_ai._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            with pytest.raises(requests.ConnectionError):
-                mistral_ai._fetch_page(session, "https://api.mistral.ai/v1/files", {}, MagicMock())
-        assert session.get.call_count == 5
+        result = _driver().run("files", always(ConnectionError("reset")))
+        assert isinstance(result.raised, requests.ConnectionError)
+        assert set(result.paths) == {"/v1/files"}
+        assert len(result.requests) >= 5
 
 
 class TestSourceResponse:
@@ -199,14 +168,98 @@ class TestSourceResponse:
     def test_partitioning_and_keys(
         self, endpoint: str, partition_key: str, primary_keys: list[str], sort_mode: str
     ) -> None:
-        response = mistral_ai_source(
-            api_key="sk-x",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        result = _driver().run(endpoint, [ScriptedResponse(json={"data": []})])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [partition_key]
         assert response.sort_mode == sort_mode
+
+
+class TestObservabilitySearch:
+    @staticmethod
+    def _feed(key: str, ids: list[str], cursor: str | None) -> ScriptedResponse:
+        return ScriptedResponse(json={key: {"results": [{"trace_id": i} for i in ids], "cursor": cursor}})
+
+    @parameterized.expand([("traces",), ("spans",)])
+    def test_incremental_walk_follows_cursor_and_filters_from(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [self._feed(endpoint, ["t1", "t2"], "c1"), self._feed(endpoint, ["t3"], None)],
+            incremental_field="start_time",
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+        )
+
+        assert [r["trace_id"] for r in result.rows] == ["t1", "t2", "t3"]
+        assert [r.method for r in result.requests] == ["POST", "POST"]
+        assert result.params("cursor") == [None, "c1"]
+        assert result.params("from") == ["2026-03-04T02:58:14Z", "2026-03-04T02:58:14Z"]
+        assert result.saved_states == [MistralAIResumeConfig(cursor="c1")]
+
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "traces", [self._feed("traces", ["t3"], None)], resume_state=MistralAIResumeConfig(cursor="c1")
+        )
+
+        assert result.params("cursor") == ["c1"]
+        assert [r["trace_id"] for r in result.rows] == ["t3"]
+
+
+class TestFanOut:
+    def test_conversation_entries_stamp_parent_and_skip_deleted_conversations(self) -> None:
+        result = _driver().run(
+            "conversation_entries",
+            route(
+                {
+                    "/v1/conversations": [
+                        ScriptedResponse(json=[{"id": "conv_1"}, {"id": "conv_gone"}]),
+                        ScriptedResponse(json=[]),
+                    ],
+                    "/v1/conversations/conv_1/history": [
+                        ScriptedResponse(json={"conversation_id": "conv_1", "entries": [{"id": "e1"}, {"id": "e2"}]})
+                    ],
+                    "/v1/conversations/conv_gone/history": [ScriptedResponse(status=404, json={"detail": "x"})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "e1", "conversation_id": "conv_1"}, {"id": "e2", "conversation_id": "conv_1"}]
+        assert result.committed_states[-1] == MistralAIResumeConfig(remaining_parent_ids=[])
+
+    def test_library_documents_page_until_has_more_is_false(self) -> None:
+        def docs(ids: list[str], has_more: bool) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={"pagination": {"has_more": has_more}, "data": [{"id": i, "library_id": "lib_1"} for i in ids]}
+            )
+
+        result = _driver().run(
+            "library_documents",
+            route(
+                {
+                    "/v1/libraries": [
+                        ScriptedResponse(json={"data": [{"id": "lib_1"}]}),
+                        ScriptedResponse(json={"data": []}),
+                    ],
+                    "/v1/libraries/lib_1/documents": [docs(["d1"], True), docs(["d2"], False)],
+                }
+            ),
+        )
+
+        assert [r["id"] for r in result.rows] == ["d1", "d2"]
+        doc_requests = [r for r in result.requests if r.path.endswith("/documents")]
+        assert [r.param("page") for r in doc_requests] == ["0", "1"]
+        assert {r.param("sort_order") for r in doc_requests} == {"asc"}
+
+    def test_resume_skips_enumeration_and_finished_parents(self) -> None:
+        result = _driver().run(
+            "conversation_entries",
+            [ScriptedResponse(json={"conversation_id": "conv_2", "entries": [{"id": "e9"}]})],
+            resume_state=MistralAIResumeConfig(remaining_parent_ids=["conv_2"]),
+        )
+
+        assert result.paths == ["/v1/conversations/conv_2/history"]
+        assert result.rows == [{"id": "e9", "conversation_id": "conv_2"}]

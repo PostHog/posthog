@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.vantage import (
     VantageResumeConfig,
@@ -35,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VantageSource(ResumableSource[VantageSourceConfig, VantageResumeConfig]):
+    codebase_detection = detect(
+        env=("^VANTAGE_API_TOKEN$",), npm=("@vantage-sh/vantage-client",), go=("github.com/vantage-sh/vantage-go",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -95,7 +101,7 @@ Create a read-scoped access token or a service token from your [Vantage settings
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

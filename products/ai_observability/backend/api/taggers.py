@@ -41,6 +41,7 @@ from ..hog import compile_ai_observability_hog
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProviderKey, llm_completion_provider_choices
 from ..models.taggers import Tagger, TaggerType, validate_tagger_config
+from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
 
 if TYPE_CHECKING:
@@ -56,7 +57,7 @@ class TagDefinitionSerializer(serializers.Serializer):
     )
 
 
-class TaggerConditionSerializer(serializers.Serializer):
+class TaggerConditionSerializer(ConditionSetSerializer):
     id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition")
     rollout_percentage = serializers.FloatField(
         default=100,

@@ -1,10 +1,11 @@
 """Adoption telemetry for the forward-looking checks attached to signal reports.
 
-Four events follow a check through its life. `signals_report_check_created` fires when an author
+Five events follow a check through its life. `signals_report_check_created` fires when an author
 writes one. `signals_report_check_dispatch` fires each time the coordinator tries to hand an `agent`
 check to a scout run, whether the run started or the attempt was deferred. `signals_report_check_evaluated`
 fires for each verdict a run records. `signals_report_checks_expired` fires when checks retire at
-their horizon without a verdict. Together they say how many reports get a check, which kind their
+their horizon without a verdict. `signals_report_check_skipped` fires when research wrote a check
+the project cannot run, so it was never stored. Together they say how many reports get a check, which kind their
 authors reach for, how long the soak window really is, how often a claim stops holding, and where a
 check that never reported got stuck.
 
@@ -135,7 +136,8 @@ def capture_report_check_dispatch(
 ) -> None:
     """`signals_report_check_dispatch`: the coordinator tried to hand an `agent` check to a scout run.
 
-    `outcome` is `dispatched` or `deferred`. A deferral carries the `reason` the fleet refused the
+    `outcome` is `dispatched`, `deferred`, or `cancelled`. A cancel means the project has no scout
+    configs at all, so no run was ever possible. A deferral carries the `reason` the fleet refused the
     run, so a check that expires unanswered can be traced to the gate that held it. A refusal that
     cannot clear by itself is recorded as an errored verdict instead, and reports through
     `signals_report_check_evaluated`.
@@ -155,6 +157,30 @@ def capture_report_check_dispatch(
         )
     except Exception:
         logger.exception("signals.report_check.dispatch_capture_failed", check_id=str(check.id), team_id=check.team_id)
+
+
+def capture_report_check_skipped(team: Team, *, report_id: str, kind: str, skill_name: str | None, reason: str) -> None:
+    """`signals_report_check_skipped`: research wrote a check spec that was dropped before it was stored.
+
+    `reason` is `no_check_lane` when the project has no scout that can run an `agent` check. The
+    volume says how often research still reaches for a kind the project cannot use.
+    """
+    try:
+        posthoganalytics.capture(
+            event="signals_report_check_skipped",
+            distinct_id=str(team.uuid),
+            properties={
+                "team_id": team.id,
+                "organization_id": str(team.organization_id),
+                "report_id": report_id,
+                "kind": kind,
+                "skill_name": skill_name,
+                "reason": reason,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.exception("signals.report_check.skipped_capture_failed", report_id=report_id, team_id=team.id)
 
 
 def capture_report_checks_expired(team: Team, *, expired_count: int, never_ran_count: int) -> None:

@@ -467,7 +467,7 @@ def test_already_raised_lists_each_other_reviewers_comment_once() -> None:
         Duplicate(issue=_issue("1-5", "a.py", 5, 5), duplicate_of="3"),
     ]
 
-    raised = already_raised(duplicates, comments)
+    raised = already_raised(duplicates, comments, None)
 
     assert raised == [
         AlreadyRaised(title="Issue 1-4", level="P1", comment_id=1, commenter="greptile-apps[bot]"),

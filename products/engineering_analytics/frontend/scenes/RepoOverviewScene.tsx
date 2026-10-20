@@ -12,7 +12,6 @@ import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { RepoEntityHeader } from '../components/EntityHeader'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
@@ -45,7 +44,7 @@ export function RepoOverviewScene(): JSX.Element {
         prPreviewCount,
         workflowPreviewCount,
     } = useValues(repoOverviewLogic)
-    const { workflowHealth, workflowHealthLoadError, workflowHealthLoading, sourceId, activeSource } =
+    const { workflowHealth, workflowHealthLoadError, workflowHealthLoading, sourceId, scopeRepo, activeSource } =
         useValues(engineeringAnalyticsLogic)
     const { loadWorkflowHealth } = useActions(engineeringAnalyticsLogic)
     const { loadAttention, loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } =
@@ -91,8 +90,6 @@ export function RepoOverviewScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
-
             {/* The PR backlog below the panel is current-state, not windowed. */}
             <ScopePanel busy={hubReloading}>
                 {/* The windowed headline metrics: each card compares this window against the previous
@@ -102,7 +99,7 @@ export function RepoOverviewScene(): JSX.Element {
                     <div className="@container">
                         <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2">
                             <WindowComparisonCard
-                                title="CI pass rate"
+                                title="CI pass rate, all branches"
                                 value={overview?.success_rate}
                                 previousValue={overview?.success_rate_prev}
                                 formatValue={(value) => percent(value, 1)}
@@ -110,7 +107,7 @@ export function RepoOverviewScene(): JSX.Element {
                                 deltaUnit="pt"
                                 deltaPrecision={1}
                                 loading={overviewPending}
-                                tooltip="Share of successful runs among runs that succeeded, failed, timed out, failed to start, or became stale. Skipped, canceled, neutral, and action-required runs are excluded."
+                                tooltip={`Runs on every branch, including pull requests, not only ${overviewDefaultBranch}. Share of successful runs among runs that succeeded, failed, timed out, failed to start, or became stale. Skipped, canceled, neutral, and action-required runs are excluded.`}
                                 emptyText="No CI runs reached a pass-or-fail result in the window."
                             />
 
@@ -229,7 +226,11 @@ export function RepoOverviewScene(): JSX.Element {
                                         to={
                                             // A bare link would reset the shared window / run scope / repo (the filters
                                             // logic re-hydrates from the URL on every route), so carry it, plus the source.
-                                            withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
+                                            withScope(
+                                                urls.engineeringAnalyticsWorkflows(scopeRepo),
+                                                searchParams,
+                                                sourceId
+                                            )
                                         }
                                     >
                                         View all →
@@ -270,7 +271,9 @@ export function RepoOverviewScene(): JSX.Element {
                                         Show more
                                     </LemonButton>
                                 )}
-                                <Link to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
+                                <Link
+                                    to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(scopeRepo), sourceId)}
+                                >
                                     View all →
                                 </Link>
                             </div>

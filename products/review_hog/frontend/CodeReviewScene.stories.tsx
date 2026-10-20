@@ -24,6 +24,10 @@ import type {
     PatchedReviewProjectSettingsApi,
     PatchedReviewUserSettingsApi,
     ReviewInstallationClaimScopeEnumApi,
+    ReviewDetailApi,
+    ReviewDroppedFindingApi,
+    ReviewFindingApi,
+    ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewProjectSettingsApi,
     ReviewRecentReviewApi,
@@ -33,6 +37,7 @@ import type {
     ReviewRepositoryPersonRequestApi,
     ReviewRepositoryWriteApi,
     ReviewUserSettingsApi,
+    ReviewValidatorConfigApi,
     UserBasicApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 
@@ -43,6 +48,7 @@ import { CodeReviewTab } from './reviewHogSettingsLogic'
 
 const defaultSettings: ReviewUserSettingsApi = {
     default_review_mode: 'follow',
+    review_drafts: true,
     resolve_comments: false,
     urgency_threshold: 'consider',
     celebrate_clean_reviews: true,
@@ -50,6 +56,7 @@ const defaultSettings: ReviewUserSettingsApi = {
     stamphog_review_inbox_prs: false,
     sources: {
         default_review_mode: 'default',
+        review_drafts: 'default',
         resolve_comments: 'default',
         urgency_threshold: 'default',
         celebrate_clean_reviews: 'default',
@@ -75,6 +82,11 @@ function completedReview(overrides: Partial<ReviewRecentReviewApi>): ReviewRecen
         run_count: 1,
         last_run_at: '2026-09-30T10:00:00Z',
         published: true,
+        turn_published: true,
+        review_mode: 'full',
+        review_design: 'pipeline',
+        status_comment_url: 'https://github.com/example-org/example-repo/pull/101#issuecomment-1001',
+        latest_resolution: null,
         full_review_published: true,
         in_progress: false,
         progress: null,
@@ -93,7 +105,8 @@ function completedReview(overrides: Partial<ReviewRecentReviewApi>): ReviewRecen
     }
 }
 
-const recentReviews: ReviewRecentReviewApi[] = [
+// The first two back the drawer stories: a Deep review and a Standard review.
+const reviewRows: ReviewRecentReviewApi[] = [
     completedReview({}),
     completedReview({
         id: 'review-2',
@@ -102,10 +115,19 @@ const recentReviews: ReviewRecentReviewApi[] = [
         github_url: 'https://github.com/example-org/example-repo/pull/98',
         head_branch: 'fix/digest-timezone',
         last_run_at: '2026-09-29T15:30:00Z',
+        review_mode: 'flash',
+        review_design: 'single_agent',
+        status_comment_url: 'https://github.com/example-org/example-repo/pull/98#issuecomment-980',
+        full_review_published: false,
         must_fix_count: 0,
         should_fix_count: 1,
-        consider_count: 0,
-        dismissed_count: 1,
+        consider_count: 1,
+        candidate_count: 2,
+        dismissed_count: 0,
+        chunk_count: null,
+        perspective_count: 3,
+        perspective_issue_count: 5,
+        blind_spot_issue_count: null,
     }),
     // Started by the viewer on a teammate's pull request, so "Mine" shows its author.
     completedReview({
@@ -116,12 +138,207 @@ const recentReviews: ReviewRecentReviewApi[] = [
         github_url: 'https://github.com/example-org/example-repo/pull/95',
         head_branch: 'feat/billing-cache',
         last_run_at: '2026-09-28T09:00:00Z',
+        review_mode: null,
+        review_design: null,
+        status_comment_url: null,
         must_fix_count: 0,
         should_fix_count: 0,
         consider_count: 1,
         dismissed_count: 2,
     }),
 ]
+
+// A first review still running: no completed turn yet, so no findings and no drawer.
+const runningReview = completedReview({
+    id: 'review-running',
+    repository: 'example-org/example-api',
+    pr_number: 212,
+    pr_title: 'Paginate the reviews table',
+    pr_author: 'example-teammate',
+    github_url: 'https://github.com/example-org/example-api/pull/212',
+    head_branch: 'feat/reviews-table',
+    run_count: 0,
+    last_run_at: null,
+    published: false,
+    turn_published: false,
+    review_mode: null,
+    review_design: null,
+    status_comment_url: null,
+    full_review_published: false,
+    in_progress: true,
+    progress: { review_stage: 'reviewing', done: 3, total: 8, review_mode: 'full' },
+    must_fix_count: 0,
+    should_fix_count: 0,
+    consider_count: 0,
+})
+
+// More reviews than one page, so the pager shows.
+const REVIEW_TOTAL = 61
+
+function finding(overrides: Partial<ReviewFindingApi>): ReviewFindingApi {
+    return {
+        title: 'Retry loop never gives up on a permanent error',
+        file: 'posthog/tasks/exports.py',
+        lines: [{ start: 42, end: 58 }],
+        body: 'A 4xx from the export target is retried like a timeout, so the job keeps retrying until the queue drops it.',
+        suggestion: 'Retry only on timeouts and 5xx responses, and fail fast on 4xx.',
+        effective_priority: 'must_fix',
+        reviewer_priority: 'must_fix',
+        source_perspective: 'review-hog-perspective-logic-correctness',
+        validator_category: 'bug',
+        validator_note: 'The handler catches every `HTTPError`, including 4xx, so the retry path is reachable.',
+        ...overrides,
+    }
+}
+
+function reviewDetail(review: ReviewRecentReviewApi, overrides: Partial<ReviewDetailApi>): ReviewDetailApi {
+    return {
+        ...review,
+        run_index: review.run_count,
+        head_sha: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
+        perspective_selection: null,
+        report_markdown: '## Review\n\nFindings are posted as inline comments.',
+        run_urgency_threshold: 'consider',
+        findings: [],
+        dismissed_findings: [],
+        dropped_findings: [],
+        ...overrides,
+    }
+}
+
+const deepReviewDetail = reviewDetail(reviewRows[0], {
+    run_urgency_threshold: 'should_fix',
+    findings: [
+        finding({}),
+        finding({
+            title: 'Export status is written before the upload finishes',
+            effective_priority: 'should_fix',
+            reviewer_priority: 'should_fix',
+            source_perspective: 'review-hog-perspective-performance-reliability',
+            validator_category: 'performance',
+        }),
+        finding({
+            title: 'Backoff ignores the Retry-After header',
+            effective_priority: 'should_fix',
+            reviewer_priority: 'consider',
+            source_perspective: 'review-hog-blind-spots-general',
+            validator_category: 'best_practice',
+        }),
+        finding({
+            title: 'Log line repeats the export id',
+            effective_priority: 'consider',
+            reviewer_priority: 'consider',
+            validator_category: 'code_quality',
+        }),
+    ],
+    dismissed_findings: [
+        finding({
+            title: 'Possible race on the export lock',
+            effective_priority: 'should_fix',
+            reviewer_priority: 'should_fix',
+            validator_category: null,
+            validator_note: 'The lock is taken inside a transaction, so two workers cannot hold it at once.',
+        }),
+    ],
+    perspective_selection: {
+        roster: ['review-hog-perspective-logic-correctness', 'review-hog-perspective-performance-reliability'],
+        chunks: [
+            {
+                chunk_id: 1,
+                chunk_type: 'backend_logic',
+                files: ['posthog/tasks/exports.py', 'posthog/tasks/retry.py'],
+                perspectives: [
+                    'review-hog-perspective-logic-correctness',
+                    'review-hog-perspective-performance-reliability',
+                ],
+                skipped: [],
+                reason: 'Retry logic touches both correctness and reliability.',
+            },
+            {
+                chunk_id: 2,
+                chunk_type: 'tests',
+                files: ['posthog/tasks/test/test_exports.py'],
+                perspectives: ['review-hog-perspective-logic-correctness'],
+                skipped: ['review-hog-perspective-performance-reliability'],
+                reason: 'Test-only chunk.',
+            },
+        ],
+    },
+})
+
+// A single-agent turn stamps one placeholder verdict on every finding instead of a validator's reasoning.
+const SINGLE_AGENT_NOTE = 'Not validated separately. A Standard review publishes its findings directly.'
+
+const standardReviewDetail = reviewDetail(reviewRows[1], {
+    findings: [
+        finding({
+            title: 'Digest window uses the server timezone',
+            file: 'posthog/tasks/weekly_digest.py',
+            lines: [{ start: 88, end: 95 }],
+            effective_priority: 'should_fix',
+            reviewer_priority: 'should_fix',
+            source_perspective: 'flash-single-agent',
+            validator_category: null,
+            validator_note: SINGLE_AGENT_NOTE,
+        }),
+        finding({
+            title: 'Digest query scans every team on each run',
+            file: 'posthog/tasks/weekly_digest.py',
+            lines: [{ start: 120, end: null }],
+            effective_priority: 'consider',
+            reviewer_priority: 'consider',
+            source_perspective: 'flash-lens-performance-reliability',
+            validator_category: null,
+            validator_note: SINGLE_AGENT_NOTE,
+        }),
+    ],
+    dropped_findings: [
+        droppedFinding({}),
+        droppedFinding({
+            title: 'Digest email has no plain-text part',
+            file: 'posthog/templates/email/weekly_digest.html',
+            lines: [{ start: 12, end: null }],
+            body: 'Some mail clients show an empty message without a plain-text part.',
+            priority: 'consider',
+            source_perspective: 'flash-single-agent',
+            disposition: 'dedup_comment',
+            duplicate_of: 'comment:1234567',
+            comment_url: 'https://github.com/example-org/example-repo/pull/98#discussion_r1234567',
+        }),
+        droppedFinding({
+            title: 'Digest task logs the full team list',
+            lines: [{ start: 140, end: null }],
+            body: 'The log line prints every team id on each run.',
+            priority: 'consider',
+            source_perspective: 'flash-single-agent',
+            disposition: 'cap',
+            duplicate_of: null,
+            rank: 6,
+        }),
+    ],
+})
+
+function droppedFinding(overrides: Partial<ReviewDroppedFindingApi>): ReviewDroppedFindingApi {
+    return {
+        title: 'Digest skips teams created after midnight UTC',
+        file: 'posthog/tasks/weekly_digest.py',
+        lines: [{ start: 90, end: 92 }],
+        body: 'Teams created late in the day fall outside the window. Compute the window in the team timezone.',
+        suggestion: '',
+        priority: 'should_fix',
+        source_perspective: 'flash-lens-logic-correctness',
+        disposition: 'dedup_sibling',
+        duplicate_of: '1-posthog/tasks/weekly_digest.py-88-flash-single-agent-1',
+        comment_url: null,
+        rank: null,
+        ...overrides,
+    }
+}
+
+const reviewDetails: Record<string, ReviewDetailApi> = {
+    [deepReviewDetail.id]: deepReviewDetail,
+    [standardReviewDetail.id]: standardReviewDetail,
+}
 
 const perspectiveStats: ReviewPerspectiveStatsApi = {
     report_count: 2,
@@ -132,6 +349,31 @@ const perspectiveStats: ReviewPerspectiveStatsApi = {
     ],
 }
 
+const perspectives: ReviewPerspectiveConfigApi[] = [
+    {
+        skill_name: 'review-hog-perspective-logic-correctness',
+        enabled: true,
+        description: 'Wrong results, broken edge cases, missed branches.',
+        body: '',
+    },
+    {
+        skill_name: 'review-hog-perspective-performance-reliability',
+        enabled: true,
+        description: 'Slow queries, retries, timeouts, unbounded work.',
+        body: '',
+    },
+    {
+        skill_name: 'review-hog-perspective-contracts-security',
+        enabled: false,
+        description: 'Tenant leaks, injection, secrets, auth gaps.',
+        body: '',
+    },
+]
+
+function singleSkill(skill_name: string, description: string, active: boolean): ReviewValidatorConfigApi {
+    return { skill_name, description, active, body: '' }
+}
+
 const ADA: UserBasicType = {
     id: 301,
     uuid: '0b3f6a52-6a0e-4b8e-9d2f-4a1c7e9e0301',
@@ -140,6 +382,9 @@ const ADA: UserBasicType = {
     last_name: 'Example',
     email: 'ada@example.com',
 }
+
+// The logged-in mock user has another id than MOCK_DEFAULT_BASIC_USER, and the rule chips mark only the viewer with "(you)".
+const VIEWER: UserBasicType = { ...MOCK_DEFAULT_BASIC_USER, id: MOCK_DEFAULT_USER.id }
 
 const members: OrganizationMemberType[] = [
     MOCK_DEFAULT_ORGANIZATION_MEMBER,
@@ -235,7 +480,7 @@ function initialRows(): Record<string, StoryRepositoryRow> {
             id: 'repo-web',
             selected: true,
             flash_for: 'everyone',
-            people: [person(MOCK_SECOND_BASIC_USER, 'excepted'), person(MOCK_DEFAULT_BASIC_USER, 'excepted')],
+            people: [person(MOCK_SECOND_BASIC_USER, 'excepted'), person(VIEWER, 'excepted')],
         },
         'example-org/api': {
             id: 'repo-api',
@@ -255,12 +500,12 @@ function inProject(name: string): boolean {
 }
 
 /** A story-sized copy of the backend resolver, so the panes answer like the real API after each change. */
-function inherited(name: string): AutomaticReviewDecisionApi {
+function inherited(name: string, { withDefault = true }: { withDefault?: boolean } = {}): AutomaticReviewDecisionApi {
     if (!inProject(name)) {
         return { flash: false, reason: 'not_in_project' }
     }
     const defaultMode = storyState.settings.default_review_mode ?? 'follow'
-    if (defaultMode !== 'follow') {
+    if (withDefault && defaultMode !== 'follow') {
         return { flash: defaultMode === 'flash', reason: 'own_default' }
     }
     const row = storyState.rows[name]
@@ -268,8 +513,7 @@ function inherited(name: string): AutomaticReviewDecisionApi {
     const flashFor = exception ?? storyState.project.flash_for ?? 'off'
     const people = exception ? row.people : storyState.project.people
     const scope = exception ? 'repository' : 'project'
-    const listed = (kind: string): boolean =>
-        people.some((entry) => entry.kind === kind && entry.user.id === MOCK_DEFAULT_BASIC_USER.id)
+    const listed = (kind: string): boolean => people.some((entry) => entry.kind === kind && entry.user.id === VIEWER.id)
     const decision = (flash: boolean, rule: string): AutomaticReviewDecisionApi => ({
         flash,
         reason: `${scope}_${rule}` as AutomaticReviewReasonEnumApi,
@@ -301,7 +545,14 @@ function overviewEntry(name: string): ReviewRepositoryOverviewEntryApi {
         my_choice_id: own ? (choice?.id ?? null) : null,
         my_result: own && choice ? { flash: choice.mode === 'flash', reason: 'own_repository_choice' } : base,
         inherited_result: base,
+        repository_result: inherited(name, { withDefault: false }),
     }
+}
+
+function choicesUnlikeDefault(): number {
+    const defaultMode = storyState.settings.default_review_mode ?? 'follow'
+    return Object.values(storyState.choices).filter((choice) => defaultMode === 'follow' || choice.mode !== defaultMode)
+        .length
 }
 
 function saveRepository(write: ReviewRepositoryWriteApi): void {
@@ -327,10 +578,21 @@ function rowById(id: string): [string, StoryRepositoryRow] | undefined {
     return Object.entries(storyState.rows).find(([, row]) => row.id === id)
 }
 
-function OpenTab({ tab, children }: { tab: CodeReviewTab; children: JSX.Element }): JSX.Element {
+function OpenTab({
+    tab,
+    review,
+    children,
+}: {
+    tab: CodeReviewTab
+    review?: string
+    children: JSX.Element
+}): JSX.Element {
     useEffect(() => {
-        router.actions.replace(urls.codeReview(), tab === 'settings' ? { tab } : {})
-    }, [tab])
+        router.actions.replace(urls.codeReview(), {
+            ...(tab === 'settings' ? { tab } : {}),
+            ...(review ? { review } : {}),
+        })
+    }, [tab, review])
     return children
 }
 
@@ -345,7 +607,6 @@ const meta: Meta<typeof CodeReviewScene> = {
     beforeEach: ({ parameters }) => {
         storyState.settings = {
             ...defaultSettings,
-            stamphog_connected: parameters.showInternalFeatures ?? false,
             ...parameters.savedSettings,
         }
         storyState.project = projectSettings(parameters.claimScope ?? 'all', parameters.canEdit ?? true)
@@ -355,7 +616,7 @@ const meta: Meta<typeof CodeReviewScene> = {
     },
     decorators: [
         (Story, context): JSX.Element => (
-            <OpenTab tab={context.parameters.tab ?? 'activity'}>
+            <OpenTab tab={context.parameters.tab ?? 'activity'} review={context.parameters.review}>
                 <div className="p-4">
                     <Story />
                 </div>
@@ -388,15 +649,22 @@ const meta: Meta<typeof CodeReviewScene> = {
                         const view = params.get('view') ?? 'all'
                         const offset = Number(params.get('offset') ?? 0)
                         const limit = Number(params.get('limit') ?? 50)
-                        const entries = REPOSITORY_NAMES.filter((name) => name.includes(search))
-                            .map(overviewEntry)
-                            .filter(
-                                (entry) =>
-                                    view === 'all' ||
-                                    (view === 'in_project' && entry.in_project) ||
-                                    (view === 'exceptions' && entry.exception !== null) ||
-                                    (view === 'mine' && entry.my_choice !== null)
-                            )
+                        const matching = REPOSITORY_NAMES.filter((name) => name.includes(search)).map(overviewEntry)
+                        // Same rule as the server: this project's settings apply with no exception and no own choice.
+                        const follows = (entry: ReviewRepositoryOverviewEntryApi): boolean =>
+                            entry.owner === 'this_project' &&
+                            entry.in_project &&
+                            entry.exception === null &&
+                            entry.my_choice === null
+                        const entries = matching.filter(
+                            (entry) =>
+                                view === 'all' ||
+                                (view === 'in_project' && entry.in_project) ||
+                                (view === 'exceptions' && entry.exception !== null) ||
+                                (view === 'mine' && entry.my_choice !== null) ||
+                                (view === 'differs' && !follows(entry))
+                        )
+                        const folded = view === 'differs' ? matching.filter(follows) : []
                         const page = entries.slice(offset, offset + limit)
                         return [
                             200,
@@ -407,6 +675,10 @@ const meta: Meta<typeof CodeReviewScene> = {
                                 total: entries.length,
                                 has_more: offset + limit < entries.length,
                                 next_offset: offset + limit < entries.length ? offset + limit : null,
+                                folded: folded.length,
+                                folded_preview: folded.slice(0, 3).map((entry) => entry.full_name),
+                                folded_result: folded[0]?.my_result ?? null,
+                                my_choices_unlike_default: choicesUnlikeDefault(),
                             },
                         ]
                     },
@@ -416,12 +688,52 @@ const meta: Meta<typeof CodeReviewScene> = {
                         previous: null,
                         count: members.length,
                     },
-                    '/api/projects/:team_id/review_hog/reviews/': { results: recentReviews, has_more: false },
+                    // Before `reviews/:id/`, which would otherwise take `table` for a review id.
+                    '/api/projects/:team_id/review_hog/reviews/table/': ({ request }) => {
+                        // A running row keeps its spinner, so only the story that shows it opts in.
+                        const rows = context.parameters.withRunningReview ? [runningReview, ...reviewRows] : reviewRows
+                        const running = new URL(request.url).searchParams.get('status') === 'running'
+                        return [
+                            200,
+                            {
+                                count: running ? rows.length - reviewRows.length : REVIEW_TOTAL,
+                                running_count: rows.length - reviewRows.length,
+                                results: running ? rows.filter((row) => row.in_progress) : rows,
+                            },
+                        ]
+                    },
                     '/api/projects/:team_id/review_hog/reviews/perspective_stats/': perspectiveStats,
-                    '/api/projects/:team_id/review_hog/perspectives/': [],
-                    '/api/projects/:team_id/review_hog/blind_spots/': [],
-                    '/api/projects/:team_id/review_hog/validators/': [],
-                    '/api/projects/:team_id/review_hog/resolution/': [],
+                    '/api/projects/:team_id/review_hog/reviews/:id/': ({ params }) => {
+                        const detail = reviewDetails[String(params.id)]
+                        return detail ? [200, detail] : [404, { detail: 'Review not found.' }]
+                    },
+                    '/api/projects/:team_id/review_hog/perspectives/': perspectives,
+                    '/api/projects/:team_id/review_hog/blind_spots/': [
+                        singleSkill(
+                            'review-hog-blind-spots-general',
+                            'One more pass over each chunk for what every perspective missed.',
+                            true
+                        ),
+                    ],
+                    '/api/projects/:team_id/review_hog/validators/': [
+                        singleSkill(
+                            'review-hog-validation-default',
+                            'Drops speculative, noisy and low-value findings before they reach the PR.',
+                            true
+                        ),
+                    ],
+                    '/api/projects/:team_id/review_hog/resolution/': [
+                        singleSkill(
+                            'review-hog-resolution-default',
+                            'Fixes what is worth it and safe, and replies to every thread.',
+                            true
+                        ),
+                        singleSkill(
+                            'review-hog-resolution-small-fixes',
+                            'Fixes only small, local changes and leaves bigger ones as replies.',
+                            false
+                        ),
+                    ],
                 },
                 post: {
                     '/api/projects/:team_id/review_hog/repositories/': async ({ request }) => {
@@ -536,7 +848,20 @@ export const Default: Story = {
         await expect(await canvas.findByText('Review a pull request')).toBeVisible()
         await expect(await canvas.findByText('Add retry to the export job')).toBeVisible()
         await expect(canvas.getByText('Mine')).toBeVisible()
-        await expect(canvas.queryByText('Full review settings')).not.toBeInTheDocument()
+        await expect(canvas.queryByText('Review skills')).not.toBeInTheDocument()
+        await expect(canvas.getByText('How we review your PRs')).toBeVisible()
+    },
+}
+
+export const RunningReview: Story = {
+    parameters: {
+        withRunningReview: true,
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="code-review-reviews-table"]' },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('Reviewing 3/8')).toBeVisible()
+        await expect(canvas.getByText('Running · 1')).toBeVisible()
     },
 }
 
@@ -546,42 +871,35 @@ export const Settings: Story = {
         userLogic.actions.loadUser()
         await waitFor(() => expect(userLogic.values.user?.is_staff).toBe(false))
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('This project reviews example-org:')).toBeVisible()
+        await expect(await canvas.findByText('example-org')).toBeVisible()
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
-        await expect(canvas.getByText('You can edit: project admin')).toBeVisible()
-        await expect(canvas.getByText('Full review settings')).toBeVisible()
+        await expect(canvas.getByText('Admin')).toBeVisible()
+        await expect(canvas.getByText('Review skills')).toBeVisible()
+        await expect(canvas.getByText('Last 10 Deep reviews')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
-        await expect(
-            canvas.queryByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
-        ).not.toBeInTheDocument()
-        await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
+        await expect(canvas.getByLabelText('Commit fixes to my pull requests')).toBeVisible()
     },
 }
 
 export const SettingsForMember: Story = {
-    parameters: { tab: 'settings', canEdit: false, claimScope: 'selected' },
+    parameters: {
+        tab: 'settings',
+        canEdit: false,
+        claimScope: 'selected',
+        savedSettings: { default_review_mode: 'flash' },
+    },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('Project admins edit')).toBeVisible()
+        await expect(await canvas.findByText('Admin access required')).toBeVisible()
+        await expect(
+            await canvas.findByText(
+                'Your default, On everywhere, applies to your PRs in every repository, except 1 where you picked something else.'
+            )
+        ).toBeVisible()
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.queryByText('Include in project')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Add exception for example-org/docs')).not.toBeInTheDocument()
-    },
-}
-
-export const InternalFeatures: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.REVIEW_HOG, FEATURE_FLAGS.REVIEW_HOG_INTERNAL],
-        savedSettings: { stamphog_connected: true },
-        tab: 'settings',
-    },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await expect(
-            await canvas.findByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
-        ).toBeVisible()
-        await expect(canvas.getByLabelText('Let Stamphog review my Inbox PRs')).toBeVisible()
     },
 }
 
@@ -589,9 +907,12 @@ export const SavedInboxOptIns: Story = {
     parameters: { savedSettings: { review_inbox_prs: true, stamphog_review_inbox_prs: true }, tab: 'settings' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const inboxSwitch = await canvas.findByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
+        const inboxLabel = 'Review my Inbox PRs'
+        // The Inbox section renders before the settings load and can re-render with new nodes,
+        // so query again on every attempt until the saved values arrive.
+        await waitFor(() => expect(canvas.getByLabelText(inboxLabel)).toBeChecked(), { timeout: 5000 })
+        const inboxSwitch = canvas.getByLabelText(inboxLabel)
         const stamphogSwitch = canvas.getByLabelText('Let Stamphog review my Inbox PRs')
-        await expect(inboxSwitch).toBeChecked()
         await expect(inboxSwitch).toBeEnabled()
         await expect(stamphogSwitch).toBeChecked()
         await expect(stamphogSwitch).toBeEnabled()
@@ -609,6 +930,36 @@ export const FlagDisabledForStaff: Story = {
     },
 }
 
+export const ReviewDrawerStandard: Story = {
+    parameters: { review: standardReviewDetail.id },
+    play: async () => {
+        const body = within(document.body)
+        // The drawer fades in from opacity 0, so a one-shot visibility check can land mid-transition.
+        await waitFor(() => expect(body.getByText('Digest window uses the server timezone')).toBeVisible())
+        await expect(body.getByText('How it ran')).toBeVisible()
+        await expect(body.queryByText(/Below threshold/)).not.toBeInTheDocument()
+    },
+}
+
+export const ReviewDrawerStandardNotPosted: Story = {
+    parameters: { review: standardReviewDetail.id },
+    play: async () => {
+        const body = within(document.body)
+        ;(await body.findByText('Not posted (3)')).click()
+        await waitFor(() => expect(body.getByText('Digest skips teams created after midnight UTC')).toBeVisible())
+        await expect(body.getByText('Over the limit (#6)')).toBeVisible()
+    },
+}
+
+export const ReviewDrawerDeep: Story = {
+    parameters: { review: deepReviewDetail.id },
+    play: async () => {
+        const body = within(document.body)
+        await waitFor(() => expect(body.getByText('Retry loop never gives up on a permanent error')).toBeVisible())
+        await expect(body.getByText(/Below threshold/)).toBeVisible()
+    },
+}
+
 const narrowDecorator: Decorator = (Story): JSX.Element => (
     <div className="max-w-130">
         <Story />
@@ -617,6 +968,9 @@ const narrowDecorator: Decorator = (Story): JSX.Element => (
 
 export const Narrow: Story = {
     decorators: [narrowDecorator],
+    play: async ({ canvasElement }) => {
+        await expect(await within(canvasElement).findByText('Add retry to the export job')).toBeVisible()
+    },
 }
 
 export const NarrowSettings: Story = {

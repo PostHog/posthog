@@ -1,0 +1,69 @@
+rules:
+    - id: github-installation-first-team
+      message: |
+          This code picks one project for a GitHub installation by order. One installation can link
+          to several projects in a region, so the first or lowest-id project depends on when the
+          projects connected, not on which project should get the event.
+          Use one of the two allowed shapes instead:
+          - Subscription: take every candidate from installation_team_ids(...) and keep only the
+            projects that have the product's own row for the repository (a workflow, a loop
+            trigger, an issue link, a monitored repository). Act once per kept project.
+          - Single owner: when the product acts as one voice on a repository or pull request, add a
+            unique constraint across projects on (installation id, repository), as
+            StamphogRepoConfig does, and find the owner through that row.
+          See posthog/ingress/github/README.md#picking-the-project. For a justified exception, add
+          `# nosemgrep: github-installation-first-team -- <justification>`.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      pattern-either:
+          # The first candidate from the installation's team list, directly or through a variable.
+          - pattern: installation_team_ids(...)[$INDEX]
+          - pattern: next(iter(installation_team_ids(...)), ...)
+          - patterns:
+                - pattern-inside: |
+                      $TEAM_IDS = installation_team_ids(...)
+                      ...
+                - pattern-either:
+                      - pattern: $TEAM_IDS[$INDEX]
+                      - pattern: next(iter($TEAM_IDS), ...)
+          - pattern: _resolve_external_team(...)
+          # One GitHub Integration row out of an installation lookup that no project filter narrows.
+          - patterns:
+                - pattern-either:
+                      - pattern: Integration.objects. ... .filter(..., kind=$KIND, ..., integration_id=$ID, ...). ... .first()
+                      - pattern: Integration.objects. ... .filter(..., kind=$KIND, ..., integration_id=$ID, ...). ... .get(...)
+                      - pattern: Integration.objects. ... .get(..., kind=$KIND, ..., integration_id=$ID, ...)
+                      - patterns:
+                            - pattern: $QUERY[$INDEX]
+                            - metavariable-pattern:
+                                  metavariable: $QUERY
+                                  pattern: Integration.objects. ... .filter(..., kind=$KIND, ..., integration_id=$ID, ...)
+                - metavariable-regex:
+                      metavariable: $KIND
+                      regex: (?i).*github.*
+                - pattern-not: Integration.objects. ... .filter(..., team_id=$TEAM, ...). ... .filter(...). ... .first()
+                - pattern-not: Integration.objects. ... .filter(..., team=$TEAM, ...). ... .filter(...). ... .first()
+                - pattern-not: Integration.objects. ... .filter(..., team_id=$TEAM, ...). ... .first()
+                - pattern-not: Integration.objects. ... .filter(..., team=$TEAM, ...). ... .first()
+                - pattern-not: Integration.objects. ... .filter(..., team_id=$TEAM, ...). ... .get(...)
+                - pattern-not: Integration.objects. ... .filter(..., team=$TEAM, ...). ... .get(...)
+                - pattern-not: Integration.objects. ... .get(..., team_id=$TEAM, ...)
+                - pattern-not: Integration.objects. ... .get(..., team=$TEAM, ...)
+                - pattern-not: Integration.objects. ... .filter(..., team_id=$TEAM, ...). ... [$INDEX]
+                - pattern-not: Integration.objects. ... .filter(..., team=$TEAM, ...). ... [$INDEX]
+      paths:
+          include:
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: MEDIUM

@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -21,11 +20,6 @@ class TestInflowinventorySource:
         # The secret key is sent to a host/path derived from company_id, so retargeting it must
         # re-require the key.
         assert self.source.connection_host_fields == ["company_id"]
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["customers"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "customers"
 
     @parameterized.expand(
         [
@@ -93,9 +87,3 @@ class TestInflowinventorySource:
         assert kwargs["endpoint"] == "products"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["api_version"] == expected_version
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown inFlow Inventory schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

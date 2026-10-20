@@ -78,6 +78,8 @@ export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
                 // Start with the facet/filter rail hidden — the drawer is narrow and the pinned
                 // scope already covers the common case; "Show filters" re-expands it.
                 defaultFacetRailCollapsed
+                // The span view around this tab owns the keyboard, J and K included.
+                autoFocusSearch={false}
             />
         </div>
     )

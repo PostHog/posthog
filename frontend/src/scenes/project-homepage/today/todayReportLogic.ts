@@ -34,16 +34,15 @@ import {
     todayExcerptChoiceCreateBodyFindingMax,
 } from 'products/today/frontend/generated/api.zod'
 
-import type { BriefingItemStateEnumApi } from '../../../../../products/today/frontend/generated/api.schemas'
-import { reportItemState } from './todayBriefingItems'
 import { type TodaySignalDestination } from './todayEvidence'
 import { type TodayMarkedFigure, markedFigures, staleEvidenceDate } from './todayFigureSources'
 import { TodayImpactNumber, impactNumbers } from './todayImpact'
 import { type TodayAskSource, todayLogic } from './todayLogic'
 import { reportWorkKind, reportWorkPrompt } from './todayNextStep'
-import { renderedText } from './todayProse'
 import { TodayCodeQuote, codeIdentifiers, findCodeQuote } from './todayQuotedCode'
+import { type TodayReportState, reportState } from './todayReportState'
 import { findSampleReport, isSampleReportId } from './todaySampleReports'
+import { todayVerdictLogic } from './todayVerdictLogic'
 
 export type TodayCodeQuoteState = TodayCodeQuote | null | 'loading'
 export type TodayMarkKind = 'impact' | 'figure' | 'key_clause'
@@ -64,8 +63,8 @@ export interface todayReportLogicValues {
     currentProjectId: number | string // teamLogic
     currentTeamId: number | null // teamLogic
     askingAi: boolean // todayLogic
-    reportStateOverrides: Record<string, BriefingItemStateEnumApi> // todayLogic
     reports: SignalReport[] // todayLogic
+    reportStateOverrides: Record<string, TodayReportState> // todayVerdictLogic
     asksJev: boolean
     codeQuotes: Record<string, TodayCodeQuoteState>
     composerOpen: boolean
@@ -73,7 +72,6 @@ export interface todayReportLogicValues {
     draft: string
     evidenceCount: number
     expandedEvidence: Record<string, boolean>
-    feedbackNoteFocused: boolean
     figureMarks: FigureMarkApi[] | null
     figureMarksLoading: boolean
     fullReport: SignalReport | null
@@ -87,12 +85,11 @@ export interface todayReportLogicValues {
     lastSeen: string | null
     lead: string
     leadMarks: TodayMarkedFigure[]
-    leadStatesNumber: boolean
     page: ReportPageApi | null
     pageLoading: boolean
     proposal: string
     reportFailed: boolean
-    reportState: BriefingItemStateEnumApi
+    reportState: TodayReportState
     reportUrl: string
     shownEvidence: SignalViewApi[]
     shownFigureMarks: FigureMarkApi[] | null
@@ -166,9 +163,6 @@ export interface todayReportLogicActions {
     }
     expandEvidence: (signalId: string) => {
         signalId: string
-    }
-    focusFeedbackNote: () => {
-        value: true
     }
     loadFigureMarks: () => any
     loadFigureMarksFailure: (
@@ -267,8 +261,8 @@ export interface todayReportLogicMeta {
         impactNumbers: (currentReport: SignalReport | null, page: ReportPageApi | null) => TodayImpactNumber[]
         reportState: (
             currentReport: SignalReport | null,
-            reportStateOverrides: Record<string, BriefingItemStateEnumApi>
-        ) => BriefingItemStateEnumApi
+            reportStateOverrides: Record<string, TodayReportState>
+        ) => TodayReportState
         isSample: (reportId: string) => boolean
         asksJev: (featureFlags: FeatureFlagsSet, isSample: boolean) => boolean
         proposal: (page: ReportPageApi | null) => string
@@ -278,7 +272,6 @@ export interface todayReportLogicMeta {
         leadMarks: (lead: string, shownFigureMarks: FigureMarkApi[] | null) => TodayMarkedFigure[]
         impactMarks: (impactText: string, shownFigureMarks: FigureMarkApi[] | null) => TodayMarkedFigure[]
         staleFiguresDate: (leadMarks: TodayMarkedFigure[], impactMarks: TodayMarkedFigure[]) => string | null
-        leadStatesNumber: (lead: string) => boolean
         reportUrl: (currentTeamId: number | null) => string
     }
 }
@@ -299,7 +292,9 @@ export const todayReportLogic = kea<todayReportLogicType>([
             teamLogic,
             ['currentTeamId', 'currentProjectId'],
             todayLogic,
-            ['reports', 'reportStateOverrides', 'askingAi'],
+            ['reports', 'askingAi'],
+            todayVerdictLogic,
+            ['reportStateOverrides'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -324,7 +319,6 @@ export const todayReportLogic = kea<todayReportLogicType>([
         collapseEvidence: (signalId: string) => ({ signalId }),
         openComposer: true,
         setDraft: (draft: string) => ({ draft }),
-        focusFeedbackNote: true,
         startWithPostHog: true,
         markOpened: (kind: TodayMarkKind) => ({ kind }),
     }),
@@ -428,7 +422,6 @@ export const todayReportLogic = kea<todayReportLogicType>([
             },
         ],
         composerOpen: [false, { openComposer: () => true }],
-        feedbackNoteFocused: [false, { focusFeedbackNote: () => true }],
         draft: [
             '',
             {
@@ -459,10 +452,9 @@ export const todayReportLogic = kea<todayReportLogicType>([
             (s) => [s.currentReport, s.reportStateOverrides],
             (
                 currentReport: SignalReport | null,
-                reportStateOverrides: Record<string, BriefingItemStateEnumApi>
-            ): BriefingItemStateEnumApi =>
-                reportStateOverrides[props.reportId] ??
-                (currentReport ? reportItemState(currentReport.status) : 'open'),
+                reportStateOverrides: Record<string, TodayReportState>
+            ): TodayReportState =>
+                reportStateOverrides[props.reportId] ?? (currentReport ? reportState(currentReport.status) : 'open'),
         ],
         isSample: [(_, p) => [p.reportId], (reportId: string): boolean => isSampleReportId(reportId)],
         asksJev: [
@@ -501,7 +493,6 @@ export const todayReportLogic = kea<todayReportLogicType>([
             (leadMarks: TodayMarkedFigure[], impactMarks: TodayMarkedFigure[]): string | null =>
                 staleEvidenceDate([...leadMarks, ...impactMarks]),
         ],
-        leadStatesNumber: [(s) => [s.lead], (lead: string): boolean => /\d/.test(renderedText(lead))],
         reportUrl: [
             (s) => [s.currentTeamId],
             (currentTeamId: number | null): string =>

@@ -13,14 +13,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     build_dependent_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.settings import (
     LIGHTSPEED_RETAIL_ENDPOINTS,
-    PAGE_SIZE,
+    LightspeedRetailEndpointConfig,
 )
 
 
@@ -33,6 +37,8 @@ class LightspeedRetailResumeConfig:
     # Fan-out endpoints checkpoint the `build_dependent_resource` shape instead: which parent
     # consignments finished and where the current one stopped.
     fanout_state: Optional[dict[str, Any]] = None
+    # Endpoints without a record version page on an id cursor instead.
+    cursor: Optional[str] = None
 
 
 def _clean_domain_prefix(domain_prefix: str) -> str:
@@ -116,6 +122,80 @@ class LightspeedRetailPaginator(BasePaginator):
             self._has_next_page = True
 
 
+class LightspeedRetailAfterCursorPaginator(JSONResponseCursorPaginator):
+    """`after=<page_info.last_seen>` pagination, stopping when `page_info.has_next` is false."""
+
+    def __init__(self) -> None:
+        super().__init__(cursor_path="page_info.last_seen", cursor_param="after")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not (response.json().get("page_info") or {}).get("has_next"):
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
+
+
+class LightspeedRetailBeforeIdPaginator(BasePaginator):
+    """Newest-to-oldest pagination: `before=<id of the last item on the current page>`."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._before: Optional[str] = None
+
+    def _apply_before(self, request: Request) -> None:
+        if self._before is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["before"] = self._before
+
+    def init_request(self, request: Request) -> None:
+        self._apply_before(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        items = data or []
+        last_id = items[-1].get("id") if items else None
+        if not last_id or str(last_id) == self._before:
+            self._has_next_page = False
+            return
+        self._before = str(last_id)
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._apply_before(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._has_next_page and self._before is not None:
+            return {"cursor": self._before}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._before = str(cursor)
+            self._has_next_page = True
+
+
+def _make_paginator(config: LightspeedRetailEndpointConfig) -> BasePaginator:
+    if config.pagination == "after_cursor":
+        return LightspeedRetailAfterCursorPaginator()
+    if config.pagination == "before_id":
+        return LightspeedRetailBeforeIdPaginator()
+    if config.pagination == "single_page":
+        return SinglePagePaginator()
+    return LightspeedRetailPaginator()
+
+
+def _endpoint_params(config: LightspeedRetailEndpointConfig) -> dict[str, Any]:
+    return {} if config.pagination == "single_page" else {"page_size": config.page_size}
+
+
+def _nested_rows(field_name: str, parent_key: str) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    def _explode(item: dict[str, Any]) -> list[dict[str, Any]]:
+        return [{**row, parent_key: item.get("id")} for row in item.get(field_name) or []]
+
+    return _explode
+
+
 def lightspeed_retail_source(
     domain_prefix: str,
     api_token: str,
@@ -133,7 +213,7 @@ def lightspeed_retail_source(
         "base_url": _base_url(domain_prefix, api_version),
         # Bearer auth via the framework so the token is redacted from logs and errors.
         "auth": {"type": "bearer", "token": api_token},
-        "paginator": LightspeedRetailPaginator(),
+        "paginator": _make_paginator(config),
     }
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -144,14 +224,19 @@ def lightspeed_retail_source(
             if state:
                 resumable_source_manager.save_state(LightspeedRetailResumeConfig(fanout_state=state))
 
+        parent_config = LIGHTSPEED_RETAIL_ENDPOINTS[config.fanout.parent_name]
         child = build_dependent_resource(
             endpoint_configs=LIGHTSPEED_RETAIL_ENDPOINTS,
             child_endpoint=endpoint,
             fanout=config.fanout,
             client_config=client_config,
-            parent_endpoint_extra={"data_selector": "data"},
-            child_endpoint_extra={"data_selector": "data"},
-            page_size_param="page_size",
+            parent_endpoint_extra={
+                "data_selector": parent_config.data_selector,
+                "paginator": _make_paginator(parent_config),
+            },
+            child_endpoint_extra={"data_selector": config.data_selector},
+            # The helper sends the size param to parent and child alike, so only a paged pair gets it.
+            page_size_param=None if parent_config.pagination == "single_page" else "page_size",
             path_format_values={},
             team_id=team_id,
             job_id=job_id,
@@ -169,9 +254,9 @@ def lightspeed_retail_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"page_size": PAGE_SIZE},
+                    "params": _endpoint_params(config),
                     # A missing `data` key is a legit empty page (stop), not an error.
-                    "data_selector": "data",
+                    "data_selector": config.data_selector,
                 },
             }
         ],
@@ -182,16 +267,24 @@ def lightspeed_retail_source(
     initial_after: Optional[int] = None
     if resume is not None:
         initial_after = resume.after
-    elif should_use_incremental_field:
+    elif should_use_incremental_field and config.pagination == "version":
         initial_after = _to_version(db_incremental_field_last_value)
 
-    initial_paginator_state: Optional[dict[str, Any]] = {"after": initial_after} if initial_after is not None else None
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if initial_after is not None:
+        initial_paginator_state = {"after": initial_after}
+    elif resume is not None and resume.cursor is not None:
+        initial_paginator_state = {"cursor": resume.cursor}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Save AFTER a page is yielded so a crash re-yields the last page (merge
         # dedupes on primary key) rather than skipping it.
-        if state and state.get("after") is not None:
+        if not state:
+            return
+        if state.get("after") is not None:
             resumable_source_manager.save_state(LightspeedRetailResumeConfig(after=int(state["after"])))
+        elif state.get("cursor") is not None:
+            resumable_source_manager.save_state(LightspeedRetailResumeConfig(cursor=str(state["cursor"])))
 
     resource = rest_api_resource(
         rest_config,
@@ -201,6 +294,8 @@ def lightspeed_retail_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    if config.nested_rows_field and config.nested_parent_key:
+        resource.add_map(_nested_rows(config.nested_rows_field, config.nested_parent_key))
 
     return _source_response(endpoint, lambda: resource, resource.column_hints)
 
@@ -218,8 +313,7 @@ def _source_response(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Keyset pagination on the monotonic version yields ascending version order.
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
         column_hints=column_hints,
     )
 

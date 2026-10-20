@@ -93,6 +93,16 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(by_name["http.server.duration"], "histogram")
         self.assertEqual(by_name["queue.depth"], "gauge")
 
+    def test_returns_metric_type_for_more_names_than_the_default_row_limit(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for index in range(105):
+            _seed_point(team_id=self.team.id, metric_name=f"m{index:03d}", value=1.0, timestamp=anchor)
+
+        results = MetricNamesQueryRunner(team=self.team, limit=200).run()
+
+        self.assertEqual(len(results), 105)
+        self.assertEqual({row["metric_type"] for row in results}, {"gauge"})
+
     @parameterized.expand(
         [
             ("substring", "server", ["http.server.duration"]),

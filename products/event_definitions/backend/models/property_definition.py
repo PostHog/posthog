@@ -118,14 +118,6 @@ class PropertyDefinition(Taggable, UUIDTModel):
             # This indexes the query in api/property_definition.py
             # :KLUDGE: django ORM typing is off here
             models.Index(
-                F("team_id"),
-                F("type"),
-                Coalesce(F("group_type_index"), -1),
-                F("query_usage_30_day").desc(nulls_last=True),
-                F("name").asc(),
-                name="index_property_def_query",
-            ),
-            models.Index(
                 Coalesce(F("project_id"), F("team_id")),
                 F("type"),
                 Coalesce(F("group_type_index"), -1),

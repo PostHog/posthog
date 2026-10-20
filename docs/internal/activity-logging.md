@@ -53,6 +53,7 @@ model.save()
 The actor is not passed down this chain.
 `ActivityLoggingMiddleware` (`posthog/middleware.py`) stores the request user and the impersonation flag in a thread-local (`activity_storage`), and the mixin reads them back.
 Outside a request the user is `None`, and the row is stored with `is_system=True`.
+A deferred insert runs after the commit. If the transaction deleted the acting user, for example when users delete their own account, the row is stored with `user=None` and `is_system=False`.
 
 The receiver is the only part a product writes.
 The mixin, the signal, and `log_activity` are core, and they work the same for every model.
@@ -127,12 +128,19 @@ Four registries in `activity_log.py` tune it per scope:
 Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
 Reading their fail-closed managers can require team context that background writes do not have.
 
+A relation field stores the related object as `{"id": <pk>}`.
+To store more, such as a name for the describer to show, add a branch for the model to `ActivityDetailEncoder` in `posthog/models/utils.py`.
+Never put a credential field in that branch.
+
 Destination activity logs record changes to `mappings` without their values.
 For `inputs` they keep each key and record only whether its value changed, so the history can name the changed input.
 Rows written before a field joined `field_with_masked_contents` still store its values.
+Guided Inbox onboarding first saves a draft when the sources step is completed; opening or editing that first step keeps the draft local.
+Later setup changes are recorded while masking the saved draft, including scout instructions and project evidence.
 Code that returns a row's `detail` to a user must read `ActivityLog.safe_detail`, which masks those fields in old rows too.
 The activity log API, the advanced activity logs API and its exports, the notifications feed, and the PostHog AI context all do.
 The `system.activity_logs` SQL table and the search filter read the stored `detail`, so old rows need rewriting to stay masked there.
+`python manage.py clean_destination_secrets --step activity-logs` rewrites them. It is a dry run until you pass `--commit`.
 These protections do not revoke exposed credentials.
 
 Destination mappings do not support secret inputs.

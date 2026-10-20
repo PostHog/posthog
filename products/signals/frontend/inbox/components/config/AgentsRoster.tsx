@@ -120,7 +120,18 @@ interface AgentSourceState {
      * of them, so a source with a row per signal type is steered from its one card.
      */
     steeringConfigs: SignalSourceConfig[]
+    /** Why the switches cannot be used right now. Set while the source list is missing. */
+    blockedReason?: string
 }
+
+/**
+ * Sources whose switch reads nothing from the source list: Replay vision reads its scanners and
+ * GitHub CI reads its own config.
+ */
+const SOURCES_WITHOUT_CONFIG_ROWS: ReadonlySet<AgentRosterSource> = new Set(['replay_vision', 'engineering_analytics'])
+
+const SOURCE_CONFIGS_LOADING_REASON = 'Loading your signal sources'
+const SOURCE_CONFIGS_FAILED_REASON = "Couldn't load your signal sources. Select Retry above to try again."
 
 function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element | null {
     const meta = getSourceProductMeta(source.sourceProduct)
@@ -436,11 +447,12 @@ function Expansion({
                                 entity={entity}
                                 onToggle={() => onToggleEntity(entity.id)}
                                 disabledReason={
-                                    state.loading
+                                    state.blockedReason ??
+                                    (state.loading
                                         ? 'Saving'
                                         : productOff && !entity.enabled
                                           ? `Turn on ${product?.productName} first. This source reads its data.`
-                                          : undefined
+                                          : undefined)
                                 }
                             />
                         ))
@@ -575,9 +587,10 @@ const AgentRow = memo(function AgentRow({
                                 checked={armed}
                                 onChange={() => onToggle(agent.source)}
                                 disabledReason={
-                                    armingBlocked
+                                    state.blockedReason ??
+                                    (armingBlocked
                                         ? `Turn on ${product?.productName} first. This source reads its data.`
-                                        : undefined
+                                        : undefined)
                                 }
                                 aria-label={`Arm ${agent.label}`}
                             />
@@ -670,6 +683,7 @@ export function AgentsRoster(): JSX.Element {
         isCiSignalsToggling,
         productStatusBySource,
         enablingProduct,
+        sourceConfigs,
         sourceConfigsLoadFailed,
         sourceConfigsLoading,
         linearTeamsPicker,
@@ -718,7 +732,7 @@ export function AgentsRoster(): JSX.Element {
         [errorTrackingTypeStates]
     )
 
-    const stateFor = useCallback(
+    const sourceStateFor = useCallback(
         (source: AgentRosterSource): AgentSourceState => {
             const base = {
                 entities: [] as RosterEntity[],
@@ -841,6 +855,25 @@ export function AgentsRoster(): JSX.Element {
         ]
     )
 
+    // Without the source list every switch reads off and every data-import source reads as never
+    // connected, so a click would try to create a row that may already exist. Hold the switches
+    // until the list is in.
+    const stateFor = useCallback(
+        (source: AgentRosterSource): AgentSourceState => {
+            const state = sourceStateFor(source)
+            if (sourceConfigs !== null || SOURCES_WITHOUT_CONFIG_ROWS.has(source)) {
+                return state
+            }
+            return {
+                ...state,
+                loading: state.loading || sourceConfigsLoading,
+                requiresSetup: false,
+                blockedReason: sourceConfigsLoading ? SOURCE_CONFIGS_LOADING_REASON : SOURCE_CONFIGS_FAILED_REASON,
+            }
+        },
+        [sourceStateFor, sourceConfigs, sourceConfigsLoading]
+    )
+
     const handleToggle = useCallback(
         (source: AgentRosterSource) => {
             switch (source) {
@@ -917,7 +950,9 @@ export function AgentsRoster(): JSX.Element {
                         'data-attr': 'signals-retry-source-configs',
                     }}
                 >
-                    Couldn't load your signal sources, so the switches below may not match what's on.
+                    {sourceConfigs === null
+                        ? "Couldn't load your signal sources, so you can't turn them on or off yet. Retry to load them."
+                        : "Couldn't refresh your signal sources, so the switches below may not match what's on."}
                 </LemonBanner>
             )}
 

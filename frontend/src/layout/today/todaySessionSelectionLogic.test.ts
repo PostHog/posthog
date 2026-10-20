@@ -42,6 +42,7 @@ describe('todaySessionSelectionLogic', () => {
     let logic: ReturnType<typeof todaySessionSelectionLogic.build>
     let requests: string[]
     let failingId: string | null
+    let listRequests: URLSearchParams[]
 
     const write = (label: string, id: string): [number, object] => {
         requests.push(`${label} ${id}`)
@@ -51,6 +52,7 @@ describe('todaySessionSelectionLogic', () => {
     beforeEach(async () => {
         requests = []
         failingId = null
+        listRequests = []
         jest.spyOn(toast, 'success')
         jest.spyOn(toast, 'error')
         useMocks({
@@ -58,7 +60,9 @@ describe('todaySessionSelectionLogic', () => {
                 '/api/projects/:team_id/task_channels/': [],
                 '/api/projects/:team_id/task_activity/': { results: [] },
                 '/api/projects/:team_id/tasks/': ({ request }) => {
-                    const pinned = new URL(request.url).searchParams.get('pinned')
+                    const params = new URL(request.url).searchParams
+                    listRequests.push(params)
+                    const pinned = params.get('pinned')
                     return [200, { results: pinned ? PINNED : [...PINNED, ...RECENT], count: 3 }]
                 },
             },
@@ -80,6 +84,14 @@ describe('todaySessionSelectionLogic', () => {
 
     afterEach(() => {
         jest.restoreAllMocks()
+    })
+
+    it('excludes scout runs from Recent but not from Pinned', () => {
+        const pinnedRequest = listRequests.find((params) => params.has('pinned'))
+        const recentRequest = listRequests.find((params) => params.has('created_by'))
+
+        expect(recentRequest?.get('exclude_origin_product')).toBe('signals_scout')
+        expect(pinnedRequest?.has('exclude_origin_product')).toBe(false)
     })
 
     it.each([

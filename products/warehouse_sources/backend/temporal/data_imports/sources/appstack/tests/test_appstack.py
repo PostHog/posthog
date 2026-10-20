@@ -2,7 +2,6 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from requests.exceptions import HTTPError
@@ -11,11 +10,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.a
     AppstackResumeConfig,
     _export_window_start,
     _to_unix_seconds,
-    appstack_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.settings import PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.source import AppstackSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstack import (
+    AppstackSourceConfig,
+)
 
 
 class TestToUnixSeconds:
@@ -52,119 +59,94 @@ class TestExportWindowStart:
 
 
 class TestAppstackSource:
-    def _manager(self, *, can_resume: bool, state: AppstackResumeConfig | None = None) -> MagicMock:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = can_resume
-        manager.load_state.return_value = state
-        return manager
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(AppstackSource(), AppstackSourceConfig(api_key="key"))
 
-    def _call(self, manager: MagicMock, **kwargs: Any) -> Any:
-        defaults: dict[str, Any] = {
-            "api_key": "key",
-            "endpoint": "events",
-            "team_id": 1,
-            "job_id": "job",
-            "resumable_source_manager": manager,
-            "db_incremental_field_last_value": None,
-            "should_use_incremental_field": False,
-        }
-        defaults.update(kwargs)
-        return appstack_source(**defaults)
+    @staticmethod
+    def _page(rows: list[dict[str, Any]]) -> ScriptedResponse:
+        return ScriptedResponse(json={"data": rows, "total_count": len(rows)})
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.rest_api_resource")
-    def test_paginator_never_trusts_total_count(self, mock_rest: MagicMock) -> None:
+    def test_paginator_never_trusts_total_count(self) -> None:
         # Appstack's `total_count` counts the current page, not the whole window; a paginator
         # reading it as a grand total would stop after the first page and silently truncate.
-        mock_rest.return_value = MagicMock(name="events", column_hints=None)
+        result = self._driver().run(
+            "events",
+            [self._page([{"event_id": str(index)} for index in range(PAGE_SIZE)]), self._page([{"event_id": "last"}])],
+        )
 
-        self._call(self._manager(can_resume=False))
+        assert result.raised is None
+        assert result.params("offset") == ["0", str(PAGE_SIZE)]
+        assert result.params("limit") == [str(PAGE_SIZE), str(PAGE_SIZE)]
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert result.rows[-1]["event_id"] == "last"
 
-        paginator = mock_rest.call_args.args[0]["client"]["paginator"]
-        assert paginator.total_path is None
-        assert paginator.limit == PAGE_SIZE
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.make_tracked_session")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.rest_api_resource")
-    def test_client_session_disables_sample_capture(self, mock_rest: MagicMock, mock_session: MagicMock) -> None:
+    def test_client_session_disables_sample_capture(self) -> None:
         # Export rows carry device/user identifiers the sample scrubbers can't recognise; the client
         # must run on a capture=False session so response bodies stay out of shared sample storage.
-        mock_rest.return_value = MagicMock(name="events", column_hints=None)
+        result = self._driver().run("events", [self._page([{"event_id": "one"}])])
 
-        self._call(self._manager(can_resume=False))
+        assert result.raised is None
+        assert result.rows[0]["event_id"] == "one"
+        assert result.session_options[0]["capture"] is False
 
-        assert mock_session.call_args.kwargs["capture"] is False
-        assert mock_rest.call_args.args[0]["client"]["session"] is mock_session.return_value
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.rest_api_resource")
-    def test_resume_replays_pinned_window_at_saved_offset(self, mock_rest: MagicMock) -> None:
+    def test_resume_replays_pinned_window_at_saved_offset(self) -> None:
         # Offsets are positions within one export window: a resumed attempt must reuse the saved
         # window's `timestamp`, not re-derive it from a watermark that advanced mid-walk.
-        mock_rest.return_value = MagicMock(name="events", column_hints=None)
-        manager = self._manager(can_resume=True, state=AppstackResumeConfig(offset=30000, window_start=1772593094))
-
-        self._call(
-            manager,
+        result = self._driver().run(
+            "events",
+            [self._page([{"event_id": "resumed"}])],
+            resume_state=AppstackResumeConfig(offset=30000, window_start=1772593094),
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
         )
 
-        config = mock_rest.call_args.args[0]
-        params = config["resources"][0]["endpoint"]["params"]
-        assert params["timestamp"] == 1772593094
-        assert mock_rest.call_args.kwargs["initial_paginator_state"] == {"offset": 30000}
+        assert result.raised is None
+        assert result.params("timestamp") == ["1772593094"]
+        assert result.params("offset") == ["30000"]
+        assert result.rows[0]["event_id"] == "resumed"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.rest_api_resource")
-    def test_resume_hook_saves_offset_with_window(self, mock_rest: MagicMock) -> None:
-        mock_rest.return_value = MagicMock(name="events", column_hints=None)
-        manager = self._manager(can_resume=False)
-
-        self._call(
-            manager,
+    def test_resume_hook_saves_offset_with_window(self) -> None:
+        result = self._driver().run(
+            "events",
+            [
+                self._page([{"event_id": str(index)} for index in range(PAGE_SIZE)]),
+                self._page([{"event_id": str(index)} for index in range(PAGE_SIZE, PAGE_SIZE * 2)]),
+                self._page([{"event_id": "last"}]),
+            ],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
 
-        resume_hook = mock_rest.call_args.kwargs["resume_hook"]
-
-        # A page with a next offset persists the checkpoint together with its window.
-        resume_hook({"offset": 20000})
-        manager.save_state.assert_called_once_with(AppstackResumeConfig(offset=20000, window_start=1772593094))
-
-        # A terminal page (no resume state) saves nothing.
-        manager.save_state.reset_mock()
-        resume_hook(None)
-        manager.save_state.assert_not_called()
+        # Pages with a next offset save checkpoints. The terminal page saves none.
+        assert result.raised is None
+        assert result.params("offset") == ["0", str(PAGE_SIZE), str(PAGE_SIZE * 2)]
+        assert result.saved_states == [
+            AppstackResumeConfig(offset=PAGE_SIZE, window_start=1772593094),
+            AppstackResumeConfig(offset=PAGE_SIZE * 2, window_start=1772593094),
+        ]
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.make_tracked_session")
-    def test_status_mapping(self, _label: str, status_code: int, expected: bool, mock_session: MagicMock) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
+    def test_status_mapping(self, _label: str, status_code: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("key") is expected
 
-        assert validate_credentials("key") is expected
+        assert network.requests_log[0].path == "/api/v1/export"
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["authorization"] == "key"
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.make_tracked_session")
-    def test_transient_errors_raise(self, _label: str, status_code: int, mock_session: MagicMock) -> None:
+    def test_transient_errors_raise(self, _label: str, status_code: int) -> None:
         # Transient/unexpected statuses must not be reported as an invalid API key — they raise.
-        response = MagicMock()
-        response.status_code = status_code
-        response.raise_for_status.side_effect = HTTPError
-        mock_session.return_value.get.return_value = response
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            with pytest.raises(HTTPError):
+                validate_credentials("key")
 
-        with pytest.raises(HTTPError):
-            validate_credentials("key")
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.make_tracked_session")
-    def test_probe_disables_sample_capture(self, mock_session: MagicMock) -> None:
+    def test_probe_disables_sample_capture(self) -> None:
         # The probe hits the same export endpoint, so its response body must not be captured either.
-        response = MagicMock()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
+        with scripted_network([ScriptedResponse()]) as network:
+            assert validate_credentials("the-key") is True
 
-        validate_credentials("the-key")
-
-        assert mock_session.call_args.kwargs["capture"] is False
+        assert network.session_options[0]["capture"] is False

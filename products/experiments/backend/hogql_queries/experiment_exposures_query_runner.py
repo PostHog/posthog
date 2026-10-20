@@ -45,12 +45,12 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
 )
-from products.experiments.backend.hogql_queries.experiment_query_runner import (
-    ExperimentResultsCacheMixin,
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentResultsCacheMixin
+from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.precompute_policy import (
     ensure_exposures_precomputed,
     team_precompute_skip_reason,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -58,6 +58,29 @@ logger = structlog.get_logger(__name__)
 
 QUERY_ROW_LIMIT = 5000  # The result has one row per (day, variant) pair
 SRM_MINIMUM_SAMPLE_SIZE = 100  # Minimum total exposures required for SRM calculation
+
+
+def build_experiment_exposure_query(experiment: Experiment) -> ExperimentExposureQuery:
+    """The exposure query of an experiment over its own window. Backend callers build it here, so they share one
+    cache entry. The page builds its own, with the whole flag, so it caches apart."""
+    feature_flag = experiment.feature_flag
+    # The FK gives a model instance, and the query field is a pydantic type with no
+    # attribute-based validation, so it must be serialized first.
+    experiment_holdout = experiment.holdout
+    holdout = (
+        {"id": experiment_holdout.id, "name": experiment_holdout.name, "filters": experiment_holdout.filters}
+        if experiment_holdout is not None
+        else None
+    )
+    return ExperimentExposureQuery(
+        experiment_id=experiment.id,
+        experiment_name=experiment.name,
+        feature_flag={"key": feature_flag.key, "filters": feature_flag.filters},
+        start_date=experiment.start_date.isoformat() if experiment.start_date else None,
+        end_date=experiment.end_date.isoformat() if experiment.end_date else None,
+        exposure_criteria=experiment.exposure_criteria,
+        holdout=holdout,
+    )
 
 
 class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
@@ -282,10 +305,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             total_exposures=total_exposures,
         )
 
-    def _hours_since_launch(self) -> float | None:
-        start_date = self.experiment.start_date
-        return (datetime.now(UTC) - start_date).total_seconds() / 3600 if start_date else None
-
     def _evaluate_health(self, exposures: ExposureTotals) -> list[ExperimentExposureHealthFinding]:
         findings = evaluate_health(load_health_context(self.experiment, exposures), EXPOSURE_HEALTH_CHECKS)
         return [
@@ -376,7 +395,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 total_exposures=total_exposures,
                 multiple_variant_handling=multiple_variant_handling,
                 sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
-                hours_since_launch=self._hours_since_launch(),
+                hours_since_launch=self.experiment.hours_since_launch,
             )
         )
 

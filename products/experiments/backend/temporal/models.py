@@ -35,12 +35,16 @@ METRICS_RECALCULATION_WORKFLOW_NAME = "experiment-metrics-recalculation-workflow
 # Max attempts per metric before it's marked failed on the recalculation workflow.
 MAX_METRIC_ATTEMPTS = 8
 
-# Retry delay window for a calc attempt that bounced off the per-org ClickHouse concurrency limiter or the
-# cluster's at-capacity guard, applied via ApplicationError(next_retry_delay=...) instead of the retry policy's
-# 5s exponential schedule. Each bounce picks a random delay in the window, so metrics that bounced in the same
-# burst do not retry at the same moment and hit the same full limit again.
-CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 30
-CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 90
+# Below MAX_METRIC_ATTEMPTS for errors where a retry rarely succeeds and adds ClickHouse load. At the cap the
+# activity fails the metric non-retryable, so the RetryPolicy keeps MAX_METRIC_ATTEMPTS.
+CAPACITY_MAX_METRIC_ATTEMPTS = 3
+# The timeout class also holds SOCKET_TIMEOUT, so one retry stays for network failures.
+TIMEOUT_MAX_METRIC_ATTEMPTS = 2
+
+# Jittered delay after a capacity rejection (ClickHouseAtCapacity or ConcurrencyLimitExceeded), set via
+# next_retry_delay. The per-org app limiter skips Temporal activities, so the delay lets the cluster drain.
+CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 120
+CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 300
 
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
 RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0
@@ -52,10 +56,20 @@ RECALCULATION_RETRY_MAX_INTERVAL_SECONDS = 60
 # SOCKET_TIMEOUT (a transient network blip), and recalc timeouts are rare enough to keep the retry budget.
 NON_RETRYABLE_ERROR_TYPES = frozenset({"out_of_memory", "byte_limit", "validation_error"})
 
-# Per-attempt ceiling for the calc activity (its start_to_close_timeout). The activity has no heartbeat, so
-# this is the real per-attempt limit — when it fires, Temporal kills the attempt from the outside and nothing
-# inside the activity (result persistence, the terminal error event) runs.
+# Per-attempt ceiling for the calc activity (its start_to_close_timeout). When it fires, Temporal ends the
+# attempt from the outside. The next heartbeat delivers the cancellation, which kills the ClickHouse query, but
+# the attempt persists nothing. If no further attempt follows, the workflow failure backstop persists it.
 METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
+
+# Total budget for one metric across all its attempts and retry delays, queue wait included (the calc
+# activity's schedule_to_close_timeout). It keeps the IN_PROGRESS phase (this budget, the failure backstop and
+# the finish step) below the staleness TTL in recalculation.py, so a slow but healthy run is never treated as
+# stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow.
+METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 1200
+
+# Without a heartbeat, Temporal can deliver a cancellation to the calc activity only after start_to_close,
+# and it detects a dead worker only then. The activity heartbeats every heartbeat_timeout / 4.
+METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS = 60
 
 # ClickHouse max_execution_time for the recalc metric query. Deliberately below
 # METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS (minus headroom for metric build, stats, and persistence) so a slow
@@ -66,9 +80,16 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
 
 RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS = 90
+RECALCULATION_PROGRESS_MAX_ATTEMPTS = 3
+
+# The failure backstop does only Postgres writes and one capture. Its worst case adds to the IN_PROGRESS phase,
+# so it stays short. The schedule_to_close bound also covers queue wait, which start_to_close does not.
+METRIC_FAILURE_BACKSTOP_ACTIVITY_TIMEOUT_SECONDS = 30
+METRIC_FAILURE_BACKSTOP_MAX_ATTEMPTS = 3
+METRIC_FAILURE_BACKSTOP_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 120
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentMetricsRecalculationWorkflowInputs:
     """Input to the batch metrics recalculation workflow."""
 
@@ -76,9 +97,19 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     # Task-queue fairness key for the calc activities (the org id, matching the app_per_org limiter scope).
     # None falls back to default dispatch order.
     fairness_key: str | None = None
+    # Task queue for the metric calculation activity, chosen when the run starts so replay stays deterministic.
+    # None keeps the activity on the workflow's own queue.
+    activity_task_queue: str | None = None
 
 
-@dataclasses.dataclass
+def _role_from_either_field(role: str, metric_type: str) -> str:
+    resolved = role or metric_type
+    if not resolved:
+        raise ValueError("role is required")
+    return resolved
+
+
+@dataclasses.dataclass(frozen=False)
 class ExperimentMetricToRecalculate:
     """A single metric to recalculate.
 
@@ -88,7 +119,15 @@ class ExperimentMetricToRecalculate:
 
     experiment_id: int
     metric_uuid: str
-    metric_type: str  # "primary" or "secondary"
+    # "primary" or "secondary": the metric's role in the experiment, not its kind.
+    role: str = ""
+    # The old name of `role`. Workers and runs that started before `role` existed write and read only this
+    # field, so __post_init__ keeps the two fields equal. Remove this field, and the default of `role`, when no
+    # such worker or run is left.
+    metric_type: str = ""
+
+    def __post_init__(self) -> None:
+        self.role = self.metric_type = _role_from_either_field(self.role, self.metric_type)
 
 
 @dataclasses.dataclass
@@ -104,6 +143,23 @@ class MetricRecalculationResult:
     success: bool
     error_step: str | None = None
     error_message: str | None = None
+
+
+@frozen
+class MetricOutOfTimeFailure:
+    """A metric whose calc activity Temporal ended from the outside, so no attempt persisted its outcome."""
+
+    recalculation_id: str
+    experiment_id: int
+    metric_uuid: str
+    role: str = ""  # "primary" or "secondary"
+    # The old name of `role`, kept for the same reason as ExperimentMetricToRecalculate.metric_type.
+    metric_type: str = ""
+
+    def __post_init__(self) -> None:
+        role = _role_from_either_field(self.role, self.metric_type)
+        object.__setattr__(self, "role", role)
+        object.__setattr__(self, "metric_type", role)
 
 
 @dataclasses.dataclass

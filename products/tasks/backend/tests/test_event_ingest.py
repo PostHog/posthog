@@ -8,9 +8,11 @@ from uuid import NAMESPACE_URL, uuid5
 
 from unittest.mock import call, patch
 
+from django.conf import settings
 from django.db import OperationalError
 from django.test import SimpleTestCase, TestCase, override_settings
 
+import jwt
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -40,8 +42,10 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_completed_key,
     get_task_run_stream_key,
     get_task_run_stream_sequence_key,
+    reset_task_run_stream,
 )
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.redis import get_tasks_stream_redis_sync
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
 from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
@@ -284,6 +288,41 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], len(events))
         self.assertEqual(heartbeat_workflow.call_args_list, [call(agent_active=True, force=True)] * 2)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_resumed_sandbox_startup_does_not_heartbeat_workflow(self) -> None:
+        token = self._create_token()
+        events = [
+            {"type": "notification", "notification": {"method": "session/update", "params": {"update": update}}}
+            for update in (
+                {"sessionUpdate": "plan", "entries": []},
+                {"sessionUpdate": "available_commands_update", "availableCommands": []},
+                {"sessionUpdate": "usage_update"},
+            )
+        ] + [
+            {"type": "notification", "notification": {"method": "_posthog/run_started", "params": {}}},
+            {
+                "type": "notification",
+                "notification": {"method": "_posthog/turn_complete", "params": {"stopReason": "idle_resume"}},
+            },
+            {"type": "notification", "notification": {"method": "_posthog/console", "params": {}}},
+        ]
+
+        with (
+            patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow,
+            patch.object(TaskRun, "signal_agent_turn_completed"),
+        ):
+            status, body = self._call_ingest(
+                token, [{"seq": index, "event": event} for index, event in enumerate(events, start=1)]
+            )
+
+        async def agent_active() -> bool:
+            return await TaskRunRedisStream(get_task_run_stream_key(str(self.task_run.id))).get_agent_active()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], len(events))
+        heartbeat_workflow.assert_not_called()
+        self.assertFalse(asyncio.run(agent_active()))
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_streaming_ingest_releases_failed_activity_claim(self) -> None:
@@ -669,7 +708,9 @@ class TestTaskRunEventIngest(TestCase):
 
         self.assertEqual(status, 200)
         signal_turn_completed.assert_not_called()
-        signal_workflow_completion.assert_called_once_with(str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE)
+        signal_workflow_completion.assert_called_once_with(
+            str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE, "pi_runtime_error"
+        )
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:
@@ -688,7 +729,13 @@ class TestTaskRunEventIngest(TestCase):
                 json.dumps(
                     {
                         "seq": 1,
-                        "event": {"type": "notification", "notification": {"method": "session/update"}},
+                        "event": {
+                            "type": "notification",
+                            "notification": {
+                                "method": "session/update",
+                                "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                            },
+                        },
                     }
                 )
                 + "\n"
@@ -945,6 +992,61 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["last_accepted_seq"], 1)
         self.assertEqual(self._read_notification_methods(), ["first"])
 
+    @parameterized.expand(
+        [
+            ("event", {"seq": 1, "event": {"type": "notification", "notification": {"method": "late"}}}, False, True),
+            ("completion", {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 0}, False, True),
+            (
+                "legacy_event",
+                {"seq": 1, "event": {"type": "notification", "notification": {"method": "late"}}},
+                True,
+                True,
+            ),
+            ("legacy_completion", {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 0}, True, True),
+            (
+                "rollout_event",
+                {"seq": 1, "event": {"type": "notification", "notification": {"method": "late"}}},
+                True,
+                False,
+            ),
+            ("rollout_completion", {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 0}, True, False),
+            ("dedicated", {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 0}, False, True, True),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_resumed_stream_rejects_previous_ingest_token(
+        self, _name: str, line: dict, legacy: bool, rotation_enabled: bool, dedicated: bool = False
+    ) -> None:
+        if dedicated:
+            self.task_run.state["use_dedicated_stream"] = True
+            self.task_run.save(update_fields=["state"])
+            self.enterContext(override_settings(TASKS_REDIS_URL=settings.REDIS_URL.rsplit("/", 1)[0] + "/14"))
+            self.addCleanup(
+                get_tasks_stream_redis_sync(True).delete,
+                get_task_run_stream_key(str(self.task_run.id)),
+                get_task_run_stream_key(str(self.task_run.id)) + ":generation",
+                get_task_run_stream_completed_key(get_task_run_stream_key(str(self.task_run.id))),
+            )
+        token = self._create_token()
+        if legacy:
+            claims = jwt.decode(token, options={"verify_signature": False})
+            del claims["stream_generation"]
+            token = jwt.encode(claims, TEST_RSA_PRIVATE_KEY, algorithm="RS256")
+        status, _ = self._call_ingest(token, [line])
+        self.assertEqual(status, 200)
+        with override_settings(TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED=rotation_enabled):
+            reset_task_run_stream(str(self.task_run.id), use_dedicated=dedicated)
+
+        status, body = self._call_ingest(token, [line])
+
+        self.assertEqual(status, 403 if rotation_enabled else 200)
+        if rotation_enabled:
+            self.assertEqual(body["code"], "stream_generation_mismatch")
+            self.assertNotIn("last_accepted_seq", body)
+            self.assertEqual(self._read_stream_events(), [])
+        status, _ = self._call_ingest(self._create_token(), [line])
+        self.assertEqual(status, 200)
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_completed_stream_rejects_late_sequenced_events(self) -> None:
         token = self._create_token()
@@ -1091,8 +1193,8 @@ class TestTaskRunEventIngest(TestCase):
         self.assertTrue(real_exists)
 
         with patch(
-            "products.tasks.backend.logic.stream.event_ingest._task_run_exists_sync",
-            side_effect=[OperationalError("server closed the connection unexpectedly"), True],
+            "products.tasks.backend.logic.stream.event_ingest._task_run_state_sync",
+            side_effect=[OperationalError("server closed the connection unexpectedly"), {}],
         ) as exists_sync:
             status, body = self._call_ingest(
                 token,

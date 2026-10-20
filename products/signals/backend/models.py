@@ -9,9 +9,10 @@ from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
 
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
+from django.db.models.functions import Upper
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -66,6 +67,15 @@ class SignalReportWorkState(models.TextChoices):
     WORKING = "working", "Working"
     IN_REVIEW = "in_review", "In review"
     DONE = "done", "Done"
+
+
+class SignalReportSuppressionSource(models.TextChoices):
+    # Who or what took a suppressed report out of the inbox, derived from its artefacts. Only
+    # DISMISSED means someone chose it; the rest are verdicts nobody has reviewed yet.
+    DISMISSED = "dismissed", "Dismissed"
+    SAFETY_JUDGE = "safety_judge", "Safety judge"
+    NOT_ACTIONABLE = "not_actionable", "Not actionable"
+    SYSTEM = "system", "System"
 
 
 def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
@@ -187,9 +197,13 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # by default); only an explicit False disables it, leaving reports to still generate and notify
     # while the team reviews and opens PRs manually.
     autostart_enabled = models.BooleanField(null=True, blank=True)
+    onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
+    scout_instructions = models.TextField(null=True, blank=True)
+    research_instructions = models.TextField(null=True, blank=True)
+    implementation_instructions = models.TextField(null=True, blank=True)
     # Daily cap on reports surfacing to the inbox, counted against SignalReport.first_visible_at
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
@@ -311,6 +325,9 @@ class SignalReport(UUIDModel):
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    triggering_signal_id = models.UUIDField(null=True, blank=True)
+    pending_triggering_signal_id = models.UUIDField(null=True, blank=True)
+    researching_signal_count = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
     # System billing exemption: non-null means this report's implementation PRs must never be
     # charged (PostHog-system origins, e.g. health-check scout findings). Prospective-only —
@@ -432,6 +449,10 @@ class SignalReport(UUIDModel):
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
             ),
+            # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
+            # UPPER(col) LIKE UPPER(pattern) on Postgres.
+            GinIndex(OpClass(Upper("title"), name="gin_trgm_ops"), name="signals_report_title_trgm"),
+            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signals_report_summary_trgm"),
         ]
         constraints = [
             # The barrier itself, not a lookup aid: two emits racing on one key both reach the
@@ -473,6 +494,19 @@ class SignalReport(UUIDModel):
         repository = data.get("repository") if isinstance(data, dict) else None
         return repository.strip() if isinstance(repository, str) and repository.strip() else None
 
+    def _monitoring_enabled(self) -> bool:
+        from products.signals.backend.report_content_gates import (
+            team_report_monitoring_enabled,  # noqa: PLC0415 - keeps the flag client off model startup
+        )
+
+        return team_report_monitoring_enabled(self.team_id)
+
+    @property
+    def effective_status(self) -> "SignalReport.Status":
+        if self.status == self.Status.MONITORING and not self._monitoring_enabled():
+            return self.Status.RESOLVED
+        return self.Status(self.status)
+
     def transition_to(
         self,
         new_status: "SignalReport.Status",
@@ -483,6 +517,7 @@ class SignalReport(UUIDModel):
         title: str | None = None,
         summary: str | None = None,
         error: str | None = None,
+        monitoring_started_at: datetime | None = None,
     ) -> list[str]:
         """
         Validate and apply a status transition with side effects.
@@ -493,8 +528,31 @@ class SignalReport(UUIDModel):
         """
         S = self.Status
         updated_fields: set[str] = set()
+        current_status = self.effective_status
+        if new_status == S.MONITORING and not self._monitoring_enabled():
+            raise InvalidStatusTransition(self.status, new_status)
 
-        match (self.status, new_status):
+        match (current_status, new_status):
+            case (S.READY | S.PENDING_INPUT | S.FAILED, S.MONITORING):
+                if monitoring_started_at is None or timezone.is_naive(monitoring_started_at):
+                    raise ValueError("An aware implementation-complete timestamp is required to enter Monitoring.")
+                self.monitoring_started_at = monitoring_started_at
+                updated_fields.add("monitoring_started_at")
+
+            case (S.MONITORING, S.MONITORING):
+                if self.monitoring_started_at is None:
+                    raise ValueError("The current Monitoring period has no implementation-complete timestamp.")
+                return []
+
+            case (S.SUPPRESSED, S.MONITORING):
+                if self.status_before_suppression != S.MONITORING or self.monitoring_started_at is None:
+                    raise InvalidStatusTransition(self.status, new_status)
+                self.status_before_suppression = None
+                updated_fields.add("status_before_suppression")
+
+            case (S.MONITORING, S.RESOLVED | S.READY):
+                pass
+
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
             # - READY -> CANDIDATE when new matching signals reopen the report for summary / agentic
@@ -544,7 +602,10 @@ class SignalReport(UUIDModel):
                 updated_fields.add("error")
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
-            case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):
+            case (
+                S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.MONITORING | S.RESOLVED | S.FAILED,
+                S.POTENTIAL,
+            ):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if self.status == S.SUPPRESSED:
@@ -577,11 +638,18 @@ class SignalReport(UUIDModel):
 
             # Any non-deleted status can be suppressed
             case (
-                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED,
+                S.POTENTIAL
+                | S.CANDIDATE
+                | S.IN_PROGRESS
+                | S.PENDING_INPUT
+                | S.READY
+                | S.MONITORING
+                | S.RESOLVED
+                | S.FAILED,
                 S.SUPPRESSED,
             ):
                 # Remember where it was so "restore" can return it there (see restore_target_status).
-                self.status_before_suppression = self.status
+                self.status_before_suppression = current_status
                 self.promoted_at = None
                 updated_fields.update(["status_before_suppression", "promoted_at"])
 
@@ -592,6 +660,7 @@ class SignalReport(UUIDModel):
                 | S.IN_PROGRESS
                 | S.PENDING_INPUT
                 | S.READY
+                | S.MONITORING
                 | S.RESOLVED
                 | S.FAILED
                 | S.SUPPRESSED,
@@ -622,6 +691,9 @@ class SignalReport(UUIDModel):
             updated_fields.add("first_visible_at")
 
         self.status = new_status
+        if new_status in (S.POTENTIAL, S.READY) and self.monitoring_started_at is not None:
+            self.monitoring_started_at = None
+            updated_fields.add("monitoring_started_at")
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
 
@@ -668,6 +740,8 @@ class SignalReport(UUIDModel):
         S = self.Status
         researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.FAILED}
         prior = self.status_before_suppression
+        if prior == S.MONITORING:
+            return S.MONITORING if self._monitoring_enabled() else S.RESOLVED
         if prior in {s.value for s in researched}:
             return S(prior)
         return S.POTENTIAL
@@ -1020,7 +1094,7 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
 
     @property
     def work_state(self) -> SignalReportWorkState:
-        if self.report.status == SignalReport.Status.RESOLVED:
+        if self.report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             return SignalReportWorkState.DONE
         from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
@@ -1129,7 +1203,15 @@ class SignalReportSlackThread(UUIDModel):
     A notification invites the reader to reply in the thread and mention PostHog, which starts a
     task. Without this row that task has no way back to the report it discusses, so the work never
     reaches the report's own timeline.
+
+    A scout report row also lets a later delivery of the same report update its message in place
+    instead of posting the report again.
     """
+
+    class Kind(models.TextChoices):
+        INBOX_NOTIFICATION = "inbox_notification", "Inbox notification"
+        SCOUT_REPORT = "scout_report", "Scout report"
+        SCOUT_REPORT_NOTE = "scout_report_note", "Scout report note"
 
     objects = EnvironmentScopedManager()
     all_teams = models.Manager()  # noqa: DJ012
@@ -1146,6 +1228,13 @@ class SignalReportSlackThread(UUIDModel):
     channel = models.CharField(max_length=64)
     # Slack `ts` of the notification message, which is also its thread's root.
     thread_ts = models.CharField(max_length=64)
+    # Null on rows written before the kind was recorded. Those rows never match an in-place update.
+    kind = models.CharField(max_length=32, choices=Kind, null=True, blank=True)
+    # The destination as configured, before Slack resolves it. A member target is a `U…` id here,
+    # while `channel` holds the `D…` direct message that Slack opened for it.
+    target = models.CharField(max_length=64, null=True, blank=True)
+    # Slack `ts` of each threaded reply of a scout report, in summary chunk order.
+    reply_ts = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1179,6 +1268,9 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
     merged_at = models.DateTimeField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
+    participant_ids = ArrayField(models.PositiveBigIntegerField(), null=True, blank=True)
+    participant_logins = ArrayField(models.CharField(max_length=255), null=True, blank=True)
+    participants_synced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1186,6 +1278,7 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "repository", "number"], name="signals_pr_identity_unique"),
         ]
+        indexes = [models.Index(fields=["team", "merged_at"], name="signals_pr_team_merged_idx")]
 
 
 class SignalEmissionRecord(UUIDModel):
@@ -1886,13 +1979,16 @@ class SignalReportArtefact(UUIDModel):
             from products.signals.backend.plan_rollup import roll_up_plan_parents
 
             try:
-                status = (
+                report = (
                     SignalReport.objects.using("default")
                     .filter(team_id=artefact.team_id, id=artefact.report_id)
-                    .values_list("status", flat=True)
+                    .only("status", "team_id")
                     .first()
                 )
-                if status not in (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED):
+                if report is None or report.effective_status not in (
+                    SignalReport.Status.RESOLVED,
+                    SignalReport.Status.SUPPRESSED,
+                ):
                     return
                 roll_up_plan_parents(team_id=artefact.team_id, report_id=str(artefact.report_id))
             except Exception:
@@ -2407,6 +2503,14 @@ class SignalReportCheck(UUIDModel):
 #   - SignalScoutNote:   steering notes humans/agents leave for scouts to read.
 
 
+def default_scout_write_scopes() -> list[str]:
+    from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the models import path
+        SCOUT_DEFAULT_WRITE_SCOPES,
+    )
+
+    return sorted(SCOUT_DEFAULT_WRITE_SCOPES)
+
+
 class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     """One row per (team, scout skill): schedule + emit posture for a scout skill.
 
@@ -2481,6 +2585,14 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
 
         TRUSTED = "trusted", "Trusted domains only"
         FULL = "full", "Full"
+
+    class PrecheckOutcome(models.TextChoices):
+        """The outcome of one scheduled pre-check (`scout_harness/precheck.py`)."""
+
+        RUN = "run", "Run"
+        SKIP = "skip", "Skip"
+        # The query failed, so the scout ran as if it had no pre-check.
+        ERROR = "error", "Error"
 
     # The `status` side of the `enabled` dual-write: a scout in one of these statuses is
     # scheduled by the coordinator. `pending_pause` still runs; the warning is not a pause.
@@ -2571,6 +2683,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # The activity band that sampled this project into the background lane. `None` for a
     # hand-picked `team_ids` project and for every `team`-managed row that the band lane never made.
     background_band = models.PositiveSmallIntegerField(null=True, blank=True)
+    # How many background runs in a row nobody engaged with. The coordinator multiplies the band
+    # interval by `background.backoff.factor` once per level, so `run_interval_minutes` keeps the
+    # nominal cadence. `None` means level 0. Read only while the row is `managed_by=background`.
+    background_backoff_level = models.PositiveSmallIntegerField(null=True, blank=True)
     # Set only alongside `pending_pause` / `paused_by_system`; see `PauseReason`.
     pause_reason = models.CharField(
         max_length=20,
@@ -2704,16 +2820,28 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=[],
         blank=True,
     )
-    # User-facing write scopes a person granted this one scout, on top of the fleet-wide posture
-    # every scout carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding
-    # a grantable object later is one allowlist entry rather than a new column. Empty means the
-    # scout reads the project and writes only what the fleet grants every scout.
+    # User-facing write scopes this one scout holds, on top of the fleet-wide posture every scout
+    # carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding a grantable
+    # object later is one allowlist entry rather than a new column. A new row starts with
+    # `SCOUT_DEFAULT_WRITE_SCOPES`. Empty means the scout reads the project and writes only its own
+    # findings and memory.
     # Validated against `SCOUT_GRANTABLE_WRITE_SCOPES` at the API boundary and intersected against
     # it again when a run's token is minted, so a stored grant cannot widen a token past the
     # allowlist. Deliberately NOT excluded from activity logging, and gated in the config API to the
     # scout's acting user and project admins: this field decides what an unattended agent may change
     # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
-    write_scopes = models.JSONField(default=list, db_default=[])
+    write_scopes = models.JSONField(default=default_scout_write_scopes, db_default=[])
+    # Opt-in guard on the lifecycle fields (`enabled`, `emit`, deletion, and this flag). Off by
+    # default, so the fleet keeps the plain `signal_scout:write` bar. On, only the scout's
+    # resolved acting user or a project admin may pause, resume, switch to dry run, or delete it
+    # — the same bar `write_scopes` clears, and for the same reason: a project-wide scope is held
+    # by people and by unattended agents alike, and pausing is unbounded while resuming passes
+    # the enabled-scout cap, so one bulk write can silence a fleet that cannot be restored in one
+    # step. It never blocks a system transition: an inactivity sweep or the failure breaker still
+    # pauses a locked scout.
+    lifecycle_locked = models.BooleanField(default=False, db_default=False)
+    allowed_mcp_tools = models.JSONField(null=True, blank=True)
+    tool_preset = models.CharField(max_length=64, null=True, blank=True)
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -2727,6 +2855,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # defer an already-overdue scheduled run. Null on rows whose schedule was never edited —
     # `created_at` anchors those.
     schedule_changed_at = models.DateTimeField(null=True, blank=True)
+    # Optional HogQL query a scheduled run evaluates before it starts (`scout_harness/precheck.py`).
+    # No rows, or a single false value, skips the run, so a scout that watches something rare can
+    # run often and pay for a sandbox only when there is something new. `{since}` and `{now}` are
+    # bound as HogQL placeholders, and `{interval_minutes}` is the scout's schedule interval. Null
+    # falls back to the default its canonical skill ships, if any (`scout-precheck-query`).
+    precheck_query = models.TextField(null=True, blank=True)
+    # Turns off both `precheck_query` and the skill default, so every due tick runs the scout.
+    precheck_disabled = models.BooleanField(default=False, db_default=False)
+    # The latest scheduled pre-check, written by `evaluate_scout_precheck`. A skip creates no run
+    # row, so these fields are the only stored trace that a gated scout still checks its surface.
+    last_precheck_at = models.DateTimeField(null=True, blank=True)
+    last_precheck_outcome = models.CharField(max_length=16, choices=PrecheckOutcome.choices, null=True, blank=True)
+    last_precheck_row_count = models.IntegerField(null=True, blank=True)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
@@ -3072,6 +3213,7 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
+    total_spend = models.DecimalField(max_digits=20, decimal_places=4, null=True, blank=True)
     # Keep private trial documents separate from metadata inspected by ordinary scout history queries.
     trial_state = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -3097,6 +3239,10 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
                 fields=["team", "skill_name", "-created_at"],
                 name="signal_scout_run_recent_idx",
             ),
+            # The team-wide run search and the fleet summary filter on team only, with no scout key, so
+            # the index above cannot serve their newest-first order and the planner sorts every one of
+            # the team's runs before it applies the limit.
+            models.Index(fields=["team", "-created_at"], name="signal_scout_run_team_new_idx"),
             # "which run authored this report?" is a jsonb containment lookup (`@>`) that
             # `dismissal_notes` runs on the dismissal request path, batched into one OR'd query per
             # request. Without these the planner can only seq-scan the team's runs, and this table
@@ -3241,6 +3387,19 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
         ]
+        indexes = [
+            models.Index(fields=["team", "-updated_at", "-id"], name="signal_scratchpad_team_upd_idx"),
+            # The unique `(team, key)` index cannot serve a `key` prefix LIKE under a non-C collation.
+            models.Index(
+                fields=["team", "key"],
+                name="signal_scratchpad_key_like_idx",
+                opclasses=["int4_ops", "varchar_pattern_ops"],
+            ),
+            # Back the `text` search. On UPPER(...) because icontains compiles to
+            # UPPER(col::text) LIKE UPPER(pattern) on Postgres.
+            GinIndex(OpClass(Upper("content"), name="gin_trgm_ops"), name="signal_scratchpad_content_trgm"),
+            GinIndex(OpClass(Upper("key"), name="gin_trgm_ops"), name="signal_scratchpad_key_trgm"),
+        ]
 
 
 class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
@@ -3359,9 +3518,8 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
 class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
     """Deterministic snapshot of "what's true about this project" — agent orientation surface.
 
-    One row per (team, computed_at). Time-series so Phase 7 can diff a new profile against
-    the previous row to populate `payload.deltas`. v1 (Phase 4a) writes inventory only;
-    Phase 7 layers on deltas, activity_notes, and an LLM narrative section.
+    One row per (team, computed_at). The payload holds the inventory layer only. The last
+    few rows per team are kept for debugging.
 
     Profile is the *deterministic ground truth* about a project (computed from authoritative
     tables). Distinct from `SignalScratchpad`, which is the *agent's inferred learnings* (possibly
@@ -3378,16 +3536,14 @@ class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
         related_name="signal_project_profiles",
     )
     computed_at = models.DateTimeField(auto_now_add=True)
-    # Soft TTL — `get_project_profile` treats rows past expiry as cache misses and recomputes.
-    # Aligned to the coordinator tick (`PROFILE_TTL`) so an active team's agent runs see
-    # ground-truth that's at most one tick stale. Callers that know the underlying data
+    # Soft TTL (`PROFILE_TTL`) — `get_project_profile` treats rows past expiry as cache misses
+    # and recomputes for the scout. Read-only callers still get an expired row, marked stale. Callers that know the underlying data
     # just changed can punch through the cache via `get_project_profile(force_refresh=True)`.
     expires_at = models.DateTimeField()
     # Bumps when the inventory schema changes meaningfully so `get_project_profile` can
     # invalidate stale rows without a manual backfill.
     source_version = models.CharField(max_length=40)
-    # Structured payload: `{inventory: {...}}` in v1; `deltas`, `activity_notes`, `narrative`
-    # slots reserved for Phase 7. Stored as jsonb because the payload is written by one
+    # Structured payload: `{inventory: {...}}`. Stored as jsonb because the payload is written by one
     # builder, read whole, and never field-queried — relational columns would buy no query
     # benefit and a migration per section as coverage grows. Not schemaless, though:
     # `build_inventory` returns a validated `Inventory` model (see
@@ -3532,3 +3688,35 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
         verbose_name = "Signal scout background band"
         verbose_name_plural = "Signal scout background bands"
         default_manager_name = "all_teams"
+
+
+class SignalSpend(TeamScopedRootMixin, UUIDModel):
+    """One absolute cost observation per gateway request or task run."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    signal_id = models.UUIDField(null=True, blank=True)
+    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True)
+    task_id = models.UUIDField(null=True, blank=True, db_index=True)
+    source_id = models.CharField(max_length=255)
+    stage = models.CharField(max_length=100, default="unknown")
+    accounting_failed = models.BooleanField(default=False)
+    is_task = models.BooleanField(default=False)
+    token_cost_microusd = models.BigIntegerField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "source_id", "is_task"], name="signals_spend_source_unique"),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(signal_id__isnull=False, scout_run__isnull=True)
+                    | models.Q(signal_id__isnull=True, scout_run__isnull=False)
+                ),
+                name="signals_spend_one_owner",
+            ),
+            models.CheckConstraint(condition=models.Q(token_cost_microusd__gte=0), name="signals_spend_nonnegative"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+        ]
