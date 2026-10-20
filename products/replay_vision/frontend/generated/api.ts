@@ -25,6 +25,7 @@ import type {
     ExperimentVariantsReadoutApi,
     InlineScanRequestApi,
     InlineScanResponseApi,
+    ObservationFeedDismissalApi,
     ObservationRequestApi,
     ObservationSearchResponseApi,
     ObservationSignalReportApi,
@@ -377,6 +378,45 @@ export const visionObservationsCreateTaskCreate = async (
     return apiMutator<CreateTaskFromObservationResponseApi>(getVisionObservationsCreateTaskCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisionObservationsFeedDismissalCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ */
+export const visionObservationsFeedDismissalCreate = async (
+    projectId: string,
+    id: string,
+    observationFeedDismissalApi?: ObservationFeedDismissalApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsFeedDismissalCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(observationFeedDismissalApi),
+    })
+}
+
+export const getVisionObservationsFeedDismissalDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Undo the calling user's not-useful mark, so What to watch can show the observation again.
+ */
+export const visionObservationsFeedDismissalDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsFeedDismissalDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -1178,6 +1218,55 @@ export const visionScannersObservationsCreateTaskCreate = async (
     )
 }
 
+export const getVisionScannersObservationsFeedDismissalCreateUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ */
+export const visionScannersObservationsFeedDismissalCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    observationFeedDismissalApi?: ObservationFeedDismissalApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsFeedDismissalCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(observationFeedDismissalApi),
+    })
+}
+
+export const getVisionScannersObservationsFeedDismissalDestroyUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Undo the calling user's not-useful mark, so What to watch can show the observation again.
+ */
+export const visionScannersObservationsFeedDismissalDestroy = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsFeedDismissalDestroyUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, scannerId: string, id: string) => {
     return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/label/`
 }
@@ -1473,7 +1562,7 @@ export const getVisionScannersDraftCreateUrl = (projectId: string) => {
 }
 
 /**
- * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ * Draft a full scanner configuration from a natural-language goal and a monthly credit budget.
  */
 export const visionScannersDraftCreate = async (
     projectId: string,

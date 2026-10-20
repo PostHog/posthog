@@ -6,8 +6,8 @@ import pytest
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
-from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
 from products.subscriptions.backend.temporal.ai_subscription.activities import (
     DiagnosticCounts,
     _load_snapshot,

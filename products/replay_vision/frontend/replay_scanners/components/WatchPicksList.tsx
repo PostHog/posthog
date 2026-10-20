@@ -14,7 +14,7 @@ const LIST_TOP_COUNT = 5
 
 export function WatchPicksList(): JSX.Element {
     const picksLogic = useMountedLogic(watchPicksLogic)
-    const { picks, picksLoading, picksFailed, activeSessionId } = useValues(picksLogic)
+    const { picks, picksLoad, picksLoading, picksFailed, activeSessionId } = useValues(picksLogic)
     const { loadPicks } = useActions(picksLogic)
     const { startedScanner, burstDone, burstStalled } = useValues(watchPicksStarterLogic(picksLogic.props))
     const burstActive = startedScanner !== null && (!burstDone || burstStalled)
@@ -64,10 +64,9 @@ export function WatchPicksList(): JSX.Element {
                         <div className="flex flex-col gap-0.5 p-1">
                             {picks.map((item, index) => (
                                 <WatchPickRow
-                                    key={item.observation.id}
+                                    key={`${picksLoad?.feedLoadId}-${item.observation.id}`}
                                     item={item}
                                     position={index}
-                                    surface="list"
                                     rank={index < LIST_TOP_COUNT ? index + 1 : undefined}
                                     isActive={item.observation.session_id === activeSessionId}
                                 />

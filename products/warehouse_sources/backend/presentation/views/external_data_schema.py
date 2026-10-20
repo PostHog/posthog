@@ -1150,6 +1150,28 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if column_names and unknown_keys:
                 raise ValidationError(f"'{instance.name}' has no column named {', '.join(unknown_keys)} to merge on.")
 
+        # An incremental or append sync saves its progress as the latest value of the incremental
+        # field. Without a field no run saves progress, so every run reads the full history again.
+        # Only a request that switches the sync type, clears the field, or turns the sync on is judged,
+        # so a table already in that state still takes other edits, such as a disable. Turning the sync
+        # on is judged because source creation saves a disabled table without a field.
+        if resulting_sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
+            stored_incremental_field = (instance.sync_type_config or {}).get("incremental_field")
+            resulting_incremental_field = (
+                data.get("incremental_field") if "incremental_field" in data else stored_incremental_field
+            )
+            switches_sync_type = resulting_sync_type != instance.sync_type
+            turns_sync_on = validated_data.get("should_sync") is True and not instance.should_sync
+            had_incremental_field = bool(stored_incremental_field)
+            if not resulting_incremental_field and (switches_sync_type or turns_sync_on or had_incremental_field):
+                replication = (
+                    "incremental" if resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL else "append only"
+                )
+                raise ValidationError(
+                    f"'{instance.name}' needs an incremental field for {replication} replication. "
+                    "Choose the field that tracks when rows change, or switch it to full table replication."
+                )
+
         trigger_refresh = False
         # Update the validated_data with incremental fields
         if resulting_sync_type in incremental_style_types:
