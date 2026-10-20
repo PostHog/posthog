@@ -39,18 +39,21 @@ from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, c
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, slot_of
+from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
     AlertDeliveryRequest,
     AlertEventKind,
     GroupingMode,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
+    PlatformAlertUpsert,
     SkipReason,
     SourceBatchEvaluation,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationRecurrenceUnit as RecurrenceUnit
 from products.alerts_platform.backend.facade.grouping import (
     GroupObservation,
     bounded_grouping_key,
@@ -127,6 +130,59 @@ def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
     """Threshold alerts on a 15-minute or slower cadence. A detector alert makes its own decision,
     and the LLM detector makes a charged model call, so evaluating either in parallel costs twice."""
     return not alert.detector_config and alert.calculation_interval in EVALUATED_INTERVALS
+
+
+_RECURRENCE: dict[str, tuple[int, str | None]] = {
+    AlertCalculationInterval.EVERY_15_MINUTES: (15, None),
+    AlertCalculationInterval.HOURLY: (60, None),
+    AlertCalculationInterval.DAILY: (60 * 24, RecurrenceUnit.DAY),
+    AlertCalculationInterval.WEEKLY: (60 * 24 * 7, RecurrenceUnit.WEEK),
+    AlertCalculationInterval.MONTHLY: (60 * 24 * 30, RecurrenceUnit.MONTH),
+}
+
+# What an edit to an insight alert can change on its copy. The check refreshes these, and the due
+# time follows from them, so it is left to the next advance.
+SETTINGS_FIELDS: Final = (
+    "name",
+    "source_config",
+    "schedule_restriction",
+    "check_interval_minutes",
+    "recurrence_unit",
+    "anchor_time",
+)
+
+
+def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
+    """The copy of one alert, or None when the platform does not evaluate it in parallel."""
+    recurrence = _RECURRENCE.get(alert.calculation_interval or "")
+    if recurrence is None or not is_evaluated_on_the_platform(alert):
+        return None
+    check_interval_minutes, recurrence_unit = recurrence
+    return PlatformAlertUpsert(
+        legacy_configuration_id=alert.id,
+        team_id=alert.team_id,
+        name=alert.name,
+        enabled=alert.enabled,
+        source_kind=SourceKind.INSIGHT,
+        source_config={
+            "insight_id": alert.insight_id,
+            SOURCE_CONDITION_KEY: {
+                "threshold": alert.threshold.configuration if alert.threshold else None,
+                "comparison": alert.condition,
+            },
+        },
+        check_interval_minutes=check_interval_minutes,
+        recurrence_unit=recurrence_unit,
+        # The hourly cadence has no anchor here: production fires it at the alert's creation
+        # minute, while sixty minutes on the platform lands on a UTC grid.
+        anchor_time=alert.schedule_start_time if recurrence_unit is not None else None,
+        evaluation_periods=1,
+        datapoints_to_alarm=1,
+        cooldown_minutes=0,
+        schedule_restriction=alert.schedule_restriction,
+        next_check_at=alert.next_check_at,
+        snooze_until=alert.snoozed_until,
+    )
 
 
 def plan_insight_batch(
@@ -281,6 +337,7 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         return _skipped(check, snapshot, now=now)
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
+    check = _following(check, alert)
 
     # Production gates evaluation on a snooze and holds the alert in SNOOZED, then clears it to
     # NOT_FIRING on the first check after the snooze ends. The legacy row is read for the snooze,
@@ -325,6 +382,24 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         value=result.value,
         query_duration_ms=duration_ms,
     )
+
+
+def _following(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> PlatformAlertCheckInput:
+    """The check with its alert's settings as they are now, written back to the copy first.
+
+    An edit to the alert never reaches the copy otherwise, so history and messages would quote an
+    old name or condition, and the copy would keep its old cadence until the next backfill.
+    """
+    upsert = platform_upsert_of(alert)
+    if upsert is None or all(getattr(check, field) == getattr(upsert, field) for field in SETTINGS_FIELDS):
+        return check
+    try:
+        refresh_settings(check.team_id, check.id, upsert)
+    except Exception:
+        # History records the stored copy, so the check evaluates that copy and stays true to it.
+        logger.exception("Failed to bring a platform insight copy up to date", check_id=str(check.id))
+        return check
+    return replace(check, **{field: getattr(upsert, field) for field in SETTINGS_FIELDS})
 
 
 def _broken(

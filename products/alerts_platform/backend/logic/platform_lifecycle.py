@@ -290,6 +290,8 @@ def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> Pl
         instances=tuple(_composed(c, alert) for alert in alerts),
         grouping=Grouping.from_stored(c.grouping),
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
+        recurrence_unit=c.recurrence_unit,
+        anchor_time=c.anchor_time,
     )
 
 
@@ -670,12 +672,16 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
     """Writes a source's current settings onto its copy, so history and messages state what a check
     evaluated.
 
-    Settings only. The schedule, `enabled` and the alert rows stay as they are, so an evaluation can
-    call this before it decides and a retried attempt still finds the same checks due.
+    Settings only. The due time, `enabled` and the alert rows stay as they are, so an evaluation can
+    call this before it decides and a retried attempt still finds the same checks due. A changed
+    cadence takes effect from the next due time the check advances to.
     """
     PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).update(
         name=upsert.name,
         source_config=upsert.source_config,
+        check_interval_minutes=upsert.check_interval_minutes,
+        recurrence_unit=upsert.recurrence_unit,
+        anchor_time=upsert.anchor_time,
         evaluation_periods=upsert.evaluation_periods,
         datapoints_to_alarm=upsert.datapoints_to_alarm,
         cooldown_minutes=upsert.cooldown_minutes,

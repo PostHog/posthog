@@ -1,3 +1,4 @@
+from functools import partial
 from textwrap import dedent
 from typing import Any, Literal, Union, cast
 
@@ -30,6 +31,7 @@ from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUI
 from products.alerts.backend.facade.api import LLMAlertWrite, admit_llm_alert_write, is_llm_detector_config
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.platform_alert_backfill import follow_insight_alert
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -653,5 +655,7 @@ class UpsertAlertTool(MaxTool):
             alert_configuration=alert,
             created_by=user,
         )
+        if alert.enabled:
+            transaction.on_commit(partial(follow_insight_alert, alert), robust=True)
 
         return alert
