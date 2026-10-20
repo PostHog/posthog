@@ -31312,6 +31312,7 @@ export namespace Schemas {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -32714,6 +32715,7 @@ export namespace Schemas {
       Attio: 'Attio',
       SnapchatAds: 'SnapchatAds',
       Linear: 'Linear',
+      LiteLLM: 'LiteLLM',
       Intercom: 'Intercom',
       Amplitude: 'Amplitude',
       Mixpanel: 'Mixpanel',
@@ -34130,6 +34132,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -36835,6 +36838,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -48958,6 +48962,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -50394,6 +50399,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -104984,6 +104990,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -106451,6 +106458,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -107885,6 +107893,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -122914,12 +122923,32 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Return only these kinds of change. Omit to return every kind. Use `feature_flag` and `experiment` to see configuration edits without releases and annotations.
+     */
+    kinds?: ChangeFeedListKindsItem[];
+    /**
      * Maximum number of changes to return, newest first. Defaults to 100, at most 500.
      * @minimum 1
      * @maximum 500
      */
     limit?: number;
     };
+
+    /**
+     * * `feature_flag` - Feature flag
+     * * `experiment` - Experiment
+     * * `release` - Release
+     * * `annotation` - Annotation
+     */
+    export type ChangeFeedListKindsItem = typeof ChangeFeedListKindsItem[keyof typeof ChangeFeedListKindsItem];
+
+
+    export const ChangeFeedListKindsItem = {
+      FeatureFlag: 'feature_flag',
+      Experiment: 'experiment',
+      Release: 'release',
+      Annotation: 'annotation',
+    } as const;
 
     export type ChangeRequestsListParams = {
     action_key?: string;
