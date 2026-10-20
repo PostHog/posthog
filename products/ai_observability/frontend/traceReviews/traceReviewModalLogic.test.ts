@@ -34,6 +34,7 @@ const mockTraceReviewsApi = traceReviewsApi as jest.Mocked<typeof traceReviewsAp
 
 describe('traceReviewModalLogic', () => {
     const booleanDefinition: ScoreDefinition = {
+        tags: [],
         id: 'score_def_1',
         name: 'Hallucination',
         description: 'Whether the model hallucinated.',
@@ -52,6 +53,7 @@ describe('traceReviewModalLogic', () => {
     }
 
     const numericDefinition: ScoreDefinition = {
+        tags: [],
         id: 'score_def_2',
         name: 'Accuracy',
         description: 'How accurate the response was.',

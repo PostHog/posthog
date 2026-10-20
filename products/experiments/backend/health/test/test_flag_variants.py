@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 from unittest import TestCase
@@ -7,26 +8,23 @@ from parameterized import parameterized
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingCode
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
 from products.experiments.backend.health.context import HealthContext, parse_flag_state
+from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING, RUNNING_CONTEXT, Status
 
 EVEN_SPLIT = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
 NO_CONTROL_SPLIT = [{"key": "a", "rollout_percentage": 50}, {"key": "b", "rollout_percentage": 50}]
 
-RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
-ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
-DRAFT = {"is_launched": False, "is_running": False, "has_ended": False}
-
 
 def _context(
-    status: dict[str, bool],
+    status: Status,
     *,
     variants: list[dict[str, Any]] | None = EVEN_SPLIT,
     baseline: str | None = None,
     deleted: bool = False,
     archived: bool = False,
 ) -> HealthContext:
-    return HealthContext(
+    return replace(
+        RUNNING_CONTEXT,
         **status,
-        is_paused=False,
         archived=archived,
         flag=parse_flag_state(
             active=True,
@@ -35,12 +33,6 @@ def _context(
             variants=variants,
         ),
         baseline_variant_key=baseline,
-        primary_metric_count=1,
-        secondary_metric_count=0,
-        exposures=None,
-        split_history=None,
-        condition_set_traffic=None,
-        excluded_variant_keys=frozenset(),
     )
 
 

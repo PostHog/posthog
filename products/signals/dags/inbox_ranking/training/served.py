@@ -1,13 +1,13 @@
 """The scoring sweep's own birth-day scores, graded per model key.
 
-The sweep scores each report with every model the serving manifest names: the served champion, the
-served family's daily candidate, and the other families' champions. This module reads the sweep's
+The sweep scores each report with every model the serving manifest names: the served model, the
+recent versions of its `model_name`, and the other families' champions. This module reads the sweep's
 `inbox_ranking_report_scored` events for D's newborn pool and writes them in `SCORES_SCHEMA`, so
 `inbox_ranking_unseen_graded` grades every model key on live scores through one path.
 
 Caveats:
 
-- The daily promotion can change the served model part of the way through D, so one day's cohort
+- A manual promotion can change the served model part of the way through D, so one day's cohort
   can split across two versions, and one key can carry two roles. Grades stay per
   `(model_name, model_version, model_role)` and are never pooled across versions.
 - The sweep scores a candidate only after a manifest names it, so a candidate's cohort starts the
@@ -34,6 +34,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 
 from products.signals.backend.ranking.serving_manifest import SERVED_ROLE, model_key
@@ -102,6 +103,7 @@ def served_events(
         settings=HogQLGlobalSettings(max_execution_time=600),
         # The dag runs without a user; the read is a trusted internal ETL over the dogfood project.
         bypass_warehouse_access_control=True,
+        ch_user=ClickHouseUser.SIGNALS,
     )
     return pd.DataFrame(
         [(scored_at, _properties(properties)) for scored_at, properties in response.results or []],

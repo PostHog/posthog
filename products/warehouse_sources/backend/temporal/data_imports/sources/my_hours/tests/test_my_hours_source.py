@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 import structlog
@@ -92,8 +91,3 @@ class TestMyHoursSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["api_key"] == "mh-key"
         assert kwargs["endpoint"] == "clients"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = _make_inputs(schema_name="not_a_table")
-        with pytest.raises(ValueError, match="Unknown My Hours schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, inputs)

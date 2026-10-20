@@ -20,6 +20,7 @@ import type {
     ExperimentFlagCleanupTargetApi,
     ExperimentFlagCleanupTaskApi,
     ExperimentHealthApi,
+    ExperimentHealthInputsApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentInSessionExposureApi,
@@ -722,6 +723,13 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * the caller's own assignment). A pin to a variant with 0% in the split adds an info,
  * because that variant's results show only the pinned users, unless the experiment
  * excludes the variant from the analysis.
+ *
+ * Two findings say that the variants are assigned outside PostHog, as info. A running
+ * experiment whose flag has a 0% rollout gets `assigned_outside_flag_service` instead of
+ * `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
+ * flag version that are no local evaluation, from an hour after the window starts. When
+ * every condition that includes users pins the variant whose key one property holds,
+ * `assigned_by_property` replaces `all_conditions_pinned`.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,
@@ -729,6 +737,28 @@ export const experimentsHealthRetrieve = async (
     options?: RequestInit
 ): Promise<ExperimentHealthApi> => {
     return apiMutator<ExperimentHealthApi>(getExperimentsHealthRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExperimentsHealthInputsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/health_inputs/`
+}
+
+/**
+ * Staff only. The inputs that the health checks read for this reader, to debug why a finding shows or not:
+ * the context of the checks in `health`, the exposure query's answer that the exposure checks read, and facts
+ * about the project from the setup context's providers (the team's experiment defaults and which SDKs call
+ * flags). The exposure answer comes from the cache. When it is missing or stale, a calculation starts in the
+ * background and `exposures.status` says so.
+ */
+export const experimentsHealthInputsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentHealthInputsApi> => {
+    return apiMutator<ExperimentHealthInputsApi>(getExperimentsHealthInputsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

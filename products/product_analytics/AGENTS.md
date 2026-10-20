@@ -58,7 +58,7 @@ Do not revive independently deleted related resources when adding or changing re
 ### Where to make changes
 
 - Read [the insight API](backend/presentation/insight.py) when changing deletion or restore behavior. `InsightSerializer.update` handles single deletion; `InsightViewSet.bulk_delete` bypasses model saves with a queryset update, so it must perform cleanup explicitly.
-- Read [the exports facade](../exports/backend/facade/api.py) when changing subscription cleanup. `delete_insight_subscriptions` calls each subscription's `delete()` method so model activity logging runs.
+- Read [the subscriptions facade](../subscriptions/backend/facade/api.py) when changing subscription cleanup. `delete_insight_subscriptions` calls each subscription's `delete()` method so model activity logging runs.
 - Read [the alerts facade](../alerts/backend/facade/api.py) when changing alert cleanup. `delete_insight_alerts` calls each alert's `delete()` method to preserve activity logging; queryset deletion bypasses that override.
 - Read [the dashboards facade](../dashboards/backend/facade/api.py) when changing tile cleanup or restoration. Use `hide_tiles_for_insights` and `restore_tiles_for_insights` rather than duplicating their rules.
 - Extend [the existing insight API tests](backend/tests/api/test_insight.py) when changing these behaviors. Cover single and bulk deletion, unrelated resources surviving, and restore behavior.

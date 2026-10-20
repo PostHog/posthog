@@ -151,15 +151,8 @@ class Command(BaseCommand):
                 ):
                     set_declared_anchor(node, anchor)
                     written += 1
-            # require_tiered makes reconcile skip an unconverted DAG; saying "reconciled" there
-            # would tell the operator a pin took effect when it didn't
-            if reconcile_dag_schedules(dag, require_tiered=True):
-                self.stdout.write(f"DAG {dag.name} ({dag.id}): {past} {written} node(s), reconciled → {tier_line}")
-            else:
-                self.stdout.write(
-                    f"DAG {dag.name} ({dag.id}): {past} {written} node(s), but the DAG is not on cadence-tier "
-                    "schedules yet; anchors apply once it is converted (reconcile_freshness_schedules)"
-                )
+            reconcile_dag_schedules(dag)
+            self.stdout.write(f"DAG {dag.name} ({dag.id}): {past} {written} node(s), reconciled → {tier_line}")
 
     def _parse_anchor(self, at: str, on: str | None) -> int:
         try:

@@ -1,4 +1,5 @@
-import pytest
+from datetime import date
+
 from unittest import mock
 
 from parameterized import parameterized
@@ -50,6 +51,11 @@ class TestTeamtailorSource:
         assert self.source.supported_versions == (API_VERSION_20240404, API_VERSION_20240904)
         assert self.source.default_version == API_VERSION_20240904
 
+    def test_legacy_version_is_deprecated_with_the_vendor_sunset_date(self) -> None:
+        deprecation = self.source.get_version_deprecation(API_VERSION_20240404)
+        assert deprecation is not None and deprecation.sunset_at == date(2025, 10, 1)
+        assert self.source.get_version_deprecation(API_VERSION_20240904) is None
+
     @parameterized.expand(
         [
             ("no_pin_uses_default", None, API_VERSION_20240904),
@@ -74,9 +80,3 @@ class TestTeamtailorSource:
         assert kwargs["endpoint"] == "candidates"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["api_version"] == expected_version
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Teamtailor schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

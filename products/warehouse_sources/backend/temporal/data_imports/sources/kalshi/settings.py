@@ -24,6 +24,8 @@ class KalshiEndpointConfig:
     paginated: bool = True
     # Candlesticks are fetched per batch of markets, so rows arrive in no global time order.
     market_fan_out: bool = False
+    # The weather index is served one city at a time, with no listing endpoint for the cities.
+    city_fan_out: bool = False
     page_size: int = 200
 
 
@@ -47,6 +49,35 @@ def _end_period_ts_field() -> list[IncrementalField]:
             "field_type": IncrementalFieldType.Integer,
         }
     ]
+
+
+def _weather_index_minute_field() -> list[IncrementalField]:
+    return [
+        {
+            "label": "t",
+            "type": IncrementalFieldType.Integer,
+            "field": "t",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ]
+
+
+# Kalshi lists the configured index cities only in the 400 response for an unknown city.
+WEATHER_INDEX_CITIES: tuple[str, ...] = (
+    "miami",
+    "dfw",
+    "houston",
+    "phl-delaware-valley",
+    "puget-sound",
+    "sf-bay",
+    "greater-boston",
+    "southeast-michigan",
+    "kansas-city",
+    "minneapolis-st-paul",
+    "nyc",
+    "chicago",
+    "la-coastal",
+)
 
 
 KALSHI_ENDPOINTS: dict[str, KalshiEndpointConfig] = {
@@ -131,6 +162,18 @@ KALSHI_ENDPOINTS: dict[str, KalshiEndpointConfig] = {
         supports_incremental=True,
         market_fan_out=True,
         page_size=1000,
+    ),
+    # Minute-resolution temperature index per city, filtered server-side with `from`/`to` (unix ms).
+    # The API keeps only recent history, so incremental merge is what retains older minutes.
+    "weather_index": KalshiEndpointConfig(
+        name="weather_index",
+        path="/live_data/weather/{city}",
+        data_key="timeseries",
+        primary_keys=["city", "t"],
+        incremental_fields=_weather_index_minute_field(),
+        supports_incremental=True,
+        paginated=False,
+        city_fan_out=True,
     ),
 }
 
