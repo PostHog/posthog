@@ -13,11 +13,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from products.managed_warehouse.backend import common, storage
-from products.managed_warehouse.backend.common import (
-    DUCKGRES_BUCKET_REGION,
-    EARLIEST_BACKFILL_DATE,
-    NO_HISTORY_SENTINEL,
-)
+from products.managed_warehouse.backend.common import DUCKGRES_BUCKET_REGION, EARLIEST_BACKFILL_DATE
 from products.managed_warehouse.backend.facade.contracts import (
     DuckgresQueryServerConfig,
     DuckgresStoredBucketConfig,
@@ -36,7 +32,6 @@ if TYPE_CHECKING:
 __all__ = [
     "DUCKGRES_BUCKET_REGION",
     "EARLIEST_BACKFILL_DATE",
-    "NO_HISTORY_SENTINEL",
     "default_bucket_region",
     "deprovision_for_org_deletion",
     "duckgres_data_imports_schema",

@@ -1,11 +1,16 @@
 import type { Series } from '@posthog/quill-charts'
 
+import { getResultSeries, getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
+
+import type { InsightQueryNode } from '~/queries/schema/schema-general'
+
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 
 export interface BuildTrendsPieSeriesOpts<R> {
+    querySource: InsightQueryNode | null | undefined
     /** Resolved color per result (typically `getTrendsColor`). */
     getColor: (r: R, index: number) => string
     /** True when the result should be excluded from rendering. */
@@ -36,11 +41,11 @@ export function buildTrendsPieSeries<R extends IndexedTrendResult>(
             data: [r.aggregated_value ?? 0],
             color: opts.getColor(r, index),
             meta: {
-                action: r.action ?? undefined,
+                series: getResultSeries(opts.querySource, r),
                 breakdown_value: r.breakdown_value,
                 compare_label: r.compare_label,
                 days: r.days,
-                order: r.action?.order ?? r.id,
+                order: getResultSeriesIndex(opts.querySource, r) ?? r.id,
                 filter: r.filter,
             },
             visibility: excluded ? { excluded: true } : undefined,

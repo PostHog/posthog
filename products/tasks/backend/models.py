@@ -941,6 +941,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         # under an unclobbered name too — as TaskRun.capture_event already does.
                         "run_environment": task_run.environment,
                         "is_resume": is_resume,
+                        "started_by_agent_sandbox": "agent_parent_task_id" in (state or {}),
                         "has_pending_message": has_pending,
                         "startup_requested_at": startup_requested_at.isoformat(),
                         "startup_run_created_at": task_run.created_at.isoformat(),
@@ -2963,6 +2964,7 @@ class TaskRun(models.Model):
             "run_environment": self.environment,
             "startup_requested_at": self.startup_requested_at,
             "mode": self.mode,
+            "started_by_agent_sandbox": "agent_parent_task_id" in (self.state or {}),
             "slack_session_id": self._slack_session_id(),
             **self._analytics_usage_properties(),
         }
@@ -3546,7 +3548,10 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     # db_constraint=False on the team FK: adding an FK constraint to that hot table
     # locks it and stalls deploys; Django still enforces the relation and on_delete at
     # the app level (see safe-django-migrations.md).
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # db_index=False: sandbox_session_team_attr_idx leads with team_id and serves every team filter.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
     task_run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="sandbox_sessions")
 
     sandbox_id = models.CharField(max_length=255, unique=True, help_text="Provider sandbox id (e.g. Modal object id)")

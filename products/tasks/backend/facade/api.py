@@ -48,6 +48,7 @@ from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
 
 import posthoganalytics
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
 from posthog.clickhouse.query_tagging import tag_queries
@@ -210,8 +211,6 @@ TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
-WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
-
 # Runtime posture for a setup-wizard cloud run, applied in create_wizard_cloud_run. The model is
 # pinned because these runs route to the unbilled `onboarding` gateway product, which allowlists a
 # narrow model set; the string form avoids pulling the temporal RuntimeAdapter enum onto this path.
@@ -227,6 +226,7 @@ class _AutoArchiveUnchanged:
 _AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
 
 __all__ = [
+    "is_current_task_run_actor",
     "mint_private_gateway_token",
     "revoke_private_gateway_token",
     "SandboxNetworkAccessLevel",
@@ -2846,6 +2846,12 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "include_live_context",
         "analytics_query_context",
         "sandbox_oauth_token_ids",
+        # Sandbox run-start lineage and fan-out count. A child sandbox that removed its parent keys
+        # would count as a root run and start more generations, and a parent that reset its count
+        # would lift its fan-out cap.
+        "agent_parent_task_id",
+        "agent_parent_run_id",
+        "agent_started_run_count",
         "resume_from_run_id",
         "run_source",
         "pr_base_branch",
@@ -3298,28 +3304,6 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
         logger.exception("task_run_slack_update_for_pr_failed for run %s", run.id)
 
 
-def _is_wizard_pr_ready_email_enabled(run: TaskRun) -> bool:
-    user = run.task.created_by
-    if user is None or not user.distinct_id:
-        return False
-    try:
-        team = Team.objects.only("id", "uuid", "organization_id").get(id=run.team_id)
-        organization_id = str(team.organization_id)
-        return bool(
-            posthoganalytics.feature_enabled(
-                WIZARD_PR_READY_EMAIL_FEATURE_FLAG,
-                user.distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("wizard_pr_ready_email_feature_flag_check_failed", extra={"run_id": str(run.id)})
-        return False
-
-
 def _is_github_pull_request_url_for_repository(pr_url: str, repository: str | None) -> bool:
     if not repository:
         return False
@@ -3357,8 +3341,6 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
             "wizard_pr_ready_email_invalid_pr_url",
             extra={"run_id": str(run.id), "task_id": str(run.task_id), "repository": run.task.repository},
         )
-        return
-    if not _is_wizard_pr_ready_email_enabled(run):
         return
 
     if not run.task.mark_pr_ready_email_queued(pr_url):
@@ -7669,6 +7651,20 @@ def _capture_no_repo_selection_override(
         logger.warning("signal_report_no_repo_selection_overridden capture failed for report %s: %s", report_id, e)
 
 
+def _capture_report_task_refused_without_repository(*, team: Team, report_id: str) -> None:
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(team.uuid),
+            event="signal_report_implementation_refused_no_repository",
+            properties={"report_id": report_id, "team_id": team.id},
+            groups=groups(team=team),
+        )
+    except Exception as e:
+        logger.warning(
+            "signal_report_implementation_refused_no_repository capture failed for report %s: %s", report_id, e
+        )
+
+
 def create_task_and_run(
     team_id: int,
     user_id: int | None,
@@ -7954,6 +7950,7 @@ def create_task(
     if warm_retry_token is not None:
         raise WarmRunActivationUnavailable("target_unavailable")
 
+    refuse_without_repository = False
     # Inbox "Create PR" doesn't pre-select a repo, so resolve one here rather than creating a
     # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
     # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
@@ -7996,6 +7993,9 @@ def create_task(
                 )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
+        refuse_without_repository = (
+            not resolved_repository and client_provenance != TaskClientProvenance.POSTHOG_DESKTOP
+        )
 
     # The credential follows the entitlement, not the repository: an entitled report task carries
     # the team's GitHub integration even when nothing resolved, so the agent can still clone what
@@ -8057,6 +8057,9 @@ def create_task(
         # open a PR that billing never counts. That is an accepted risk of a sales trial.
         if signal_report_task_relationship in (None, "implementation"):
             enforce_self_driving_free_trial(team, report_id=signal_report_id)
+    if refuse_without_repository and signal_report is not None:
+        _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
+        raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
@@ -8691,6 +8694,10 @@ def _attach_staged_artifacts_to_run(
 
 
 REPORT_WARM_RUN_NOT_ACTIVATED = "This sandbox is waiting for the report's Ask AI question. Send it from the report."
+REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED = (
+    "Couldn't tell which GitHub repository this report is about, so there is nowhere to open a PR. "
+    "Name the repository in the instructions for the PostHog agent (for example, owner/repo) and try again."
+)
 
 
 class WarmRunActivationUnavailable(Exception):
@@ -9574,6 +9581,8 @@ def run_task(
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
         ("claude_model_access", claude_model_access),
         ("codex_model_access", codex_model_access),
+        ("agent_parent_task_id", validated_data.get("agent_parent_task_id")),
+        ("agent_parent_run_id", validated_data.get("agent_parent_run_id")),
     ):
         if value is not None:
             extra_state = extra_state or {}
@@ -9624,6 +9633,12 @@ def run_task(
         # so this server-side copy is the only way it reaches a successor run.)
         if (previous_run.state or {}).get("github_read_access") is True:
             extra_state["github_read_access"] = True
+
+        # A resumed child run stays a child, so its sandbox still cannot start more runs. The keys
+        # are PATCH-protected, so this server-side copy is the only way they reach a successor run.
+        for lineage_key in ("agent_parent_task_id", "agent_parent_run_id"):
+            if lineage_key not in extra_state and (lineage_value := (previous_run.state or {}).get(lineage_key)):
+                extra_state[lineage_key] = lineage_value
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
@@ -12361,3 +12376,14 @@ def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
     from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
 
     handle_pull_request_review_event(dict(delivery.payload))
+
+
+def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415
+        get_task_run_actor_user,
+        user_has_current_team_access,
+    )
+
+    run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id, team_id=team_id)
+    actor = get_task_run_actor_user(run.task, run.state, allow_task_creator_fallback=False)
+    return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)

@@ -3468,7 +3468,8 @@ class TestProcessTaskWorkflowUnit:
         assert ready_inputs[1].failed_repositories == ["posthog/code"]
         assert ready_inputs[1].release_barrier is False
 
-    async def test_overlap_releases_agent_and_continues_when_primary_clone_fails(self, monkeypatch):
+    @pytest.mark.parametrize("fail_on_primary_clone_failure", [True, False])
+    async def test_overlap_primary_clone_failure(self, monkeypatch, fail_on_primary_clone_failure):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,
@@ -3517,8 +3518,22 @@ class TestProcessTaskWorkflowUnit:
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow,
+            "patched",
+            lambda patch_id: (
+                fail_on_primary_clone_failure
+                or patch_id != process_task_workflow_module._PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE
+            ),
+        )
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        if fail_on_primary_clone_failure:
+            with pytest.raises(RuntimeError, match="clone timed out"):
+                await workflow._get_sandbox_for_repository()
+            assert mark_repo_ready not in calls
+            assert checkout_branch_in_sandbox not in calls
+            return
 
         result = await workflow._get_sandbox_for_repository()
 

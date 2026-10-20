@@ -1,6 +1,8 @@
 import io
 import json
+import uuid
 import base64
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -15,6 +17,7 @@ from parameterized import parameterized
 from posthog.api.capture import CaptureInternalResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.user import User
+from posthog.test.persons import create_person, delete_person
 
 from products.autoresearch.backend.dataset.labeling import ROLLING_SCORE_LIMIT
 from products.autoresearch.backend.evaluation.segment_thresholds import training_base_rate
@@ -205,6 +208,27 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
         assert run.call_count == 1
         assert run.call_args.kwargs["query_context"] == count.call_args.kwargs["query_context"] == BATCH_QUERY
         assert [r["distinct_id"] for r in score_data.rows] == ["s1", "s2"]
+        assert score_data.eligible == 2
+
+    def test_score_data_with_fixed_anchors_scores_only_the_live_people(self):
+        pipeline = self._pipeline()
+        live = [create_person(team=self.team, distinct_ids=[f"live-{i}"], is_identified=True) for i in range(2)]
+        deleted = create_person(team=self.team, distinct_ids=["deleted"], is_identified=True)
+        delete_person(deleted)
+        people = [str(p.uuid) for p in [*live, deleted]] + [str(uuid.uuid4())]
+
+        with patch.object(sandbox_inference, "count_inference_anchors") as count:
+            score_data = _materialize_score_data(
+                team=self.team,
+                pipeline=pipeline,
+                feature_sql="SELECT a.person_id AS distinct_id, count() AS events_total FROM {anchors} a GROUP BY a.person_id",
+                cutoff_ts=int(datetime(2026, 9, 11, tzinfo=UTC).timestamp()),
+                anchor_person_ids=people,
+            )
+
+        count.assert_not_called()
+        # A person deleted (or merged away) since the ids were stored, or never present, is not scored.
+        assert sorted(str(row["distinct_id"]) for row in score_data.rows) == sorted(str(p.uuid) for p in live)
         assert score_data.eligible == 2
 
     @parameterized.expand(

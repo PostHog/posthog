@@ -23,6 +23,8 @@ import { urls } from 'scenes/urls'
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ResourceTagFilter } from '../components/ResourceTagFilter'
+import { ResourceTags } from '../components/ResourceTags'
 import type {
     ScoreDefinitionKindEnumApi as ScoreDefinitionKind,
     ScoreDefinitionApi as ScoreDefinition,
@@ -91,6 +93,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Kind',
             dataIndex: 'kind',
             key: 'kind',
+            className: '@max-[40rem]/scorers:hidden',
             render: function renderKind(kind) {
                 return <LemonTag type="muted">{formatKindLabel(kind as ScoreDefinitionKind)}</LemonTag>
             },
@@ -99,6 +102,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Version',
             dataIndex: 'current_version',
             key: 'current_version',
+            className: '@max-[40rem]/scorers:hidden',
             render: function renderVersion(version, scoreDefinition) {
                 return scoreDefinition.current_version_id ? (
                     <CopyToClipboardInline
@@ -124,6 +128,20 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                     <LemonTag type="success">Active</LemonTag>
                 )
             },
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            width: '25%',
+            render: (_, scoreDefinition) => (
+                <ResourceTags
+                    entity="scorers"
+                    resourceId={scoreDefinition.id}
+                    tags={scoreDefinition.tags}
+                    onSaved={() => loadScoreDefinitions(false)}
+                    onTagClick={(tag) => setFilters({ tags: [tag] }, true, false)}
+                />
+            ),
         },
         {
             ...(updatedAtColumn<ScoreDefinition>() as LemonTableColumn<
@@ -159,6 +177,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                         className="min-w-64"
                         data-attr="llma-scorers-search-input"
                     />
+                    <ResourceTagFilter filters={filters} onChange={(tags) => setFilters(tags, true, false)} />
                     <LemonSelect<ScoreDefinitionKind | ''>
                         value={filters.kind}
                         onChange={(value) => setFilters({ kind: value || '' })}
@@ -201,6 +220,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             )}
             {!scoreDefinitionsError && (
                 <LemonTable
+                    className="@max-[50rem]/scorers:[&_colgroup]:hidden"
                     loading={scoreDefinitionsLoading}
                     columns={columns}
                     dataSource={scoreDefinitions.results}
