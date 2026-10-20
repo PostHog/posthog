@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+from products.alerts.backend.facade.contracts import NamedAlert
 from products.logs.backend.models import LogsAlertConfiguration
 
 
@@ -15,9 +16,9 @@ def enabled_logs_alerts(*, team_id: int | None = None) -> Iterator[tuple[int, st
         yield alert_team_id, str(alert_id)
 
 
-def named_logs_alerts(*, team_id: int, alert_id: str | None = None) -> list[tuple[str, str]]:
+def named_logs_alerts(*, team_id: int, alert_id: str | None = None) -> list[NamedAlert]:
     """The (alert id, name) of a team's logs alerts, disabled ones included, because a person can enable one."""
     alerts = LogsAlertConfiguration.objects.filter(team_id=team_id).order_by("created_at")
     if alert_id is not None:
         alerts = alerts.filter(id=alert_id)
-    return [(str(found_id), name) for found_id, name in alerts.values_list("id", "name")]
+    return [NamedAlert(alert_id=str(found_id), name=name) for found_id, name in alerts.values_list("id", "name")]

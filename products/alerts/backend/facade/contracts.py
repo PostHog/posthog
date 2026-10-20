@@ -114,6 +114,12 @@ class BucketedDestination:
     eligibility: DestinationEligibility
 
 
+@frozen
+class NamedAlert:
+    alert_id: str
+    name: str
+
+
 class FlowPortProblem(StrEnum):
     """Why an alert destination cannot become a workflow without a person reading it first."""
 

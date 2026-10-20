@@ -30,6 +30,7 @@ from products.alerts.backend.facade.contracts import (
     FlowPort,
     FlowPortIssue,
     FlowPortProblem,
+    NamedAlert,
 )
 from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, input_value
 from products.alerts.backend.logic.destination_eligibility import (
@@ -69,6 +70,7 @@ _KNOWN_FILTER_KEYS: Final = frozenset({"source", "events", "properties", "filter
 
 # The rule a workflow webhook step applies before it signs (`resolveStandardWebhooksKey` in Node).
 _SIGNING_SECRET_PREFIX: Final = "whsec_"
+_SIGNING_SECRET_PATTERN: Final = re.compile(r"[A-Za-z0-9+/]+={0,2}")
 _MIN_SIGNING_SECRET_BYTES: Final = 24
 
 # A reference to a global inside a template, such as `event.properties.result_count` or
@@ -77,10 +79,18 @@ _REFERENCE: Final = re.compile(
     r"(?<![\w.$])(event|person|groups|source|project|inputs)(?![\w$])((?:\.[A-Za-z_$][\w$]*|\[[^\[\]]*\])*)"
 )
 _LIQUID_REGION: Final = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
+_BRACKET: Final = re.compile(r"\[([^\[\]]*)\]")
+_QUOTED: Final = re.compile(r"'[^']*'|\"[^\"]*\"")
 # The event's own fields keep their meaning: the transition's id and time.
 _KEPT_EVENT_FIELDS: Final = frozenset({".uuid", ".timestamp"})
 
 _ACTION_IDS: Final = {"trigger": "trigger_node", "branch": "branch_transition", "exit": "exit_node"}
+
+
+@frozen
+class _Span:
+    start: int
+    stop: int
 
 
 @frozen(frozen=False)
@@ -94,18 +104,42 @@ class PlaceholderLog:
 def _valid_signing_secret(secret: Any) -> bool:
     if not isinstance(secret, str):
         return False
+    encoded = secret.removeprefix(_SIGNING_SECRET_PREFIX)
+    if not _SIGNING_SECRET_PATTERN.fullmatch(encoded):
+        return False
+    # Node decodes an unpadded secret too, so the padding is restored before Python decodes it.
     try:
-        key = base64.b64decode(secret.removeprefix(_SIGNING_SECRET_PREFIX), validate=True)
+        key = base64.b64decode(encoded + "=" * (-len(encoded) % 4))
     except (binascii.Error, ValueError):
         return False
     return len(key) >= _MIN_SIGNING_SECRET_BYTES
 
 
-def _hog_code_spans(text: str) -> list[tuple[int, int]]:
+def _code_spans(text: str, start: int, stop: int) -> list[_Span]:
+    """The parts of `text[start:stop]` outside string literals. A string literal can hold a brace or a
+    reference that is only text."""
+    spans: list[_Span] = []
+    index = start
+    while index < stop:
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char in "'\"":
+            spans.append(_Span(start=start, stop=index))
+            index += 1
+            while index < stop and text[index] != char:
+                index += 2 if text[index] == "\\" else 1
+            start = index + 1
+        index += 1
+    spans.append(_Span(start=start, stop=stop))
+    return [span for span in spans if span.stop > span.start]
+
+
+def _hog_expressions(text: str) -> list[_Span]:
     # A Hog template is literal text with `{expression}` parts, where `\{` is a literal brace and an
-    # expression may hold braces of its own, such as a dict. A string literal inside an expression can
-    # hold a brace or a reference that is only text, so it is left out of the spans.
-    spans: list[tuple[int, int]] = []
+    # expression may hold braces of its own, such as a dict or a brace inside a string literal.
+    expressions: list[_Span] = []
     depth = 0
     start = 0
     index = 0
@@ -115,11 +149,9 @@ def _hog_code_spans(text: str) -> list[tuple[int, int]]:
             index += 2
             continue
         if depth and char in "'\"":
-            spans.append((start, index))
             index += 1
             while index < len(text) and text[index] != char:
                 index += 2 if text[index] == "\\" else 1
-            start = index + 1
         elif char == "{":
             if depth == 0:
                 start = index
@@ -127,9 +159,9 @@ def _hog_code_spans(text: str) -> list[tuple[int, int]]:
         elif char == "}" and depth:
             depth -= 1
             if depth == 0:
-                spans.append((start, index + 1))
+                expressions.append(_Span(start=start, stop=index + 1))
         index += 1
-    return spans
+    return expressions
 
 
 def _kept(root: str, path: str) -> bool:
@@ -139,6 +171,10 @@ def _kept(root: str, path: str) -> bool:
 def _rewrite_reference(match: re.Match[str], log: PlaceholderLog) -> str:
     root, path = match.group(1), match.group(2)
     reference = match.group(0)
+    # A computed key such as `inputs[event.properties.name]` reads a global the rewrite would miss.
+    if any(_REFERENCE.search(_QUOTED.sub("", key)) for key in _BRACKET.findall(path)):
+        log.unknown.append(reference)
+        return reference
     if _kept(root, path):
         return reference
     if root == "event" and (path == ".properties" or path.startswith((".properties.", ".properties["))):
@@ -153,23 +189,24 @@ def rewrite_template(text: str, templating: Any, log: PlaceholderLog) -> str:
     """The template with its legacy event properties read from `source`. Only the template's code
     changes. A reference in literal text or in a string literal, such as one inside an f-string, may
     still be read at runtime, so it is logged as unknown for a person to check."""
-    spans = (
-        [(match.start(), match.end()) for match in _LIQUID_REGION.finditer(text)]
+    expressions = (
+        [_Span(start=match.start(), stop=match.end()) for match in _LIQUID_REGION.finditer(text)]
         if templating == "liquid"
-        else _hog_code_spans(text)
+        else _hog_expressions(text)
     )
+    spans = [span for expression in expressions for span in _code_spans(text, expression.start, expression.stop)]
     parts: list[str] = []
     end = 0
-    for start, stop in [*spans, (len(text), len(text))]:
-        gap = text[end:start]
+    for span in [*spans, _Span(start=len(text), stop=len(text))]:
+        gap = text[end : span.start]
         log.unknown.extend(
             match.group(0)
             for match in _REFERENCE.finditer(gap)
             if match.group(2) and not _kept(match.group(1), match.group(2))
         )
         parts.append(gap)
-        parts.append(_REFERENCE.sub(lambda match: _rewrite_reference(match, log), text[start:stop]))
-        end = stop
+        parts.append(_REFERENCE.sub(lambda match: _rewrite_reference(match, log), text[span.start : span.stop]))
+        end = span.stop
     return "".join(parts)
 
 
@@ -177,9 +214,8 @@ def _rewrite_value(value: Any, templating: Any, log: PlaceholderLog) -> Any:
     if isinstance(value, str):
         return rewrite_template(value, templating, log)
     if isinstance(value, dict):
-        return {
-            _rewrite_value(key, templating, log): _rewrite_value(item, templating, log) for key, item in value.items()
-        }
+        # The template renderer keeps dict keys as written, so only values are templates.
+        return {key: _rewrite_value(item, templating, log) for key, item in value.items()}
     if isinstance(value, list):
         return [_rewrite_value(item, templating, log) for item in value]
     return value
@@ -199,6 +235,8 @@ def _filter_issues(function: HogFunction) -> list[FlowPortIssue]:
         extra.append("filter_test_accounts")
     properties = [prop for prop in filters.get("properties") or () if isinstance(prop, dict)]
     extra.extend(str(prop.get("key")) for prop in properties if prop.get("key") != "alert_id")
+    if any(isinstance(event, dict) and event.get("properties") for event in filters.get("events") or ()):
+        extra.append("events.properties")
     issues = [
         FlowPortIssue(problem=FlowPortProblem.EXTRA_FILTERS, hog_function_id=function.id, detail=key) for key in extra
     ]
@@ -250,10 +288,11 @@ def _ported_masking(functions: list[HogFunction], log: PlaceholderLog) -> dict[s
     masking = maskings[0]
     if masking is None:
         return None
-    # Each legacy function kept its own masking cache, and the workflow has one for every transition.
-    # The transition in the hash keeps a resolve from matching the firing before it.
-    hash_template = _rewrite_value(masking.get("hash"), None, log)
-    return {**masking, "hash": f"{{event.properties.transition}}:{hash_template}"}
+    # Each legacy function kept its own masking cache, and a workflow has one for every transition, so a
+    # resolve would match the firing before it. No hash change fixes that and keeps an empty hash unmasked.
+    if len(functions) > 1:
+        return FlowPortIssue(problem=FlowPortProblem.MIXED_MASKING, hog_function_id=None, detail="transitions")
+    return {**masking, "hash": _rewrite_value(masking.get("hash"), None, log)}
 
 
 def _action(action_id: str, name: str, action_type: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -399,12 +438,12 @@ def _port(
 def flow_ports(
     *,
     team_id: int,
-    alerts: Iterable[tuple[str, str]],
+    alerts: Iterable[NamedAlert],
     allowed_event_ids: Collection[str],
     transition_by_event_id: Mapping[str, AlertEventKind],
 ) -> Iterator[FlowPort]:
-    """Each customized destination of the given (alert id, alert name) pairs, with its workflow or what stops it."""
-    names = dict(alerts)
+    """Each customized destination of the given alerts, with its workflow or what stops it."""
+    names = {alert.alert_id: alert.name for alert in alerts}
     alert_ids = list(names)
     configuration_ids = configuration_ids_by_legacy_id(
         team_id=team_id, legacy_configuration_ids=[UUID(alert_id) for alert_id in alert_ids]
@@ -421,7 +460,12 @@ def flow_ports(
     )
     for alert_id in alert_ids:
         eligibilities = {eligibility.hog_function_id: eligibility for eligibility in eligibilities_by_alert[alert_id]}
-        own = {function.id: function for function in functions if alert_id in named_alert_ids(function.filters)}
+        # A function saved after the classification has no eligibility yet, and the next run reports it.
+        own = {
+            function.id: function
+            for function in functions
+            if function.id in eligibilities and alert_id in named_alert_ids(function.filters)
+        }
         groups = group_alert_destination_rows(
             [
                 AlertDestinationRow(

@@ -10,7 +10,7 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import FlowPort, FlowPortProblem
+from products.alerts.backend.facade.contracts import FlowPort, FlowPortProblem, NamedAlert
 from products.alerts.backend.facade.destinations import flow_ports
 from products.alerts.backend.logic.flow_port import PlaceholderLog, rewrite_template
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
@@ -26,7 +26,8 @@ TRANSITIONS = {
     "$logs_alert_auto_disabled": AlertEventKind.BROKEN,
 }
 EVENT_IDS = [*TRANSITIONS, "$logs_alert_incident_opened"]
-SIGNING_SECRET = "whsec_" + base64.b64encode(b"not-a-real-secret-but-24-bytes").decode()
+# Prefixed and unpadded, both of which a workflow webhook step accepts.
+SIGNING_SECRET = "whsec_" + base64.b64encode(b"not-a-real-secret-it-is-32-bytes").decode().rstrip("=")
 STOCK_BODY = {"type": "logs_alert.firing"}
 WEBHOOK_INPUTS: dict[str, Any] = {
     "url": {"value": "https://hooks.example.com/hook"},
@@ -55,6 +56,8 @@ class TestFlowPorts(APIBaseTest):
         inputs: dict[str, Any] = WEBHOOK_INPUTS,
         secret: str | None = None,
         extra_properties: tuple[dict[str, Any], ...] = (),
+        event_properties: tuple[dict[str, Any], ...] = (),
+        masking: dict[str, Any] | None = None,
         enabled: bool = True,
     ) -> HogFunction:
         return HogFunction.objects.create(
@@ -69,9 +72,16 @@ class TestFlowPorts(APIBaseTest):
                 {"key": "signing_secret", "type": "string", "secret": True},
             ],
             hog="return event",
+            masking=masking,
             filters={
                 "source": "internal-events",
-                "events": [{"id": event, "type": "events"}],
+                "events": [
+                    {
+                        "id": event,
+                        "type": "events",
+                        **({"properties": list(event_properties)} if event_properties else {}),
+                    }
+                ],
                 "properties": [
                     {"key": "alert_id", "value": ALERT_ID, "operator": "exact", "type": "event"},
                     *extra_properties,
@@ -99,7 +109,7 @@ class TestFlowPorts(APIBaseTest):
         return list(
             flow_ports(
                 team_id=self.team.id,
-                alerts=[(alert_id, "API errors")],
+                alerts=[NamedAlert(alert_id=alert_id, name="API errors")],
                 allowed_event_ids=EVENT_IDS,
                 transition_by_event_id=TRANSITIONS,
             )
@@ -116,10 +126,6 @@ class TestFlowPorts(APIBaseTest):
             template_id="template-slack", inputs={"slack_workspace": {"value": 1}, "channel": {"value": "C-1"}}
         )
 
-        HogFunction.objects.filter(team=self.team, template_id="template-webhook").update(
-            masking={"ttl": 3600, "hash": "{event.properties.alert_id}", "threshold": None}
-        )
-
         (port,) = self._ports()
 
         assert port.issues == ()
@@ -127,16 +133,10 @@ class TestFlowPorts(APIBaseTest):
         assert port.rewrites == (
             "event.properties.alert_name -> event.properties.source.alert_name",
             "event.properties.result_count -> event.properties.source.result_count",
-            "event.properties.alert_id -> event.properties.source.alert_id",
         )
         assert port.flow is not None
         flow = port.flow
         assert flow["status"] == "draft"
-        assert flow["trigger_masking"] == {
-            "ttl": 3600,
-            "hash": "{event.properties.transition}:{event.properties.source.alert_id}",
-            "threshold": None,
-        }
         assert flow["trigger"]["filters"]["events"] == [{"id": "$alert_transition", "type": "events"}]
         assert [(prop["key"], prop["value"]) for prop in flow["trigger"]["filters"]["properties"]] == [
             ("alert_configuration_id", [str(self.configuration.id)]),
@@ -183,12 +183,18 @@ class TestFlowPorts(APIBaseTest):
                 {"extra_properties": ({"key": "service", "value": "api", "operator": "exact", "type": "event"},)},
                 FlowPortProblem.EXTRA_FILTERS,
             ),
+            (
+                "event_level_filter",
+                {"event_properties": ({"key": "service", "value": "api", "operator": "exact", "type": "event"},)},
+                FlowPortProblem.EXTRA_FILTERS,
+            ),
             ("edited_code", {"hog": "fetch(inputs.url)"}, FlowPortProblem.EDITED_CODE),
         ]
     )
     def test_a_destination_a_flow_cannot_carry_is_reported_without_a_flow(
         self, _name: str, setup: dict[str, Any], problem: FlowPortProblem
     ) -> None:
+        setup = dict(setup)
         hog = setup.pop("hog", None)
         function = self._function(**{"secret": SIGNING_SECRET, **setup})
         self._edit(
@@ -199,6 +205,26 @@ class TestFlowPorts(APIBaseTest):
 
         assert port.flow is None
         assert problem in {issue.problem for issue in port.issues}
+
+    @parameterized.expand(
+        [
+            ("one_step_keeps_its_hash", ("$logs_alert_firing",), "{event.properties.source.alert_id}"),
+            ("a_cache_shared_by_transitions_stops_it", ("$logs_alert_firing", "$logs_alert_resolved"), None),
+        ]
+    )
+    def test_masking_moves_to_the_trigger(self, _name: str, events: tuple[str, ...], expected_hash: str | None) -> None:
+        masking = {"ttl": 3600, "hash": "{event.properties.alert_id}", "threshold": None}
+        for event in events:
+            self._function(event, secret=SIGNING_SECRET, masking=masking)
+
+        (port,) = self._ports()
+
+        if expected_hash is None:
+            assert port.flow is None
+            assert [issue.problem for issue in port.issues] == [FlowPortProblem.MIXED_MASKING]
+        else:
+            assert port.flow is not None
+            assert port.flow["trigger_masking"] == {**masking, "hash": expected_hash}
 
     def test_an_alert_without_a_platform_configuration_gets_no_flow(self) -> None:
         function = self._function(secret=SIGNING_SECRET)
@@ -276,6 +302,20 @@ class TestRewriteTemplate(SimpleTestCase):
             ),
             ("the_whole_event_differs", "{event}", None, "{event}", ["event"]),
             ("the_event_name_differs", "{event.event}", None, "{event.event}", ["event.event"]),
+            (
+                "a_computed_key_reads_a_global",
+                "{inputs[event.properties.k]}",
+                None,
+                "{inputs[event.properties.k]}",
+                ["inputs[event.properties.k]"],
+            ),
+            (
+                "a_string_in_a_liquid_tag_is_text",
+                "{{ 'event.properties.a' }} {{ event.properties.b }}",
+                "liquid",
+                "{{ 'event.properties.a' }} {{ event.properties.source.b }}",
+                ["event.properties.a"],
+            ),
             (
                 "a_person_has_no_value",
                 "{person.properties.email}",

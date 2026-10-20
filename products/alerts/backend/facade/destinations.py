@@ -48,6 +48,7 @@ from .contracts import (
     DestinationEligibility,
     DestinationHoldBack,
     FlowPort,
+    NamedAlert,
 )
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
@@ -323,11 +324,11 @@ def bucket_report_lines(team_alerts: Iterable[tuple[int, str]], *, allowed_event
 def flow_ports(
     *,
     team_id: int,
-    alerts: Iterable[tuple[str, str]],
+    alerts: Iterable[NamedAlert],
     allowed_event_ids: Collection[str],
     transition_by_event_id: Mapping[str, AlertEventKind],
 ) -> Iterator[FlowPort]:
-    """Each customized destination of the given (alert id, alert name) pairs, with the workflow that would replace it."""
+    """Each customized destination of the given alerts, with the workflow that would replace it."""
     return flow_port.flow_ports(
         team_id=team_id,
         alerts=alerts,
