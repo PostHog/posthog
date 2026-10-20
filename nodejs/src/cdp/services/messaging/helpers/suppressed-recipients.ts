@@ -19,7 +19,7 @@ export type SuppressedRecipientsResult = {
 type ParsedAddress = { email: string; name?: string }
 
 // The suppression list stores bare addresses, so a quoted local part (`"jo"@x.com`) is checked unquoted.
-const unquoteMailbox = (address: string): string => {
+export const unquoteMailbox = (address: string): string => {
     const at = address.lastIndexOf('@')
     const local = address.slice(0, at).trim()
     if (at < 0 || !/^".*"$/.test(local)) {
@@ -29,7 +29,7 @@ const unquoteMailbox = (address: string): string => {
 }
 
 // addressparser drops the quotes from a bare quoted local part, so they are added back for delivery.
-const quoteMailbox = (email: string): string => {
+export const quoteMailbox = (email: string): string => {
     const at = email.lastIndexOf('@')
     const local = email.slice(0, at)
     if (at < 0 || /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local)) {
@@ -84,7 +84,7 @@ export const removeSuppressedRecipients = async (
     const formatList = (original: string | undefined, entries: ParsedAddress[]): string | undefined =>
         original === undefined ? undefined : entries.map(formatAddress).join(', ')
 
-    const toEmail = recipients.to?.email?.trim()
+    const toEmail = recipients.to?.email ? unquoteMailbox(recipients.to.email) : undefined
     const toSuppressed = !!toEmail && (await isSuppressed(toEmail))
     if (toEmail && toSuppressed) {
         removed.push(toEmail)

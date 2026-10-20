@@ -43,6 +43,17 @@ describe('removeSuppressedRecipients', () => {
             { skip: false, cc: '"john doe"@example.com', bcc: '', removed: ['bounced@example.com'] },
         ],
         [
+            'checks a quoted to address unquoted',
+            { to: { email: '"bounced"@example.com' }, cc: 'b@example.com' },
+            {
+                skip: false,
+                promotedTo: { email: 'b@example.com' },
+                cc: '',
+                bcc: '',
+                removed: ['bounced@example.com'],
+            },
+        ],
+        [
             'promotes the first deliverable cc address when to is suppressed',
             {
                 to: { email: 'bounced@example.com' },

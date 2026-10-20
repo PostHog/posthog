@@ -29,7 +29,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import { removeSuppressedRecipients } from './helpers/suppressed-recipients'
+import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -518,7 +518,11 @@ export class EmailService {
             // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
             const deliverableParams = {
                 ...params,
-                to: suppression.promotedTo ?? params.to,
+                to:
+                    suppression.promotedTo ??
+                    (params.to?.email
+                        ? { ...params.to, email: quoteMailbox(unquoteMailbox(params.to.email)) }
+                        : params.to),
                 cc: suppression.cc,
                 bcc: suppression.bcc,
             }
@@ -877,10 +881,11 @@ export class EmailService {
             // so consent must hold for every recipient (same reasoning as the suppression check).
             const recipients: string[] = []
             if (params.to?.email && params.to.email.trim()) {
-                recipients.push(params.to.email.trim())
+                recipients.push(unquoteMailbox(params.to.email))
             }
-            recipients.push(...extractEmailsFromAddressList(params.cc))
-            recipients.push(...extractEmailsFromAddressList(params.bcc))
+            // Preferences are stored against bare addresses, so a quoted local part is looked up unquoted.
+            recipients.push(...extractEmailsFromAddressList(params.cc).map(unquoteMailbox))
+            recipients.push(...extractEmailsFromAddressList(params.bcc).map(unquoteMailbox))
 
             const consents = await Promise.all(
                 recipients.map(async (email) => {
@@ -1123,7 +1128,7 @@ export class EmailService {
             const unsubscribeHeaders = !isTransactionalEmail
                 ? this.generateUnsubscribeHeaders({
                       team_id: result.invocation.teamId,
-                      identifier: params.to.email,
+                      identifier: unquoteMailbox(params.to.email),
                   })
                 : []
             sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
