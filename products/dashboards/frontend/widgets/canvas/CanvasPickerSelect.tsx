@@ -30,7 +30,8 @@ export function CanvasPickerSelect({
     dataAttr,
 }: CanvasPickerSelectProps): JSX.Element {
     const logic = canvasPickerLogic({ pickerKey })
-    const { canvasOptions, canvasOptionsLoading, canvasOptionsFailed, selectedCanvas, search } = useValues(logic)
+    const { canvasOptions, canvasOptionsLoading, canvasOptionsFailed, selectedCanvas, selectedCanvasFailed, search } =
+        useValues(logic)
     const { ensureOptionsLoaded, retryLoadOptions, setSearch, ensureSelectedLoaded } = useActions(logic)
 
     // Resolve the selected label even when it falls outside the loaded/searched page.
@@ -67,14 +68,26 @@ export function CanvasPickerSelect({
             value={value ? [value] : []}
             options={options}
             // A failed request must stay visible even when a resolved selection or earlier results fill the list,
-            // so the error and retry live in the always-rendered title rather than the empty state.
+            // so the errors and retries live in the always-rendered title rather than the empty state.
             title={
-                canvasOptionsFailed ? (
-                    <span className="flex items-center justify-between gap-2 font-normal">
-                        <span className="text-danger">Couldn't load canvases.</span>
-                        <LemonButton size="xsmall" type="secondary" onClick={() => retryLoadOptions()}>
-                            Try again
-                        </LemonButton>
+                canvasOptionsFailed || (value && selectedCanvasFailed) ? (
+                    <span className="flex flex-col gap-1 font-normal">
+                        {value && selectedCanvasFailed ? (
+                            <span className="flex items-center justify-between gap-2">
+                                <span className="text-danger">Couldn't load the selected canvas.</span>
+                                <LemonButton size="xsmall" type="secondary" onClick={() => ensureSelectedLoaded(value)}>
+                                    Try again
+                                </LemonButton>
+                            </span>
+                        ) : null}
+                        {canvasOptionsFailed ? (
+                            <span className="flex items-center justify-between gap-2">
+                                <span className="text-danger">Couldn't load canvases.</span>
+                                <LemonButton size="xsmall" type="secondary" onClick={() => retryLoadOptions()}>
+                                    Try again
+                                </LemonButton>
+                            </span>
+                        ) : null}
                     </span>
                 ) : undefined
             }
@@ -88,7 +101,13 @@ export function CanvasPickerSelect({
                     </p>
                 )
             }
-            onFocus={() => ensureOptionsLoaded()}
+            onFocus={() => {
+                ensureOptionsLoaded()
+                // Refocusing also retries a selected canvas that failed to resolve.
+                if (value && selectedCanvasFailed) {
+                    ensureSelectedLoaded(value)
+                }
+            }}
             onInputChange={(text) => setSearch(text)}
             onChange={(values) => onChange(values.length > 0 ? values[0] : null)}
             data-attr={dataAttr}
