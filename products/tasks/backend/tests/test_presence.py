@@ -220,9 +220,8 @@ class PresenceFanoutSuppressionTestCase(TestCase):
             ("presence_on_other_task_suppresses_none", "other_task_only", "none"),
         ]
     )
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_fanout_suppression_matrix(self, _name, scenario, expected, mock_delay, _flag) -> None:
+    def test_fanout_suppression_matrix(self, _name, scenario, expected, mock_delay) -> None:
         if scenario == "one_active":
             self._present(self.device_a, expires_in=timedelta(seconds=30))
         elif scenario == "both_active":
