@@ -13,7 +13,12 @@ import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { ModelAccessEnumApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    ModelAccessEnumApi,
+    type SandboxCustomImageDTOApi,
+    type SandboxEnvironmentDTOApi,
+    TaskRuntimeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
 import { codexBillingLogic } from '../../logics/codexBillingLogic'
@@ -416,6 +421,45 @@ describe('taskTrackerSceneLogic', () => {
             { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
         ])
         expect(router.values.location.pathname).toContain('/tasks/new-task')
+    })
+
+    it.each([
+        ['a picked environment', 'environment:env-1', null, { sandbox_environment_id: 'env-1' }],
+        ['a picked image', 'image:img-1', null, { custom_image_id: 'img-1' }],
+        ['the starred environment', undefined, 'environment:env-1', { sandbox_environment_id: 'env-1' }],
+        ['no deleted starred environment', undefined, 'environment:env-gone', {}],
+        ['no environment once the default is picked', null, 'environment:env-1', {}],
+    ])('sends %s with the task and its run', async (_case, picked, starred, expected) => {
+        useMocks({
+            get: {
+                '/api/projects/:team/tasks/@me/config/': {
+                    ...myConfigResponse(null),
+                    task_defaults: { default_cloud_target: starred },
+                },
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_QUILL], { [FEATURE_FLAGS.PHAI_QUILL]: true })
+        logic.mount()
+        await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+        logic.actions.setCloudTargets(
+            [{ id: 'env-1', name: 'Locked down' } as SandboxEnvironmentDTOApi],
+            [{ id: 'img-1', name: 'Node image', status: 'ready' } as SandboxCustomImageDTOApi]
+        )
+        if (picked !== undefined) {
+            logic.actions.pickCloudTarget(picked)
+        }
+        logic.actions.setNewTaskData({ description: 'do the thing' })
+        logic.actions.submitNewTask()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        const targetOf = (body: Record<string, any> | null): Record<string, any> => ({
+            sandbox_environment_id: body?.sandbox_environment_id,
+            custom_image_id: body?.custom_image_id,
+        })
+        expect(targetOf(createBody)).toEqual(expected)
+        expect(targetOf(runBody)).toEqual(expected)
     })
 
     // The backend strips `pending_user_message` and echoes the stripped text. An optimistic bubble that keeps

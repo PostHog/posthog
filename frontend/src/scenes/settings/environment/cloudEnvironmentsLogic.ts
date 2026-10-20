@@ -73,6 +73,9 @@ export interface cloudEnvironmentsLogicActions {
     editEnvironment: (environment: SandboxEnvironmentDTOApi) => {
         environment: SandboxEnvironmentDTOApi
     }
+    environmentCreated: (environment: SandboxEnvironmentDTOApi) => {
+        environment: SandboxEnvironmentDTOApi
+    }
     loadEnvironments: () => any
     loadEnvironmentsFailure: (
         error: string,
@@ -128,6 +131,7 @@ export const cloudEnvironmentsLogic = kea<cloudEnvironmentsLogicType>([
         closeDraft: true,
         saveDraft: true,
         saveDraftDone: true,
+        environmentCreated: (environment: SandboxEnvironmentDTOApi) => ({ environment }),
         deleteEnvironment: (environment: SandboxEnvironmentDTOApi) => ({ environment }),
     }),
     loaders(({ values }) => ({
@@ -212,7 +216,7 @@ export const cloudEnvironmentsLogic = kea<cloudEnvironmentsLogicType>([
                 if (draft.id) {
                     await sandboxPartialUpdate(String(currentProjectId), draft.id, body)
                 } else {
-                    await sandboxCreate(String(currentProjectId), body)
+                    actions.environmentCreated(await sandboxCreate(String(currentProjectId), body))
                 }
                 lemonToast.success(draft.id ? 'Environment saved' : 'Environment created')
                 actions.closeDraft()

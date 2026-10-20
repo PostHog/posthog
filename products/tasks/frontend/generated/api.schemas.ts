@@ -4446,6 +4446,12 @@ export interface TasksTaskDefaultsApi {
      * @nullable
      */
     auto_publish_cloud_runs: boolean | null
+    /**
+     * The cloud target new tasks start on, as `environment:<sandbox environment id>` or `image:<custom image id>`. Null means the default sandbox. Clients fall back to the default sandbox when the target no longer exists.
+     * @nullable
+     * @pattern ^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+     */
+    default_cloud_target: string | null
 }
 
 /**
@@ -4481,6 +4487,12 @@ export interface TasksTaskDefaultsUpdateApi {
     start_in_plan_mode?: boolean
     /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
     auto_publish_cloud_runs?: boolean
+    /**
+     * The cloud target new tasks start on, as `environment:<sandbox environment id>` or `image:<custom image id>`. Null means the default sandbox. Clients fall back to the default sandbox when the target no longer exists.
+     * @nullable
+     * @pattern ^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+     */
+    default_cloud_target?: string | null
 }
 
 /**
