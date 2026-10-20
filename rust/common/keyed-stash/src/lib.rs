@@ -184,6 +184,8 @@ impl<K: Eq + Hash + Clone, T> KeyedStash<K, T> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use proptest::prelude::*;
 
@@ -279,6 +281,10 @@ mod tests {
                         let taken = q.take_front(&key, max as usize);
                         q.put_back(&key, taken);
                     }
+                }
+                let deferring: HashSet<u8> = q.deferring_keys().copied().collect();
+                for k in 0u8..4 {
+                    prop_assert_eq!(deferring.contains(&k), q.is_deferring(&k));
                 }
             }
 

@@ -25,7 +25,7 @@ use personhog_proto::personhog::types::v1::{
     FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest, GetPersonResponse,
     Person, SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
-use personhog_router::backend::{LeaderBackend, LeaderBackendConfig, StashDecision, StashTable};
+use personhog_router::backend::{LeaderBackend, LeaderBackendConfig, StashTable};
 use personhog_router::config::Http2Windows;
 use personhog_router::stash_handler::RouterStashHandler;
 use prost::Message;
@@ -67,10 +67,20 @@ fn changelog() -> LiveChangelog {
 /// Build a `LeaderBackend` whose routing table maps every partition at the
 /// given `leader_addr` and whose stash uses the supplied bounds.
 async fn make_backend(leader_addr: std::net::SocketAddr, stash: StashTable) -> Arc<LeaderBackend> {
+    backend_with(leader_addr, changelog(), stash, NUM_PARTITIONS).await
+}
+
+/// A backend routing partitions `0..routed` to `leader_addr`, reading the count from `changelog`.
+async fn backend_with(
+    leader_addr: std::net::SocketAddr,
+    changelog: LiveChangelog,
+    stash: StashTable,
+    routed: u32,
+) -> Arc<LeaderBackend> {
     let routing_table = Arc::new(RwLock::new(HashMap::new()));
     {
         let mut table = routing_table.write().await;
-        for partition in 0..NUM_PARTITIONS {
+        for partition in 0..routed {
             table.insert(partition, "leader-0".to_string());
         }
     }
@@ -84,10 +94,7 @@ async fn make_backend(leader_addr: std::net::SocketAddr, stash: StashTable) -> A
         routing_table,
         resolver,
         LeaderBackendConfig {
-            changelog: LiveChangelog::new(ChangelogConfig::new(
-                "personhog_updates",
-                NUM_PARTITIONS,
-            )),
+            changelog,
             timeout: Duration::from_secs(5),
             num_channels: 1,
             http2_windows: Http2Windows::default(),
@@ -1052,7 +1059,8 @@ fn grown_config() -> ChangelogConfig {
     }
 }
 
-/// The config watch adopts a flip from etcd, and a parked key moves to its new partition's drain.
+/// The config watch adopts a flip from etcd, and the new partition's drain
+/// delivers a parked key once the old partition's drain gives it back.
 #[tokio::test]
 async fn a_flip_in_etcd_moves_a_parked_key_to_its_new_partition() {
     let store = test_store().await;
@@ -1060,40 +1068,48 @@ async fn a_flip_in_etcd_moves_a_parked_key_to_its_new_partition() {
         .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
+    let person = Person {
+        id: moving_person(),
+        ..create_test_person()
+    };
+    let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
     let changelog = changelog();
     let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog.clone());
-    let backend = Arc::new(LeaderBackend::new(
-        Arc::new(RwLock::new(HashMap::new())),
-        Arc::new(|_: &str| None),
-        LeaderBackendConfig {
-            changelog: changelog.clone(),
-            timeout: Duration::from_secs(5),
-            num_channels: 1,
-            http2_windows: Http2Windows::default(),
-        },
+    let backend = backend_with(
+        leader_addr,
+        changelog.clone(),
         stash.clone(),
-    ));
-    let person_id = moving_person();
-    let new_partition = partition_for_person(1, person_id, NUM_PARTITIONS * 2);
-    stash.begin_stash(partition_for_person(1, person_id, NUM_PARTITIONS));
-    let parked = stash.enqueue_or_forward(
-        "UpdatePersonProperties",
-        &Bytes::from(mk_request(1, person_id, "x@example.com").encode_to_vec()),
-        &HeaderMap::new(),
-        (1, person_id),
-        partition_for_person(1, person_id, NUM_PARTITIONS),
-        false,
-    );
-    assert!(matches!(parked, StashDecision::Stashed(_)));
+        NUM_PARTITIONS * 2,
+    )
+    .await;
+    let handler = RouterStashHandler::new(Arc::clone(&backend), Duration::from_secs(60), 4);
+    let old_partition = partition_for_person(1, person.id, NUM_PARTITIONS);
+    let new_partition = partition_for_person(1, person.id, NUM_PARTITIONS * 2);
+
+    stash.begin_stash(old_partition);
+    let backend_for_call = Arc::clone(&backend);
+    let req = mk_request(1, person.id, "moved@example.com");
+    let pending = tokio::spawn(async move { forward(&backend_for_call, req).await });
+    let holder = stash.drain_session(old_partition).unwrap();
+    let mut held = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let taken = holder.take_for_attempt(usize::MAX);
+            if !taken.is_empty() {
+                return taken;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the old partition's drain takes the parked request");
 
     store.put_changelog_config(&grown_config()).await.unwrap();
     let cancel = CancellationToken::new();
     tokio::spawn(personhog_coordination::changelog::keep_changelog_live(
         Arc::clone(&store),
-        backend.changelog().clone(),
+        changelog.clone(),
         cancel.clone(),
     ));
-
     tokio::time::timeout(Duration::from_secs(5), async {
         while !stash.is_pending(new_partition) {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1101,6 +1117,76 @@ async fn a_flip_in_etcd_moves_a_parked_key_to_its_new_partition() {
     })
     .await
     .expect("the parked key belongs to its partition under the adopted count");
-    assert_eq!(backend.changelog().partitions(), NUM_PARTITIONS * 2);
+
+    let mut drain = tokio::spawn(async move {
+        handler
+            .drain_stash(new_partition, "leader-0", CancellationToken::new())
+            .await
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), &mut drain)
+            .await
+            .is_err(),
+        "the new drain waits while the old one holds the key"
+    );
+    let run = held.remove(0);
+    holder.put_back(run.key, run.entries);
+
+    tokio::time::timeout(Duration::from_secs(5), drain)
+        .await
+        .expect("the drain settles once it delivers the key")
+        .expect("drain task must not panic")
+        .expect("drain succeeds");
+    decode_response::<UpdatePersonPropertiesResponse>(pending.await.unwrap())
+        .await
+        .expect("the parked write is delivered through the new partition");
     cancel.cancel();
+}
+
+/// A retry after a bounce recomputes the partition, so it sees the freeze
+/// on the key's new partition instead of forwarding under the old count.
+#[tokio::test]
+async fn a_retry_after_a_bounce_routes_by_the_adopted_count() {
+    let person_id = moving_person();
+    let new_partition = partition_for_person(1, person_id, NUM_PARTITIONS * 2);
+    let changelog = changelog();
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog.clone());
+    let flipped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let service = TestLeaderService::new().fenced().on_write({
+        let (changelog, stash) = (changelog.clone(), stash.clone());
+        move || {
+            if !flipped.swap(true, Ordering::SeqCst) {
+                changelog.adopt(&grown_config());
+                stash.begin_stash(new_partition);
+            }
+        }
+    });
+    let leader_addr = start_test_leader(service).await;
+    let backend = backend_with(leader_addr, changelog, stash.clone(), NUM_PARTITIONS * 2).await;
+
+    let req = mk_request(1, person_id, "retried@example.com");
+    let pending = tokio::spawn(async move { forward(&backend, req).await });
+    let session = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(session) = stash.drain_session(new_partition) {
+                return session;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the first attempt freezes the new partition");
+    let taken = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let taken = session.take_for_attempt(usize::MAX);
+            if !taken.is_empty() {
+                return taken;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the retry parks behind the new partition's freeze");
+    assert_eq!(taken[0].key, (1, person_id));
+    assert!(!pending.is_finished());
 }

@@ -740,6 +740,9 @@ pub struct TestLeaderService {
     /// partition fence above this one names its holder, which is the fact
     /// the refusal has to carry all the way back to the caller.
     person_fence_op: Arc<Mutex<Option<String>>>,
+    /// Runs on every write before it is answered, so a test can change the
+    /// router's view at an exact point between its attempts.
+    on_write: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl TestLeaderService {
@@ -748,7 +751,13 @@ impl TestLeaderService {
             persons: DashMap::new(),
             fenced: Arc::new(AtomicBool::new(false)),
             person_fence_op: Arc::new(Mutex::new(None)),
+            on_write: None,
         }
+    }
+
+    pub fn on_write(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
+        self.on_write = Some(Arc::new(hook));
+        self
     }
 
     /// Refuse every write for this person the way the leader refuses one
@@ -868,6 +877,9 @@ impl PersonHogLeader for TestLeaderService {
         request: Request<UpdatePersonPropertiesRequest>,
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         require_partition_metadata(&request)?;
+        if let Some(hook) = &self.on_write {
+            hook();
+        }
         let req = request.into_inner();
         if self.fenced.load(Ordering::SeqCst) {
             return Err(Status::failed_precondition(

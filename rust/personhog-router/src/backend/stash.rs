@@ -288,10 +288,13 @@ impl StashTable {
         }
 
         let request_size = approximate_size(frame);
-        let (messages, bytes) = inner
-            .usage
-            .get(&partition)
-            .map_or((0, 0), |usage| (usage.messages, usage.bytes));
+        // The check and the charge share one hold of the partition's entry, since
+        // the shard lock only serializes parks of keys in the same shard.
+        let usage = inner.usage.entry(partition);
+        let (messages, bytes) = match &usage {
+            dashmap::Entry::Occupied(entry) => (entry.get().messages, entry.get().bytes),
+            dashmap::Entry::Vacant(_) => (0, 0),
+        };
         let rejected = if messages >= inner.max_messages {
             Some(RejectCause::MaxMessages)
         } else if bytes.saturating_add(request_size) > inner.max_bytes {
@@ -300,10 +303,15 @@ impl StashTable {
             None
         };
         if let Some(cause) = rejected {
+            drop(usage);
             metrics::counter!("personhog_router_stash_rejected_total", "cause" => cause.label())
                 .increment(1);
             return StashDecision::Rejected;
         }
+        let mut charged = usage.or_default();
+        charged.messages += 1;
+        charged.bytes += request_size;
+        drop(charged);
 
         let (tx, rx) = oneshot::channel();
         queue.push(
@@ -319,9 +327,6 @@ impl StashTable {
             },
         );
         shard.held.fetch_add(1, Ordering::AcqRel);
-        let mut usage = inner.usage.entry(partition).or_default();
-        usage.messages += 1;
-        usage.bytes += request_size;
         metrics::counter!("personhog_router_stash_enqueued_total").increment(1);
         // Occupancy counts a parked entry until its outcome resolves.
         metrics::gauge!("personhog_router_stash_queued_messages").increment(1.0);
@@ -845,10 +850,16 @@ mod tests {
             StashDecision::Stashed(_)
         ));
         let holder = table.drain_session(old).unwrap();
-        let _head = holder.take_for_attempt(usize::MAX);
+        let mut head = holder.take_for_attempt(usize::MAX);
 
         adopt(&changelog, 4);
         assert!(table.is_pending(new));
+
+        let run = head.remove(0);
+        holder.put_back(run.key, run.entries);
+        assert!(holder.take_for_attempt(usize::MAX).is_empty());
+        let taker = table.drain_session(new).unwrap();
+        assert_eq!(taker.take_for_attempt(usize::MAX).len(), 1);
     }
 
     /// A freeze opened while a drain runs belongs to the next handoff;
