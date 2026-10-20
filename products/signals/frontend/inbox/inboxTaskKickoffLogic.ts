@@ -191,6 +191,23 @@ export const MERGE_PR_REQUEST = `Get this approved PR merged. Fix failing CI and
 /** What "Make it green" in the Ask AI menu sends. The run fixes CI and stops: it never merges. */
 export const FIX_CI_REQUEST = `Make CI green on this PR. Fix the failing checks and resolve any merge conflicts, then stop. Do not merge it. Ask me before you make a decision I did not make.`
 
+/**
+ * The selected PR's URL, rebuilt from its owner, repository, and number, when the fresh report still
+ * lists it as open. Rebuilding keeps any extra path text in a stored URL out of trusted instructions.
+ */
+export function selectedOpenPullRequestUrl(
+    report: SignalReport | null,
+    pullRequestUrl: string | undefined
+): string | null {
+    const selected = reportPullRequests(report).find(
+        (pr) => pr.url === pullRequestUrl && !pr.merged && pr.state !== 'closed' && pr.state !== 'merged'
+    )
+    const match = selected?.url.match(
+        /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/(\d+)(?:[/?#]|$)/
+    )
+    return match ? `https://github.com/${match[1]}/${match[2]}/pull/${match[3]}` : null
+}
+
 /** Pins a Make it green run from the inbox to the pull request the person had selected. */
 export function fixCiSelectedPullRequestInstructions(pullRequestUrl: string): string {
     return `The person chose the pull request at ${pullRequestUrl}. Fix CI on that pull request only, even when another open pull request also has failing checks.`
@@ -859,10 +876,11 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             try {
                 const messageText = discussReportMessage(agentQuestion ?? question)
                 // The pane enables Make it green from the selected PR's checks, so the run works on that PR.
-                const selectedPullRequest: AttachedContextItem[] =
-                    intent === 'fix_ci' && pullRequestUrl
-                        ? [{ type: 'instructions', value: fixCiSelectedPullRequestInstructions(pullRequestUrl) }]
-                        : []
+                const pinnedPullRequestUrl =
+                    intent === 'fix_ci' ? selectedOpenPullRequestUrl(currentReport, pullRequestUrl) : null
+                const selectedPullRequest: AttachedContextItem[] = pinnedPullRequestUrl
+                    ? [{ type: 'instructions', value: fixCiSelectedPullRequestInstructions(pinnedPullRequestUrl) }]
+                    : []
                 const prompt = buildDiscussReportPrompt(currentReport, reportUrl, messageText, intent, [
                     ...selectedPullRequest,
                     ...contextItems,
