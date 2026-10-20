@@ -845,9 +845,25 @@ describe("App", () => {
       "send_followup failed: Sandbox returned 502",
       true,
     ],
+    // The log already holds the same words, as it does when a resend repeats the message a stopped sandbox never took.
+    [
+      "from a sandbox that stopped at its time limit, on a message the log already shows, brings the run back on the next reply",
+      5_000,
+      true,
+      "This run's sandbox has stopped, so your message wasn't delivered. Start a new run to continue.",
+      true,
+      "First question",
+    ],
   ])(
     "takes a cloud message the backend could not deliver: a failure %s",
-    async (_, failedAfterMs, putBack, detail, sandboxGone) => {
+    async (
+      _,
+      failedAfterMs,
+      putBack,
+      detail,
+      sandboxGone,
+      typed = "are you there",
+    ) => {
       saveLayout(openTask(initialLayout(), "cloud-chat"));
       const cloudTask = {
         id: "cloud-chat",
@@ -939,10 +955,12 @@ describe("App", () => {
       );
       try {
         await vi.waitFor(() => expect(watchers.length).toBeGreaterThan(0));
-        mouse.emit("keys", "are you there");
+        mouse.emit("keys", typed);
         mouse.emit("keys", "\r");
         await vi.waitFor(() => expect(reply).toHaveBeenCalled());
         const sent = output().length;
+        // The backend's verdict lands a moment after the send, once the pane has drawn the message.
+        await new Promise((resolve) => setTimeout(resolve, 50));
         showView(
           viewWith([
             {
