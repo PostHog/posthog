@@ -5,7 +5,7 @@ from io import BytesIO
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -543,7 +543,7 @@ class TestAppRuntimeRestartApp(BaseTest):
                 service.start_app(app)
 
 
-class TestWaitForHealth(BaseTest):
+class TestWaitForHealth(SimpleTestCase):
     def test_returns_true_on_200(self):
         from products.streamlit_apps.backend.logic.app_runtime import _wait_for_health
 
@@ -808,7 +808,7 @@ class TestBuildSandboxConfig(BaseTest):
         assert f"posthog.app_id={app.id}" in attrs
 
 
-class TestGetOtelLogsConfig(BaseTest):
+class TestGetOtelLogsConfig(SimpleTestCase):
     @parameterized.expand(
         [
             ("dev_or_self_hosted", False, None, "https://example.ngrok.io/i/v1/logs", "phc_local"),
@@ -931,7 +931,7 @@ class TestAppRuntimeConnectUrl(BaseTest):
         assert record.status == StreamlitAppSandbox.Status.STOPPED
 
 
-class TestSandboxCallbackUrl(BaseTest):
+class TestSandboxCallbackUrl(SimpleTestCase):
     """Docker sandboxes reach the host via host.docker.internal (applied to
     SITE_URL by DockerSandbox), so they must ignore the STREAMLIT_SANDBOX_CALLBACK_URL
     tunnel override that only Modal needs. Honoring a stale tunnel here points a

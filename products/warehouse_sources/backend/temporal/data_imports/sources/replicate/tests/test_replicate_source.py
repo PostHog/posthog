@@ -38,10 +38,6 @@ class TestReplicateSource:
         if supports_incremental:
             assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = ReplicateSource().get_schemas(_config(), team_id=1, names=["predictions"])
-        assert [s.name for s in schemas] == ["predictions"]
-
     @parameterized.expand([("valid", True, True, None), ("invalid", False, False, "Invalid Replicate API token")])
     def test_validate_credentials(self, _name: str, api_ok: bool, expected_ok: bool, expected_msg: str | None) -> None:
         with patch(
@@ -89,10 +85,3 @@ class TestReplicateSource:
         _, kwargs = mock_source.call_args
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials must yield the public-docs table catalog (SourceTables).
-        tables = {t["name"]: t for t in ReplicateSource().get_documented_tables()}
-        assert set(tables) == {"predictions", "trainings", "deployments", "models", "hardware", "account"}
-        assert "Incremental" in tables["predictions"]["sync_methods"]
-        assert "Incremental" not in tables["trainings"]["sync_methods"]

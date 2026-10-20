@@ -14,7 +14,7 @@ import uuid
 import datetime
 import resource
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, cast
 
 from django.conf import settings
@@ -26,8 +26,9 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
@@ -154,6 +155,7 @@ def _live_vectors(since: datetime.datetime, rendering: str) -> dict[str, tuple[i
             },
             settings=CANDIDATE_VECTORS_QUERY_SETTINGS,
             workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.SIGNALS,
         )
         or [],
     )
@@ -183,23 +185,28 @@ def _scorable_report_teams(
     return teams
 
 
-def _latest_scores(report_ids: Sequence[str]) -> dict[str, _ScoreStamp | None]:
+def _latest_scores(report_ids_by_team: Mapping[int, Sequence[str]]) -> dict[str, _ScoreStamp | None]:
     """The latest `ranking_score` stamp of each report that has one. A row that no longer parses is None."""
     scores: dict[str, _ScoreStamp | None] = {}
-    for batch in _batches(report_ids):
-        rows = (
-            SignalReportArtefact.objects.filter(
-                report_id__in=batch, type=SignalReportArtefact.ArtefactType.RANKING_SCORE
+    for team_id, report_ids in report_ids_by_team.items():
+        for batch in _batches(report_ids):
+            # Pick the newest id per report first, so Postgres reads `content` once per report, not once per score.
+            latest_ids = (
+                SignalReportArtefact.objects.filter(
+                    team_id=team_id, report_id__in=batch, type=SignalReportArtefact.ArtefactType.RANKING_SCORE
+                )
+                .order_by("report_id", "-created_at")
+                .distinct("report_id")
+                .values("id")
             )
-            .order_by("report_id", "-created_at")
-            .distinct("report_id")
-            .values_list("report_id", "content")
-        )
-        for report_id, content in rows:
-            try:
-                scores[str(report_id)] = _ScoreStamp.model_validate_json(content)
-            except pydantic.ValidationError:
-                scores[str(report_id)] = None
+            rows = SignalReportArtefact.objects.filter(team_id=team_id, id__in=latest_ids).values_list(
+                "report_id", "content"
+            )
+            for report_id, content in rows:
+                try:
+                    scores[str(report_id)] = _ScoreStamp.model_validate_json(content)
+                except pydantic.ValidationError:
+                    scores[str(report_id)] = None
     return scores
 
 
@@ -230,7 +237,10 @@ def reports_due_for_scoring(
     vectors = _live_vectors(since, rendering)
     report_teams = _scorable_report_teams(list(vectors), now, since)
     kept = [report_id for report_id, team_id in report_teams.items() if vectors[report_id][0] == team_id]
-    latest = _latest_scores(kept)
+    kept_by_team: dict[int, list[str]] = defaultdict(list)
+    for report_id in kept:
+        kept_by_team[report_teams[report_id]].append(report_id)
+    latest = _latest_scores(kept_by_team)
 
     due: list[tuple[datetime.datetime | None, ScoringCandidate]] = []
     for report_id in kept:
@@ -294,6 +304,7 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         peak_rss_mb=_peak_rss_mb(),
     )
 
+    project_vectors = scorer.pass_project_vectors(serving, list(ids_by_team))
     # A scorer call holds the vectors and matrices of all its reports, so one call scores at most one
     # vector read of one team. Each call persists its scores, so a pass that stops keeps its progress.
     chunks = [
@@ -312,7 +323,13 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
                 continue
             try:
                 outcomes = scorer.score_reports(
-                    team_id, list(report_ids), persist=True, now=now, serving=serving, capture=capture
+                    team_id,
+                    list(report_ids),
+                    persist=True,
+                    now=now,
+                    serving=serving,
+                    capture=capture,
+                    project_vectors=project_vectors,
                 )
             except (scorer.ScoringError, ModelLoadError):
                 # A pass without a served score is worse than no pass.

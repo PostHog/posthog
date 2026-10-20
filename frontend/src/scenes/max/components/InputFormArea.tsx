@@ -353,6 +353,7 @@ interface DangerousOperationInputProps {
 
 function DangerousOperationInput({ operation }: DangerousOperationInputProps): JSX.Element {
     const { continueAfterApproval, continueAfterRejection } = useActions(maxThreadLogic)
+    const { streamingActive } = useValues(maxThreadLogic)
     const [status, setStatus] = useState<'pending' | 'approving' | 'rejecting' | 'custom'>('pending')
 
     const options: Option[] = [
@@ -397,6 +398,7 @@ function DangerousOperationInput({ operation }: DangerousOperationInputProps): J
                 allowCustom
                 customPlaceholder="Explain what you'd like instead..."
                 onCustomSubmit={handleCustomSubmit}
+                disabled={streamingActive}
                 loading={isLoading}
                 loadingMessage={
                     status === 'approving'

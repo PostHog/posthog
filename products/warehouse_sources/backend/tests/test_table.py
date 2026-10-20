@@ -176,6 +176,11 @@ class TestSafeExposeChError:
         [
             ("DB::Exception: Access Denied: while reading key: my-data/file.csv, S3 exception", "s3:GetObject"),
             ("DB::Exception: Could not list objects in bucket my-bucket, S3 exception", "s3:ListBucket"),
+            (
+                "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                "HTTP response code: 403: while reading 'my-data/file.csv')",
+                "s3:GetObject",
+            ),
         ],
     )
     def test_native_s3_access_denials_name_the_iam_action_to_check(
@@ -666,6 +671,19 @@ class TestUrlPatternChangeGuard(BaseTest):
 
         table.refresh_from_db()
         assert table.deleted is True
+
+
+class TestRowCountColumnWidth(BaseTest):
+    def test_row_count_beyond_32_bit_range_can_be_saved(self) -> None:
+        # Postgres's `integer` column tops out at 2,147,483,647, so a synced table with more
+        # rows than that must still be able to save through table.save().
+        table = DataWarehouseTable(
+            name="t", format="Delta", team=self.team, url_pattern="s3://bucket/team_1/t", row_count=2_147_483_648
+        )
+        table.save()
+
+        table.refresh_from_db()
+        assert table.row_count == 2_147_483_648
 
 
 class TestModelsNamespaceGuard(BaseTest):

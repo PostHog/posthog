@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodemagicSource(ResumableSource[CodemagicSourceConfig, CodemagicResumeConfig]):
+    codebase_detection = detect(env=("^CODEMAGIC_", "^CM_API_TOKEN$"), pypi=("codemagic-cli-tools",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.codemagic.io/rest-api/codemagic-rest-api/"
     supported_versions = SUPPORTED_VERSIONS

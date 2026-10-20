@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,22 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GcoreSource(ResumableSource[GcoreSourceConfig, GcoreCheckpoint]):
+    codebase_detection = detect(
+        env=("^GCORE_",),
+        pypi=("gcore",),
+        go=(
+            "github.com/G-Core/gcore-go",
+            "github.com/G-Core/gcorelabscloud-go",
+            "github.com/G-Core/external-dns-gcore-webhook",
+            "github.com/G-Core/gcore-dns-sdk-go",
+            "github.com/G-Core/gcore-iam-sdk-go",
+            "github.com/G-Core/gcore-sfs-controller",
+            "github.com/G-Core/gcore-waap-sdk-go",
+            "github.com/G-Core/gcorelabscdn-go",
+            "github.com/G-core/gcore-cli",
+        ),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.gcore.com/api-reference/overview"
 

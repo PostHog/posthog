@@ -802,21 +802,6 @@ export function TaxonomicFilterMenu({
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
-                {recentEntries.length > 0 && (
-                    <>
-                        {!useInputTrigger && <DropdownMenuSeparator />}
-                        <DropdownMenuItem onClick={() => selectMenuOption('recent', () => openCombobox('recent'))}>
-                            Recent
-                            <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
-                        </DropdownMenuItem>
-                    </>
-                )}
-                {pinnedEntries.length > 0 && (
-                    <DropdownMenuItem onClick={() => selectMenuOption('pinned', () => openCombobox('pinned'))}>
-                        Pinned
-                        <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
-                    </DropdownMenuItem>
-                )}
                 {(hasDwh || hasHogql) && <DropdownMenuSeparator />}
                 {hasDwh && (
                     <DropdownMenuItem

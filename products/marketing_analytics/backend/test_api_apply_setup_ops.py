@@ -419,11 +419,17 @@ class TestApplySetupOpsFeatureFlag(APIBaseTest):
         get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
 
-    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
-    def test_setup_availability(self, setup: bool, dashboard: bool) -> None:
+    @parameterized.expand(
+        [(False, False, False), (False, False, True), (False, True, False), (True, False, False), (True, True, True)]
+    )
+    def test_setup_availability(self, setup: bool, dashboard: bool, mcp: bool) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        flags = {"marketing-analytics-setup": setup, "new-marketing-analytics-dashboard": dashboard}
+        flags = {
+            "marketing-analytics-setup": setup,
+            "new-marketing-analytics-dashboard": dashboard,
+            "marketing-analytics-setup-plan-mcp": mcp,
+        }
         with patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flags[flag]):
             response = self.client.post(
                 self.url,

@@ -267,7 +267,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     urlToAction(({ actions, values }) => {
         return {
-            '**/error_tracking': (_, params, hashParams) => {
+            '**/error-tracking': (_, params, hashParams) => {
                 if (params.activeTab && !equal(params.activeTab, values.activeTab)) {
                     actions.setActiveTab(params.activeTab)
                 }

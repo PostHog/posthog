@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +47,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZonkaFeedbackSource(ResumableSource[ZonkaFeedbackSourceConfig, ZonkaFeedbackResumeConfig]):
+    codebase_detection = detect(env=("^(ZONKA_FEEDBACK|ZONKAFEEDBACK)_",), script_hosts=("us1.zonkasurvey.com",))
+
     api_docs_url = "https://apidocs.zonkafeedback.com/"
 
     supported_versions = (ZONKA_API_VERSION_V1, ZONKA_API_VERSION_V2_1)
@@ -136,8 +139,7 @@ An Admin can generate an auth token under **Company Settings → Developers → 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — Zonka Feedback's list endpoints expose no server-side
-        # timestamp filter (INCREMENTAL_FIELDS is empty), so there is no incremental cursor to advance.
+        # Only `distribution_logs` has a server-side date filter; every other endpoint is full refresh.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -175,4 +177,7 @@ An Admin can generate an auth token under **Company Settings → Developers → 
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )

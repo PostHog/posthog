@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -22,6 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     OwnerrezSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.ownerrez import (
+    OWNERREZ_API_VERSION_V1,
+    OWNERREZ_API_VERSION_V2,
     OwnerRezResumeConfig,
     ownerrez_source,
     validate_credentials as validate_ownerrez_credentials,
@@ -35,10 +38,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OwnerrezSource(ResumableSource[OwnerrezSourceConfig, OwnerRezResumeConfig]):
+    codebase_detection = detect(env=("^OWNERREZ_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    # OwnerRez's API is unversioned in practice: paths are pinned under /v2 with no dated
-    # version header, param, or named release to declare.
+    supported_versions = (OWNERREZ_API_VERSION_V1, OWNERREZ_API_VERSION_V2)
+    default_version = OWNERREZ_API_VERSION_V2
     api_docs_url = "https://api.ownerreservations.com/help/v2"
 
     @property

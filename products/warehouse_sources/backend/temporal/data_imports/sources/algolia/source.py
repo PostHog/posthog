@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -61,6 +62,73 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class AlgoliaSource(ResumableSource[AlgoliaSourceConfig, AlgoliaResumeConfig]):
+    codebase_detection = detect(
+        env=("^ALGOLIA_",),
+        npm=("algoliasearch", "instantsearch.js", "react-instantsearch"),
+        pypi=("algoliasearch",),
+        cocoapods=("AlgoliaSearchClient",),
+        composer=(
+            "algolia/algoliasearch-client-php",
+            "algolia/algolia-search-bundle",
+            "algolia/algoliasearch-adapter-magento-2",
+            "algolia/algoliasearch-custom-algolia-magento-2",
+            "algolia/algoliasearch-ingestion-magento-2",
+            "algolia/algoliasearch-inventory-magento-2",
+            "algolia/algoliasearch-laravel",
+            "algolia/algoliasearch-laravel-4",
+            "algolia/algoliasearch-magento",
+            "algolia/algoliasearch-magento-2",
+            "algolia/algoliasearch-magento-2-es-compatibility",
+            "algolia/algoliasearch-nette",
+            "algolia/algoliasearch-wordpress",
+            "algolia/laravel-scout-algolia-macros",
+        ),
+        go=("github.com/algolia/algoliasearch-client-go",),
+        maven=(
+            "com.algolia:algoliasearch",
+            "com.algolia:algoliasearch-client-kotlin",
+            "com.algolia:algoliasearch-android",
+            "com.algolia:algoliasearch-apache",
+            "com.algolia:algoliasearch-apache-uber",
+            "com.algolia:algoliasearch-appengine",
+            "com.algolia:algoliasearch-async",
+            "com.algolia:algoliasearch-client-java",
+            "com.algolia:algoliasearch-client-kotlin-android",
+            "com.algolia:algoliasearch-client-kotlin-common",
+            "com.algolia:algoliasearch-client-kotlin-iosarm64",
+            "com.algolia:algoliasearch-client-kotlin-iossimulatorarm64",
+            "com.algolia:algoliasearch-client-kotlin-iosx64",
+            "com.algolia:algoliasearch-client-kotlin-jvm",
+            "com.algolia:algoliasearch-client-kotlin-macosarm64",
+            "com.algolia:algoliasearch-client-kotlin-macosx64",
+            "com.algolia:algoliasearch-client-kotlin-metadata",
+            "com.algolia:algoliasearch-common",
+            "com.algolia:algoliasearch-core",
+            "com.algolia:algoliasearch-core-uber",
+            "com.algolia:algoliasearch-java-net",
+            "com.algolia:algoliasearch-offline-android",
+            "com.algolia:algoliasearch-offline-core-android",
+            "com.algolia:algoliasearch-scala_2.11",
+            "com.algolia:algoliasearch-scala_2.12",
+            "com.algolia:algoliasearch-scala_2.13",
+            "com.algolia:algoliasearch-scala_3",
+        ),
+        pub=(
+            "algolia_client_search",
+            "algoliasearch",
+            "algolia_client_agent_studio",
+            "algolia_client_composition",
+            "algolia_client_core",
+            "algolia_client_ingestion",
+            "algolia_client_insights",
+            "algolia_client_recommend",
+            "algolia_helper_flutter",
+            "algolia_insights",
+        ),
+        rubygems=("algolia", "algoliasearch", "algoliasearch-rails"),
+        swiftpm=("github.com/algolia/algoliasearch-client-swift",),
+    )
+
     api_docs_url = "https://www.algolia.com/doc/rest-api/search"
 
     @property

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FramerSource(SimpleSource[FramerSourceConfig]):
+    codebase_detection = detect(npm=("framer", "framer-plugin"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Framer has no REST API; the official surface is the `framer-api` SDK's WebSocket
     # protocol, and the pinned version is the SDK release whose message contract we speak
@@ -59,14 +62,19 @@ class FramerSource(SimpleSource[FramerSourceConfig]):
 
     def get_retryable_errors(self) -> set[str]:
         # Transient channel conditions the next Temporal attempt recovers from: a busy
-        # headless pool, a concurrent-session collision, a dropped connection, or an
-        # egress-proxy hiccup.
+        # headless pool, a concurrent-session collision, a dropped connection, an
+        # egress-proxy hiccup, or the server telling us it's overloaded.
         return {
             "Framer API error POOL_EXHAUSTED",
             "Framer API error TOKEN_SESSION_LIMIT",
             "Framer API error TIMEOUT",
             "Framer API error CONNECTION_CLOSED",
             "Framer API error PROXY",
+            "Framer API error SERVER_BUSY",
+            # The server also reports a dropped connection to its headless browser mid-navigation
+            # as a generic `INTERNAL` code, so this one is matched on message text rather than
+            # code — `INTERNAL` alone is too broad to classify as retryable.
+            "Navigation failed: connection",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

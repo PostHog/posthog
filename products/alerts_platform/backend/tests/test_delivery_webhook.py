@@ -14,17 +14,24 @@ from posthog.models.scoping import team_scope
 from posthog.security.pinned_requests import SSRFBlockedError
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
-from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport, alertmanager_body
+from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
     EvaluationAnnouncement,
+    MessageDetail,
+    SourceKind,
 )
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertThread
-from products.alerts_platform.backend.tests.delivery_messages import alert_message, announced_transition, pinned_post
+from products.alerts_platform.backend.tests.delivery_messages import (
+    ALERT_URL,
+    alert_message,
+    announced_transition,
+    pinned_post,
+)
 
 SECRET_URL = "https://hooks.example.com/services/T000/B000/not-a-real-token"
 TARGET = cast(AlertDestinationData, {"type": "webhook", "webhook_url": SECRET_URL})
@@ -47,6 +54,7 @@ class TestAlertmanagerBody(SimpleTestCase):
             "service": "checkout",
             "alertname": "API errors",
             "posthog_configuration_id": "cfg-1",
+            "posthog_source_kind": "logs",
             "posthog_event_kind": "firing",
         }
         annotations = {"summary": "API errors is firing", "description": "Value: 312\nThreshold: > 300", "value": "312"}
@@ -56,7 +64,11 @@ class TestAlertmanagerBody(SimpleTestCase):
             "truncatedAlerts": 0,
             "status": "firing",
             "receiver": "posthog",
-            "groupLabels": {"alertname": "API errors", "posthog_configuration_id": "cfg-1"},
+            "groupLabels": {
+                "alertname": "API errors",
+                "posthog_configuration_id": "cfg-1",
+                "posthog_source_kind": "logs",
+            },
             "commonLabels": labels,
             "commonAnnotations": annotations,
             "externalURL": "https://us.posthog.com",
@@ -67,7 +79,7 @@ class TestAlertmanagerBody(SimpleTestCase):
                     "annotations": annotations,
                     "startsAt": "2026-09-30T09:00:00+00:00",
                     "endsAt": "0001-01-01T00:00:00Z",
-                    "generatorURL": "",
+                    "generatorURL": ALERT_URL,
                     "fingerprint": body["alerts"][0]["fingerprint"],
                 }
             ],
@@ -127,6 +139,30 @@ class TestWebhookTransport(SimpleTestCase):
         assert handle is None
         assert adapter.sent[-1].headers["X-PostHog-Webhook-Version"] == "2"
 
+    def test_a_stored_header_is_sent_but_cannot_change_the_body_version(self) -> None:
+        target = cast(
+            AlertDestinationData,
+            {
+                **TARGET,
+                "webhook_headers": {"Authorization": "Bearer not-a-real-token", "X-PostHog-Webhook-Version": "9"},
+            },
+        )
+
+        with pinned_post(200) as adapter:
+            WebhookTransport().deliver(team_id=2, target=target, message=alert_message())
+
+        assert adapter.sent[-1].headers["Authorization"] == "Bearer not-a-real-token"
+        assert adapter.sent[-1].headers["X-PostHog-Webhook-Version"] == "2"
+
+    def test_destinations_on_one_url_with_different_headers_are_separate_receivers(self) -> None:
+        with_auth = cast(AlertDestinationData, {**TARGET, "webhook_headers": {"Authorization": "Bearer a"}})
+        other_auth = cast(AlertDestinationData, {**TARGET, "webhook_headers": {"Authorization": "Bearer b"}})
+        transport = WebhookTransport()
+
+        assert len({transport.channel_target(t) for t in (TARGET, with_auth, other_auth)}) == 3
+        # A destination without added headers keeps the key its existing threads were stored under.
+        assert transport.channel_target(TARGET) == credential_digest(SECRET_URL)
+
     def test_a_redirect_is_refused_without_reading_its_body(self) -> None:
         with pinned_post(302, headers={"Location": "https://elsewhere.example.com/"}, body=b"x" * 1_000_000) as adapter:
             with pytest.raises(DeliveryError):
@@ -179,6 +215,7 @@ class TestWebhookThreads(APIBaseTest):
 
     def _deliver(self, kind: AlertEventKind, evaluation_key: str) -> Any:
         announcement = EvaluationAnnouncement(
+            source=SourceKind.LOGS,
             configuration_id=str(self.configuration.id),
             alert_name="API errors",
             consecutive_failures=0,

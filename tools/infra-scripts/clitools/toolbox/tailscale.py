@@ -21,6 +21,7 @@ MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
 SKIP_CHECK_ENV_VAR = "TOOLBOX_SKIP_TAILSCALE_CHECK"
 STATUS_TIMEOUT_SECONDS = 10
+POSTHOG_TAILNET = "posthog.com"
 
 # Health warning emitted by `tailscale status` when peers advertise subnet
 # routes but the local node has `--accept-routes` disabled. The cluster
@@ -96,19 +97,95 @@ def warn_if_subnet_routes_rejected(status: dict[str, Any] | None) -> None:
     print(f"   Fix it with: {fix}")  # noqa: T201
 
 
+def _current_tailnet(status: dict[str, Any] | None) -> str | None:
+    return ((status or {}).get("CurrentTailnet") or {}).get("Name")
+
+
+def _confirm_switch(tailnet: str) -> bool:
+    """Ask before switching tailnets, defaulting to yes; a non-TTY stdin never switches so automation does not block."""
+    if not sys.stdin.isatty():
+        return False
+    try:
+        response = input(f"❓ Tailscale is connected to the '{tailnet}' tailnet. Switch to {POSTHOG_TAILNET}? [Y/n]: ")
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return response.strip().lower() not in ("n", "no")
+
+
+def switch_to_posthog_tailnet() -> dict[str, Any] | None:
+    """Run `tailscale switch` and return the new status, or None when the node is not on the PostHog tailnet after it.
+
+    `tailscale switch` only selects an account that is already logged in on this
+    device, so it fails when the user never logged into the PostHog tailnet here.
+    """
+    tailscale_path = resolve_tailscale()
+    if not tailscale_path:
+        return None
+    try:
+        result = subprocess.run(
+            [tailscale_path, "switch", POSTHOG_TAILNET],
+            env=_tailscale_env(tailscale_path),
+            timeout=STATUS_TIMEOUT_SECONDS,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    status = get_tailscale_status()
+    if not status or status.get("BackendState") != "Running" or _current_tailnet(status) != POSTHOG_TAILNET:
+        return None
+    return status
+
+
+def ensure_posthog_tailnet(status: dict[str, Any]) -> dict[str, Any]:
+    """Exit unless the node is on the PostHog tailnet, offering to switch first.
+
+    Another tailnet (for example a personal one) still reports a running
+    backend, but it has no routes to the cluster, so kubectl times out and the
+    toolbox reports missing access instead. Older Tailscale clients do not
+    report CurrentTailnet, so an absent name passes. Returns the status to use
+    for the remaining checks, which is a fresh one after a switch.
+    """
+    tailnet = _current_tailnet(status)
+    if not tailnet or tailnet == POSTHOG_TAILNET:
+        return status
+
+    if _confirm_switch(tailnet):
+        print(f"🔄 Switching Tailscale to the {POSTHOG_TAILNET} tailnet...")  # noqa: T201
+        if switched_status := switch_to_posthog_tailnet():
+            print(f"✅ Connected to the {POSTHOG_TAILNET} tailnet.")  # noqa: T201
+            return switched_status
+        login = "tailscale login" if sys.platform == "darwin" else "sudo tailscale login"
+        print(f"❌ Could not switch to the {POSTHOG_TAILNET} tailnet.")  # noqa: T201
+        print(f"   If this device has never joined it, run `{login}` with your PostHog Google account.")  # noqa: T201
+    else:
+        print(  # noqa: T201
+            f"❌ Tailscale is connected to the '{tailnet}' tailnet, but the toolbox needs the {POSTHOG_TAILNET} tailnet."
+        )
+        print(  # noqa: T201
+            f"   Switch with: tailscale switch {POSTHOG_TAILNET} (or pick the {POSTHOG_TAILNET} account in the Tailscale app)."
+        )
+    print(f"   See {TAILSCALE_RUNBOOK_URL} if you have not yet joined the PostHog tailnet, then rerun the toolbox.")  # noqa: T201
+    print(f"   Connected through something else? Set {SKIP_CHECK_ENV_VAR}=1 to skip this check.")  # noqa: T201
+    sys.exit(1)
+
+
 def ensure_tailscale_connected() -> None:
     """Exit with guidance when the host is not connected to the PostHog tailnet.
 
-    Distinguishes not-installed from installed-but-not-running, with the fix
-    for each, plus a symlink hint on macOS when the CLI only exists inside the
-    app bundle. Set TOOLBOX_SKIP_TAILSCALE_CHECK=1 to skip the check entirely,
-    for hosts that reach the cluster some other way.
+    Distinguishes not-installed from installed-but-not-running and from
+    connected-to-another-tailnet (with an offer to switch), with the fix for
+    each, plus a symlink hint on
+    macOS when the CLI only exists inside the app bundle. Set
+    TOOLBOX_SKIP_TAILSCALE_CHECK=1 to skip the check entirely, for hosts that
+    reach the cluster some other way.
     """
     if os.environ.get(SKIP_CHECK_ENV_VAR):
         return
 
     status = get_tailscale_status()
     if status and status.get("BackendState") == "Running":
+        status = ensure_posthog_tailnet(status)
         warn_if_subnet_routes_rejected(status)
         return
 

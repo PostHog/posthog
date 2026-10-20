@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
+    codebase_detection = detect(
+        env=("^LIGHTFIELD_",),
+        npm=("lightfield",),
+        pypi=("lightfield",),
+        go=("github.com/Lightfld/lightfield-go", "github.com/Lightfld/lightfield-cli"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2026-03-01",)
     default_version = "2026-03-01"
@@ -82,7 +90,7 @@ class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
         # scopes for the tables they intend to sync. Per-schema checks enforce the scope.
         if schema_name is not None and scopes is not None:
             endpoint = LIGHTFIELD_ENDPOINTS.get(schema_name)
-            if endpoint is not None and endpoint.scope not in scopes:
+            if endpoint is not None and endpoint.scope is not None and endpoint.scope not in scopes:
                 return (
                     False,
                     f"Your Lightfield API key is missing the `{endpoint.scope}` scope required to sync {schema_name}.",
@@ -107,7 +115,7 @@ class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
         permissions: dict[str, str | None] = {}
         for name in endpoints:
             endpoint = LIGHTFIELD_ENDPOINTS.get(name)
-            if endpoint is None or endpoint.scope in granted:
+            if endpoint is None or endpoint.scope is None or endpoint.scope in granted:
                 permissions[name] = None
             else:
                 permissions[name] = f"API key is missing the `{endpoint.scope}` scope"
@@ -141,6 +149,8 @@ You can create an API key in your Lightfield settings (admin access required). G
 - `lists:read` - lists
 - `members:read` - members
 - `emails:read` - emails
+
+Custom objects need no extra scope. The field and relationship definitions tables include each object type the key can read.
 """,
             docsUrl="https://posthog.com/docs/cdp/sources/lightfield",
             iconPath="/static/services/lightfield.png",

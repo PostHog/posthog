@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -209,7 +210,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
                     import('~/types').InsightModel<import('../../../queries/schema').Node<Record<string, any>>>
                 >
             ): DashboardBasicType[] =>
-                filteredDashboards.filter((d) => insight.dashboard_tiles?.map((dt) => dt.dashboard_id)?.includes(d.id)),
+                filteredDashboards.filter((d) => liveDashboardIds(insight.dashboard_tiles).includes(d.id)),
         ],
         availableDashboards: [
             (s) => [s.filteredDashboards, s.currentDashboards],
@@ -261,7 +262,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             // either patch dashboard_tiles on the insight or add a dashboard_tiles API
             actions.updateInsight(
                 {
-                    dashboards: [...(values.insight.dashboards || []), dashboardId],
+                    dashboards: [...liveDashboardIds(values.insight.dashboard_tiles), dashboardId],
                 },
                 () => {
                     actions.reportSavedInsightToDashboard(values.insight, dashboardId)
@@ -283,7 +284,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         removeFromDashboard: async ({ dashboardId }): Promise<void> => {
             actions.updateInsight(
                 {
-                    dashboards: (values.insight.dashboards || []).filter((d) => d !== dashboardId),
+                    dashboards: liveDashboardIds(values.insight.dashboard_tiles).filter((d) => d !== dashboardId),
                     dashboard_tiles: (values.insight.dashboard_tiles || []).filter(
                         (dt) => dt.dashboard_id !== dashboardId
                     ),

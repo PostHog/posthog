@@ -35,6 +35,9 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
         config.filters.filter((filter) => filter.operator === 'custom').length
 
     return {
+        catalog_snapshot: !!config.querySnapshot,
+        local_group_count: config.localFields?.filter((field) => field.localDefinition?.kind === 'groups').length ?? 0,
+        local_bin_count: config.localFields?.filter((field) => field.localDefinition?.kind === 'bins').length ?? 0,
         result_filter_count: config.resultFilters?.length ?? 0,
         row_filter_group_count: filterGroupCount(config.rowFilterGroup),
         result_filter_group_count: filterGroupCount(config.resultFilterGroup),
@@ -58,6 +61,10 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
         top_n_count: config.topN?.count ?? null,
         top_n_include_other: config.topN?.includeOther ?? false,
         comparison_enabled: !!config.compareFilter?.compare,
+        missing_dates: config.missingDates ?? 'observed',
+        full_window_measure_count: config.values.filter(
+            (value) => value.tableCalculation?.type === 'moving_average' && value.tableCalculation.requireFullWindow
+        ).length,
         comparison_period: config.compareFilter?.compare
             ? config.compareFilter.compare_to
                 ? 'custom_offset'
@@ -80,6 +87,16 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
 }
 
 export type BIWorksheetAction =
+    | 'catalog_metric_opened'
+    | 'catalog_metric_proposed'
+    | 'catalog_source_opened'
+    | 'catalog_relationship_requested'
+    | 'starter_selected'
+    | 'filter_values_searched'
+    | 'filter_values_page_loaded'
+    | 'local_field_saved'
+    | 'calculated_field_saved'
+    | 'chart_settings_changed'
     | 'undo'
     | 'redo'
     | 'copied'
@@ -95,11 +112,22 @@ export type BIWorksheetAction =
     | 'related_table_expanded'
     | 'properties_browsed'
     | 'properties_searched'
+    | 'pivot_hierarchy_toggled'
 
 export function captureBIWorksheetAction(
     action: BIWorksheetAction,
     config: BIConfig,
-    context: { insight_id?: number; previous_period?: boolean; result_count?: number } = {}
+    context: {
+        insight_id?: number
+        previous_period?: boolean
+        result_count?: number
+        hierarchy_axis?: 'rows' | 'columns'
+        hierarchy_depth?: number
+        expanded?: boolean
+        starter_kind?: 'metric' | 'certified_source' | 'events'
+        source_certification?: 'certified' | 'deprecated' | 'unmarked'
+        setting_keys?: string[]
+    } = {}
 ): void {
     posthog.capture(BI_EDITOR_EVENTS.WORKSHEET_ACTION, {
         action,

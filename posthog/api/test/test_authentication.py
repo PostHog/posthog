@@ -1,5 +1,4 @@
 import json
-import time
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -11,7 +10,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.contrib.auth import BACKEND_SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, load_backend
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
@@ -21,6 +20,7 @@ from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+from django.utils.module_loading import import_string
 
 from asgiref.sync import sync_to_async
 from django_otp.oath import totp
@@ -72,6 +72,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.authentication_checks import covers_authentication
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -878,6 +879,19 @@ class TestInternalTokensRefuseBlockedAccounts(APIBaseTest):
         assert result is not None and result[0] == self.user
 
 
+class TestSessionBackendsRefuseInactiveUsers(APIBaseTest):
+    @parameterized.expand(
+        [(path,) for path in settings.AUTHENTICATION_BACKENDS if hasattr(import_string(path), "get_user")]
+    )
+    def test_get_user_refuses_inactive_user(self, backend_path: str) -> None:
+        backend = load_backend(backend_path)
+        assert backend.get_user(self.user.pk) == self.user
+
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+
+        assert backend.get_user(self.user.pk) is None
+
+
 class TestLogoutRedirect(APIBaseTest):
     """
     Tests that /logout preserves a safe `next` param so users return to where they were
@@ -989,24 +1003,26 @@ class TestTwoFactorAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
 
-    def test_2fa_throttling(self):
+    @parameterized.expand([("authenticator_code", "000000"), ("backup_code", "zzzz7777")])
+    def test_2fa_throttling(self, _name: str, wrong_token: str) -> None:
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        StaticDevice.objects.create(user=self.user, name="backup").token_set.create(token="abcd2345")
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(
-            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"],
-            "2fa_invalid",
-        )
-        self.assertEqual(
-            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"],
-            "2fa_too_many_attempts",
-        )
+        with time_machine.travel(timezone.now(), tick=False):
+            self.assertEqual(
+                self.client.post("/api/login/token", {"token": wrong_token}).json()["code"],
+                "2fa_invalid",
+            )
+            response = self.client.post("/api/login/token", {"token": wrong_token}).json()
+        self.assertEqual(response["code"], "2fa_too_many_attempts")
+        self.assertTrue(response["detail"].startswith("Too many attempts. Try again in 1 second"))
 
     @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
     def test_login_with_backup_code(self, mock_send_email):
         """Test that a user can log in using a backup code instead of TOTP"""
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
-        static_device.token_set.create(token="123456")
+        static_device.token_set.create(token="abcd2345")
 
         # First authenticate with username/password
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -1014,7 +1030,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "2fa_required")
 
         # Then authenticate with backup code
-        response = self.client.post("/api/login/token", {"token": "123456"})
+        response = self.client.post("/api/login/token", {"token": "abcd2345"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Verify we're logged in
@@ -1023,7 +1039,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], self.user.email)
 
         # Verify the backup code was consumed (can't be reused)
-        self.assertFalse(static_device.token_set.filter(token="123456").exists())
+        self.assertFalse(static_device.token_set.filter(token="abcd2345").exists())
 
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
@@ -1033,13 +1049,13 @@ class TestTwoFactorAPI(APIBaseTest):
         """Test that backup codes are one-time use only"""
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
-        static_device.token_set.create(token="123456")
+        static_device.token_set.create(token="abcd2345")
 
         # First authenticate with username/password
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
 
         # Use backup code once
-        response = self.client.post("/api/login/token", {"token": "123456"})
+        response = self.client.post("/api/login/token", {"token": "abcd2345"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Verify email was triggered
@@ -1048,40 +1064,34 @@ class TestTwoFactorAPI(APIBaseTest):
         # Log out
         self.client.logout()
 
-        # Wait for throttling to expire
-        time.sleep(2)
-
         # Try to authenticate again with same backup code
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        response = self.client.post("/api/login/token", {"token": "123456"})
+        response = self.client.post("/api/login/token", {"token": "abcd2345"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "2fa_invalid")
 
     @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
     def test_backup_codes_work_when_totp_device_is_throttled(self, mock_send_email):
-        """Test that backup codes still work even if TOTP device is throttled"""
-        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        totp_device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
-        static_device.token_set.create(token="123456")
+        static_device.token_set.create(token="abcd2345")
 
-        # First authenticate with username/password
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
 
-        # Trigger TOTP throttling with invalid attempts
-        self.client.post("/api/login/token", {"token": "000000"})
-        self.client.post("/api/login/token", {"token": "000000"})
+        with time_machine.travel(timezone.now(), tick=False):
+            self.client.post("/api/login/token", {"token": "000000"})
+            response = self.client.post("/api/login/token", {"token": "000000"})
+            self.assertEqual(
+                response.json()["detail"],
+                "Too many attempts. Try again in 1 second, or enter one of your backup codes.",
+            )
 
-        # Wait for throttling to expire
-        import time
-
-        time.sleep(2)
-
-        # Backup code should still work
-        response = self.client.post("/api/login/token", {"token": "123456"})
+            response = self.client.post("/api/login/token", {"token": "abcd2345"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
+
+        totp_device.refresh_from_db()
+        self.assertEqual(totp_device.throttling_failure_count, 0)
 
     def test_passkey_2fa_begin_requires_pending_session(self):
         """Test that passkey 2FA begin requires a pending login session"""
@@ -2475,6 +2485,7 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         self.team.save()
         self.factory = APIRequestFactory()  # Use APIRequestFactory instead of RequestFactory
 
+    @covers_authentication(TeamSecretTokenAuthentication)
     def test_authenticate_with_valid_secret_api_key_in_header(self):
         # Simulate a request with a valid team secret token
         wsgi_request = self.factory.get(
@@ -2505,6 +2516,16 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
             team_id=self.team.id,
             access_method=AccessMethod.TEAM_SECRET_TOKEN,
         )
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_authenticate_returns_none_when_legacy_tokens_switched_off(self) -> None:
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+        )
+        result = TeamSecretTokenAuthentication().authenticate(Request(wsgi_request))
+
+        self.assertIsNone(result)
 
     def test_authenticate_with_valid_secret_api_key_in_body_not_supported(self):
         # Body tokens were removed after the audit in #66176: even a valid token must not authenticate.
@@ -2689,6 +2710,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
         return Request(wsgi_request)
 
+    @covers_authentication(ProjectSecretAPIKeyAuthentication)
     def test_authenticate_with_valid_psak_in_header(self):
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(self._request_with_header(self.token))
@@ -2848,6 +2870,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             scope="openid profile",
         )
 
+    @covers_authentication(OAuthAccessTokenAuthentication)
     def test_authenticate_with_valid_oauth_token(self):
         wsgi_request = self.factory.get(
             "/",

@@ -31,6 +31,7 @@ import {
     type HeatmapColorScale,
     type HeatmapLayout,
 } from './heatmap-layout'
+import { HeatmapCellLabels, type HeatmapCellLabelFormatter } from './HeatmapCellLabels'
 
 /** Meta attached to the adapter series the Heatmap hands to the base `Chart` — one series
  *  per row, carrying its row index so tooltip/click code can map back to the grid. */
@@ -68,6 +69,11 @@ export interface HeatmapConfig {
     yAxisLabel?: string
     hideXAxis?: boolean
     hideYAxis?: boolean
+    /** Draws a label in the middle of each cell, so the grid reads as values and not only as
+     *  density. Called for every cell, empty ones included; return null or an empty string to
+     *  leave a cell unlabelled. A label is dropped when its cell is too small for the text, so a
+     *  dense grid falls back to a plain density map. Should be referentially stable. */
+    cellLabel?: HeatmapCellLabelFormatter
     /** Per-side margin overrides. Should be referentially stable. */
     margins?: Partial<ChartMargins>
     tooltip?: {
@@ -444,6 +450,17 @@ function HeatmapInner({
             className={className}
             dataAttr={dataAttr}
         >
+            {config?.cellLabel && (
+                <HeatmapCellLabels
+                    xLabels={xLabels}
+                    yLabels={yLabels}
+                    cells={grid}
+                    accent={accent}
+                    maxValue={maxValue}
+                    colorScale={colorScale}
+                    formatter={config.cellLabel}
+                />
+            )}
             {children}
         </Chart>
     )

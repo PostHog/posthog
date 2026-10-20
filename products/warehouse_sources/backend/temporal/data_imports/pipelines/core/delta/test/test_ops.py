@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from django.test import override_settings
 
 import deltalake
+import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
@@ -16,6 +17,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     execute_with_conflict_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
+
+
+def _permission_error_with_client_error_cause() -> PermissionError:
+    # Mirrors s3fs.errors.translate_boto_error: the message on the PermissionError it raises is the
+    # server's own (here generic) Message, while the original ClientError (which carries the real
+    # Code) is kept only as __cause__.
+    client_error = botocore.exceptions.ClientError(
+        {"Error": {"Code": "SignatureDoesNotMatch", "Message": "Invalid argument."}}, "PutObject"
+    )
+    permission_error = PermissionError("Invalid argument.")
+    permission_error.__cause__ = client_error
+    return permission_error
 
 
 class TestDeltaMergeSpillKwargs:
@@ -78,6 +91,21 @@ class TestExecuteWithConflictRetry:
         assert result == {"num_output_rows": 1}
         assert operation_fn.call_count == 2
         table.update_incremental.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_can_propagate_a_conflict_without_retrying(self):
+        table = MagicMock()
+        operation_fn = MagicMock(
+            side_effect=deltalake.exceptions.CommitFailedError(
+                "Commit failed: a concurrent transaction added new data."
+            )
+        )
+
+        with pytest.raises(deltalake.exceptions.CommitFailedError):
+            await execute_with_conflict_retry(table, operation_fn, "op", make_logger(), conflict_retries=0)
+
+        operation_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_retries_on_invalid_version_race_then_succeeds(self):
@@ -190,6 +218,12 @@ class TestExecuteWithConflictRetry:
                 "s3fs_invalid_access_key_id",
                 PermissionError("The AWS Access Key Id you provided does not exist in our records."),
             ),
+            # s3fs also collapses SignatureDoesNotMatch into PermissionError, but our backend returns
+            # a generic "Invalid argument." Message for it instead of AWS's usual signature-mismatch
+            # sentence, so none of the message needles above match it. Regression coverage for this
+            # refusal leaking as a raw, unclassified PermissionError instead of being read off the
+            # chained ClientError's actual code.
+            ("s3fs_signature_does_not_match", _permission_error_with_client_error_cause()),
         ]
     )
     @pytest.mark.asyncio

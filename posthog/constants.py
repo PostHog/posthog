@@ -74,6 +74,7 @@ TRENDS_TABLE = "ActionsTable"
 TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
 TRENDS_DONUT = "ActionsDonut"
+TRENDS_PROPORTION_BAR = "ActionsProportionBar"
 TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
@@ -88,6 +89,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = [
     TRENDS_TABLE,
     TRENDS_PIE,
     TRENDS_DONUT,
+    TRENDS_PROPORTION_BAR,
     TRENDS_BAR_VALUE,
     TRENDS_WORLD_MAP,
     TRENDS_BOLD_NUMBER,
@@ -121,6 +123,7 @@ DISPLAY_TYPES = Literal[
     "ActionsTable",
     "ActionsPie",
     "ActionsDonut",
+    "ActionsProportionBar",
     "ActionsBar",
     "ActionsBarValue",
     "WorldMap",
@@ -267,15 +270,6 @@ WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
 
 
-class ExperimentNoResultsErrorKeys(StrEnum):
-    NO_EVENTS = "no-events"
-    NO_FLAG_INFO = "no-flag-info"
-    NO_CONTROL_VARIANT = "no-control-variant"
-    NO_TEST_VARIANT = "no-test-variant"
-    NO_RESULTS = "no-results"
-    NO_EXPOSURES = "no-exposures"
-
-
 class PropertyOperatorType(StrEnum):
     AND = "AND"
     OR = "OR"
@@ -320,6 +314,7 @@ SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 # Enable only after every subscriptions worker has deployed the gallery claim boundary. Older workers
 # share the v2 activity name and would otherwise send the legacy layout during a rolling deployment.
 SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY = "subscription-slack-gallery"
+EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = "experiments-ratio-metric-events-preaggregation"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
@@ -341,7 +336,7 @@ DEFAULT_SURVEY_APPEARANCE = {
     "whiteLabel": False,
     "displayThankYouMessage": True,
     "thankYouMessageHeader": "Thank you for your feedback!",
-    "position": "bottom-right",
+    "position": "right",
     "tabPosition": "right",
     "widgetType": "tab",
     "widgetLabel": "Feedback",

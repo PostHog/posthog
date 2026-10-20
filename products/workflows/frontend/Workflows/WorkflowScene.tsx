@@ -22,10 +22,15 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
+import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
+import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { WorkflowOverview } from './overview/WorkflowOverview'
 import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
+import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowSuggestionsNotice } from './suggestions/WorkflowSuggestionsNotice'
 import { WorkflowSuggestionsTabLabel } from './suggestions/WorkflowSuggestionsTabLabel'
 import { Workflow } from './Workflow'
@@ -37,6 +42,7 @@ import {
     buildWorkflowAgentContext,
     isEditingEmailAction,
 } from './workflowAgentContext'
+import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
@@ -72,11 +78,21 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         rawTriggerPrefill && typeof rawTriggerPrefill !== 'string'
             ? JSON.stringify(rawTriggerPrefill)
             : rawTriggerPrefill
+    const entrySource = searchParams[SOURCE_PREFILL_PARAM]
+    const rawEmailPrefill = searchParams[EMAIL_PREFILL_PARAM]
+    const emailPrefill =
+        rawEmailPrefill && typeof rawEmailPrefill !== 'string' ? JSON.stringify(rawEmailPrefill) : rawEmailPrefill
+    const rawDraftSource = searchParams[DRAFT_SOURCE_PARAM]
+    const draftSource =
+        rawDraftSource && typeof rawDraftSource !== 'string' ? JSON.stringify(rawDraftSource) : rawDraftSource
     const workflowProps: WorkflowLogicProps = {
         id: workflowSceneProps.id,
         templateId,
         editTemplateId,
         triggerPrefill,
+        emailPrefill,
+        draftSource,
+        entrySource: typeof entrySource === 'string' ? entrySource : undefined,
     }
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
@@ -98,7 +114,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         500
     )
     const { featureFlags } = useValues(featureFlagLogic)
-    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
+    const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]
+    const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
     const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)
@@ -158,6 +175,14 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     }
 
     const tabs: (LemonTab<WorkflowTab> | null)[] = [
+        // Batch workflows report per run, so a rolling overview does not fit them.
+        overviewTabEnabled && originalWorkflow.trigger?.type !== 'batch' && originalWorkflow.status === 'active'
+            ? {
+                  label: 'Overview',
+                  key: 'overview',
+                  content: <WorkflowOverview id={workflowSceneProps.id!} />,
+              }
+            : null,
         {
             label: 'Workflow',
             key: 'workflow',
@@ -180,7 +205,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
         },
-        selfOptimisingEnabled
+        suggestionsAvailable
             ? {
                   label: <WorkflowSuggestionsTabLabel id={workflowSceneProps.id!} />,
                   key: 'self-driving',
@@ -223,7 +248,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
-                {selfOptimisingEnabled && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
+                {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
+                {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...workflowProps} />

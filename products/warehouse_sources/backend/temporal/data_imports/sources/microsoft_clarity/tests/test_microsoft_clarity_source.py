@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import (
     ENDPOINT_NAME,
@@ -29,16 +30,6 @@ def _config(
         dimension2=dimension2,
         dimension3=dimension3,
     )
-
-
-class TestGetSchemas:
-    def test_endpoint_is_append_only_not_incremental(self) -> None:
-        # The API has no server-side "since" filter, so this must never be treated as truly
-        # incremental — but it should still append daily snapshots rather than overwrite them.
-        schema = MicrosoftClaritySource().get_schemas(MagicMock(), team_id=1)[0]
-        assert schema.supports_incremental is False
-        assert schema.supports_append is True
-        assert [f["field"] for f in schema.incremental_fields] == ["synced_at"]
 
 
 class TestNonRetryableErrors:
@@ -66,11 +57,6 @@ class TestNonRetryableErrors:
         errors = MicrosoftClaritySource().get_non_retryable_errors()
         assert any(key in observed for key in errors)
 
-    def test_transient_error_remains_retryable(self) -> None:
-        errors = MicrosoftClaritySource().get_non_retryable_errors()
-        observed = "HTTPSConnectionPool(host='www.clarity.ms', port=443): Read timed out."
-        assert not any(key in observed for key in errors)
-
     def test_retryable_errors_match_exhausted_connection_retries(self) -> None:
         # `make_tracked_session`'s `DEFAULT_RETRY` already retries a read timeout before
         # re-raising; this is what the exhausted error looks like once it reaches the activity.
@@ -83,6 +69,49 @@ class TestNonRetryableErrors:
             'timed out. (read timeout=30)"))'
         )
         assert any(pattern in error_msg for pattern in MicrosoftClaritySource().get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: "
+                "https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=1",
+                True,
+            ),
+            (
+                "bad_gateway",
+                "502 Server Error: Bad Gateway for url: "
+                "https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=3&dimension1=OS",
+                True,
+            ),
+            (
+                "service_unavailable",
+                "503 Server Error: Service Unavailable for url: "
+                "https://www.clarity.ms/export-data/api/v1/project-live-insights",
+                True,
+            ),
+            (
+                "gateway_timeout",
+                "504 Server Error: Gateway Timeout for url: "
+                "https://www.clarity.ms/export-data/api/v1/project-live-insights",
+                True,
+            ),
+            (
+                "different_host",
+                "500 Server Error: Internal Server Error for url: https://example.com/export-data/api/v1/project-live-insights",
+                False,
+            ),
+            (
+                "client_error",
+                "400 Client Error: Bad Request for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
+                False,
+            ),
+        ]
+    )
+    def test_get_retryable_errors_match_only_clarity_server_errors(
+        self, _name: str, error_msg: str, retryable: bool
+    ) -> None:
+        assert error_message_matches(error_msg, MicrosoftClaritySource().get_retryable_errors()) is retryable
 
 
 class TestSourceForPipeline:

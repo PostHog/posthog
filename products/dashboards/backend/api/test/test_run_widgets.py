@@ -4,6 +4,7 @@ from typing import Any, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.test.utils import override_settings
 
 from parameterized import parameterized
@@ -64,7 +65,7 @@ def _empty_listing_result() -> RecordingsListingResult:
     return RecordingsListingResult(recordings=[], more_recordings_available=False, timings_header="", next_cursor=None)
 
 
-class TestWidgetRegistry(APIBaseTest):
+class TestWidgetRegistry(SimpleTestCase):
     def test_widget_registry_catalog_and_expected_types_stay_in_sync(self) -> None:
         registry_types = frozenset(WIDGET_REGISTRY.keys())
         assert EXPECTED_WIDGET_TYPES == registry_types

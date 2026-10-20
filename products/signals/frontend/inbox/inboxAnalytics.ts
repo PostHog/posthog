@@ -4,6 +4,7 @@ import type { CaptureOptions } from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 
 import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { InboxSummaryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
@@ -33,6 +34,8 @@ export const INBOX_EVENTS = {
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
+    VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
+    VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -43,10 +46,16 @@ export const INBOX_EVENTS = {
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
+    REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
+    REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
+    // Cloud-only for now: the desktop inbox has no model sorts.
+    RANKING_DETAILS_VIEWED: 'Inbox ranking details viewed',
     SETTINGS_CHANGED: 'Inbox settings changed',
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_DISABLED: 'Signal source disabled',
+    SOURCE_TOGGLE_FAILED: 'Signal source toggle failed',
+    SOURCE_CONFIGS_LOAD_FAILED: 'Signal source configs load failed',
     SOURCE_INTEREST: 'signals source interest',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
@@ -57,6 +66,10 @@ export const INBOX_EVENTS = {
     SCOUT_CONFIG_CHANGED: 'Scout config changed',
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
+    // The per-scout tool picker. Cloud-only for now, like the suggestions strip below.
+    SCOUT_TOOLS_PICKER_OPENED: 'Scout tools picker opened',
+    SCOUT_TOOLS_SAVED: 'Scout tools saved',
+    SCOUT_TOOLS_SAVE_FAILED: 'Scout tools save failed',
     // The pre-computed "Suggested for this project" strip. Cloud-only for now — desktop has no
     // suggestions surface — so these carry `inbox_client: 'cloud'` on every row.
     SCOUT_SUGGESTIONS_SHOWN: 'Scout suggestions shown',
@@ -71,6 +84,14 @@ export const INBOX_EVENTS = {
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
+
+export function captureInboxValueSummary(action: 'viewed' | 'dismissed', summary: InboxSummaryApi): void {
+    captureInboxEvent(action === 'viewed' ? INBOX_EVENTS.VALUE_SUMMARY_VIEWED : INBOX_EVENTS.VALUE_SUMMARY_DISMISSED, {
+        merged_pr_count: summary.merged_pr_count,
+        people_count: summary.people_count,
+        participation_complete: summary.participation_complete,
+    })
+}
 
 /**
  * Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row.
@@ -95,6 +116,35 @@ export type InboxSelectionEntryMethod = 'long_press' | 'meta_click' | 'shift_cli
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
 
 /**
+ * The surface that wrote a report link, from its `link_source` query param. Must match
+ * `ReportLinkSource` in `products/signals/backend/report_urls.py`.
+ */
+export const INBOX_REPORT_LINK_SOURCES = [
+    'mcp',
+    'slack',
+    'slack_scout',
+    'scout',
+    'github_comment',
+    'github_pr',
+    'tracker',
+    'support',
+    'task',
+    'today',
+] as const
+
+/** `other` is a `source` value outside the fixed set, so a typo or a hand-edited link stays countable. */
+export type InboxReportLinkSource = (typeof INBOX_REPORT_LINK_SOURCES)[number] | 'other'
+
+export function parseInboxReportLinkSource(value: unknown): InboxReportLinkSource | null {
+    if (value === undefined || value === null || value === '') {
+        return null
+    }
+    return (INBOX_REPORT_LINK_SOURCES as readonly unknown[]).includes(value)
+        ? (value as InboxReportLinkSource)
+        : 'other'
+}
+
+/**
  * How a report detail was closed. `page_unload` is a tab close or hard page navigation: the scene
  * never unmounts, so it flushes on `pagehide` instead of the `unmount` path.
  */
@@ -106,15 +156,18 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
  * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Dismissed
- * section), `resolve` (marking a report done without an inbox PR), `view_diff`, `show_more` (a list
+ * section), `resolve` (marking a report done without an inbox PR), `resume_discussion` (reopening the
+ * last Ask AI run from the report composer), `view_diff`, `show_more` (a list
  * section widening its window), and the section expand/collapse pair (desktop splits those per
  * section instead).
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
     | 'dismiss'
+    | 'clear_feedback'
     | 'resolve'
     | 'discuss'
+    | 'resume_discussion'
     | 'restore'
     | 'create_pr'
     | 'copy_implementation_prompt'
@@ -165,10 +218,10 @@ export function discussQuestionProperties(params: {
 export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limited'
 
 /**
- * Panels that replace the report list and so never fire `Inbox viewed`. `config` is the Settings
- * tab; the value predates the rename and stays so the panel breakdown reads continuously.
+ * `config` is the Settings tab; the value predates the rename and stays so the panel breakdown
+ * reads continuously. The onboarding panel can appear alongside the report list.
  */
-export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
+export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
@@ -226,6 +279,11 @@ export type ScoutActionType =
     | 'sort_roster'
     | 'choose_create_path'
     | 'switch_create_path'
+    | 'test_precheck'
+    | 'focus_ask_ai'
+    | 'click_ask_ai_starter'
+    | 'ask_ai'
+    | 'save_note_from_ai'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -241,6 +299,16 @@ function reportAgeHours(report: Pick<SignalReport, 'created_at'>): number {
     }
     const hours = dayjs().diff(dayjs(report.created_at), 'hour', true)
     return Math.max(0, Math.round(hours * 10) / 10)
+}
+
+// The ranker that ordered the Inbox list in view, from the latest list response. Inbox report actions
+// and sort changes read it, so the ranking test can join them to the ranker without each caller
+// passing it. The Inbox scene clears it on unmount.
+let servedInboxRankerId: string | null = null
+
+/** Record the ranker of the latest list response. Null when the sort is not Recommended. */
+export function setInboxServedRanker(rankerId: string | null): void {
+    servedInboxRankerId = rankerId
 }
 
 interface BaseReportProperties {
@@ -399,6 +467,8 @@ export function captureInboxReportsImpressed(params: {
     sortField: string
     sortDirection: string
     createdWindow: string | null
+    /** The ranker the server used for a Recommended list. Null for other sorts. */
+    rankerId: string | null
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
     captureInboxEvent(INBOX_EVENTS.REPORTS_IMPRESSED, {
@@ -410,6 +480,7 @@ export function captureInboxReportsImpressed(params: {
         sort_field: params.sortField,
         sort_direction: params.sortDirection,
         created_window: params.createdWindow,
+        ranker_id: params.rankerId,
         impression_count: params.reports.length,
         impressions: params.reports.map((report, index) => ({
             ...baseReportProperties(report),
@@ -433,10 +504,13 @@ export function captureInboxReportOpened(
     params: {
         report: SignalReport
         openMethod: InboxReportOpenMethod
+        linkSource: InboxReportLinkSource | null
         previousReportId: string | null
         rank: number | null
         listSize: number | null
         section: InboxReportSectionKey | null
+        /** The ranker of the list the report was opened from. Null for other sorts and for a cold deep-link. */
+        rankerId: string | null
     },
     /** The unload flush passes `{ send_instantly: true }` so the open leaves before the page does. */
     options?: CaptureOptions
@@ -448,10 +522,12 @@ export function captureInboxReportOpened(
             status: params.report.status ?? null,
             source_products: params.report.source_products ?? [],
             open_method: params.openMethod,
+            link_source: params.linkSource,
             previous_report_id: params.previousReportId,
             rank: params.rank,
             list_size: params.listSize,
             section: params.section,
+            ranker_id: params.rankerId,
         },
         options
     )
@@ -497,6 +573,21 @@ export function captureInboxReportScrolled(params: {
     })
 }
 
+/** The hover card on a report's model score opened, under one of the model sorts. */
+export function captureInboxRankingDetailsViewed(params: {
+    report: SignalReport
+    head: string
+    state: 'scored' | 'stale' | 'unscored'
+    strength: string | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.RANKING_DETAILS_VIEWED, {
+        ...baseReportProperties(params.report),
+        ranking_head: params.head,
+        ranking_state: params.state,
+        ranking_strength: params.strength,
+    })
+}
+
 export function captureInboxReportAction(params: {
     /** Omitted for bulk actions, which act on a selection rather than a single report. */
     report?: SignalReport | null
@@ -515,6 +606,101 @@ export function captureInboxReportAction(params: {
         surface: params.surface,
         is_bulk: params.isBulk ?? false,
         bulk_size: params.bulkSize ?? 1,
+        // Today lists reports in its own order, so its actions never belong to an Inbox ranker.
+        ranker_id: params.surface === 'today' ? null : servedInboxRankerId,
+        ...params.extra,
+    })
+}
+
+/**
+ * What the Today home knows about a report it shows. A briefing item carries less than the Inbox's
+ * `SignalReport`, so the fields it cannot fill stay null on the event.
+ */
+export interface TodayReportSnapshot {
+    reportId: string
+    priority: string | null
+    hasPr: boolean
+    signalCount: number | null
+    sourceProducts: string[]
+}
+
+/**
+ * The Today list a report shows in. `briefing` is the top list, which the briefing and the sidebar
+ * both show. `sidebar_more` is the list that "Show more reports" loads.
+ */
+export type TodayReportList = 'briefing' | 'sidebar_more'
+
+function todayReportProperties(report: TodayReportSnapshot): Record<string, unknown> {
+    return {
+        report_id: report.reportId,
+        priority: report.priority,
+        actionability: null,
+        has_pr: report.hasPr,
+        signal_count: report.signalCount,
+        source_products: report.sourceProducts,
+    }
+}
+
+/**
+ * The Today home version of {@link captureInboxReportsImpressed}. The ranking dataset reads both
+ * surfaces from one event, and `surface` and `list` keep them apart for position-bias work.
+ */
+export function captureTodayReportsImpressed(params: {
+    list: TodayReportList
+    /** Only the newly impressed reports, in list order. */
+    reports: TodayReportSnapshot[]
+    /** 1-based rank of each impressed report in its list, parallel to `reports`. */
+    ranks: number[]
+    listSize: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORTS_IMPRESSED, {
+        surface: 'today' satisfies InboxReportActionSurface,
+        list: params.list,
+        list_size: params.listSize,
+        impression_count: params.reports.length,
+        impressions: params.reports.map((report, index) => ({
+            ...todayReportProperties(report),
+            rank: params.ranks[index],
+        })),
+    })
+}
+
+/** The Today home version of {@link captureInboxReportOpened}. `source` is the control the person clicked. */
+export function captureTodayReportOpened(params: {
+    report: TodayReportSnapshot
+    list: TodayReportList
+    rank: number | null
+    listSize: number | null
+    source: string
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_OPENED, {
+        ...todayReportProperties(params.report),
+        surface: 'today' satisfies InboxReportActionSurface,
+        open_method: 'click' satisfies InboxReportOpenMethod,
+        list: params.list,
+        rank: params.rank,
+        list_size: params.listSize,
+        source: params.source,
+    })
+}
+
+/**
+ * A report action from the Today home, where only the report id is at hand. `today_surface` is the
+ * Today control the person used.
+ */
+export function captureTodayReportAction(params: {
+    reportId: string
+    actionType: InboxReportActionType
+    todaySurface: string
+    extra?: Record<string, unknown>
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_ACTION, {
+        report_id: params.reportId,
+        action_type: params.actionType,
+        surface: 'today' satisfies InboxReportActionSurface,
+        today_surface: params.todaySurface,
+        is_bulk: false,
+        bulk_size: 1,
         ...params.extra,
     })
 }
@@ -545,6 +731,22 @@ export function captureInboxReportFeedback(params: {
     })
 }
 
+/** A report's product suggestion rendered under its evidence. */
+export function captureInboxReportSourceSuggestionShown(params: { report: SignalReport; product: string }): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_SOURCE_SUGGESTION_SHOWN, {
+        ...baseReportProperties(params.report),
+        product: params.product,
+    })
+}
+
+/** The suggestion's link to the product was followed. */
+export function captureInboxReportSourceSuggestionClicked(params: { report: SignalReport; product: string }): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_SOURCE_SUGGESTION_CLICKED, {
+        ...baseReportProperties(params.report),
+        product: params.product,
+    })
+}
+
 /**
  * Optional free-text note, offered only once a rating is already recorded. It rides on its own
  * event rather than re-firing {@link captureInboxReportFeedback} so sentiment stays exactly one
@@ -571,12 +773,14 @@ export function captureSignalSourceConnected(params: {
     sourceType: string
     isFirstConnection: boolean
     viaSetupWizard: boolean
+    setupMode?: 'guided' | 'quick'
 }): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_CONNECTED, {
         source_product: params.sourceProduct,
         source_type: params.sourceType,
         is_first_connection: params.isFirstConnection,
         via_setup_wizard: params.viaSetupWizard,
+        ...(params.setupMode ? { setup_mode: params.setupMode } : {}),
     })
 }
 
@@ -590,6 +794,34 @@ export function captureSignalSourceDisabled(params: { sourceProduct: string; sou
         source_product: params.sourceProduct,
         source_type: params.sourceType,
     })
+}
+
+/**
+ * Why a source switch did not save. `configs_unavailable` means the source list never loaded, so the
+ * switch could not tell an existing row from a new one and refused to write.
+ */
+export type SignalSourceToggleFailureReason = 'configs_unavailable' | 'request_failed'
+
+/** A source switch that did not save. Without it, a lost toggle leaves no trace next to the connections. */
+export function captureSignalSourceToggleFailed(params: {
+    sourceProduct: string
+    sourceType: string
+    enabled: boolean
+    reason: SignalSourceToggleFailureReason
+    errorMessage: string
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_TOGGLE_FAILED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        enabled: params.enabled,
+        reason: params.reason,
+        error_message: params.errorMessage,
+    })
+}
+
+/** The source list failed to load, which blocks every switch that reads it. */
+export function captureSignalSourceConfigsLoadFailed(errorMessage: string): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CONFIGS_LOAD_FAILED, { error_message: errorMessage })
 }
 
 export function captureSignalSourceInterest(source: string): void {
@@ -719,6 +951,8 @@ export function captureInboxQueryChanged(params: {
         search_length: search.length,
         has_active_filters: params.hasActiveFilters,
         created_window: params.createdWindow,
+        // The ranker of the list the user changed away from, not of the list the change requests.
+        ranker_id: servedInboxRankerId,
     })
 }
 
@@ -841,6 +1075,38 @@ export function captureScoutConfigChanged(params: {
     })
 }
 
+/** The tool picker opened. `has_tool_list` says whether the scout already had a list. */
+export function captureScoutToolsPickerOpened(params: {
+    skillName: string
+    surface: ScoutSurface
+    hasToolList: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_TOOLS_PICKER_OPENED, {
+        skill_name: params.skillName,
+        surface: params.surface,
+        has_tool_list: params.hasToolList,
+    })
+}
+
+/**
+ * A tool selection save ended. The event carries counts, not tool names. `tool_count` is null for a
+ * preset, which the API expands, and for a return to all tools.
+ */
+export function captureScoutToolsSaveResult(params: {
+    skillName: string
+    allTools: boolean
+    toolPreset: string | null
+    toolCount: number | null
+    success: boolean
+}): void {
+    captureInboxEvent(params.success ? INBOX_EVENTS.SCOUT_TOOLS_SAVED : INBOX_EVENTS.SCOUT_TOOLS_SAVE_FAILED, {
+        skill_name: params.skillName,
+        all_tools: params.allTools,
+        tool_preset: params.toolPreset,
+        tool_count: params.toolCount,
+    })
+}
+
 /** Any non-config interaction on the scout surfaces — expanding a run, copying a link, opening a skill. */
 export function captureScoutAction(params: {
     actionType: ScoutActionType
@@ -947,7 +1213,7 @@ export function captureScoutCreatePathSwitched(params: {
 }
 
 /** Where a suggestion card was rendered: the strip above the roster, or the empty state's body. */
-export type ScoutSuggestionSurface = 'strip' | 'empty_state'
+export type ScoutSuggestionSurface = 'strip' | 'empty_state' | 'onboarding'
 
 /** Which offer a suggestion card makes. Mirrors the API's `kind`. */
 export type ScoutSuggestionKind = 'canonical' | 'custom'
@@ -968,7 +1234,7 @@ export type ScoutSuggestionCreatedVia = 'api' | 'chat'
 export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed' | 'resumed'
 
 /** What put the scan on screen. Without it, a client resuming a paid scan reads as a refused duplicate. */
-export type ScoutSuggestionsRefreshSource = 'strip' | 'reload'
+export type ScoutSuggestionsRefreshSource = 'strip' | 'reload' | 'onboarding'
 
 /**
  * The suggestion batch as it was first rendered this visit. Without it a batch nobody acts on is

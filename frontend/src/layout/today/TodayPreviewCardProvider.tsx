@@ -8,25 +8,30 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { TodayPreviewCard, TodayPreviewCardContext } from './todayPreviewCardContext'
 import { TodayPreviewPayload } from './todayPreviewCards'
 
-const TodayReportHoverCard = lazyWithRetry(() =>
-    import('scenes/project-homepage/today/TodayReportHoverCard').then((m) => ({ default: m.TodayReportHoverCard }))
-)
 const TodayChatHoverCard = lazyWithRetry(() =>
     import('./TodayChatHoverCard').then((m) => ({ default: m.TodayChatHoverCard }))
+)
+const TodayObjectHoverCard = lazyWithRetry(() =>
+    import('./TodayObjectHoverCard').then((m) => ({ default: m.TodayObjectHoverCard }))
 )
 const TodaySessionHoverCard = lazyWithRetry(() =>
     import('./TodaySessionHoverCard').then((m) => ({ default: m.TodaySessionHoverCard }))
 )
-const TodaySpaceHoverCard = lazyWithRetry(() =>
-    import('./TodaySpaceHoverCard').then((m) => ({ default: m.TodaySpaceHoverCard }))
-)
 
-/** Beside a row, centered on it, so the path to a tall card is short from any row. Under a link in the
- * briefing text instead, so the card does not cover the line. */
-function placement(payload: TodayPreviewPayload): Pick<PreviewCard.Positioner.Props, 'side' | 'align' | 'sideOffset'> {
-    return payload.kind === 'report' && payload.surface === 'briefing'
-        ? { side: 'bottom', align: 'start', sideOffset: 6 }
-        : { side: 'right', align: 'center', sideOffset: 10 }
+function TodayPreviewPositioner({ below, children }: { below: boolean; children: ReactNode }): JSX.Element {
+    return (
+        <PreviewCard.Positioner
+            data-quill
+            data-quill-portal="popover"
+            // Quill's portal rule reads this token and wins over a z-index utility class.
+            className="[--quill-z-popover:var(--z-popover-with-chart)]"
+            side={below ? 'bottom' : 'right'}
+            align={below ? 'start' : 'center'}
+            sideOffset={below ? 6 : 10}
+        >
+            {children}
+        </PreviewCard.Positioner>
+    )
 }
 
 /**
@@ -43,8 +48,6 @@ export function TodayPreviewCardProvider({
 }): JSX.Element {
     const [handle] = useState(() => PreviewCard.createHandle<TodayPreviewPayload>())
     const [open, setOpen] = useState(false)
-    // "File to…" opens outside the card, so the pointer moving there reads as leaving it.
-    const [submenuOpen, setSubmenuOpen] = useState(false)
     // A ref, so a hover that lands while a menu is open is refused on the same event.
     const menuOpen = useRef(false)
     const card = useMemo<TodayPreviewCard>(
@@ -60,7 +63,6 @@ export function TodayPreviewCardProvider({
         [handle]
     )
     const close = useCallback(() => {
-        setSubmenuOpen(false)
         setOpen(false)
     }, [])
 
@@ -70,45 +72,31 @@ export function TodayPreviewCardProvider({
             <PreviewCard.Root
                 handle={handle}
                 // A session dialog or the bulk archive confirm keeps the card shut, so the card cannot open over it.
-                open={(open || submenuOpen) && !disabled}
+                open={open && !disabled}
                 onOpenChange={(next) => setOpen(next && !menuOpen.current && !disabled)}
             >
                 {({ payload }) =>
                     payload ? (
                         <PreviewCard.Portal>
-                            <PreviewCard.Positioner
-                                data-quill
-                                data-quill-portal="popover"
-                                // Quill's portal rule reads this token and wins over a z-index utility class.
-                                className="[--quill-z-popover:var(--z-popover-with-chart)]"
-                                {...placement(payload)}
-                            >
+                            <TodayPreviewPositioner below={payload.kind === 'object'}>
                                 {/* Inside the popup, not its `render`: on React 18 quill's Card takes no ref. */}
-                                <PreviewCard.Popup className="outline-none">
+                                <PreviewCard.Popup className="origin-[var(--transform-origin)] outline-none transition-[opacity,scale] duration-150 ease-out data-[ending-style]:scale-97 data-[ending-style]:opacity-0 data-[starting-style]:scale-97 data-[starting-style]:opacity-0 motion-reduce:transition-none">
                                     <Card
                                         size="sm"
                                         className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]"
                                     >
                                         <Suspense fallback={<Skeleton className="h-24 w-full" />}>
-                                            {payload.kind === 'space' ? (
-                                                <TodaySpaceHoverCard preview={payload} onAction={close} />
-                                            ) : payload.kind === 'chat' ? (
+                                            {payload.kind === 'chat' ? (
                                                 <TodayChatHoverCard preview={payload} onAction={close} />
-                                            ) : payload.kind === 'report' ? (
-                                                <TodayReportHoverCard preview={payload} />
+                                            ) : payload.kind === 'object' ? (
+                                                <TodayObjectHoverCard preview={payload} onAction={close} />
                                             ) : (
-                                                <TodaySessionHoverCard
-                                                    // Keyed on the row, so moving to another row unmounts the card and lowers the submenu flag.
-                                                    key={payload.menu.menuId}
-                                                    preview={payload}
-                                                    onAction={close}
-                                                    onSubmenuOpenChange={setSubmenuOpen}
-                                                />
+                                                <TodaySessionHoverCard preview={payload} onAction={close} />
                                             )}
                                         </Suspense>
                                     </Card>
                                 </PreviewCard.Popup>
-                            </PreviewCard.Positioner>
+                            </TodayPreviewPositioner>
                         </PreviewCard.Portal>
                     ) : null
                 }

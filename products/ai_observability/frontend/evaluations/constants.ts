@@ -1,6 +1,6 @@
 import { escapeHogQLString } from '~/queries/utils'
 
-import type { EvaluationConfig, EvaluationOutputConfig } from './types'
+import type { EvaluationConfig, EvaluationOutputConfig, EvaluationRunsFilter } from './types'
 
 // Most-recent runs fetched for an evaluation's runs table and its result badges
 export const EVALUATION_RUNS_QUERY_LIMIT = 250
@@ -134,6 +134,38 @@ export function categoricalEvaluationPassedHogQL(evaluation: Pick<EvaluationConf
     }
     const categories = rule.categories.map(escapeHogQLString).join(', ')
     return `notEmpty(${EVALUATION_CATEGORIES_HOGQL}) AND hasAll([${categories}], ${EVALUATION_CATEGORIES_HOGQL})`
+}
+
+// The table pages through the newest runs, so the filter runs in the query to reach every match in the range.
+// Keep it in step with filterEvaluationRuns in llmEvaluationLogic.ts.
+export function evaluationRunsFilterHogQL(
+    filter: EvaluationRunsFilter,
+    evaluation: Pick<EvaluationConfig, 'output_type' | 'output_config'> | null
+): string | null {
+    if (filter === 'all') {
+        return null
+    }
+    if (filter === 'negative' || filter === 'positive' || filter === 'neutral') {
+        return `lower(properties.$ai_sentiment_label) = '${filter}'`
+    }
+    if (evaluation?.output_type === 'numeric' || evaluation?.output_type === 'categorical') {
+        if (filter === 'na') {
+            return `properties.$ai_evaluation_applicable = 'false' AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
+        }
+        if (!evaluation.output_config.passing_rule) {
+            return 'false'
+        }
+        const [graded, passed] =
+            evaluation.output_type === 'numeric'
+                ? [EVALUATION_NUMERIC_GRADED_HOGQL, numericEvaluationPassedHogQL(evaluation)]
+                : [EVALUATION_CATEGORICAL_GRADED_HOGQL, categoricalEvaluationPassedHogQL(evaluation)]
+        return `${graded} AND ${filter === 'pass' ? '' : 'NOT '}(${passed})`
+    }
+    if (filter === 'na') {
+        return `properties.$ai_evaluation_result IS NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
+    }
+    const passed = evaluation ? evaluationPassedHogQL(evaluation) : EVALUATION_RESULT_TRUE_HOGQL
+    return `${EVALUATION_BOOLEAN_GRADED_HOGQL} AND ${filter === 'pass' ? '' : 'NOT '}(${passed})`
 }
 
 export const MAX_CATEGORICAL_OPTIONS = 100

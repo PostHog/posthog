@@ -1,0 +1,77 @@
+// The resting pose (no animation running) is the fully visible hog, so the Storybook test
+// runner, which disables animations, still captures the artwork.
+.ReportFeedbackCelebration {
+    // A zero-size point at the top centre of the wrapped button; the hog and confetti hang off it.
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    z-index: 10;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+
+    &__hog {
+        position: absolute;
+        bottom: 4px;
+        left: 0;
+
+        // The root is zero-width, so the global `img { max-width: 100% }` reset would collapse the hog.
+        max-width: none;
+        filter: drop-shadow(0 3px 4px rgb(0 0 0 / 25%));
+        transform: translateX(-50%);
+        transform-origin: 50% 100%;
+        animation: ReportFeedbackCelebration__pop 1s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+    }
+
+    &__confetti {
+        position: absolute;
+        top: -4px;
+        left: -2px;
+        width: 5px;
+        height: 8px;
+        border-radius: 1px;
+        transform: translate(var(--dx), var(--dy)) rotate(var(--rot));
+        animation: ReportFeedbackCelebration__confetti 0.9s cubic-bezier(0.15, 0.85, 0.3, 1) var(--delay) both;
+    }
+}
+
+@keyframes ReportFeedbackCelebration__pop {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, 16px) scale(0.3);
+    }
+
+    30% {
+        opacity: 1;
+        transform: translate(-50%, -6px) scale(1.08);
+    }
+
+    45%,
+    75% {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -10px) scale(0.9);
+    }
+}
+
+@keyframes ReportFeedbackCelebration__confetti {
+    0% {
+        opacity: 1;
+        transform: translate(0, 0) rotate(0deg);
+    }
+
+    70% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+
+        // Fall back a little at the end so the scatter reads as paper, not sparks.
+        transform: translate(var(--dx), calc(var(--dy) + 24px)) rotate(var(--rot));
+    }
+}

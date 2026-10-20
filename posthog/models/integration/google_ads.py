@@ -23,6 +23,10 @@ def google_ads_hierarchy_level(account: dict) -> int:
     return int(account.get("level") or 0)
 
 
+class GoogleAdsScopeInsufficientError(ValidationError):
+    """Google's consent screen lets a login sign in without ticking the Google Ads permission."""
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(2),
@@ -122,6 +126,11 @@ class GoogleAdsIntegration:
             )
 
         if response.status_code == 403:
+            if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in response.text:
+                raise GoogleAdsScopeInsufficientError(
+                    "Your Google Ads connection is missing the access PostHog needs. Reconnect your Google Ads "
+                    "account and allow access to your Google Ads data."
+                )
             raise ValidationError(
                 "This integration does not have permission to access this resource. "
                 "Please check the account permissions on the provider side."

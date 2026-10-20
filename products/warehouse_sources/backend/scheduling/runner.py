@@ -211,7 +211,7 @@ class ShadowScheduler:
         now_epoch = int(time.time())
         async with conn.transaction():
             due = await SchedulerStateTable.claim_due(conn, kind=SYNC_EXTRACT_KIND, limit=self._config.claim_limit)
-            result = await evaluate_due(due, now_epoch)
+            result = await evaluate_due(conn, due, now_epoch)
             inserted_records, refused = await SchedulerStateTable.insert_decisions(conn, list(result.records))
 
             advances = []

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,57 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CloudinarySource(ResumableSource[CloudinarySourceConfig, CloudinaryResumeConfig]):
+    codebase_detection = detect(
+        env=("^CLOUDINARY_", "^NEXT_PUBLIC_CLOUDINARY_"),
+        script_hosts=("upload-widget.cloudinary.com", "widget.cloudinary.com", "media-library.cloudinary.com"),
+        npm=(
+            "cloudinary",
+            "@cloudinary/url-gen",
+            "@cloudinary/react",
+            "@cloudinary/vue",
+            "@cloudinary/angular",
+            "@cloudinary/html",
+            "cloudinary-core",
+            "next-cloudinary",
+        ),
+        pypi=("cloudinary",),
+        cocoapods=("Cloudinary",),
+        composer=("cloudinary/cloudinary_php", "cloudinary/cloudinary-magento2", "cloudinary/cloudinary_cake_php"),
+        go=("github.com/cloudinary/cloudinary-go",),
+        maven=(
+            "com.cloudinary:cloudinary-http5",
+            "com.cloudinary:cloudinary-http44",
+            "com.cloudinary:cloudinary-core",
+            "com.cloudinary:cloudinary-android",
+            "com.cloudinary:kotlin-url-gen",
+            "com.cloudinary:cloudinary",
+            "com.cloudinary:cloudinary-android-core",
+            "com.cloudinary:cloudinary-android-download",
+            "com.cloudinary:cloudinary-android-glide-integration",
+            "com.cloudinary:cloudinary-android-preprocess",
+            "com.cloudinary:cloudinary-android-ui",
+            "com.cloudinary:cloudinary-core-scala_2.10",
+            "com.cloudinary:cloudinary-core-scala_2.11",
+            "com.cloudinary:cloudinary-core-scala_2.12",
+            "com.cloudinary:cloudinary-dummy-core",
+            "com.cloudinary:cloudinary-dummy-http42",
+            "com.cloudinary:cloudinary-dummy-http43",
+            "com.cloudinary:cloudinary-dummy-http44",
+            "com.cloudinary:cloudinary-dummy-http45",
+            "com.cloudinary:cloudinary-dummy-taglib",
+            "com.cloudinary:cloudinary-http42",
+            "com.cloudinary:cloudinary-http43",
+            "com.cloudinary:cloudinary-http45",
+            "com.cloudinary:cloudinary-scala-play_2.10",
+            "com.cloudinary:cloudinary-scala-play_2.11",
+            "com.cloudinary:cloudinary-scala-play_2.12",
+            "com.cloudinary:cloudinary-taglib",
+        ),
+        pub=("cloudinary_url_gen", "cloudinary_flutter", "cloudinary_api"),
+        rubygems=("cloudinary", "cloudinary-account-provisioning"),
+        swiftpm=("github.com/cloudinary/cloudinary_ios",),
+    )
+
     supported_versions = ("v1_1",)
     default_version = "v1_1"
     api_docs_url = "https://cloudinary.com/documentation/admin_api"
@@ -59,11 +111,11 @@ class CloudinarySource(ResumableSource[CloudinarySourceConfig, CloudinaryResumeC
             name=ExternalDataSourceType.CLOUDINARY,
             category=DataWarehouseSourceCategory.FILE_STORAGE,
             label="Cloudinary",
-            caption="""Enter your Cloudinary cloud name, API key, and API secret to sync your media library metadata into the PostHog Data warehouse: images, videos, raw files, folders, transformations, and upload presets.
+            caption="""Enter your Cloudinary cloud name, API key, and API secret to sync your media library metadata into the PostHog Data warehouse: images, videos, raw files, folders, subfolders, transformations, upload presets, daily usage, and last access reports.
 
 Find all three in your Cloudinary console under Settings, then API Keys. The source only reads metadata, so a key with read access is enough. Media files themselves are never downloaded.
 
-Cloudinary limits Admin API calls per hour, 500 on free plans, so a first sync of a large media library can take a while.""",
+Cloudinary limits Admin API calls per hour, 500 on free plans, so a first sync of a large media library can take a while. Subfolders take one call per folder, and usage takes one call per day. Last access reports are an Enterprise feature that Cloudinary turns on by request.""",
             iconPath="/static/services/cloudinary.png",
             docsUrl="https://posthog.com/docs/cdp/sources/cloudinary",
             keywords=["cloudinary.com", "media", "images", "cdn"],
@@ -127,7 +179,7 @@ Cloudinary limits Admin API calls per hour, 500 on free plans, so a first sync o
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("usage",))
 
     def validate_credentials(
         self,
@@ -159,4 +211,6 @@ Cloudinary limits Admin API calls per hour, 500 on free plans, so a first sync o
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

@@ -72,6 +72,16 @@ CONSTANCE_CONFIG = {
         "Comma-separated team IDs whose HogQL queries read from the native-JSON events tables even while the global setting is off.",
         str,
     ),
+    "CLICKHOUSE_NATIVE_EVENTS_HOST": (
+        get_from_env("CLICKHOUSE_NATIVE_EVENTS_HOST", ""),
+        "Hostname for explicit new events cluster queries, without a scheme, port or path. Empty disables the route. Changes reach workers within about a minute.",
+        str,
+    ),
+    "CLICKHOUSE_NATIVE_EVENTS_TEAMS": (
+        [],
+        "Project IDs eligible for explicit native events cluster query opt-ins. This does not change query defaults.",
+        list[int],
+    ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
         # Person-on-events v2 reads are the production default for every project created
         # since 2024-06-14, and both CI lanes set this variable so their runs match it. A
@@ -446,6 +456,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "PERSON_ON_EVENTS_V2_ENABLED",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
+    "CLICKHOUSE_NATIVE_EVENTS_HOST",
+    "CLICKHOUSE_NATIVE_EVENTS_TEAMS",
     "STRICT_CACHING_TEAMS",
     "GITHUB_APP_SLUG",
     "SLACK_APP_CLIENT_ID",

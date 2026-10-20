@@ -26,8 +26,7 @@ impl io::Write for StringWriter<'_> {
 use super::constants::DETAIL_INVALID_OPTIONS;
 use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event as SinkEvent;
-use crate::v1::sinks::Destination;
+use crate::v1::types::{Destination, Publishable};
 
 fn empty_raw_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).unwrap()
@@ -348,45 +347,67 @@ pub struct WrappedEvent {
 }
 
 impl WrappedEvent {
-    /// Option keys that dropped this event; recomputed since only drops need it.
     pub fn failed_option_keys(&self) -> OptionKeys {
-        match self.details {
-            Some(DETAIL_INVALID_OPTIONS) => self
-                .event
-                .options
-                .validate()
-                .err()
-                .map_or_else(OptionKeys::default, OptionsError::failed_keys),
-            _ => OptionKeys::default(),
-        }
+        failed_option_keys(&self.event, self.details)
     }
 }
 
-impl SinkEvent for WrappedEvent {
-    // Pre-parsed UUID for result correlation. By the Sink stage,
-    // we know ALL well-formed incoming events have a valid UUID.
+#[derive(Debug)]
+pub struct ValidatedEvent {
+    pub event: Event,
+    pub uuid: Uuid,
+    pub options: Options,
+    pub adjusted_timestamp: Option<DateTime<Utc>>,
+    pub result: EventResult,
+    pub details: Option<&'static str>,
+    pub force_disable_person_processing: bool,
+}
+
+impl ValidatedEvent {
+    pub fn into_wrapped(self, destination: Destination) -> WrappedEvent {
+        WrappedEvent {
+            event: self.event,
+            uuid: self.uuid,
+            options: self.options,
+            adjusted_timestamp: self.adjusted_timestamp,
+            result: self.result,
+            details: self.details,
+            destination,
+            force_disable_person_processing: self.force_disable_person_processing,
+            spread_partitions: false,
+            is_gateway_verified: false,
+        }
+    }
+
+    pub fn failed_option_keys(&self) -> OptionKeys {
+        failed_option_keys(&self.event, self.details)
+    }
+}
+
+fn failed_option_keys(event: &Event, details: Option<&'static str>) -> OptionKeys {
+    match details {
+        Some(DETAIL_INVALID_OPTIONS) => event
+            .options
+            .validate()
+            .err()
+            .map_or_else(OptionKeys::default, OptionsError::failed_keys),
+        _ => OptionKeys::default(),
+    }
+}
+
+impl Publishable for WrappedEvent {
     fn uuid(&self) -> Uuid {
         self.uuid
     }
 
-    // Publish Ok and Warning events; skip Drop, Retry, and anything routed to Destination::Drop.
     fn should_publish(&self) -> bool {
-        (self.result == EventResult::Ok || self.result == EventResult::Warning)
-            && self.destination != Destination::Drop
+        self.result == EventResult::Ok || self.result == EventResult::Warning
     }
 
-    // Resolve the storage-agnostic Destination scope for this event.
-    // The config for each Sink implementation knows how to resolve
-    // these to topics (etc.) depending on the sink type
     fn destination(&self) -> &Destination {
         &self.destination
     }
 
-    // Returns the full typed header set for this event, combining per-request
-    // context fields (token, now, historical_migration) with event-owned
-    // fields. Sinks convert the returned CapturedEventHeaders to their
-    // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
-    // in common_types — same conversion legacy capture uses.
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
         // Downstream treats this header as absolute: `decideProcessPerson` in
         // nodejs/src/common/persons/person-utils.ts skips person processing
@@ -459,12 +480,6 @@ impl SinkEvent for WrappedEvent {
         buf
     }
 
-    /// Computed here rather than stamped during processing because it depends
-    /// on the final destination: `apply_restrictions` can disable person
-    /// processing while an event is still `AnalyticsMain`, and
-    /// `apply_historical_rerouting` may afterwards move it to
-    /// `AnalyticsHistorical`, whose consumers need the key. Deciding late
-    /// keeps the rule correct no matter how the stages are ordered.
     fn ordering(&self) -> OrderingGuarantee {
         if !self.destination.absorbs_hot_keys() {
             return OrderingGuarantee::PerDistinctId;
@@ -527,6 +542,7 @@ impl SinkEvent for WrappedEvent {
 }
 
 impl WrappedEvent {
+    /// Server-side `$` properties as comma-separated `"key":value` pairs, without braces.
     #[allow(unused_assignments)]
     fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
@@ -578,8 +594,8 @@ impl WrappedEvent {
         Ok(buf)
     }
 
-    /// Build spliced properties if injection is needed, or return None
-    /// to signal the caller should borrow `self.event.properties` directly.
+    /// Appends the injected pairs inside the client's raw properties object,
+    /// so capture never parses the properties. Returns None when nothing is injected.
     fn build_spliced_properties(
         &self,
         ctx: &RequestContext,
@@ -1274,11 +1290,10 @@ mod tests {
         }
     }
 
-    // --- SinkEvent impl for WrappedEvent ---
+    // --- Publishable impl for WrappedEvent ---
 
-    use crate::v1::sinks::event::Event as SinkEventTrait;
-    use crate::v1::sinks::Destination;
     use crate::v1::test_utils;
+    use crate::v1::types::{Destination, Publishable};
     use common_types::HasEventName;
 
     fn ok_wrapped(event_name: &str, distinct_id: &str) -> WrappedEvent {
@@ -1323,31 +1338,34 @@ mod tests {
         Stamps { spread: true, ..Stamps::on(Destination::AnalyticsMain) },
         OrderingGuarantee::PerDistinctId
     )]
-    #[case::overflow_untouched(Stamps::on(Destination::Overflow), OrderingGuarantee::PerDistinctId)]
+    #[case::overflow_untouched(
+        Stamps::on(Destination::AnalyticsOverflow),
+        OrderingGuarantee::PerDistinctId
+    )]
     #[case::overflow_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::None
     )]
     #[case::overflow_spread(
-        Stamps { spread: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { spread: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::PerDistinctId
     )]
     #[case::overflow_spread_person_off(
-        Stamps { person_off: true, spread: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { person_off: true, spread: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::None
     )]
     #[case::ai_overflow_spread(
-        Stamps { spread: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        Stamps { spread: true, ..Stamps::on(Destination::AiOverflow) },
         OrderingGuarantee::None
     )]
     #[case::ai_overflow_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AiOverflow) },
         OrderingGuarantee::None
     )]
     // Lanes whose consumers need the key regardless: person processing being
     // off must not spread them, matching v0's route().
     #[case::ai_main_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::AiEvents) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AiMain) },
         OrderingGuarantee::PerDistinctId
     )]
     #[case::historical_person_off(
@@ -1382,10 +1400,10 @@ mod tests {
     #[rstest::rstest]
     #[case::ok_main(EventResult::Ok, Destination::AnalyticsMain)]
     #[case::ok_historical(EventResult::Ok, Destination::AnalyticsHistorical)]
-    #[case::ok_overflow(EventResult::Ok, Destination::Overflow)]
+    #[case::ok_overflow(EventResult::Ok, Destination::AnalyticsOverflow)]
     #[case::warning_main(EventResult::Warning, Destination::AnalyticsMain)]
     #[case::warning_historical(EventResult::Warning, Destination::AnalyticsHistorical)]
-    #[case::warning_overflow(EventResult::Warning, Destination::Overflow)]
+    #[case::warning_overflow(EventResult::Warning, Destination::AnalyticsOverflow)]
     fn should_publish_true(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
@@ -1396,10 +1414,6 @@ mod tests {
     #[rstest::rstest]
     #[case::drop_main(EventResult::Drop, Destination::AnalyticsMain)]
     #[case::retry_main(EventResult::Retry, Destination::AnalyticsMain)]
-    #[case::ok_dest_drop(EventResult::Ok, Destination::Drop)]
-    #[case::warning_dest_drop(EventResult::Warning, Destination::Drop)]
-    #[case::drop_dest_drop(EventResult::Drop, Destination::Drop)]
-    #[case::retry_dest_drop(EventResult::Retry, Destination::Drop)]
     fn should_publish_false(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
@@ -1587,8 +1601,8 @@ mod tests {
     #[test]
     fn destination_returns_event_destination() {
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = Destination::Overflow;
-        assert_eq!(*ev.destination(), Destination::Overflow);
+        ev.destination = Destination::AnalyticsOverflow;
+        assert_eq!(*ev.destination(), Destination::AnalyticsOverflow);
     }
 
     #[test]

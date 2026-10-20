@@ -982,7 +982,7 @@ class TestTable(BaseTest):
         with patch("products.warehouse_sources.backend.models.table.sync_execute", side_effect=side_effect):
             assert table.detect_csv_double_quotes_setting() is expected
 
-    def test_validate_csv_double_quotes_reraises_a_non_parse_error(self):
+    def test_validate_csv_double_quotes_hides_the_raw_error_for_a_non_parse_failure(self):
         from clickhouse_driver.errors import ServerException
 
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -997,10 +997,18 @@ class TestTable(BaseTest):
 
         with patch(
             "products.warehouse_sources.backend.models.table.sync_execute",
-            side_effect=ServerException("Access Denied", code=499),
+            side_effect=ServerException(
+                "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                "HTTP response code: 403: while reading 'exports/test.csv')",
+                code=499,
+            ),
         ):
-            with pytest.raises(ServerException):
+            with pytest.raises(Exception) as exc_info:
                 table._validate_csv_double_quotes_setting()
+
+        assert not isinstance(exc_info.value, ServerException)
+        assert "s3:GetObject" in str(exc_info.value)
+        assert "exports/test.csv" not in str(exc_info.value)
 
     @parameterized.expand(
         [

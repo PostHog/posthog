@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KongKonnectSource(ResumableSource[KongKonnectSourceConfig, KongKonnectResumeConfig]):
+    codebase_detection = detect(
+        env=("^KONNECT_", "^DECK_KONNECT_"),
+        go=("github.com/Kong/sdk-konnect-go", "github.com/Kong/konnect-orchestrator"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -63,7 +69,7 @@ class KongKonnectSource(ResumableSource[KongKonnectSourceConfig, KongKonnectResu
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Kong Inc. (Kong Konnect)",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter a Kong Konnect access token to pull your gateway's Advanced Analytics API request logs, plus the control planes, services, routes, and consumers they reference, into the PostHog Data warehouse.
+            caption="""Enter a Kong Konnect access token to pull your gateway's Advanced Analytics API request logs, plus the control planes, gateway entities, consumer groups, API products, Service Catalog scorecards, and identity realm consumers behind them, into the PostHog Data warehouse.
 
 Create a **Personal Access Token** under **Konnect → Personal access tokens**, or a **System Account access token** for a service identity. Either is sent as a bearer token.
 
@@ -119,7 +125,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized": "Your Kong Konnect access token is invalid or has expired. Create a new token in Konnect and reconnect.",
-            "403 Client Error: Forbidden": "Your Kong Konnect access token is missing the permissions needed to read this data. Grant the token or account access to Advanced Analytics and control planes, then reconnect.",
+            "403 Client Error: Forbidden": "Your Kong Konnect access token is missing the permissions needed to read this data. Grant the token or account read access to the Konnect area this table comes from (Advanced Analytics, control planes, API Products, Service Catalog, or Consumers), then reconnect.",
         }
 
     def get_schemas(

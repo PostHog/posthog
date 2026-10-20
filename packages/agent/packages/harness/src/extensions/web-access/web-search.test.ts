@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createWebSearchTool,
@@ -83,12 +83,12 @@ describe("formatSearchResult", () => {
   });
 });
 
-function fakeCtx(apiKey: string | undefined): ExtensionContext {
+function fakeCtx(apiKey: string | undefined): ExtensionToolContext {
   return {
     modelRegistry: {
       getApiKeyForProvider: vi.fn().mockResolvedValue(apiKey),
     },
-  } as unknown as ExtensionContext;
+  } as unknown as ExtensionToolContext;
 }
 
 describe("createWebSearchTool", () => {

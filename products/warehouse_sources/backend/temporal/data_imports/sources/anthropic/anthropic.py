@@ -55,6 +55,9 @@ MAX_RETRY_ATTEMPTS = 8
 # sync never stalls indefinitely.
 REPORT_MAX_RETRY_ATTEMPTS = 12
 REPORT_RETRY_BACKOFF_MAX_SECONDS = 300.0
+# The waits of the report attempts above add up to about 1,100 seconds, which is more than the
+# shared client's default budget for one request.
+REPORT_RETRY_BUDGET_SECONDS = 1200.0
 # Floor for the required `starting_at` on a full refresh. Anthropic launched in 2023, so no usage or
 # cost data can predate this — starting here rather than the epoch avoids requesting decades of empty
 # buckets while still pulling all available history.
@@ -250,17 +253,36 @@ def _format_rfc3339(value: Any) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def validate_credentials(api_key: str) -> bool:
+INVALID_ADMIN_KEY_MESSAGE = (
+    "Your Anthropic Admin API key is invalid or has been revoked. Create a new Admin API key in the "
+    "Anthropic Console, then reconnect."
+)
+STANDARD_KEY_MESSAGE = (
+    "This is a standard Anthropic API key. Create an Admin API key (prefixed sk-ant-admin) in the "
+    "Anthropic Console, then reconnect."
+)
+VALIDATION_UNREACHABLE_MESSAGE = (
+    "PostHog couldn't reach Anthropic to check your Admin API key. Wait a few minutes, then try again."
+)
+
+
+def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:
     # A single cheap probe against the smallest list endpoint confirms the admin key is genuine.
     # 200 => valid. 403 => valid key without a scope we probed here; still a real key, so accept it
     # at create time (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.
-    ok, _status = validate_via_probe(
+    ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{ANTHROPIC_BASE_URL}/v1/organizations/users?limit=1",
         headers={"x-api-key": api_key, **_version_headers()},
         ok_statuses=(200, 403),
     )
-    return ok
+    if ok:
+        return True, None
+    if status is None or status == 429 or status >= 500:
+        return False, VALIDATION_UNREACHABLE_MESSAGE
+    if api_key.strip().startswith("sk-ant-api"):
+        return False, STANDARD_KEY_MESSAGE
+    return False, INVALID_ADMIN_KEY_MESSAGE
 
 
 def _check_path_access(api_key: str, path: str, missing_reason: str) -> Optional[str]:
@@ -829,6 +851,7 @@ def anthropic_source(
     }
     if is_report_endpoint:
         client_config["retry_backoff_max_seconds"] = REPORT_RETRY_BACKOFF_MAX_SECONDS
+        client_config["retry_budget_seconds"] = REPORT_RETRY_BUDGET_SECONDS
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 

@@ -98,7 +98,8 @@ class TestModalSandboxWriteFile:
         assert "rm -f /tmp/credentials.tmp-*" in command
         assert " && mv /tmp/credentials.tmp-" in command
 
-    def test_uses_bounded_exec_path_when_timeout_is_set(self, mocker):
+    @pytest.mark.parametrize("task_filesystem", [False, True])
+    def test_uses_bounded_exec_path_when_timeout_is_set(self, mocker, task_filesystem: bool) -> None:
         handle = MagicMock(object_id="sb-test")
         handle.poll.return_value = None
         mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
@@ -106,16 +107,16 @@ class TestModalSandboxWriteFile:
         execute = mocker.patch.object(
             sandbox,
             "execute",
-            side_effect=[
-                ExecutionResult(stdout="", stderr="", exit_code=0),
-                ExecutionResult(stdout="", stderr="", exit_code=0),
-            ],
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=0),
         )
 
-        sandbox.write_file("/tmp/credentials", b"token=value\x00", timeout_seconds=15)
+        if task_filesystem:
+            sandbox.execute_in_task_filesystem("echo ready", timeout_seconds=30)
+        else:
+            sandbox.write_file("/tmp/credentials", b"token=value\x00", timeout_seconds=30)
 
         handle.filesystem.write_bytes.assert_not_called()
-        assert all(call.kwargs["timeout_seconds"] == 15 for call in execute.call_args_list)
+        assert all(call.kwargs["timeout_seconds"] == 30 for call in execute.call_args_list)
 
     def test_chunks_large_exec_fallback_payloads(self, mocker):
         handle = MagicMock(object_id="sb-test")
@@ -179,6 +180,10 @@ class TestModalSandboxWriteFile:
 def patched_modal(mocker):
     fake_sandbox = MagicMock()
     fake_sandbox.object_id = "sb-test"
+    fake_sandbox.poll.return_value = None
+    fake_sandbox.exec.return_value.stdout.read.return_value = ""
+    fake_sandbox.exec.return_value.stderr.read.return_value = ""
+    fake_sandbox.exec.return_value.returncode = 0
 
     mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
     mocker.patch(
@@ -402,6 +407,7 @@ class TestLocalModalBuildContext:
             assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "go.mod").is_file()
             assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "main.go").is_file()
             assert (root / LOCAL_MODAL_HOGLI_SHIM_SCRIPT).is_file()
+            assert (root / "products/tasks/backend/sandbox/images/task_filesystem.py").is_file()
         finally:
             shutil.rmtree(context_dir, ignore_errors=True)
             _prepare_local_modal_build_context.cache_clear()

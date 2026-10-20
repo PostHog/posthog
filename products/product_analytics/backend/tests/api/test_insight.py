@@ -72,9 +72,14 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
+from products.subscriptions.backend.facade.testing import (
+    create_subscription,
+    create_subscription_delivery,
+    subscription_delivery_exists,
+    subscription_is_deleted,
+)
 
 # What "insight created"/"insight updated" report for a single-event trends query.
 PAGEVIEW_QUERY_ANALYTICS_PROPERTIES = {
@@ -2942,20 +2947,41 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ids = [r["id"] for r in response.json()["results"]]
         assert ids == [kept_id]
 
-    def test_trending_insights_respects_limit(self) -> None:
+    def test_trending_insights_pages_with_limit_and_offset(self) -> None:
+        created_ids = []
         for short_id in ("trndL001", "trndL002", "trndL003"):
             insight_id, _ = self.dashboard_api.create_insight({"short_id": short_id})
+            created_ids.append(insight_id)
             InsightViewed.objects.update_or_create(
                 team=self.team, user=self.user, insight_id=insight_id, defaults={"last_viewed_at": timezone.now()}
             )
+        Insight.objects.filter(id__in=created_ids).update(last_modified_at=timezone.now())
 
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?limit=2")
-        body = response.json()
-        assert len(body["results"]) == 2
-        assert body["count"] == 2
+        first = self.client.get(f"/api/projects/{self.team.id}/insights/trending?limit=2").json()
+        assert len(first["results"]) == 2
+        assert first["count"] == 2
+        assert first["previous"] is None
+        assert first["next"] is not None and "offset=2" in first["next"]
 
-    def test_trending_insights_rejects_invalid_params(self) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?days=abc")
+        second = self.client.get(f"/api/projects/{self.team.id}/insights/trending?limit=2&offset=2").json()
+        assert len(second["results"]) == 1
+        assert second["next"] is None
+        assert second["previous"] is not None
+
+        paged_ids = [r["id"] for r in first["results"] + second["results"]]
+        assert sorted(paged_ids) == sorted(created_ids)
+
+    @parameterized.expand(
+        [
+            ("non_integer_days", "days=abc"),
+            ("non_integer_offset", "offset=abc"),
+            ("negative_offset", "offset=-1"),
+            ("negative_limit", "limit=-1"),
+            ("zero_limit", "limit=0"),
+        ]
+    )
+    def test_trending_insights_rejects_invalid_params(self, _name: str, query: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?{query}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_get_recent_insights_with_feature_flag(self) -> None:
@@ -3093,15 +3119,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_soft_delete_causes_404(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_200_OK)
-        subscription = Subscription.objects.create(
-            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
-        )
-        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
-        deleted_subscription = Subscription.objects.create(
-            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily", deleted=True
-        )
-        delivery = SubscriptionDelivery.objects.create(
-            team=self.team, subscription=subscription, idempotency_key="insight-delete-test", status="completed"
+        subscription_id = create_subscription(team_id=self.team.id, insight_id=insight_id)
+        unrelated_id = create_subscription(team_id=self.team.id)
+        deleted_subscription_id = create_subscription(team_id=self.team.id, insight_id=insight_id, deleted=True)
+        delivery_id = create_subscription_delivery(
+            team_id=self.team.id, subscription_id=subscription_id, status="completed"
         )
 
         update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
@@ -3109,16 +3131,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
-        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        self.assertIsNone(subscription_is_deleted(team_id=self.team.id, subscription_id=subscription_id))
         deletion_log = ActivityLog.objects.get(
-            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription_id), activity="deleted"
         )
         self.assertEqual(deletion_log.user_id, self.user.id)
-        unrelated.refresh_from_db()
-        self.assertFalse(unrelated.deleted)
+        self.assertIs(subscription_is_deleted(team_id=self.team.id, subscription_id=unrelated_id), False)
 
-        self.assertFalse(Subscription.objects.filter(pk=deleted_subscription.pk).exists())
-        self.assertFalse(SubscriptionDelivery.objects.filter(pk=delivery.pk).exists())
+        self.assertIsNone(subscription_is_deleted(team_id=self.team.id, subscription_id=deleted_subscription_id))
+        self.assertFalse(subscription_delivery_exists(team_id=self.team.id, delivery_id=delivery_id))
 
     def test_soft_delete_locks_the_insight_before_removing_its_alerts(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
@@ -3139,9 +3160,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
-        subscription = Subscription.objects.create(
-            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
-        )
+        subscription_id = create_subscription(team_id=self.team.id, insight_id=insight_id)
 
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",
@@ -3185,7 +3204,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "type": "Insight",
         }
 
-        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        self.assertIsNone(subscription_is_deleted(team_id=self.team.id, subscription_id=subscription_id))
 
     def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -3769,7 +3788,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIn(visible_insight.id, [insight["id"] for insight in response.json()["results"]])
         self.assertIn(hidden_insight.id, [insight["id"] for insight in response.json()["results"]])
 
-    def test_insight_activity_respects_access_control(self) -> None:
+    def test_insight_activity_and_data_checks_respect_access_control(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -3792,6 +3811,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         activity_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/activity/")
         self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        data_checks_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/data_checks/")
+        self.assertEqual(data_checks_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_insight_in_specific_folder(self):
         response = self.client.post(
@@ -4427,10 +4449,8 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         insight = self._create_insight()
         tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="alert")
-        subscription = Subscription.objects.create(
-            team=self.team, insight_id=insight.id, start_date=timezone.now(), frequency="daily"
-        )
-        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
+        subscription_id = create_subscription(team_id=self.team.id, insight_id=insight.id)
+        unrelated_id = create_subscription(team_id=self.team.id)
 
         response = self._bulk_delete([insight.id])
 
@@ -4438,13 +4458,12 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
         self.assertFalse(AlertConfiguration.objects.filter(id=alert.id).exists())
 
-        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        self.assertIsNone(subscription_is_deleted(team_id=self.team.id, subscription_id=subscription_id))
         deletion_log = ActivityLog.objects.get(
-            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription_id), activity="deleted"
         )
         self.assertEqual(deletion_log.user_id, self.user.id)
-        unrelated.refresh_from_db()
-        self.assertFalse(unrelated.deleted)
+        self.assertIs(subscription_is_deleted(team_id=self.team.id, subscription_id=unrelated_id), False)
 
     def test_bulk_delete_reports_unknown_ids_as_skipped(self) -> None:
         insight = self._create_insight()

@@ -22,10 +22,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use cohort_core::seed::CoverageStartMs;
 use metrics::{gauge, histogram};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinError;
 
+use super::coverage::SliceTenure;
 use super::keys::{
     PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey, Stage2Key, TombstoneKey,
 };
@@ -492,6 +494,18 @@ impl StoreHandle {
     pub async fn delete_partition(&self, partition_id: u16) -> Result<(), StoreError> {
         self.write("delete_partition", false, move |store| {
             store.delete_partition(partition_id)
+        })
+        .await
+    }
+
+    /// Resume a slice's coverage, or begin it at `start`. No permit.
+    pub async fn resume_or_begin_slice(
+        &self,
+        partition_id: u16,
+        start: CoverageStartMs,
+    ) -> Result<SliceTenure, StoreError> {
+        self.write("resume_or_begin_slice", false, move |store| {
+            store.resume_or_begin_slice(partition_id, start)
         })
         .await
     }

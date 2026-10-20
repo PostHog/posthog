@@ -444,6 +444,16 @@ export function IconDonutChart(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconProportionBarChart(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="7.25" width="16.5" height="9.5" rx="2" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M5.75 7.25H11V16.75H5.75A2 2 0 0 1 3.75 14.75V9.25A2 2 0 0 1 5.75 7.25Z" fill="currentColor" />
+            <path d="M15.5 7.5V16.5" stroke="currentColor" strokeWidth="1.5" />
+        </LemonIconBase>
+    )
+}
+
 /*
  * Insight type icon set. Drawn at the same visual weight as the left-nav icon family
  * (~1.5-1.75 unit strokes, slim bars). Series blue is the base color; glyphs with several
@@ -874,6 +884,18 @@ export function IconCancel(props: LemonIconProps): JSX.Element {
         <LemonIconBase {...props}>
             <path
                 d="m12 2c-5.53 0-10 4.47-10 10s4.47 10 10 10 10-4.47 10-10-4.47-10-10-10zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.59-13-3.59 3.59-3.59-3.59-1.41 1.41 3.59 3.59-3.59 3.59 1.41 1.41 3.59-3.59 3.59 3.59 1.41-1.41-3.59-3.59 3.59-3.59z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design Block icon. */
+export function IconBlock(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="m12 2c-5.52 0-10 4.48-10 10s4.48 10 10 10 10-4.48 10-10-4.48-10-10-10zm-8 10c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69l-11.21 11.21c-1.06-1.35-1.69-3.05-1.69-4.9zm8 8c-1.85 0-3.55-.63-4.9-1.69l11.21-11.21c1.06 1.35 1.69 3.05 1.69 4.9 0 4.42-3.58 8-8 8z"
                 fill="currentColor"
             />
         </LemonIconBase>
@@ -1691,6 +1713,24 @@ export function IconChristmasOrnament(props: LemonIconProps): JSX.Element {
                 d="M400.8218,315.85c-11.8343,0-16.9416,4.0876-24.6711,10.2789-8.9379,7.1468-20.0523,16.0461-41.1157,16.0461-21.072,0-32.195-8.8993-41.1328-16.0461-7.7467-6.1871-12.854-10.2789-24.6969-10.2789s-16.9587,4.0918-24.6968,10.2789c-8.5393,6.8255-19.1739,15.2234-38.5363,15.939a131.6337,131.6337,0,0,0,258.01-.0257c-19.3667-.7627-29.9713-9.105-38.4806-15.9133C417.7634,319.938,412.656,315.85,400.8218,315.85Z"
                 fill="currentColor"
             />
+        </LemonIconBase>
+    )
+}
+
+export function IconUndockPanel(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M6.75 13.75V19.25C6.75 20.3546 7.64543 21.25 8.75 21.25H19.25C20.3546 21.25 21.25 20.3546 21.25 19.25V8.75C21.25 7.64543 20.3546 6.75 19.25 6.75H13.75" />
+            <path d="M3.75 10.25V4.5C3.75 4.08579 4.08579 3.75 4.5 3.75H10.25" />
+            <path d="M4.75 4.75L10.25 10.25" />
+        </LemonIconBase>
+    )
+}
+
+export function IconOpenFullScreen(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M3.75 10.25V5.75C3.75 4.64543 4.64543 3.75 5.75 3.75H19.25C20.3546 3.75 21.25 4.64543 21.25 5.75V13.25C21.25 14.3546 20.3546 15.25 19.25 15.25H14.75M17.25 7.75V10.75M17.25 7.75H14.25M17.25 7.75L14 11M9.25 21.25H4.75C3.64543 21.25 2.75 20.3546 2.75 19.25V15.75C2.75 14.6454 3.64543 13.75 4.75 13.75H9.25C10.3546 13.75 11.25 14.6454 11.25 15.75V19.25C11.25 20.3546 10.3546 21.25 9.25 21.25Z" />
         </LemonIconBase>
     )
 }

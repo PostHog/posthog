@@ -115,6 +115,8 @@ export interface CheckResultContent {
     title?: string
     outcome?: 'passed' | 'failed' | 'errored' | 'inconclusive'
     explanation?: string
+    /** Set only on an `inconclusive` result. */
+    reason?: string | null
     observed_value?: number | null
     baseline_value?: number | null
     threshold?: string | null
@@ -143,7 +145,7 @@ export interface CheckExpiredContent extends CheckLifecycleContent {
 }
 
 export interface CheckCancelledContent extends CheckLifecycleContent {
-    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research' | 'replaced_by_request'
+    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research' | 'replaced_by_request' | 'no_check_lane'
 }
 
 export interface TitleChangeContent {
@@ -313,6 +315,8 @@ export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): 
         (artefact) =>
             artefact.type !== 'implementation_dispatch' &&
             artefact.type !== 'impact_measurement_plan' &&
+            // The report shows its product suggestion under the evidence, so the log would only repeat it.
+            artefact.type !== 'source_suggestion' &&
             (artefact.type !== 'implementation_handover' ||
                 (artefact.content as ImplementationHandoverContent).status !== 'processing')
     )

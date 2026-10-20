@@ -14,6 +14,7 @@ export type ChartDisplayIcon =
     | 'metric'
     | 'number'
     | 'pie'
+    | 'proportionBar'
     | 'table'
     | 'worldMap'
 
@@ -39,6 +40,7 @@ export interface ChartDisplayOptionEligibility {
     isTrends: boolean
     breakdown?: BreakdownFilter['breakdown']
     breakdowns?: BreakdownFilter['breakdowns']
+    isComparing?: boolean
 }
 
 const COUNTRY_PROPERTIES = new Set(['$geoip_country_code', '$geoip_country_name'])
@@ -93,6 +95,7 @@ export function getChartDisplayOptions({
     isTrends,
     breakdown,
     breakdowns,
+    isComparing,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
     const breakdownProps = breakdownProperties({ breakdown, breakdowns })
     const worldMapBreakdownDisabled =
@@ -106,6 +109,10 @@ export function getChartDisplayOptions({
         trendsOnlyDisabledReason ||
         breakdownDisabledReason ||
         (boxPlotMissingProperty ? 'Select a numeric property to use a box plot.' : undefined)
+    // One bar has one total, so a second period's parts would share it.
+    const proportionBarDisabledReason =
+        trendsOnlyDisabledReason ||
+        (isComparing ? "This type doesn't support comparing to a previous period." : undefined)
 
     return [
         {
@@ -199,6 +206,13 @@ export function getChartDisplayOptions({
                     label: 'Donut chart',
                     description: 'Proportions of a whole as a ring.',
                     disabledReason: trendsOnlyDisabledReason,
+                },
+                {
+                    display: ChartDisplayType.ActionsProportionBar,
+                    icon: 'proportionBar',
+                    label: 'Proportion bar',
+                    description: 'Proportions of a whole as one flat bar.',
+                    disabledReason: proportionBarDisabledReason,
                 },
                 {
                     display: ChartDisplayType.ActionsBarValue,

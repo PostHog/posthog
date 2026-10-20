@@ -4,7 +4,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
 
-const VARIANTS: SampleDataVariant[] = ['line', 'bar', 'pie', 'funnel', 'number', 'table']
+const VARIANTS: SampleDataVariant[] = ['line', 'bar', 'pie', 'proportionBar', 'funnel', 'number', 'table']
 
 const meta: Meta<typeof SampleDataState> = {
     component: SampleDataState,
@@ -28,6 +28,18 @@ export const AllVariants: Story = {
                     <SampleDataState variant={variant} />
                 </div>
             ))}
+        </div>
+    ),
+}
+
+/** Uses the real `.InsightVizDisplay > .TrendsInsight` container instead of a fixed-height div, so it can catch height regressions the other stories can't. */
+export const InTrendsInsightContainer: Story = {
+    loaders: [async () => void (await import('~/queries/nodes/InsightViz/InsightViz.scss'))],
+    render: () => (
+        <div className="InsightVizDisplay border rounded w-160">
+            <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
+                <SampleDataState variant="line" />
+            </div>
         </div>
     ),
 }

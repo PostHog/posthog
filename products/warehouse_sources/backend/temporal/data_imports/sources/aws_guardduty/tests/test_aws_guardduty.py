@@ -1,60 +1,35 @@
 import json
 import datetime as dt
-from collections.abc import Iterable, Iterator
-from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
+from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
-from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardduty import aws_guardduty
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardduty.aws_guardduty import (
     AwsGuarddutyClient,
     AwsGuarddutyError,
     AwsGuarddutyResumeConfig,
     AwsGuarddutyThrottledError,
-    aws_guardduty_source,
     error_for_response,
-    get_rows,
     validate_credentials,
     watermark_milliseconds,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardduty.source import AwsGuarddutySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsguardduty import (
     AwsGuarddutySourceConfig,
 )
 
 VERSION = "2017-11-28"
 UPDATED_AT = dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
-
-
-class FakeResumeManager(ResumableSourceManager[AwsGuarddutyResumeConfig]):
-    def __init__(self, state: AwsGuarddutyResumeConfig | None = None) -> None:
-        self.state = state
-        self.saved: list[AwsGuarddutyResumeConfig] = []
-        self.cleared: bool = False
-        self.safe_points = 0
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> AwsGuarddutyResumeConfig | None:
-        return self.state
-
-    def save_state(self, data: AwsGuarddutyResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared = True
-
-    def safe_point(self) -> None:
-        self.safe_points += 1
 
 
 def response(
@@ -77,104 +52,18 @@ def config() -> AwsGuarddutySourceConfig:
     )
 
 
-@pytest.fixture
-def session() -> Iterator[mock.MagicMock]:
-    with mock.patch.object(aws_guardduty, "make_tracked_session") as factory:
-        factory.return_value.request.return_value = response()
-        yield factory.return_value
-
-
-@pytest.mark.parametrize(
-    "operation,payload,method,path,query,body",
-    [
-        ("ListDetectors", {"MaxResults": 1}, "GET", "/detector", {"maxResults": ["1"]}, None),
-        ("GetDetector", {"DetectorId": "detector-example"}, "GET", "/detector/detector-example", {}, None),
-        (
-            "ListMembers",
-            {"DetectorId": "detector-example", "MaxResults": 50, "NextToken": "a+b/=", "OnlyAssociated": "false"},
-            "GET",
-            "/detector/detector-example/member",
-            {"maxResults": ["50"], "nextToken": ["a+b/="], "onlyAssociated": ["false"]},
-            None,
-        ),
-        (
-            "ListFindings",
-            {"DetectorId": "detector-example", "MaxResults": 50, "NextToken": "next-page"},
-            "POST",
-            "/detector/detector-example/findings",
-            {},
-            {"maxResults": 50, "nextToken": "next-page"},
-        ),
-        (
-            "GetFindings",
-            {"DetectorId": "detector-example", "FindingIds": ["finding-example"]},
-            "POST",
-            "/detector/detector-example/findings/get",
-            {},
-            {"findingIds": ["finding-example"]},
-        ),
-    ],
-)
-def test_signed_rest_requests(
-    config: AwsGuarddutySourceConfig,
-    session: mock.MagicMock,
-    operation: str,
-    payload: dict[str, Any],
-    method: str,
-    path: str,
-    query: dict[str, list[str]],
-    body: dict[str, Any] | None,
-) -> None:
-    client = AwsGuarddutyClient(config, VERSION)
-    client.request(operation, payload)
-    call = session.request.call_args
-    assert call.args[0] == method
-    url = urlsplit(call.args[1])
-    assert url.netloc == "guardduty.us-east-1.amazonaws.com"
-    assert url.path == path
-    assert parse_qs(url.query) == query
-    assert (json.loads(call.kwargs["data"]) if body is not None else call.kwargs["data"]) == (body or b"")
-    headers = call.kwargs["headers"]
-    assert headers["Authorization"].startswith("AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/")
-    assert "/us-east-1/guardduty/aws4_request" in headers["Authorization"]
-    assert "X-Amz-Date" in headers
-    assert headers["X-Amz-Security-Token"] == "example-session-token"
-    assert "X-Amz-Target" not in headers
-    if body is not None:
-        assert headers["Content-Type"] == "application/json"
-    assert call.kwargs["timeout"] == 60
-    assert call.kwargs["allow_redirects"] is False
-    factory = aws_guardduty.make_tracked_session
-    assert isinstance(factory, mock.Mock)
-    assert "example-secret" in factory.call_args.kwargs["redact_values"]
-    assert "example-session-token" in factory.call_args.kwargs["redact_values"]
-
-
-@pytest.mark.parametrize("region,suffix", [("eu-west-1", "amazonaws.com"), ("cn-north-1", "amazonaws.com.cn")])
-def test_region_and_credentials_without_session_token(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, region: str, suffix: str
-) -> None:
-    config.aws_region = region
-    config.aws_session_token = None
-    AwsGuarddutyClient(config, VERSION).request("ListDetectors", {})
-    call = session.request.call_args
-    assert call.args[1] == f"https://guardduty.{region}.{suffix}/detector"
-    assert f"/{region}/guardduty/aws4_request" in call.kwargs["headers"]["Authorization"]
-    assert "X-Amz-Security-Token" not in call.kwargs["headers"]
-
-
 @pytest.mark.parametrize("incremental", [True, False])
 @pytest.mark.parametrize("terminal", [{}, {"nextToken": None}, {"nextToken": ""}])
 def test_findings_pages_hydration_and_time_filter(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, incremental: bool, terminal: dict[str, Any]
+    config: AwsGuarddutySourceConfig, incremental: bool, terminal: dict[str, Any]
 ) -> None:
-    session.request.side_effect = [
-        response({"detectorIds": [], "nextToken": "detectors-next"}),
-        response({"detectorIds": ["detector-example"]}),
-        response({"findingIds": [], "nextToken": "findings-next"}),
-        response({"findingIds": ["finding-example"], **terminal}),
-        response(
-            {
+    script = [
+        ScriptedResponse(json={"detectorIds": [], "nextToken": "detectors-next"}),
+        ScriptedResponse(json={"detectorIds": ["detector-example"]}),
+        ScriptedResponse(json={"findingIds": [], "nextToken": "findings-next"}),
+        ScriptedResponse(json={"findingIds": ["finding-example"], **terminal}),
+        ScriptedResponse(
+            json={
                 "findings": [
                     {
                         "id": "finding-example",
@@ -187,110 +76,59 @@ def test_findings_pages_hydration_and_time_filter(
             }
         ),
     ]
-    manager = FakeResumeManager()
-    inputs = mock.Mock(
-        spec=SourceInputs,
-        schema_name="findings",
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        "findings",
+        script,
         api_version=VERSION,
         should_use_incremental_field=incremental,
         db_incremental_field_last_value=UPDATED_AT,
     )
-    resource = AwsGuarddutySource().source_for_pipeline(config, manager, inputs)
-    batches = list(cast(Iterable[Any], resource.items()))
-    assert len(batches) == 1
-    row = batches[0][0]
+
+    assert result.raised is None
+    assert len(result.items) == 1
+    row = result.items[0][0]
     assert row["updated_at"] == UPDATED_AT
     assert row["created_at"] == dt.datetime(2024, 12, 1, tzinfo=dt.UTC)
     assert row["source_detector_id"] == "detector-example"
     assert row["resource"]["instanceDetails"]["instanceId"] == "i-example"
-    calls = session.request.call_args_list
-    assert parse_qs(urlsplit(calls[1].args[1]).query)["nextToken"] == ["detectors-next"]
-    for call in calls[2:4]:
-        payload = json.loads(call.kwargs["data"])
+    requests_made = result.requests
+    assert requests_made[1].param("nextToken") == "detectors-next"
+    for request in requests_made[2:4]:
+        payload = request.json()
         assert payload["maxResults"] == 50
         assert payload["sortCriteria"] == {"attributeName": "updatedAt", "orderBy": "ASC"}
         if incremental:
             assert payload["findingCriteria"] == {"criterion": {"updatedAt": {"greaterThanOrEqual": 1735689600000}}}
         else:
             assert "findingCriteria" not in payload
-    assert json.loads(calls[3].kwargs["data"])["nextToken"] == "findings-next"
-    assert json.loads(calls[4].kwargs["data"]) == {
+    assert requests_made[3].json()["nextToken"] == "findings-next"
+    assert requests_made[4].json() == {
         "findingIds": ["finding-example"],
         "sortCriteria": {"attributeName": "updatedAt", "orderBy": "ASC"},
     }
-    assert manager.safe_points == 2
-    assert manager.saved[-1].detector_ids == []
-    assert not manager.cleared
-    assert resource.on_complete is not None
-    resource.on_complete()
-    assert resource.partition_keys == ["created_at"]
-    assert resource.sort_mode == "desc"
-    session.close.assert_called_once()
-    assert manager.cleared
+    assert len(result.saved_states) == 2
+    assert result.saved_states[-1].detector_ids == []
+    assert result.final_state == result.saved_states[-1]
+    assert result.completed_state is None
+    response = result.response
+    assert response is not None
+    assert response.partition_keys == ["created_at"]
+    assert response.sort_mode == "desc"
 
 
-def test_resume_preserves_filter_and_advances_after_yield(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock
-) -> None:
-    manager = FakeResumeManager(
-        AwsGuarddutyResumeConfig(
-            detector_ids=["detector-example"], next_token="saved-page", updated_since_ms=1735689600000
-        )
+def test_detector_details(config: AwsGuarddutySourceConfig) -> None:
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        "detectors",
+        [
+            ScriptedResponse(json={"detectorIds": ["detector-example"]}),
+            ScriptedResponse(
+                json={"status": "ENABLED", "createdAt": "2025-01-01T00:00:00Z", "tags": {"purpose": "example"}}
+            ),
+        ],
+        api_version=VERSION,
     )
-    session.request.side_effect = [
-        response({"findingIds": ["finding-example"]}),
-        response({"findings": [{"id": "finding-example", "arn": "arn:example", "updatedAt": "2025-01-01T00:00:00Z"}]}),
-    ]
-    rows = get_rows(config, "findings", VERSION, manager, "2025-02-01T00:00:00Z")
-    assert next(rows)[0]["id"] == "finding-example"
-    assert manager.saved == []
-    assert list(rows) == []
-    payload = json.loads(session.request.call_args_list[0].kwargs["data"])
-    assert payload["nextToken"] == "saved-page"
-    assert payload["findingCriteria"]["criterion"]["updatedAt"]["greaterThanOrEqual"] == 1735689600000
-    assert manager.saved[-1].detector_ids == []
-
-
-@pytest.mark.parametrize("endpoint", ["findings", "members", "detectors"])
-def test_completed_resume_does_not_repeat_requests(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, endpoint: str
-) -> None:
-    manager = FakeResumeManager(AwsGuarddutyResumeConfig(detector_ids=[]))
-    assert list(get_rows(config, endpoint, VERSION, manager, None)) == []
-    session.request.assert_not_called()
-    session.close.assert_called_once()
-
-
-def test_members_pagination_and_parent_keys(config: AwsGuarddutySourceConfig, session: mock.MagicMock) -> None:
-    member = {"accountId": "111111111111", "detectorId": "member-detector", "relationshipStatus": "Enabled"}
-    session.request.side_effect = [
-        response({"detectorIds": ["administrator-a", "administrator-b"]}),
-        response({"members": [member], "nextToken": "next-page"}),
-        response({"members": []}),
-        response({"members": [member]}),
-    ]
-    manager = FakeResumeManager()
-    resource = aws_guardduty_source(config, "members", VERSION, manager, UPDATED_AT)
-    rows = [row for batch in cast(Iterable[Any], resource.items()) for row in batch]
-    assert len({tuple(row[key] for key in resource.primary_keys or []) for row in rows}) == 2
-    assert rows[0]["detector_id"] == "member-detector"
-    for call in session.request.call_args_list[1:]:
-        query = parse_qs(urlsplit(call.args[1]).query)
-        assert query["onlyAssociated"] == ["false"]
-        assert query["maxResults"] == ["50"]
-        assert call.kwargs["data"] == b""
-    assert manager.saved[1].detector_ids == ["administrator-b"]
-    assert manager.saved[1].next_token is None
-    assert "nextToken" not in parse_qs(urlsplit(session.request.call_args_list[3].args[1]).query)
-
-
-def test_detector_details(config: AwsGuarddutySourceConfig, session: mock.MagicMock) -> None:
-    session.request.side_effect = [
-        response({"detectorIds": ["detector-example"]}),
-        response({"status": "ENABLED", "createdAt": "2025-01-01T00:00:00Z", "tags": {"purpose": "example"}}),
-    ]
-    rows = list(get_rows(config, "detectors", VERSION, FakeResumeManager(), None))
-    assert rows == [
+    assert result.raised is None
+    assert result.items == [
         [
             {
                 "status": "ENABLED",
@@ -301,13 +139,129 @@ def test_detector_details(config: AwsGuarddutySourceConfig, session: mock.MagicM
             }
         ]
     ]
-    assert session.request.call_args.args[1].endswith("/detector/detector-example")
+    assert result.paths[-1].endswith("/detector/detector-example")
 
 
-def test_empty_region_does_not_request_children(config: AwsGuarddutySourceConfig, session: mock.MagicMock) -> None:
-    session.request.return_value = response({"detectorIds": []})
-    assert list(get_rows(config, "findings", VERSION, FakeResumeManager(), None)) == []
-    session.request.assert_called_once()
+@pytest.mark.parametrize(
+    "endpoint,path,items_key,item,timestamp_column,partition_keys",
+    [
+        (
+            "coverage",
+            "/detector/detector-example/coverage",
+            "resources",
+            {
+                "resourceId": "i-example",
+                "accountId": "111111111111",
+                "coverageStatus": "HEALTHY",
+                "updatedAt": 1735689600.0,
+            },
+            "updated_at",
+            None,
+        ),
+        (
+            "malware_scans",
+            "/detector/detector-example/malware-scans",
+            "scans",
+            {"scanId": "scan-example", "scanStatus": "COMPLETED", "scanStartTime": 1735689600, "totalBytes": 10},
+            "scan_start_time",
+            ["scan_start_time"],
+        ),
+    ],
+)
+def test_detector_list_endpoints_page_and_parse_epoch_timestamps(
+    config: AwsGuarddutySourceConfig,
+    endpoint: str,
+    path: str,
+    items_key: str,
+    item: dict[str, Any],
+    timestamp_column: str,
+    partition_keys: list[str] | None,
+) -> None:
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        endpoint,
+        [
+            ScriptedResponse(json={"detectorIds": ["detector-example"]}),
+            ScriptedResponse(json={items_key: [item], "nextToken": "page-2"}),
+            ScriptedResponse(json={items_key: [item]}),
+        ],
+        api_version=VERSION,
+    )
+    assert result.raised is None
+    assert len(result.items) == 2
+    row = result.items[0][0]
+    assert row[timestamp_column] == UPDATED_AT
+    assert row["source_detector_id"] == "detector-example"
+    assert all(request.path.endswith(path) for request in result.requests[1:])
+    assert result.requests[1].json() == {"maxResults": 50}
+    assert result.requests[2].json() == {"maxResults": 50, "nextToken": "page-2"}
+    assert result.saved_states[-1].detector_ids == []
+    assert result.response is not None and result.response.partition_keys == partition_keys
+
+
+def test_usage_statistics_walks_every_statistic_type_per_detector(config: AwsGuarddutySourceConfig) -> None:
+    total = {"amount": "1.5", "unit": "USD"}
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        "usage_statistics",
+        [
+            ScriptedResponse(json={"detectorIds": ["detector-a", "detector-b"]}),
+            ScriptedResponse(
+                json={
+                    "usageStatistics": {"sumByAccount": [{"accountId": "111111111111", "total": total}]},
+                    "nextToken": "next",
+                }
+            ),
+            ScriptedResponse(
+                json={"usageStatistics": {"sumByAccount": [{"accountId": "222222222222", "total": total}]}}
+            ),
+            ScriptedResponse(json={"usageStatistics": {"sumByFeature": [{"feature": "FLOW_LOGS", "total": total}]}}),
+            ScriptedResponse(json={"usageStatistics": {"sumByResource": []}}),
+            ScriptedResponse(json={"usageStatistics": {}}),
+            ScriptedResponse(json={"usageStatistics": {}}),
+            ScriptedResponse(
+                json={"usageStatistics": {"sumByResource": [{"resource": "bucket-example", "total": total}]}}
+            ),
+        ],
+        api_version=VERSION,
+    )
+    assert result.raised is None
+    rows = [row for batch in result.items for row in batch]
+    assert [(row["source_detector_id"], row["usage_statistic_type"], row["usage_key"]) for row in rows] == [
+        ("detector-a", "SUM_BY_ACCOUNT", "111111111111"),
+        ("detector-a", "SUM_BY_ACCOUNT", "222222222222"),
+        ("detector-a", "SUM_BY_FEATURES", "FLOW_LOGS"),
+        ("detector-b", "SUM_BY_RESOURCE", "bucket-example"),
+    ]
+    assert rows[0]["total"] == total
+    payloads = [request.json() for request in result.requests[1:]]
+    assert [payload["usageStatisticsType"] for payload in payloads] == [
+        "SUM_BY_ACCOUNT",
+        "SUM_BY_ACCOUNT",
+        "SUM_BY_FEATURES",
+        "SUM_BY_RESOURCE",
+        "SUM_BY_ACCOUNT",
+        "SUM_BY_FEATURES",
+        "SUM_BY_RESOURCE",
+    ]
+    assert payloads[1]["nextToken"] == "next"
+    assert "FLOW_LOGS" in payloads[0]["usageCriteria"]["features"]
+    assert result.requests[-1].path.endswith("/detector/detector-b/usage/statistics")
+    assert result.saved_states[-1].detector_ids == []
+
+
+def test_usage_statistics_resumes_at_saved_statistic_type(config: AwsGuarddutySourceConfig) -> None:
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        "usage_statistics",
+        [ScriptedResponse(json={"usageStatistics": {"sumByResource": [{"resource": "bucket-example"}]}})],
+        api_version=VERSION,
+        resume_state=AwsGuarddutyResumeConfig(
+            detector_ids=["detector-example"], usage_statistic_types=["SUM_BY_RESOURCE"], next_token="resume-token"
+        ),
+    )
+    assert result.raised is None
+    assert result.items[0][0]["usage_key"] == "bucket-example"
+    assert len(result.requests) == 1
+    assert result.requests[0].json()["usageStatisticsType"] == "SUM_BY_RESOURCE"
+    assert result.requests[0].json()["nextToken"] == "resume-token"
 
 
 @pytest.mark.parametrize(
@@ -367,32 +321,35 @@ def test_non_json_errors(status: int) -> None:
     [(400, "ThrottlingException", 2), (429, "ThrottlingException", 1), (500, "InternalServerErrorException", 1)],
 )
 def test_only_body_throttles_get_application_retries(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, status: int, code: str, attempts: int
+    config: AwsGuarddutySourceConfig, status: int, code: str, attempts: int
 ) -> None:
-    session.request.side_effect = [response({"code": code}, status), response({"detectorIds": []})]
-    client = AwsGuarddutyClient(config, VERSION)
-    with mock.patch.object(AwsGuarddutyClient.request.retry, "wait", wait_none()):  # type: ignore[attr-defined]
+    error = ScriptedResponse(status=status, json={"code": code})
+    script = [error, ScriptedResponse(json={"detectorIds": []})] if attempts == 2 else always(error)
+    with scripted_network(script) as network:
+        client = AwsGuarddutyClient(config, VERSION)
         if attempts == 1:
             with pytest.raises(AwsGuarddutyError):
                 client.request("ListDetectors", {})
         else:
             assert client.request("ListDetectors", {}) == {"detectorIds": []}
-    assert session.request.call_count == attempts
+        client.close()
+    if attempts == 2:
+        assert len(network.requests_log) == 2
+    else:
+        assert len(network.requests_log) > 1
 
 
 @pytest.mark.parametrize("schema_name", [None, "findings", "detectors", "members"])
-def test_permission_denial_only_accepted_at_create(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, schema_name: str | None
-) -> None:
-    session.request.return_value = response({"__type": "AccessDeniedException", "message": "Access denied"}, 403)
-    valid, message = validate_credentials(config, VERSION, schema_name)
+def test_permission_denial_only_accepted_at_create(config: AwsGuarddutySourceConfig, schema_name: str | None) -> None:
+    denied = ScriptedResponse(status=403, json={"__type": "AccessDeniedException", "message": "Access denied"})
+    with scripted_network([denied]) as network:
+        valid, message = validate_credentials(config, VERSION, schema_name)
     assert valid is (schema_name is None)
     if schema_name:
         assert message and "guardduty:ListDetectors" in message
     else:
         assert message is None
-    session.request.assert_called_once()
-    session.close.assert_called_once()
+    assert len(network.requests_log) == 1
 
 
 @pytest.mark.parametrize(
@@ -404,19 +361,17 @@ def test_permission_denial_only_accepted_at_create(
         "SubscriptionRequiredException",
     ],
 )
-def test_invalid_credentials_rejected(config: AwsGuarddutySourceConfig, session: mock.MagicMock, code: str) -> None:
-    session.request.return_value = response({"__type": code}, 400)
-    valid, message = validate_credentials(config, VERSION)
+def test_invalid_credentials_rejected(config: AwsGuarddutySourceConfig, code: str) -> None:
+    with scripted_network([ScriptedResponse(status=400, json={"__type": code})]):
+        valid, message = validate_credentials(config, VERSION)
     assert not valid and message
     assert "AWS GuardDuty request failed" not in message
 
 
 @pytest.mark.parametrize("schema_name", [None, "findings", "detectors", "members"])
-def test_no_detector_validation(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, schema_name: str | None
-) -> None:
-    session.request.return_value = response({"detectorIds": []})
-    valid, message = validate_credentials(config, VERSION, schema_name)
+def test_no_detector_validation(config: AwsGuarddutySourceConfig, schema_name: str | None) -> None:
+    with scripted_network([ScriptedResponse(json={"detectorIds": []})]):
+        valid, message = validate_credentials(config, VERSION, schema_name)
     assert valid is (schema_name is None)
     assert (
         message is None
@@ -426,34 +381,43 @@ def test_no_detector_validation(
 
 
 @pytest.mark.parametrize(
-    "schema_name,path", [("findings", "/findings"), ("members", "/member"), ("detectors", "/detector/detector-example")]
+    "schema_name,path",
+    [
+        ("findings", "/findings"),
+        ("members", "/member"),
+        ("detectors", "/detector/detector-example"),
+        ("coverage", "/coverage"),
+        ("malware_scans", "/malware-scans"),
+        ("usage_statistics", "/usage/statistics"),
+    ],
 )
 def test_endpoint_validation_calls_its_read_operation(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, schema_name: str, path: str
+    config: AwsGuarddutySourceConfig, schema_name: str, path: str
 ) -> None:
-    session.request.side_effect = [response({"detectorIds": ["detector-example"]}), response()]
-    assert validate_credentials(config, VERSION, schema_name) == (True, None)
-    assert urlsplit(session.request.call_args.args[1]).path.endswith(path)
+    with scripted_network(
+        [ScriptedResponse(json={"detectorIds": ["detector-example"]}), ScriptedResponse(json={})]
+    ) as network:
+        assert validate_credentials(config, VERSION, schema_name) == (True, None)
+    assert network.requests_log[-1].path.endswith(path)
 
 
-def test_findings_validation_checks_hydration_permission(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock
-) -> None:
-    session.request.side_effect = [
-        response({"detectorIds": ["detector-example"]}),
-        response({"findingIds": ["finding-example"]}),
-        response({"code": "AccessDeniedException"}, 403),
-    ]
-    valid, message = validate_credentials(config, VERSION, "findings")
+def test_findings_validation_checks_hydration_permission(config: AwsGuarddutySourceConfig) -> None:
+    with scripted_network(
+        [
+            ScriptedResponse(json={"detectorIds": ["detector-example"]}),
+            ScriptedResponse(json={"findingIds": ["finding-example"]}),
+            ScriptedResponse(status=403, json={"code": "AccessDeniedException"}),
+        ]
+    ) as network:
+        valid, message = validate_credentials(config, VERSION, "findings")
     assert not valid and message and "guardduty:GetFindings" in message
-    assert session.request.call_args.args[1].endswith("/findings/get")
+    assert network.requests_log[-1].path.endswith("/findings/get")
 
 
-def test_server_errors_propagate_from_validation(config: AwsGuarddutySourceConfig, session: mock.MagicMock) -> None:
-    session.request.return_value = response({"__type": "InternalServerErrorException"}, 500)
-    with pytest.raises(AwsGuarddutyError, match="InternalServerErrorException"):
-        validate_credentials(config, VERSION)
-    session.close.assert_called_once()
+def test_server_errors_propagate_from_validation(config: AwsGuarddutySourceConfig) -> None:
+    with scripted_network(always(ScriptedResponse(status=500, json={"__type": "InternalServerErrorException"}))):
+        with pytest.raises(AwsGuarddutyError, match="InternalServerErrorException"):
+            validate_credentials(config, VERSION)
 
 
 @pytest.mark.parametrize(
@@ -466,91 +430,92 @@ def test_server_errors_propagate_from_validation(config: AwsGuarddutySourceConfi
     ],
 )
 def test_invalid_configuration_never_sends_request(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, field_name: str, value: str, message: str
+    config: AwsGuarddutySourceConfig, field_name: str, value: str, message: str
 ) -> None:
     setattr(config, field_name, value)
-    valid, error = validate_credentials(config, VERSION)
+    with scripted_network([]) as network:
+        valid, error = validate_credentials(config, VERSION)
     assert not valid and error and message in error
-    session.request.assert_not_called()
+    assert network.requests_log == []
 
 
-def test_unknown_version_and_table(config: AwsGuarddutySourceConfig, session: mock.MagicMock) -> None:
-    assert validate_credentials(config, "2099-01-01")[0] is False
-    assert validate_credentials(config, VERSION, "unknown") == (False, "Unknown GuardDuty table: unknown")
-    with pytest.raises(UnknownResourceError):
-        aws_guardduty_source(config, "unknown", VERSION, FakeResumeManager(), None)
-    session.request.assert_not_called()
+def test_unknown_version_and_table(config: AwsGuarddutySourceConfig) -> None:
+    with scripted_network([]) as network:
+        assert validate_credentials(config, "2099-01-01")[0] is False
+        assert validate_credentials(config, VERSION, "unknown") == (False, "Unknown GuardDuty table: unknown")
+        result = SourceDriver(AwsGuarddutySource(), config).run("unknown", [], api_version=VERSION)
+    assert isinstance(result.raised, UnknownResourceError)
+    assert network.requests_log == []
+    assert result.requests == []
 
 
-def test_hydration_failure_keeps_checkpoint(config: AwsGuarddutySourceConfig, session: mock.MagicMock) -> None:
-    session.request.side_effect = [
-        response({"detectorIds": ["detector-example"]}),
-        response({"findingIds": ["finding-example"], "nextToken": "next-page"}),
-        response({"code": "InternalServerErrorException"}, 500),
-    ]
-    manager = FakeResumeManager()
-    with pytest.raises(AwsGuarddutyError):
-        list(get_rows(config, "findings", VERSION, manager, None))
-    assert manager.saved == []
-    assert not manager.cleared
-    session.close.assert_called_once()
+def test_hydration_failure_keeps_checkpoint(config: AwsGuarddutySourceConfig) -> None:
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/findings/get"):
+            return ScriptedResponse(status=500, json={"code": "InternalServerErrorException"})
+        if request.path.endswith("/findings"):
+            return ScriptedResponse(json={"findingIds": ["finding-example"], "nextToken": "next-page"})
+        return ScriptedResponse(json={"detectorIds": ["detector-example"]})
 
-
-@pytest.mark.parametrize("endpoint", ["findings", "members"])
-def test_repeated_token_fails_without_looping(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, endpoint: str
-) -> None:
-    manager = FakeResumeManager(AwsGuarddutyResumeConfig(detector_ids=["detector-example"], next_token="same-token"))
-    session.request.return_value = response({"nextToken": "same-token"})
-    with pytest.raises(ValueError, match="repeated a page token"):
-        list(get_rows(config, endpoint, VERSION, manager, None))
-    session.request.assert_called_once()
-
-
-def test_repeated_detector_token_fails_without_looping(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock
-) -> None:
-    session.request.return_value = response({"detectorIds": [], "nextToken": "same-token"})
-    with pytest.raises(ValueError, match="repeated a page token"):
-        list(get_rows(config, "detectors", VERSION, FakeResumeManager(), None))
-    assert session.request.call_count == 2
-    session.close.assert_called_once()
+    result = SourceDriver(AwsGuarddutySource(), config).run("findings", answer, api_version=VERSION)
+    assert isinstance(result.raised, AwsGuarddutyError)
+    assert result.saved_states == []
+    assert result.final_state is None
 
 
 @pytest.mark.parametrize("endpoint", ["findings", "members"])
-def test_cyclic_token_fails_without_looping(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, endpoint: str
-) -> None:
-    manager = FakeResumeManager(AwsGuarddutyResumeConfig(detector_ids=["detector-example"]))
-    session.request.side_effect = [
-        response({"nextToken": "token-a"}),
-        response({"nextToken": "token-b"}),
-        response({"nextToken": "token-a"}),
-    ]
-    with pytest.raises(ValueError, match="repeated a page token"):
-        list(get_rows(config, endpoint, VERSION, manager, None))
-    assert manager.saved[-1].next_token == "token-b"
-    assert session.request.call_count == 3
+def test_repeated_token_fails_without_looping(config: AwsGuarddutySourceConfig, endpoint: str) -> None:
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        endpoint,
+        [ScriptedResponse(json={"nextToken": "same-token"})],
+        api_version=VERSION,
+        resume_state=AwsGuarddutyResumeConfig(detector_ids=["detector-example"], next_token="same-token"),
+    )
+    assert isinstance(result.raised, ValueError) and "repeated a page token" in str(result.raised)
+    assert len(result.requests) == 1
 
 
-def test_cyclic_detector_token_fails_without_looping(config: AwsGuarddutySourceConfig, session: mock.MagicMock) -> None:
-    session.request.side_effect = [
-        response({"detectorIds": [], "nextToken": "token-a"}),
-        response({"detectorIds": [], "nextToken": "token-b"}),
-        response({"detectorIds": [], "nextToken": "token-a"}),
-    ]
-    with pytest.raises(ValueError, match="repeated a page token"):
-        list(get_rows(config, "detectors", VERSION, FakeResumeManager(), None))
-    assert session.request.call_count == 3
-    session.close.assert_called_once()
+def test_repeated_detector_token_fails_without_looping(config: AwsGuarddutySourceConfig) -> None:
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        "detectors", always(ScriptedResponse(json={"detectorIds": [], "nextToken": "same-token"})), api_version=VERSION
+    )
+    assert isinstance(result.raised, ValueError) and "repeated a page token" in str(result.raised)
+    assert len(result.requests) == 2
 
 
-def test_invalid_response_fails_instead_of_silently_finishing(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock
-) -> None:
-    result = response()
-    result._content = b"[]"
-    session.request.return_value = result
-    with pytest.raises(ValueError, match="invalid response"):
-        list(get_rows(config, "findings", VERSION, FakeResumeManager(), None))
-    session.close.assert_called_once()
+@pytest.mark.parametrize("endpoint", ["findings", "members"])
+def test_cyclic_token_fails_without_looping(config: AwsGuarddutySourceConfig, endpoint: str) -> None:
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        endpoint,
+        [
+            ScriptedResponse(json={"nextToken": "token-a"}),
+            ScriptedResponse(json={"nextToken": "token-b"}),
+            ScriptedResponse(json={"nextToken": "token-a"}),
+        ],
+        api_version=VERSION,
+        resume_state=AwsGuarddutyResumeConfig(detector_ids=["detector-example"]),
+    )
+    assert isinstance(result.raised, ValueError) and "repeated a page token" in str(result.raised)
+    assert result.saved_states[-1].next_token == "token-b"
+    assert len(result.requests) == 3
+
+
+def test_cyclic_detector_token_fails_without_looping(config: AwsGuarddutySourceConfig) -> None:
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        "detectors",
+        [
+            ScriptedResponse(json={"detectorIds": [], "nextToken": "token-a"}),
+            ScriptedResponse(json={"detectorIds": [], "nextToken": "token-b"}),
+            ScriptedResponse(json={"detectorIds": [], "nextToken": "token-a"}),
+        ],
+        api_version=VERSION,
+    )
+    assert isinstance(result.raised, ValueError) and "repeated a page token" in str(result.raised)
+    assert len(result.requests) == 3
+
+
+def test_invalid_response_fails_instead_of_silently_finishing(config: AwsGuarddutySourceConfig) -> None:
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        "findings", [ScriptedResponse(body=b"[]")], api_version=VERSION
+    )
+    assert isinstance(result.raised, ValueError) and "invalid response" in str(result.raised)

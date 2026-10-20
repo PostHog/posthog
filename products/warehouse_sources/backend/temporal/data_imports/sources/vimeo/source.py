@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.cano
 from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.settings import (
     AUTH_ERROR,
     ENDPOINTS,
+    FANOUT_ENDPOINTS,
     PERMISSION_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.vimeo import (
@@ -37,6 +39,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VimeoSource(ResumableSource[VimeoSourceConfig, VimeoResumeConfig]):
+    codebase_detection = detect(
+        env=("^VIMEO_",),
+        script_hosts=("player.vimeo.com",),
+        npm=("@vimeo/vimeo", "@vimeo/player"),
+        pypi=("pyvimeo",),
+        cocoapods=("VimeoNetworking",),
+        composer=("vimeo/vimeo-api",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("3.4",)
     default_version = "3.4"
@@ -64,7 +75,7 @@ class VimeoSource(ResumableSource[VimeoSourceConfig, VimeoResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas([*ENDPOINTS, *FANOUT_ENDPOINTS], {}, names)
 
     def validate_credentials(
         self,
@@ -104,7 +115,7 @@ class VimeoSource(ResumableSource[VimeoSourceConfig, VimeoResumeConfig]):
             caption=(
                 "Open your app at [Vimeo Developers](https://developer.vimeo.com/apps). "
                 "Under **Generate an access token**, select **Authenticated (you)**. "
-                "Enable `public` and `private` scopes to read your videos, folders, and showcases."
+                "Enable `public` and `private` scopes to read your videos, folders, showcases, comments, and likes."
             ),
             fields=cast(
                 list[FieldType],

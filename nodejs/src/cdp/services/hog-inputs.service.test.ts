@@ -10,6 +10,7 @@ import { Hub, Team } from '~/types'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { classifyHogError } from '../utils/hog-error-classification'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
@@ -277,18 +278,22 @@ describe('Hog Inputs', () => {
 
             expect(inputs.oauth).toEqual({
                 $integration_id: integrationId1,
-                access_token: `$$_access_token_placeholder_${integrationId1}`,
+                access_token: expect.any(String),
                 access_token_raw: 'token',
                 not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
             expect(inputs.auth).toEqual({
                 $integration_id: integrationId2,
-                access_token: `$$_access_token_placeholder_${integrationId2}`,
+                access_token: expect.any(String),
                 access_token_raw: 'token',
                 not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
+            expect(hogInputsService.acceptedAccessTokenPlaceholders(integrationId1)).toContain(
+                inputs.oauth.access_token
+            )
+            expect(hogInputsService.acceptedAccessTokenPlaceholders(integrationId2)).toContain(inputs.auth.access_token)
         })
 
         it('should coerce string results to booleans for boolean schema fields', async () => {
@@ -317,12 +322,28 @@ describe('Hog Inputs', () => {
             expect(inputs.is_enabled).toBe(false)
         })
 
-        it('should not load integrations from a different team', async () => {
-            hogFunction.team_id = 100
+        it.each([
+            ['was deleted', (): void => void (hogFunction.inputs!.oauth = { value: 99999999 })],
+            ['belongs to a different team', (): void => void (hogFunction.team_id = 100)],
+        ])('fails instead of running without the integration when it %s', async (_name, setup) => {
+            setup()
 
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            const error = await hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
 
-            expect(inputs.oauth).toMatchInlineSnapshot(`null`)
+            expect(error.message).toContain("The integration for input 'oauth' no longer exists.")
+            // Anything but `config` parks the event and blocks DLQ replay on a failure no replay can fix.
+            expect(classifyHogError(error, { runtimeContract: 'any' })).toBe('config')
+        })
+
+        it('ignores a deleted integration on a mapping this invocation does not use', async () => {
+            hogFunction.mappings = [
+                { inputs: { slack: { value: 99999999 } }, inputs_schema: [{ key: 'slack', type: 'integration' }] },
+            ]
+
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).resolves.toBeDefined()
+            await expect(
+                hogInputsService.buildInputs(hogFunction, globals, hogFunction.mappings[0].inputs ?? {})
+            ).rejects.toThrow("The integration for input 'slack' no longer exists.")
         })
 
         it('should not load a posthog connection', async () => {
@@ -380,7 +401,7 @@ describe('Hog Inputs', () => {
             expect(inputs.email.design).toBeUndefined()
         })
 
-        it('resolves push subscription inputs without a valid integration', async () => {
+        it('resolves push subscription inputs without a push integration', async () => {
             const hogFunction = createHogFunction({
                 id: 'hog-function-1',
                 team_id: team.id,
@@ -388,7 +409,7 @@ describe('Hog Inputs', () => {
                 enabled: true,
                 type: 'destination',
                 inputs: {
-                    push_provider: { value: 999 },
+                    push_provider: { value: integrationId1 },
                     push_subscription: { value: 'user-123' },
                 },
                 inputs_schema: [
