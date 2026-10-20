@@ -1493,7 +1493,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
                 store.clone(),
                 dispatcher,
                 groups.clone(),
-                lineage,
+                claimed.clone(),
                 config.durability_config(),
                 1,
                 tokio_util::sync::CancellationToken::new(),

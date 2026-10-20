@@ -574,12 +574,12 @@ async fn async_main(config: Config) -> Result<()> {
     // Whole-DB checkpoints to the local volume and S3, from boot to the final one on a graceful stop.
     // The loop waits for boot: a capture before the events rewind would record the broker's old
     // offsets of a pending restore.
-    if let (Some(lineage), Some(checkpoint_handle)) = (lineage, checkpoint_handle) {
+    if let Some(checkpoint_handle) = checkpoint_handle {
         let sweeper = Arc::new(CheckpointSweeper::new(
             store_for_checkpoint,
             dispatcher.clone(),
             groups,
-            lineage,
+            claimed.clone(),
             config.durability_config(),
             upload_cadence(
                 config.checkpoint_interval_ms,
