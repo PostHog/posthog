@@ -15,10 +15,10 @@ vendor's API, see [COVERAGE_GAPS.md](COVERAGE_GAPS.md), refreshed by the
 
 ## Status legend
 
-| Status          | Meaning                                                                                                                   |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **Implemented** | Source has working sync logic and is exposed to users (possibly behind `featureFlag=` or `releaseStatus="alpha"/"beta"`). |
-| **Scaffolded**  | Source class is registered with `unreleasedSource=True` and an empty/placeholder `source.py`. No sync logic yet.          |
+| Status          | Meaning                                                                                                           |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Implemented** | Source has working sync logic and is exposed to users (possibly behind `featureFlag=` or `releaseStatus="beta"`). |
+| **Scaffolded**  | Source class is registered with `unreleasedSource=True` and an empty/placeholder `source.py`. No sync logic yet.  |
 
 ## Comm-method legend
 

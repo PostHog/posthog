@@ -87,7 +87,7 @@ Your **account name** is the subdomain in your Freshcaller URL — e.g. `acme` f
 Your **API key** is on your Freshcaller profile settings page (click your profile picture → **Profile settings**; the API key is shown in the right sidebar).""",
             iconPath="/static/services/freshcaller.png",
             docsUrl="https://posthog.com/docs/cdp/sources/freshcaller",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
