@@ -157,7 +157,7 @@ Langfuse fail:rate-limit-budget,stall-budget
 Linear not-checkable:database
 Linearb fail:stall-budget
 LinkedinAds not-checkable:database
-Linkrunner fail:rate-limit-budget,stall-budget
+Linkrunner fail:stall-budget
 LlamaCloud fail:safe-point,stall-budget
 Lob fail:stall-budget
 Logicmonitor not-checkable:no-request
