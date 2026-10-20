@@ -2762,6 +2762,16 @@ class TestLogsAlertAPI(APIBaseTest):
         assert request.incident_actions == {"": IncidentAction.RESOLVE}
         assert destinations_when_sent[0] > 0
 
+    def test_a_platform_delete_after_a_handback_refuses_and_keeps_the_logs_row(self) -> None:
+        created = self._owned_by_the_platform()
+        # The state a rollback leaves when it hands the alert back after the platform read its owner.
+        LogsAlertConfiguration.objects.filter(id=created["id"]).update(owner="source")
+
+        response = self._delete_through("platform", created["id"])
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+
     @parameterized.expand([("logs",), ("platform",)])
     def test_deleting_an_alert_the_platform_owns_deletes_both_rows(self, route: str) -> None:
         created = self._owned_by_the_platform()

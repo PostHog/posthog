@@ -552,7 +552,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise Conflict(str(error)) from error
         if not deleted:
             raise NotFound()
-        self._track("deleted", target.configuration)
+        transaction.on_commit(lambda: self._track("deleted", target.configuration), robust=True)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def list(self, request: Request, **kwargs) -> Response:

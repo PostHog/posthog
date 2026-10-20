@@ -1710,4 +1710,5 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
         if delete_alert(team_id=instance.team_id, alert_id=instance.id):
-            self._track("deleted", instance)
+            # Robust, so an analytics failure, such as a malformed Referer, cannot fail a committed delete.
+            transaction.on_commit(lambda: self._track("deleted", instance), robust=True)
