@@ -11,10 +11,13 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
 import { MessageChannels } from '../MessageChannels'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
+import { SourceWorkflow } from './components/SourceWorkflowCard'
+import { EmailDomainSetupModal } from './EmailDomainSetupModal'
 
 const DOMAIN = 'mail.acme.com'
 const SENDER_ID = 42
@@ -175,4 +178,85 @@ describe('email domain setup entry points', () => {
             expect(onClose).not.toHaveBeenCalled()
         }
     )
+
+    describe('opened from a workflow', () => {
+        const workflow = (overrides: Partial<SourceWorkflow> = {}): SourceWorkflow => ({
+            name: 'Welcome new sign-ups',
+            enabled: false,
+            enableDisabledReason: null,
+            onEnable: jest.fn(),
+            onBack: jest.fn(),
+            ...overrides,
+        })
+
+        beforeEach(() => {
+            setWizardFlag(true)
+            backend.addSender({ email: `hello@${DOMAIN}` })
+        })
+
+        it.each<{
+            name: string
+            stage: 'verifying' | 'ready'
+            source: Partial<SourceWorkflow>
+            enableLabel: string | null
+            text: string
+        }>([
+            {
+                name: 'offers to enable the workflow while DNS is checked',
+                stage: 'verifying',
+                source: {},
+                enableLabel: 'Enable and send once verified',
+                text: 'It starts sending once mail.acme.com is verified.',
+            },
+            {
+                name: 'offers to enable the workflow once the domain is verified',
+                stage: 'ready',
+                source: {},
+                enableLabel: 'Enable workflow',
+                text: 'mail.acme.com is verified. Turn the workflow on to start sending.',
+            },
+            {
+                name: 'says why the workflow cannot be enabled',
+                stage: 'ready',
+                source: { enableDisabledReason: "Choose a sender in the workflow's email step first." },
+                enableLabel: null,
+                text: "Choose a sender in the workflow's email step first.",
+            },
+            {
+                name: 'skips the enable action for a workflow that is already on',
+                stage: 'verifying',
+                source: { enabled: true },
+                enableLabel: null,
+                text: "It's on and starts sending once mail.acme.com is verified.",
+            },
+        ])('$name, in place of the workflow suggestions', async ({ stage, source, enableLabel, text }) => {
+            backend.publishRecords(DOMAIN)
+            if (stage === 'ready') {
+                backend.verifyDomain(DOMAIN)
+            }
+            const sourceWorkflow = workflow(source)
+            await renderInApp(
+                <EmailDomainSetupModal
+                    integration={{ id: SENDER_ID } as IntegrationType}
+                    entry="workflow"
+                    workflow={sourceWorkflow}
+                    onComplete={jest.fn()}
+                    onClose={jest.fn()}
+                />
+            )
+
+            expect(screen.getByText('For the workflow Welcome new sign-ups')).toBeInTheDocument()
+            expect(screen.getByText(text)).toBeInTheDocument()
+            expect(document.querySelector('[data-attr$="workflow-choices"]')).toBeNull()
+            if (enableLabel) {
+                expect(element('email-domain-workflow-enable')).toHaveTextContent(enableLabel)
+                fireEvent.click(element('email-domain-workflow-enable'))
+                expect(sourceWorkflow.onEnable).toHaveBeenCalled()
+            } else {
+                expect(document.querySelector('[data-attr="email-domain-workflow-enable"]')).toBeNull()
+            }
+            fireEvent.click(element('email-domain-workflow-back'))
+            expect(sourceWorkflow.onBack).toHaveBeenCalled()
+        })
+    })
 })

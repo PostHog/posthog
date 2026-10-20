@@ -37,7 +37,7 @@ export function WorkflowStatusBar({
         lastSavedAt,
         senderDomainNotice,
     } = useValues(logic)
-    const { setAutoSaveEnabled } = useActions(logic)
+    const { setAutoSaveEnabled, openSenderDomainSetup } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
 
     if (!originalWorkflow) {
@@ -98,7 +98,10 @@ export function WorkflowStatusBar({
                     ))}
                 {showWorkflowStatus &&
                     (senderDomainNotice ? (
-                        <WorkflowSenderDomainNotice notice={senderDomainNotice} />
+                        <WorkflowSenderDomainNotice
+                            notice={senderDomainNotice}
+                            onOpenDomainSetup={openSenderDomainSetup}
+                        />
                     ) : (
                         statusExplanation && (
                             <span className="text-xs text-secondary truncate">{statusExplanation}</span>

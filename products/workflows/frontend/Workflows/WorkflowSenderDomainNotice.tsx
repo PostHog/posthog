@@ -1,5 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import type { SenderDomainNotice } from './senderDomainNotice'
 
 const domainList = new Intl.ListFormat('en', { type: 'conjunction' })
@@ -15,19 +17,50 @@ function noticeMessage(notice: SenderDomainNotice): string {
         : `${domains} ${several ? "aren't" : "isn't"} verified yet.`
 }
 
-export function WorkflowSenderDomainNotice({ notice }: { notice: SenderDomainNotice }): JSX.Element {
-    const setsUpDomain = notice.stage === 'no_domain'
+interface WorkflowSenderDomainNoticeProps {
+    notice: SenderDomainNotice
+    /** Opens the domain setup over the workflow, for the domain's integration or for a new domain. */
+    onOpenDomainSetup: (integrationId: number | null) => void
+}
+
+function NoticeAction({ notice, onOpenDomainSetup }: WorkflowSenderDomainNoticeProps): JSX.Element {
+    if (notice.stage === 'no_domain') {
+        return (
+            <Link
+                onClick={() => onOpenDomainSetup(null)}
+                className="shrink-0"
+                data-attr="workflow-sender-domain-set-up"
+            >
+                Set up a domain
+            </Link>
+        )
+    }
+    const { integrationId } = notice
+    return integrationId === null ? (
+        <Link
+            to={urls.workflows('channels')}
+            target="_blank"
+            className="shrink-0"
+            data-attr="workflow-sender-domain-status"
+        >
+            Check domain status
+        </Link>
+    ) : (
+        <Link
+            onClick={() => onOpenDomainSetup(integrationId)}
+            className="shrink-0"
+            data-attr="workflow-sender-domain-status"
+        >
+            Check domain status
+        </Link>
+    )
+}
+
+export function WorkflowSenderDomainNotice(props: WorkflowSenderDomainNoticeProps): JSX.Element {
     return (
         <span className="flex items-center gap-2 min-w-0 text-xs">
-            <span className="text-secondary truncate">{noticeMessage(notice)}</span>
-            <Link
-                to={notice.url}
-                target="_blank"
-                className="shrink-0"
-                data-attr={setsUpDomain ? 'workflow-sender-domain-set-up' : 'workflow-sender-domain-status'}
-            >
-                {setsUpDomain ? 'Set up a domain' : 'Check domain status'}
-            </Link>
+            <span className="text-secondary truncate">{noticeMessage(props.notice)}</span>
+            <NoticeAction {...props} />
         </span>
     )
 }

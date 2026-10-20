@@ -29,6 +29,7 @@ import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { objectsEqual } from 'lib/utils/objects'
@@ -39,7 +40,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, HogFunctionTemplateType, IntegrationType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType, IntegrationType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import { hogFlowsCreate, hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
@@ -88,7 +89,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
-import { SenderDomainNotice, senderDomainNotice } from './senderDomainNotice'
+import { SenderDomainNotice, hasEmailStepWithoutSender, senderDomainNotice } from './senderDomainNotice'
 import { unverifiedSenderDomains } from './unverifiedSenderDomains'
 import { checkWaitingStatusWhileVisible } from './waitingStatusCheck'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
@@ -281,6 +282,11 @@ function lifecycleUpdate(latest: HogFlow, fresh: HogFlow): Partial<HogFlow> | nu
 }
 
 /** What a save was dispatched with, kept per save because a later save moves the shared state. */
+interface SenderDomainSetup {
+    integrationId: number | null
+    filledEmptySenders: boolean
+}
+
 interface SaveContext {
     initiatedByAutoSave: boolean
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
@@ -291,6 +297,7 @@ interface SaveContext {
     // A status change made while the form had unsaved edits. The edits stay in the form, unsaved.
     keepsFormEdits: boolean
     enablesWorkflow: boolean
+    editVersion: number
 }
 
 /** The schedule editor state, kept across a status change so unsaved schedule edits survive it. */
@@ -326,6 +333,8 @@ export interface workflowLogicValues {
     enablePromptDomains: string[] | null
     enablePromptOpen: boolean
     senderDomainNotice: SenderDomainNotice | null
+    senderDomainSetup: SenderDomainSetup | null
+    enableFromSenderDomainSetupDisabledReason: string | null
     showStartedSendingNotice: boolean
     isWaitingForDomain: boolean
     startedSendingNoticeKey: string | null
@@ -408,6 +417,27 @@ export interface workflowLogicActions {
     }
     cancelEnablePrompt: () => {
         value: true
+    }
+    closeSenderDomainSetup: () => {
+        value: true
+    }
+    enableFromSenderDomainSetup: () => {
+        value: true
+    }
+    fillEmptySendersFromDomainSetup: (integrationId: number) => {
+        integrationId: number
+    }
+    emptySendersFilledFromDomainSetup: () => {
+        value: true
+    }
+    flushAutoSave: () => {
+        value: true
+    }
+    loadIntegrations: () => {
+        value: true
+    } // integrationsLogic
+    openSenderDomainSetup: (integrationId: number | null) => {
+        integrationId: number | null
     }
     clearAutoSavePending: () => {
         value: true
@@ -3086,6 +3116,13 @@ export interface workflowLogicMeta {
             integrations: IntegrationType[] | null,
             featureFlags: FeatureFlagsSet
         ) => SenderDomainNotice | null
+        enableFromSenderDomainSetupDisabledReason: (
+            workflow: HogFlow,
+            integrations: IntegrationType[] | null,
+            workflowHasActionErrors: boolean,
+            hasUnsavedChanges: boolean,
+            workflowUserAccessLevel: AccessControlLevel | null
+        ) => string | null
         startedSendingNoticeKey: (originalWorkflow: HogFlow | null) => string | null
         isWaitingForDomain: (originalWorkflow: HogFlow | null) => boolean
         showStartedSendingNotice: (
@@ -3303,6 +3340,13 @@ export type workflowLogicType = MakeLogicType<
     workflowLogicMeta
 >
 
+function newestStamp(workflow: HogFlow | null | undefined): string | undefined {
+    const { updated_at, draft_updated_at } = workflow ?? {}
+    return draft_updated_at && updated_at && dayjs(draft_updated_at).isAfter(dayjs(updated_at))
+        ? draft_updated_at
+        : updated_at
+}
+
 function getSaveQueue(
     cache: Record<string, any>,
     values: workflowLogicType['values'],
@@ -3313,12 +3357,7 @@ function getSaveQueue(
         getResourceId: () => props.id,
         // Draft writes don't bump the live updated_at, and the event carries the newer of the two
         // stamps, so compare against the newer one we loaded.
-        getLoadedStamp: () => {
-            const { updated_at, draft_updated_at } = values.originalWorkflow ?? {}
-            return draft_updated_at && updated_at && dayjs(draft_updated_at).isAfter(dayjs(updated_at))
-                ? draft_updated_at
-                : updated_at
-        },
+        getLoadedStamp: () => newestStamp(values.originalWorkflow),
         // The loader flag clears when the first of a queued pair lands, so count unfinished saves too.
         isBusy: () =>
             values.originalWorkflowLoading ||
@@ -3345,7 +3384,14 @@ export const workflowLogic = kea<workflowLogicType>([
             integrationsLogic,
             ['integrations'],
         ],
-        actions: [workflowsLogic, ['archiveWorkflow'], resourceEditedLogic, ['resourceEdited']],
+        actions: [
+            workflowsLogic,
+            ['archiveWorkflow'],
+            resourceEditedLogic,
+            ['resourceEdited'],
+            integrationsLogic,
+            ['loadIntegrations'],
+        ],
     })),
     actions({
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
@@ -3372,6 +3418,12 @@ export const workflowLogic = kea<workflowLogicType>([
         openEnablePrompt: true,
         confirmEnablePrompt: true,
         cancelEnablePrompt: true,
+        openSenderDomainSetup: (integrationId: number | null) => ({ integrationId }),
+        closeSenderDomainSetup: true,
+        enableFromSenderDomainSetup: true,
+        fillEmptySendersFromDomainSetup: (integrationId: number) => ({ integrationId }),
+        emptySendersFilledFromDomainSetup: true,
+        flushAutoSave: true,
         dismissStartedSendingNotice: true,
         setStartedSendingNoticeDismissed: (noticeKey: string) => ({ noticeKey }),
         checkWaitingStatus: true,
@@ -3485,6 +3537,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     const keepsFormEdits = cache.nextSaveKeepsFormEdits === true
                     const saveContext: SaveContext = {
                         initiatedByAutoSave,
+                        editVersion: values.workflowEditVersion,
                         // A status change keeps schedule edits unsaved, like the other edits in the form.
                         pendingSchedule: keepsFormEdits ? false : values.pendingSchedule,
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
@@ -3892,6 +3945,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 setResumeEmailSendingPending: (_, { pending }) => pending,
             },
         ],
+        senderDomainSetup: [
+            null as SenderDomainSetup | null,
+            {
+                openSenderDomainSetup: (_, { integrationId }) => ({ integrationId, filledEmptySenders: false }),
+                emptySendersFilledFromDomainSetup: (setup) => setup && { ...setup, filledEmptySenders: true },
+                closeSenderDomainSetup: () => null,
+                enableFromSenderDomainSetup: () => null,
+            },
+        ],
         enablePromptOpen: [
             false,
             {
@@ -3943,6 +4005,41 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
                 const emailSenders = integrations?.filter(({ kind }) => kind === 'email') ?? null
                 return senderDomainNotice(workflow, originalWorkflow, emailSenders)
+            },
+        ],
+        enableFromSenderDomainSetupDisabledReason: [
+            (s) => [
+                s.workflow,
+                s.integrations,
+                s.workflowHasActionErrors,
+                s.hasUnsavedChanges,
+                s.workflowUserAccessLevel,
+            ],
+            (
+                workflow: HogFlow,
+                integrations: IntegrationType[] | null,
+                workflowHasActionErrors: boolean,
+                hasUnsavedChanges: boolean,
+                workflowUserAccessLevel: AccessControlLevel | null
+            ): string | null => {
+                if (
+                    workflowUserAccessLevel &&
+                    !accessLevelSatisfied(
+                        AccessControlResourceType.Workflow,
+                        workflowUserAccessLevel,
+                        AccessControlLevel.Editor
+                    )
+                ) {
+                    return 'You need editor access to enable this workflow.'
+                }
+                const emailSenders = integrations?.filter(({ kind }) => kind === 'email')
+                if (emailSenders && hasEmailStepWithoutSender(workflow, emailSenders)) {
+                    return "Choose a sender in the workflow's email step first."
+                }
+                if (workflowHasActionErrors) {
+                    return "Fix the errors in the workflow's steps first."
+                }
+                return hasUnsavedChanges ? 'Save the workflow first.' : null
             },
         ],
         isWaitingForDomain: [
@@ -4618,6 +4715,39 @@ export const workflowLogic = kea<workflowLogicType>([
         confirmEnablePrompt: () => {
             actions.saveWorkflowPartial({ status: 'active' })
         },
+        enableFromSenderDomainSetup: () => {
+            actions.loadIntegrations()
+            actions.saveWorkflowPartial({ status: 'active' })
+        },
+        fillEmptySendersFromDomainSetup: ({ integrationId }) => {
+            const { workflow, filled } = withEmailSender(values.workflow, integrationId)
+            if (!filled) {
+                return
+            }
+            actions.setWorkflowValues({ actions: workflow.actions })
+            actions.emptySendersFilledFromDomainSetup()
+            // pinned: analytics event name
+            posthog.capture('email sender preselected', { surface: 'workflow', reason: 'created_in_domain_setup' })
+            // Saved now rather than after the auto-save pause, so the setup can offer to enable the workflow.
+            actions.flushAutoSave()
+        },
+        closeSenderDomainSetup: async () => {
+            actions.loadIntegrations()
+            if (!props.id || props.id === 'new') {
+                return
+            }
+            // A domain verified while the setup was open can take the workflow live on the server. Its copy
+            // goes through the edit events' path, which tells our own saves apart and holds it while one runs.
+            const latest = await api.hogFlows.getHogFlow(props.id)
+            actions.resourceEdited({
+                notification_type: 'resource_edited',
+                team_id: latest.team_id,
+                resource_type: 'HogFlow',
+                resource_id: props.id,
+                updated_at: newestStamp(latest) ?? latest.updated_at,
+                actor_user_id: null,
+            })
+        },
         checkWaitingStatus: async () => {
             const latest = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
             if (!props.id || !latest || !values.isWaitingForDomain || values.workflowLoading) {
@@ -4650,9 +4780,6 @@ export const workflowLogic = kea<workflowLogicType>([
             if (values.startedSendingNoticeKey) {
                 actions.setStartedSendingNoticeDismissed(values.startedSendingNoticeKey)
             }
-        },
-        saveWorkflow: () => {
-            cache.saveEditVersion = values.workflowEditVersion
         },
         saveWorkflowFailure: () => {
             // Keep the queue aligned with the saves still in flight.
@@ -4797,7 +4924,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
             const editedDuringSave =
                 !!saveContext?.keepsFormEdits ||
-                (cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion)
+                (!!saveContext && values.workflowEditVersion !== saveContext.editVersion)
             const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
             const scheduleEdits: ScheduleEdits | null = saveContext?.keepsFormEdits
                 ? {
@@ -4922,7 +5049,9 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         autoSaveWorkflow: async (_, breakpoint) => {
             await breakpoint(3000)
-
+            actions.flushAutoSave()
+        },
+        flushAutoSave: () => {
             // Active workflows auto-save too: their content edits route into the staged draft
             // (stage_draft in the saveWorkflow loader), so nothing deploys without an explicit publish.
             const shouldSkip =

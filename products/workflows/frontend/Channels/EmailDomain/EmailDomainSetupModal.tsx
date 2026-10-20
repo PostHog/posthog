@@ -1,13 +1,11 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
-
-import { IntegrationType } from '~/types'
 
 import { BindEmailDomainLogics } from './BindEmailDomainLogics'
 import { AgentHandoffModal } from './components/AgentHandoffModal'
@@ -19,13 +17,18 @@ import { UnavailableStep } from './steps/UnavailableStep'
 import { VerifyingStep } from './steps/VerifyingStep'
 
 export interface EmailDomainSetupModalProps {
-    integration?: IntegrationType | null
-    entry: 'channels' | 'broadcast' | 'configure'
+    /** The sender to verify. Without it the setup starts at the domain step. */
+    integrationId?: number | null
+    entry: 'channels' | 'broadcast' | 'configure' | 'workflow'
+    description?: ReactNode
+    /** Shown after the wait for DNS and in place of the workflow suggestions on the last step. */
+    next?: ReactNode
     onComplete: (integrationId?: number) => void
     onClose: (savedIntegrationId?: number) => void
+    onSenderCreated?: (integrationId: number) => void
 }
 
-function ModalStep(): JSX.Element {
+function ModalStep({ next }: { next?: ReactNode }): JSX.Element {
     const { phase } = useValues(emailDomainLogic)
     switch (phase) {
         case 'unavailable':
@@ -33,9 +36,14 @@ function ModalStep(): JSX.Element {
         case 'settings':
             return <SettingsStep />
         case 'verifying':
-            return <VerifyingStep />
+            return (
+                <>
+                    <VerifyingStep />
+                    {next}
+                </>
+            )
         case 'ready':
-            return <ReadyStep />
+            return <ReadyStep next={next} />
         default:
             return <LemonSkeleton className="h-40" />
     }
@@ -44,16 +52,18 @@ function ModalStep(): JSX.Element {
 function ModalSettings({
     integrationId,
     openInNewTab,
+    next,
     onLeave,
 }: {
     integrationId: number
     openInNewTab: boolean
+    next?: ReactNode
     onLeave: () => void
 }): JSX.Element {
     return (
         <BindEmailDomainLogics id={String(integrationId)}>
             <div className="@container flex flex-col gap-6">
-                <ModalStep />
+                <ModalStep next={next} />
                 <LemonButton
                     type="tertiary"
                     className="self-center"
@@ -71,12 +81,15 @@ function ModalSettings({
 }
 
 export function EmailDomainSetupModal({
-    integration,
+    integrationId: initialIntegrationId,
     entry,
+    description,
+    next,
     onComplete,
     onClose,
+    onSenderCreated,
 }: EmailDomainSetupModalProps): JSX.Element {
-    const [integrationId, setIntegrationId] = useState<number | null>(integration?.id ?? null)
+    const [integrationId, setIntegrationId] = useState<number | null>(initialIntegrationId ?? null)
 
     useEffect(() => {
         // pinned: analytics event name
@@ -86,6 +99,7 @@ export function EmailDomainSetupModal({
     return (
         <LemonModal
             title={integrationId ? 'Verify your sending domain' : 'Set up a sending domain'}
+            description={description}
             width={720}
             onClose={() => (integrationId ? onComplete(integrationId) : onClose())}
         >
@@ -95,11 +109,18 @@ export function EmailDomainSetupModal({
                 <ModalSettings
                     integrationId={integrationId}
                     openInNewTab={entry === 'broadcast'}
+                    next={next}
                     onLeave={() => onComplete(integrationId)}
                 />
             ) : (
                 <div className="@container">
-                    <DomainStep logicKey="modal" onCreated={(created) => setIntegrationId(created.id)} />
+                    <DomainStep
+                        logicKey="modal"
+                        onCreated={(created) => {
+                            setIntegrationId(created.id)
+                            onSenderCreated?.(created.id)
+                        }}
+                    />
                 </div>
             )}
         </LemonModal>
