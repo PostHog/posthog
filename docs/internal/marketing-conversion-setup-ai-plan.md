@@ -68,6 +68,9 @@ The backend and MCP tools do not depend on that integration.
 
 ## Verification
 
+The static IDOR coverage check verifies that recommendation runs appear in the generated environment-scoped model list.
+After changing model scope, regenerate that list with `python .github/scripts/check-idor-model-coverage.py --regenerate-environment-models`, then run the same command without the regeneration flag.
+
 Backend tests cover run reuse, refresh windows, permissions, consent, source filtering, output validation, and goal preservation.
 MCP tests cover tool schemas, feature flag gating, and access from read-only sessions.
 
