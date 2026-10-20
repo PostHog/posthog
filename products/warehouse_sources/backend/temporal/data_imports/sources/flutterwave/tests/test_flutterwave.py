@@ -171,6 +171,28 @@ class TestFanOut:
         assert {request.param("page") for request in result.requests} == {None}
         assert [row["country"] for row in result.rows] == ["NG", "GH", "KE", "UG", "ZA", "TZ"]
 
+    def test_bill_payments_reads_every_status_and_keeps_the_row_status(self) -> None:
+        result = _run_v3(
+            "bill_payments",
+            route(
+                {
+                    "/bills/history": [
+                        _page([{"id": 1, "status": "Successful"}]),
+                        _page([{"id": 2, "status": "Failed"}]),
+                        _page([{"id": 3, "status": "Reversed"}]),
+                    ]
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [r.param("status") for r in result.requests] == ["Successful", "Failed", "Reversed"]
+        assert [(row["id"], row["status"]) for row in result.rows] == [
+            (1, "Successful"),
+            (2, "Failed"),
+            (3, "Reversed"),
+        ]
+
 
 class TestDateWindow:
     @parameterized.expand(
@@ -197,7 +219,7 @@ class TestDateWindow:
 
     @parameterized.expand([("transactions",), ("bill_payments",)])
     def test_required_window_endpoints_send_the_full_history_window(self, endpoint: str) -> None:
-        result = _run_v3(endpoint, [_page([{"id": 1}])])
+        result = _run_v3(endpoint, always(_page([{"id": 1}])))
 
         assert result.raised is None
         assert result.requests[0].param("from") == "2016-01-01"

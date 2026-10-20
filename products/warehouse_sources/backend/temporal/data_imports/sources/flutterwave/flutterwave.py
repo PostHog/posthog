@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.settings import (
     BANK_COUNTRIES,
+    BILL_PAYMENT_STATUSES,
     FLUTTERWAVE_API_V4,
     FLUTTERWAVE_ENDPOINTS,
     FLUTTERWAVE_V4_ENDPOINTS,
@@ -251,6 +252,8 @@ def _v3_fan_out_values(endpoint: str, client: ClientConfig, team_id: int, job_id
     fan_out_param = FLUTTERWAVE_ENDPOINTS[endpoint].fan_out_param
     if fan_out_param == "country":
         return list(BANK_COUNTRIES)
+    if fan_out_param == "status":
+        return list(BILL_PAYMENT_STATUSES)
     if fan_out_param == "currency":
         return list(_wallet_currencies(client, team_id, job_id))
     return [None]

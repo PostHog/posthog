@@ -16,7 +16,7 @@ FLUTTERWAVE_API_V4 = "v4"
 # `created_datetime`) and adds no update cursor, so the same holds there.
 
 
-@dataclass
+@dataclass(frozen=True)
 class FlutterwaveEndpointConfig:
     name: str
     path: str
@@ -82,17 +82,22 @@ FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
         params={"include_transaction_type": "true", "include_payout_id": "true"},
         fan_out_param="currency",
     ),
-    # Airtime, data, cable and utility bills bought through the account.
+    # Airtime, data, cable and utility bills bought through the account. The endpoint defaults
+    # `status` to Successful, so it is queried once per status to also capture failed and reversed bills.
     "bill_payments": FlutterwaveEndpointConfig(
         name="bill_payments",
         path="/bills/history",
         partition_key="transaction_date",
         requires_date_window=True,
+        fan_out_param="status",
     ),
 }
 
 # The payout countries the v3 banks reference documents.
 BANK_COUNTRIES = ("NG", "GH", "KE", "UG", "ZA", "TZ")
+
+# The statuses the v3 bill payment history filter documents.
+BILL_PAYMENT_STATUSES = ("Successful", "Failed", "Reversed")
 
 ENDPOINTS = tuple(FLUTTERWAVE_ENDPOINTS.keys())
 
