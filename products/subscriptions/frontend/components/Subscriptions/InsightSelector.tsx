@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -59,72 +60,79 @@ export function InsightSelector({
     }
 
     return (
-        <div className="border rounded p-2 space-y-2">
-            {insightTiles.length === 0 && (
-                <p className="text-secondary text-sm">
-                    No insights found in this dashboard. Add an insight before saving.
-                </p>
-            )}
-            <div className="flex flex-wrap justify-between items-center gap-2 text-sm">
-                <span className="font-medium">
-                    {selectedCount} of {selectableCount} insights selected
-                </span>
-                {selectedCount === 0 && <span className="text-danger">Select at least one insight</span>}
-            </div>
-            {showSearch && (
-                <LemonInput
-                    type="search"
-                    placeholder="Search insights..."
-                    value={searchTerm}
-                    onChange={setSearchTerm}
-                    fullWidth
-                />
-            )}
-            <div className="border-t pt-2 space-y-1 max-h-[200px] overflow-y-auto">
-                {filteredTiles.length === 0 && insightTiles.length > 0 ? (
-                    <div className="text-secondary text-sm py-2">No insights match your search.</div>
-                ) : (
-                    filteredTiles.map((tile) => {
-                        const insight = tile.insight!
-                        const isChecked = validSelectedIds.includes(insight.id)
-                        const isDisabled = !isChecked && atMaxLimit
-                        return (
-                            <LemonCheckbox
-                                key={tile.id}
-                                checked={isChecked}
-                                onChange={() => toggleInsight(insight.id)}
-                                label={insight.name || insight.derived_name || 'Untitled insight'}
-                                disabledReason={
-                                    isDisabled && 'Maximum number of insights selected. Deselect one to add another.'
-                                }
-                            />
-                        )
-                    })
+        <div className="space-y-2">
+            <div className="border rounded p-2 space-y-2">
+                {insightTiles.length === 0 && (
+                    <p className="text-secondary text-sm">
+                        No insights found in this dashboard. Add an insight before saving.
+                    </p>
+                )}
+                <div className="flex flex-wrap justify-between items-center gap-2 text-sm">
+                    <span className="font-medium">
+                        {selectedCount} of {selectableCount} insights selected
+                    </span>
+                    {selectedCount === 0 && <span className="text-danger">Select at least one insight</span>}
+                </div>
+                {showSearch && (
+                    <LemonInput
+                        type="search"
+                        placeholder="Search insights..."
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        fullWidth
+                    />
+                )}
+                <div className="border-t pt-2 space-y-1 max-h-[200px] overflow-y-auto">
+                    {filteredTiles.length === 0 && insightTiles.length > 0 ? (
+                        <div className="text-secondary text-sm py-2">No insights match your search.</div>
+                    ) : (
+                        filteredTiles.map((tile) => {
+                            const insight = tile.insight!
+                            const isChecked = validSelectedIds.includes(insight.id)
+                            const isDisabled = !isChecked && atMaxLimit
+                            return (
+                                <LemonCheckbox
+                                    key={tile.id}
+                                    checked={isChecked}
+                                    onChange={() => toggleInsight(insight.id)}
+                                    label={insight.name || insight.derived_name || 'Untitled insight'}
+                                    disabledReason={
+                                        isDisabled &&
+                                        'Maximum number of insights selected. Deselect one to add another.'
+                                    }
+                                />
+                            )
+                        })
+                    )}
+                </div>
+                {atMaxLimit && (
+                    <div className="text-xs text-secondary">
+                        Maximum {MAX_INSIGHTS} insights. Deselect one to add another.
+                    </div>
                 )}
             </div>
             {unavailableSelectedIds.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                    <span className="text-secondary">
-                        {unavailableSelectedIds.length === 1
-                            ? '1 insight is no longer on this dashboard but is still selected in this subscription.'
-                            : `${unavailableSelectedIds.length} insights are no longer on this dashboard but are still selected in this subscription.`}
-                    </span>
-                    <LemonButton
-                        size="small"
-                        data-attr="subscription-remove-all-unavailable-insights"
-                        onClick={() => {
-                            setUserHasInteracted()
-                            onChange(validSelectedIds)
-                        }}
-                    >
-                        Remove all missing insights
-                    </LemonButton>
-                </div>
-            )}
-            {atMaxLimit && (
-                <div className="text-xs text-secondary">
-                    Maximum {MAX_INSIGHTS} insights. Deselect one to add another.
-                </div>
+                <LemonBanner type="error" hideIcon={false}>
+                    <div className="space-y-2">
+                        <p className="mb-0">
+                            {unavailableSelectedIds.length === 1
+                                ? '1 insight is no longer on this dashboard but is still selected in this subscription.'
+                                : `${unavailableSelectedIds.length} insights are no longer on this dashboard but are still selected in this subscription.`}
+                        </p>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            status="danger"
+                            data-attr="subscription-remove-all-unavailable-insights"
+                            onClick={() => {
+                                setUserHasInteracted()
+                                onChange(validSelectedIds)
+                            }}
+                        >
+                            Remove all missing insights
+                        </LemonButton>
+                    </div>
+                </LemonBanner>
             )}
         </div>
     )
