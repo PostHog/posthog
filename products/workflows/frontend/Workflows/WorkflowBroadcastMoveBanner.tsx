@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -16,12 +17,14 @@ export function WorkflowBroadcastMoveBanner({ id }: { id: string }): JSX.Element
     const { moving } = useValues(workflowBroadcastMoveLogic({ id }))
     const { moveToBroadcasts } = useActions(workflowBroadcastMoveLogic({ id }))
     const show = canMoveToBroadcasts(originalWorkflow)
+    const dismissKey = `workflow-broadcast-move-${id}`
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey }))
 
     useEffect(() => {
-        if (show) {
+        if (show && !isDismissed) {
             posthog.capture('workflow broadcast move suggestion shown', { workflow_id: id })
         }
-    }, [show, id])
+    }, [show, isDismissed, id])
 
     if (!show) {
         return null
@@ -38,7 +41,7 @@ export function WorkflowBroadcastMoveBanner({ id }: { id: string }): JSX.Element
         <div className="shrink-0" data-attr="workflow-broadcast-move-banner">
             <LemonBanner
                 type="info"
-                dismissKey={`workflow-broadcast-move-${id}`}
+                dismissKey={dismissKey}
                 onClose={() => posthog.capture('workflow broadcast move suggestion dismissed', { workflow_id: id })}
                 action={{
                     children: 'Move to broadcasts',
