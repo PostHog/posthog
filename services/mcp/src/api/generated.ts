@@ -24925,6 +24925,8 @@ export namespace Schemas {
       is_first_party: boolean;
       /** Whether the user must choose to keep or disconnect this application, because it set up one of the user's organizations and PostHog has not verified it */
       requires_access_confirmation: boolean;
+      /** Whether the application registered itself, through dynamic client registration or a client ID metadata document. MCP clients connect this way; applications PostHog registers do not. */
+      is_self_registered: boolean;
     }
 
     /**
@@ -70458,6 +70460,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `legacy` - Default onboarding
+     * * `simple` - Simple onboarding
+     */
+    export type OnboardingFlowVariantEnum = typeof OnboardingFlowVariantEnum[keyof typeof OnboardingFlowVariantEnum];
+
+
+    export const OnboardingFlowVariantEnum = {
+      Legacy: 'legacy',
+      Simple: 'simple',
+    } as const;
+
+    /**
      * The first-run session that was started for the requester.
      */
     export interface OnboardingSession {
@@ -70549,6 +70563,11 @@ export namespace Schemas {
          * @maxLength 64
          */
       step_at_skip?: string;
+      /** Which onboarding flow the user skipped from, for analytics only.
+       *
+       * * `legacy` - Default onboarding
+       * * `simple` - Simple onboarding */
+      flow_variant?: OnboardingFlowVariantEnum;
     }
 
     /**
