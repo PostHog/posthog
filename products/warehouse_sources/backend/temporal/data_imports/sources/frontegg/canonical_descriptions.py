@@ -34,4 +34,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdAt": "The time when the permission was created.",
         },
     },
+    "tenants": {
+        "description": "Accounts (tenants) in the Frontegg environment, with their names and metadata.",
+        "docs_url": "https://developers.frontegg.com/ciam/api/tenants/accounts/tenantcontrollerv2_gettenants",
+        "columns": {
+            "tenantId": "The account (tenant) identifier. Users reference it in tenantId and tenantIds.",
+            "name": "The account name.",
+            "metadata": "Custom metadata stored on the account.",
+            "createdAt": "The time when the account was created.",
+        },
+    },
+    "audits": {
+        "description": "Audit log events in the Frontegg environment, such as logins and user or account changes.",
+        "docs_url": "https://developers.frontegg.com/ciam/api/audits/main/auditscontroller_v2_getaudits",
+        "columns": {
+            "frontegg_id": "The audit event identifier.",
+            "tenantId": "The account (tenant) identifier for the event.",
+            "email": "The email address of the user who performed the action.",
+            "action": "The action that the event records.",
+            "severity": "The event severity: Info, Medium, High, Critical, or Error.",
+            "createdAt": "The time when the event was created.",
+        },
+    },
 }
