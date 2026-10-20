@@ -2139,7 +2139,7 @@ Note: developer.calendly.com is a Gatsby shell with no fetchable spec; the real 
 
 ## CallRail — gaps
 
-Today (11): `accounts`, `calls`, `companies`, `form_submissions`, `lead_timelines`, `leads`, `page_views`, `tags`, `text_messages`, `trackers`, `users`
+Today (16): `accounts`, `calls`, `calls_summary`, `calls_timeseries`, `companies`, `form_submissions`, `form_submissions_summary`, `lead_timelines`, `leads`, `outbound_caller_ids`, `page_views`, `sms_threads`, `tags`, `text_messages`, `trackers`, `users`
 
 Diffed against: <https://apidocs.callrail.com/>
 
@@ -2147,10 +2147,10 @@ Diffed against: <https://apidocs.callrail.com/>
 - [x] `accounts (/a.json)` — lookup resolving the account_id every other resource is scoped under; required for multi-account (agency) reporting (high)
 - [x] `page_views (/a/{account_id}/calls/{call_id}/page_views.json)` — per-call visitor page-view journey — the attribution path behind each tracked call (high)
 - [x] `lead_timelines (/a/{account_id}/leads/{id}/timeline.json)` — state/transition history for a lead across calls, texts, and forms (medium)
-- [ ] `sms_threads (/a/{account_id}/sms_threads.json)` — thread-level SMS conversations, the parent grain the text_messages table hangs off (medium)
-- [ ] `calls summary and timeseries (/a/{account_id}/calls/summary.json, /calls/timeseries.json)` — vendor-computed call volume breakdowns by source and period, matching what the CallRail UI reports (medium)
-- [ ] `form_submissions summary (/a/{account_id}/form_submissions/summary.json)` — vendor-computed form conversion aggregates aligned with the call summary (low)
-- [ ] `outbound_caller_ids (/a/{account_id}/caller_ids.json)` — lookup resolving the caller ID numbers appearing on outbound calls (low)
+- [x] `sms_threads (/a/{account_id}/sms_threads.json)` — thread-level SMS conversations, the parent grain the text_messages table hangs off (medium)
+- [x] `calls summary and timeseries (/a/{account_id}/calls/summary.json, /calls/timeseries.json)` — vendor-computed call volume breakdowns by source and period, matching what the CallRail UI reports (medium)
+- [x] `form_submissions summary (/a/{account_id}/form_submissions/summary.json)` — vendor-computed form conversion aggregates aligned with the call summary (low)
+- [x] `outbound_caller_ids (/a/{account_id}/caller_ids.json)` — lookup resolving the caller ID numbers appearing on outbound calls (low)
 
 Note: apidocs.callrail.com serves the entire v3 reference as one ~890 KB HTML page; I parsed its heading tree for the resource list rather than using the summarizer.
 
