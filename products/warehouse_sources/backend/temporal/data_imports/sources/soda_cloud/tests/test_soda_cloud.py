@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import patch
 
 from requests import Response
-from requests.exceptions import HTTPError
+from requests.exceptions import ConnectionError, HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -124,6 +124,13 @@ def test_credential_probe(config: SodaCloudSourceConfig, status: int, expected: 
     assert request.headers["Authorization"] == "Basic " + b64encode(b"fake-key-id:fake-key-secret").decode()
     assert send.call_args.kwargs["timeout"] == (10, 30)
     assert send.call_args.kwargs["allow_redirects"] is False
+
+
+def test_connection_error_does_not_expose_credentials(config: SodaCloudSourceConfig) -> None:
+    with patch("requests.sessions.Session.send", side_effect=ConnectionError(config.api_key_secret)):
+        valid, message = SodaCloudSource().validate_credentials(config, team_id=1)
+    assert not valid
+    assert message == "Could not connect to Soda Cloud. Check the region and try again."
 
 
 @pytest.mark.parametrize("region", ["", "https://example.com", "EU", "localhost"])

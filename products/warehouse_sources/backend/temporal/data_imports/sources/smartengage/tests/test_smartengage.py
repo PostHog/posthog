@@ -27,6 +27,13 @@ class TestSmartEngageTransport:
     @parameterized.expand(
         [
             ("server_error", 503, {}, (False, "SmartEngage API returned status 503")),
+            # An error object served with a 200 must not validate as a working key.
+            (
+                "error_body_with_200",
+                200,
+                {"error": "invalid key"},
+                (False, "SmartEngage API returned an unexpected response"),
+            ),
         ]
     )
     def test_validate_credentials_status_mapping(self, _name, status, payload, expected) -> None:
