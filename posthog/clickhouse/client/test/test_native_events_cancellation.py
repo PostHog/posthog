@@ -232,16 +232,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
             for fallback in (False, True)
             for confirmed in (False, True)
         ]
-        + [
-            (
-                True,
-                False,
-                "confirmed" if confirmed else "empty",
-                "discovery",
-                None if confirmed else "legacy unavailable",
-            )
-            for confirmed in (False, True)
-        ]
+        + [(True, False, "confirmed" if confirmed else "empty", "discovery", None) for confirmed in (False, True)]
     )
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_cancellation_survives_an_unavailable_cluster_only_when_cleanup_is_confirmed(
@@ -258,6 +249,9 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
             return native_client if kwargs.get("host") == "native.example.com" else legacy_client
 
         def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
+            if "cluster" in _parameters:
+                expected = settings.CLICKHOUSE_CLUSTER if kwargs["sync_client"] is legacy_client else "events"
+                self.assertEqual(_parameters["cluster"], expected)
             if kwargs["sync_client"] is legacy_client:
                 discovery = "distributed_system_processes" in query
                 if legacy_failure == "all" or legacy_failure == "discovery" and discovery:

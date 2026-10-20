@@ -11,11 +11,18 @@ _MAX_CONCURRENT_HOST_KILLS = 8
 
 
 def run_metadata_job(job: dict[str, Any]) -> Any:
-    def execute(sql: str, params: dict[str, Any], host: str | None = None, *, typed: bool = False) -> Any:
+    def execute(
+        sql: str,
+        params: dict[str, Any],
+        host: str | None = None,
+        *,
+        typed: bool = False,
+        query_settings: dict[str, Any] | None = None,
+    ) -> Any:
         kwargs = {**job["connection"]}
         if host is not None:
             kwargs["host"] = host
-        settings = {"log_comment": job["log_comment"]}
+        settings = {**(query_settings or {}), "log_comment": job["log_comment"]}
         if kwargs.pop("transport", None) == "http":
             import clickhouse_connect  # noqa: PLC0415 - only HTTP jobs pay for this import
 
@@ -34,7 +41,7 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
 
     operation = job["operation"]
     if operation == "poll":
-        return execute(job["sql"] + ", max_execution_time=2", {"cluster": job["cluster"]})
+        return execute(job["sql"], {"cluster": job["cluster"]}, query_settings={"max_execution_time": 2})
     if operation not in ("native_cancel", "legacy_cancel"):
         raise ValueError("Unsupported metadata operation")
 
@@ -95,12 +102,16 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
             f"KILL QUERY ON CLUSTER %(cluster)s WHERE {predicate} SETTINGS max_execution_time=10, skip_unavailable_shards=1",
             params,
         )
+        return False
     if discovery_error is not None:
         raise discovery_error
     return False
 
 
 if __name__ == "__main__":
+    # clickhouse_connect probes these optional dataframe libraries on import, which adds up to seconds to a 3-second poll.
+    for optional_module in ("numpy", "pandas", "pyarrow", "polars"):
+        sys.modules.setdefault(optional_module, None)  # type: ignore[arg-type]
     try:
         result = run_metadata_job(json.load(sys.stdin))
         json.dump({"result": result}, sys.stdout)

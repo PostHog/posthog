@@ -38,6 +38,9 @@ class TestPollQueryPerformance(SimpleTestCase):
         worker = patch("posthog.clickhouse.native_metadata._run_metadata_process", side_effect=run)
         worker.start()
         self.addCleanup(worker.stop)
+        pools: dict = {}
+        self.enterContext(patch("posthog.clickhouse.native_metadata._pools", pools))
+        self.addCleanup(lambda: [executor.shutdown(wait=True) for executor, _ in pools.values()])
 
     @override_settings(CLICKHOUSE_OFFLINE_CLUSTER_HOST="offline.example.com")
     def test_legacy_probe_stays_on_online_host_when_celery_defaults_to_offline(self) -> None:
@@ -186,6 +189,8 @@ class TestPollQueryPerformance(SimpleTestCase):
             native = kwargs.get("workload") != Workload.ONLINE
             if failed == ("native" if native else "legacy"):
                 raise RuntimeError("cluster unavailable")
+            if _parameters["cluster"] != ("events" if native else settings.CLICKHOUSE_CLUSTER):
+                raise RuntimeError("wrong cluster")
             return [(native_id if native else legacy_id, 2, 3, 4, 5, 6, "example-query")]
 
         with (

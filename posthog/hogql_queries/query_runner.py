@@ -2010,6 +2010,31 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _should_pin_events_schema_for_async(self) -> bool:
         return True
 
+    def _should_pin_events_route(self, modifier_sources: list[dict[str, Any]]) -> bool:
+        """The worker must rebuild the request's resolved events route and cache payload.
+
+        A legacy query with no route choice stays unpinned while no native host is set, so its payload
+        stays identical to what workers without native routing expect.
+        """
+        if (
+            self.modifiers.useNewEventsSchema
+            or self._explicit_events_schema
+            or self.modifiers.useNewEventsCluster is not None
+            or any(
+                isinstance(source.get("modifiers"), dict)
+                and any(
+                    source["modifiers"].get(key) is not None for key in ("useNewEventsSchema", "useNewEventsCluster")
+                )
+                for source in modifier_sources
+            )
+        ):
+            return True
+        try:
+            return bool(get_new_events_cluster_host())
+        except Exception:
+            logger.exception("Failed to resolve native events host while enqueueing legacy query")
+            return False
+
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot the shared database is built with. None here; overridden by
@@ -2164,28 +2189,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         while isinstance(source := modifier_sources[-1].get("source"), dict):
             modifier_sources.append(source)
         modifier_source = modifier_sources[-1]
-        explicit_schema_choice = (
-            self._explicit_events_schema
-            or self.modifiers.useNewEventsCluster is not None
-            or any(
-                isinstance(source.get("modifiers"), dict)
-                and any(
-                    source["modifiers"].get(key) is not None for key in ("useNewEventsSchema", "useNewEventsCluster")
-                )
-                for source in modifier_sources
-            )
-        )
-        pin_schema = bool(self.modifiers.useNewEventsSchema or explicit_schema_choice)
-        if not pin_schema:
-            try:
-                pin_schema = bool(get_new_events_cluster_host())
-            except Exception:
-                logger.exception("Failed to resolve native events host while enqueueing legacy query")
-        if (
+        if self._modifiers_override_provided:
+            # Normalize every source so old workers cannot inherit a modifier cleared by the constructor.
+            for source in modifier_sources:
+                if "modifiers" in source:
+                    source["modifiers"] = self.modifiers.model_dump()
+        elif (
             "modifiers" in modifier_source
-            and self.modifiers.useNewEventsSchema is not None
-            and pin_schema
             and self._should_pin_events_schema_for_async()
+            and self._should_pin_events_route(modifier_sources)
         ):
             for source in modifier_sources:
                 if isinstance(source.get("modifiers"), dict):
@@ -2200,12 +2212,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     else {}
                 ),
             }
-
-        if self._modifiers_override_provided:
-            # Normalize every source so old workers cannot inherit a modifier cleared by the constructor.
-            for source in modifier_sources:
-                if "modifiers" in source:
-                    source["modifiers"] = self.modifiers.model_dump()
 
         return enqueue_process_query_task(
             team=self.team,
