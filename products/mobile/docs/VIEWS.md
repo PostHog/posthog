@@ -121,6 +121,12 @@ A pin whose tile is gone (its insight answers 404, or the cached dashboard no lo
 - Every Recent, Browse and search row has a pin button. Tap it to pin or unpin the view; rows have no swipe action.
 - "Edit pins" (the More menu's Views section, or Edit next to Pinned) lists the pins with a remove button, a Row, Number and Chart toggle, and a drag handle. Screen readers move a pin with the handle's actions. It sends `mobile_edit_pins_opened` (`from`: `section` or `menu`; `pin_count`) and `mobile_edit_pins_closed` (`reason`: `done` or `no_pins`; `changes`, the number of reorders, moves, mode changes and removals; `duration_s`).
 
+A one-line hint, "Long press a pin to change how it shows.", sits under one pin so people find the menu (`pinHint.ts`, `PinHint.tsx`).
+It points at the first pin that offers Number and Chart and already shows an automatic display, so it also appears under a person's first pin once that pin's preview resolves.
+It does not show when any pin has a display chosen on this phone, in Edit pins, or while searching.
+Its close button or any pin's menu dismisses it for good on this phone (`views-pin-hint:v1`, AsyncStorage; sign-out keeps it).
+It sends `mobile_pin_hint_shown` (`kind`, `mode`) each time it appears and `mobile_pin_hint_dismissed` (`reason`: `close` or `long_press`) when a visible hint goes away.
+
 Order and modes go to the device-local prefs through `usePinActions` (`move`, `reorder`, `setDisplayMode`, `chooseTile`). The app never writes the server's `order`.
 Pin and unpin show a toast with Undo, from the list, Browse and a view's pin button alike (`ViewsToast` and `useToasts`). The toast draws through the nearest `OverlayHost`, so it sits above the tab bar and any open sheet.
 Undo pins the view again as a new row at the end of the list. Without a saved display choice, it may receive an automatic preview. An undo sends `mobile_view_pinned` or `mobile_view_unpinned` with `from: undo`.

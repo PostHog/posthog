@@ -563,6 +563,10 @@ export interface ViewsListState {
     pinsTruncated: boolean
     recent: QueryState<RecentView[]>
     pinnedKeys: ReadonlySet<string>
+    /** The automatic Number or Chart displays this list resolved, keyed by shortcut id. */
+    automaticDisplays: PinDisplayPrefs
+    /** The displays chosen on this phone, keyed by shortcut id. */
+    displayPrefs: PinDisplayPrefs
     refresh: ViewRefresh
     /** Pass to the list. Rows whose item is a `PinView` count as pins. */
     onViewableItemsChanged: Visibility['onViewableItemsChanged']
@@ -639,6 +643,8 @@ export function useViewsList(): ViewsListState {
         pinsTruncated: truncated,
         recent,
         pinnedKeys,
+        automaticDisplays: displays,
+        displayPrefs,
         refresh,
         onViewableItemsChanged: visibility.onViewableItemsChanged,
         viewabilityConfig: visibility.viewabilityConfig,

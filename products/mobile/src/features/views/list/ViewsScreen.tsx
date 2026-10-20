@@ -30,6 +30,7 @@ import {
 } from '../analytics'
 import { useViewsSearch } from '../browseHooks'
 import { type DashboardSnapshot, dashboardQueryKey, insightItemKey, insightQueryKey, pinTarget } from '../items'
+import { usePinHint } from '../pinHint'
 import { pinModes, usePinActions, usePinData, useViewsList } from '../pinHooks'
 import { ChartSheetsProvider, useChartSheets } from '../pointSheet/ChartSheetsProvider'
 import { INITIAL_VISIBLE_ROWS } from '../useViewRefresh'
@@ -45,6 +46,7 @@ import { ChooseTileSheet, type ChooseTileTarget } from './ChooseTileSheet'
 import { EditPinsList } from './EditPinsList'
 import { EmptyPins } from './EmptyPins'
 import { PinCard } from './PinCard'
+import { PinHint } from './PinHint'
 import { usePinFlows } from './usePinFlows'
 import { type GroupPosition, groupPosition, ViewRow } from './ViewRow'
 import { PinMenu, RowMenu } from './ViewsMenu'
@@ -55,6 +57,7 @@ type ListView = RecentView | BrowseRow
 
 type ListItem =
     | { type: 'pin'; key: string; shortcutId: string; pin: PinView; index: number; last: boolean }
+    | { type: 'pin-hint'; key: string; last: boolean }
     | { type: 'empty-pins'; key: string }
     | { type: 'note'; key: string; text: string }
     | { type: 'view'; key: string; view: ListView; meta: string | null; position: GroupPosition; entry: ViewEntry }
@@ -153,6 +156,14 @@ function ViewsBody(): ReactElement {
     const recent = list.recent.data ?? EMPTY_RECENT
     const search = useViewsSearch(editing ? '' : text, pins, recent)
     const pinnedKeys = list.pinnedKeys
+    const hint = usePinHint({
+        pins: list.pins.data,
+        automatic: list.automaticDisplays,
+        explicit: list.displayPrefs,
+        enabled: !editing && !search.active,
+    })
+    const hintTargetId = hint.target?.shortcutId ?? null
+    const { dismiss: dismissHint } = hint
 
     // Both the refresh rules and the canvas budget follow what the list shows, and a list takes one callback.
     const viewable = useRef({ list: list.onViewableItemsChanged, budget: viewport.onViewableItemsChanged })
@@ -252,9 +263,14 @@ function ViewsBody(): ReactElement {
         },
         [openTileSheet]
     )
-    const openPinMenu = useCallback((pin: PinView, anchor: RowAnchor) => {
-        setMenu({ kind: 'pin', shortcutId: pin.shortcutId, anchor })
-    }, [])
+    const openPinMenu = useCallback(
+        (pin: PinView, anchor: RowAnchor) => {
+            dismissHint('long_press')
+            setMenu({ kind: 'pin', shortcutId: pin.shortcutId, anchor })
+        },
+        [dismissHint]
+    )
+    const closeHint = useCallback(() => dismissHint('close'), [dismissHint])
     const unpinPin = useCallback((pin: PinView, from: PinSource) => {
         setMenu(null)
         latest.current.flows.unpin(pin, from)
@@ -371,7 +387,15 @@ function ViewsBody(): ReactElement {
             return result
         }
 
-        const pinned: ListItem[] = pins.length > 0 ? pinItems(pins) : [{ type: 'empty-pins', key: 'empty-pins' }]
+        const withHint = (item: ListItem): ListItem[] =>
+            item.type === 'pin' && item.shortcutId === hintTargetId
+                ? [
+                      { ...item, last: false },
+                      { type: 'pin-hint', key: `pin-hint:${item.shortcutId}`, last: item.last },
+                  ]
+                : [item]
+        const pinned: ListItem[] =
+            pins.length > 0 ? pinItems(pins).flatMap(withHint) : [{ type: 'empty-pins', key: 'empty-pins' }]
         if (list.pinsTruncated) {
             pinned.push({ type: 'note', key: 'pins-truncated', text: 'Showing 100 pins.' })
         }
@@ -397,7 +421,7 @@ function ViewsBody(): ReactElement {
             ),
         })
         return result
-    }, [search, pins, recent, list.pinsTruncated, now])
+    }, [search, pins, recent, list.pinsTruncated, now, hintTargetId])
 
     const renderItem = useCallback(
         ({ item }: { item: ListItem }): ReactElement | null => {
@@ -415,6 +439,12 @@ function ViewsBody(): ReactElement {
                                 onUnpin={unpinFromCard}
                                 onPressTooltip={openPinPoint}
                             />
+                        </View>
+                    )
+                case 'pin-hint':
+                    return (
+                        <View style={!item.last && styles.pinGap}>
+                            <PinHint onDismiss={closeHint} />
                         </View>
                     )
                 case 'empty-pins':
@@ -452,6 +482,7 @@ function ViewsBody(): ReactElement {
             demo,
             openPin,
             openPinMenu,
+            closeHint,
             chooseTileFromCard,
             unpinFromCard,
             openPinPoint,

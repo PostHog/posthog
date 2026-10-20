@@ -118,6 +118,8 @@ export type AnalyticsEvent =
     | 'mobile_pins_reordered'
     | 'mobile_pin_display_changed'
     | 'mobile_pin_tile_chosen'
+    | 'mobile_pin_hint_shown'
+    | 'mobile_pin_hint_dismissed'
     | 'mobile_views_refreshed'
     | 'mobile_views_searched'
     | 'mobile_date_range_changed'

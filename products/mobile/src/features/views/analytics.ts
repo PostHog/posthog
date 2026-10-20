@@ -66,6 +66,16 @@ export function trackPinTileChosen(props: { tileKind: string }): void {
     track('mobile_pin_tile_chosen', { tile_kind: props.tileKind })
 }
 
+export type PinHintDismissReason = 'close' | 'long_press'
+
+export function trackPinHintShown(props: { kind: ViewKind; mode: PinDisplayMode }): void {
+    track('mobile_pin_hint_shown', { kind: props.kind, mode: props.mode })
+}
+
+export function trackPinHintDismissed(props: { reason: PinHintDismissReason }): void {
+    track('mobile_pin_hint_dismissed', { reason: props.reason })
+}
+
 export interface RefreshPassReport {
     trigger: RefreshTrigger
     screen: ViewsScreen
