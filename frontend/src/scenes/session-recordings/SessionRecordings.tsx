@@ -5,6 +5,7 @@ import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
@@ -16,6 +17,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -48,6 +50,7 @@ function Header(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const [loading, setLoading] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const handleNewPlaylist = async (): Promise<void> => {
         setLoading(true)
         try {
@@ -112,29 +115,52 @@ function Header(): JSX.Element {
                         interaction="click"
                         scope={Scene.Replay}
                     >
-                        <LemonButton
-                            type="primary"
-                            onClick={handleNewPlaylist}
-                            data-attr="save-recordings-playlist-button"
-                            loading={loading}
-                            size="small"
-                            tooltip="New collection"
-                        >
-                            New collection
-                        </LemonButton>
+                        {todayRailNav ? (
+                            <Button
+                                variant="primary"
+                                onClick={handleNewPlaylist}
+                                data-attr="save-recordings-playlist-button"
+                                loading={loading}
+                                tooltip="New collection"
+                            >
+                                New collection
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                onClick={handleNewPlaylist}
+                                data-attr="save-recordings-playlist-button"
+                                loading={loading}
+                                size="small"
+                                tooltip="New collection"
+                            >
+                                New collection
+                            </LemonButton>
+                        )}
                     </Shortcut>
                 </AccessControlAction>
             )}
 
-            <LemonButton
-                icon={<IconGear />}
-                type="secondary"
-                size="small"
-                to={urls.replaySettings()}
-                data-attr="session-recordings-settings-button"
-            >
-                Settings
-            </LemonButton>
+            {todayRailNav ? (
+                <Button
+                    variant="outline"
+                    render={<LinkPrimitive to={urls.replaySettings()} />}
+                    data-attr="session-recordings-settings-button"
+                >
+                    <IconGear />
+                    Settings
+                </Button>
+            ) : (
+                <LemonButton
+                    icon={<IconGear />}
+                    type="secondary"
+                    size="small"
+                    to={urls.replaySettings()}
+                    data-attr="session-recordings-settings-button"
+                >
+                    Settings
+                </LemonButton>
+            )}
         </div>
     )
 }
