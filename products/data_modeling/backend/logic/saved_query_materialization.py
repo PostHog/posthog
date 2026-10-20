@@ -36,7 +36,10 @@ from products.data_modeling.backend.logic.node_materialization import SavedQuery
 from products.data_modeling.backend.logic.saved_query_dag_sync import materializes, update_node_type
 from products.data_modeling.backend.logic.saved_query_reads import get_saved_query_columns
 from products.data_modeling.backend.logic.schedule_reconcile import check_saved_query_frequency_target
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import (
+    DataWarehouseSavedQuery,
+    SchedulingUnavailableError,
+)
 from products.data_modeling.backend.models.node import Node, NodeType
 
 logger = structlog.get_logger(__name__)
@@ -198,6 +201,13 @@ def _enable_materialization(
         if incremental_config is not KEEP_INCREMENTAL_CONFIG:
             _restore_incremental_config(saved_query, previous_incremental_config)
         raise MaterializationRefusedError(LINEAGE_CHANGED_REFUSAL) from error
+    except SchedulingUnavailableError as error:
+        # Temporal was unreachable, so nothing changed on its side. Put the row back as it was:
+        # a query that was materialized keeps its schedule, and a new one stays off.
+        _save_materialization(
+            saved_query, is_materialized=previously_materialized, sync_frequency_interval=previous_interval
+        )
+        raise MaterializationFailedError(MATERIALIZATION_FAILED_MESSAGE) from error
 
     # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
     saved_query.refresh_from_db()
