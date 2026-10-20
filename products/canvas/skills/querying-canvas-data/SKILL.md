@@ -249,7 +249,7 @@ Render the result or the thrown error visibly, and disable the button while the 
 flight — every invocation is a real PostHog write.
 
 The registry is the source of truth for verbs. Before wiring one, list it with the
-`canvases-actions-retrieve` tool: each entry carries `verb`, `summary`, `destructive`, and
+`canvas-actions-list` tool: each entry carries `verb`, `summary`, `destructive`, and
 `usage` — the payload and result shape, what invoking it actually does, and the confirmation
 copy it warrants. Follow a verb's `usage` exactly, including what the success message may claim.
 Do not infer a verb's payload from the matching product's own MCP tools or skills — an MCP tool
