@@ -201,7 +201,14 @@ export const conversionRecommendationsLogic: LogicWrapper<conversionRecommendati
                     },
                 },
             ],
-            scanClock: [Date.now(), { setScanClock: (_, { now }) => now }],
+            scanClock: [
+                Date.now(),
+                {
+                    setScanClock: (_, { now }) => now,
+                    loadRecommendationsSuccess: () => Date.now(),
+                    startAnalysisSuccess: () => Date.now(),
+                },
+            ],
             error: [
                 null as string | null,
                 {

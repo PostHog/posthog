@@ -19,7 +19,8 @@ After a successful scan, a project waits one hour from its completion before sta
 Failed scans can be retried immediately with **Scan again**, including after an interrupted run expires.
 An active scan is reused instead of starting another in parallel.
 The backend enforces this interval for UI and MCP requests and returns the existing run during the cooldown.
-The UI shows the remaining wait and enables **Scan again** when the hour has passed; it never starts a scheduled rescan.
+The UI updates the countdown when it receives scan status, so a newly completed scan shows 60 minutes.
+It enables **Scan again** when the hour has passed and never starts a scheduled rescan.
 An update retains the last completed recommendations while it runs.
 Interrupted runs become failed after five minutes and require an explicit retry.
 

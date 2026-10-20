@@ -90,6 +90,25 @@ describe('conversion recommendation lifecycle', () => {
         logic.unmount()
     })
 
+    it.each(['loadRecommendationsSuccess', 'startAnalysisSuccess'] as const)(
+        'starts the cooldown at 60 minutes when %s receives a newly completed scan',
+        async (successAction) => {
+            const now = jest.spyOn(Date, 'now').mockReturnValue(0)
+            const logic = conversionRecommendationsLogic({ projectId: 17, enabled: false, userId: 'reader' })
+            logic.mount()
+            try {
+                now.mockReturnValue(5000)
+                const completedRun = { ...run, completed_at: new Date(5000).toISOString() }
+                logic.actions[successAction]({ ...complete, latest_run: completedRun, result_run: completedRun })
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.scanDisabledReason).toBe('You can scan again in 60 minutes.')
+            } finally {
+                logic.unmount()
+                now.mockRestore()
+            }
+        }
+    )
+
     it('does not query when disabled and keeps another project or reader in a separate state', async () => {
         const disabled = conversionRecommendationsLogic({ projectId: 17, enabled: false, userId: 'reader' })
         disabled.mount()
