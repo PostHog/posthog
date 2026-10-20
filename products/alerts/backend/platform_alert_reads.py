@@ -12,6 +12,7 @@ from typing import Final
 from uuid import NAMESPACE_URL, uuid5
 
 from posthog.exceptions_capture import capture_exception
+from posthog.utils import ensure_utc
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_cutover import insight_state_of_platform
@@ -53,24 +54,32 @@ def with_platform_runtime(alerts: Sequence[AlertConfiguration], *, now: datetime
             alert.next_check_at = alert_runtime.next_check_at
             alert.last_notified_at = alert_runtime.last_notified_at
         if (alert_history := history.get(alert.id)) is not None:
-            alert.last_checked_at = _in_utc(alert_history.last_checked_at)
+            alert.last_checked_at = ensure_utc(alert_history.last_checked_at)
 
 
 def platform_checks(
     alert: AlertConfiguration, *, since: datetime | None, until: datetime | None, limit: int, offset: int
 ) -> tuple[int, list[AlertCheck]] | None:
-    """A page of a moved alert's checks, newest first, with how many the window holds.
+    """A page of a moved alert's checks in `[since, until]`, newest first, with how many the window holds.
 
-    None when the platform does not own the alert. Raises when ClickHouse fails.
+    None when the alert's own checks are the ones to show: the platform does not own it, or its
+    history could not be read.
     """
-    page = check_page_by_legacy_id(
-        team_id=alert.team_id,
-        legacy_configuration_id=alert.id,
-        since=since or _EARLIEST,
-        until=until or _LATEST,
-        limit=limit,
-        offset=offset,
-    )
+    if not alert.platform_owned:
+        return None
+    try:
+        page = check_page_by_legacy_id(
+            team_id=alert.team_id,
+            legacy_configuration_id=alert.id,
+            since=since or _EARLIEST,
+            # The platform's window leaves out its end, and the API's keeps a check made at that moment.
+            until=until + timedelta(microseconds=1) if until is not None else _LATEST,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as error:
+        capture_exception(error, additional_properties={"alert_configuration_id": str(alert.id)})
+        return None
     if page is None:
         return None
     return page.total, [_as_check(alert, check) for check in page.checks]
@@ -81,15 +90,10 @@ def _as_check(alert: AlertConfiguration, check: PlatformCheckEntry) -> AlertChec
     return AlertCheck(
         id=uuid5(NAMESPACE_URL, f"{alert.id}|{check.evaluation_key}"),
         alert_configuration=alert,
-        created_at=_in_utc(check.occurred_at),
+        created_at=ensure_utc(check.occurred_at),
         calculated_value=check.value,
         condition=alert.condition,
         state=insight_state_of_platform(check.state, snoozed_until=None, at=check.occurred_at),
         error={"message": check.error_message} if check.error_message else None,
         targets_notified={},
     )
-
-
-def _in_utc(moment: datetime) -> datetime:
-    # ClickHouse returns history times without a zone, and a zoneless time reads in the viewer's own zone.
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)

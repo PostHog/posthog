@@ -1,6 +1,5 @@
 import json
 import uuid
-from datetime import datetime, timedelta
 from functools import partial
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
@@ -1629,7 +1628,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             offset = 0
 
         with_platform_runtime([instance], now=timezone.now())
-        platform_page = self._platform_checks(instance, checks_since, checks_until, limit=limit, offset=offset)
+        platform_page = platform_checks(instance, since=checks_since, until=checks_until, limit=limit, offset=offset)
         if platform_page is not None:
             instance.checks_total, instance.checks = platform_page
         else:
@@ -1639,21 +1638,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.checks = checks_qs[offset : offset + limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
-
-    @staticmethod
-    def _platform_checks(
-        instance: AlertConfiguration, since: datetime | None, until: datetime | None, *, limit: int, offset: int
-    ) -> tuple[int, list[AlertCheck]] | None:
-        """A moved alert's checks from the platform, or None to show the alert's own checks."""
-        if not instance.platform_owned:
-            return None
-        # The platform's window leaves out its end, and this filter keeps a check made at that moment.
-        until = until + timedelta(microseconds=1) if until is not None else None
-        try:
-            return platform_checks(instance, since=since, until=until, limit=limit, offset=offset)
-        except Exception as error:
-            capture_exception(error, additional_properties={"alert_configuration_id": str(instance.id)})
-            return None
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
