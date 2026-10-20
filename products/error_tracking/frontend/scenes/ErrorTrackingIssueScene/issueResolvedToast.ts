@@ -24,6 +24,7 @@ const MAX_TOAST_NAME_LENGTH = 60
 
 // The toast button stays clickable while the toast animates out, so a second click would save a second cohort.
 const savingIssueIds = new Set<string>()
+let errorToastCount = 0
 
 function toastIssueName(issue: IssueAffectedBroadcastLogicProps): string | null {
     return issue.issueName ? `"${truncate(issue.issueName, MAX_TOAST_NAME_LENGTH)}"` : null
@@ -46,8 +47,8 @@ async function tellAffectedPeople(projectId: string, issue: IssueAffectedBroadca
         // Clicking the offer already closed it, so the retry has to live on this toast.
         const name = toastIssueName(issue)
         lemonToast.error(`Couldn't save the people affected by ${name ?? 'this issue'}.`, {
-            // The default id is a hash of the message, so a second failure would keep the first issue's retry.
-            toastId: `issue-resolved-broadcast-error-${issue.issueId}`,
+            // A reused id is dropped while the previous toast still animates out, so each failure gets its own.
+            toastId: `issue-resolved-broadcast-error-${issue.issueId}-${++errorToastCount}`,
             button: {
                 label: 'Try again',
                 dataAttr: 'issue-resolved-broadcast-retry',

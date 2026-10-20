@@ -49,11 +49,12 @@ describe('showIssueResolvedToast', () => {
         expect(first).not.toEqual(second)
     })
 
-    it("keeps each issue's retry when saving fails for two issues", async () => {
+    it('keeps a retry for every failed save, across issues and repeated failures', async () => {
         initKeaTests()
         mockHogqlQuery.mockResolvedValue({ results: [[3, 2]] } as never)
         const create = jest
             .spyOn(issueAffectedBroadcast, 'createAffectedPeopleCohort')
+            .mockRejectedValueOnce(new Error('500'))
             .mockRejectedValueOnce(new Error('500'))
             .mockRejectedValueOnce(new Error('500'))
             .mockResolvedValueOnce({ id: 7 } as CohortApi)
@@ -66,9 +67,16 @@ describe('showIssueResolvedToast', () => {
         await success.mock.calls[0]?.[1]?.button?.action()
         await success.mock.calls[1]?.[1]?.button?.action()
         await error.mock.calls[1]?.[1]?.button?.action()
+        await error.mock.calls[2]?.[1]?.button?.action()
 
-        expect(error.mock.calls[0]?.[1]?.toastId).not.toEqual(error.mock.calls[1]?.[1]?.toastId)
-        expect(create.mock.calls.map(([, issue]) => issue.issueId)).toEqual(['issue-1', 'issue-2', 'issue-2'])
+        const errorToastIds = error.mock.calls.map(([, options]) => options?.toastId)
+        expect(new Set(errorToastIds).size).toEqual(3)
+        expect(create.mock.calls.map(([, issue]) => issue.issueId)).toEqual([
+            'issue-1',
+            'issue-2',
+            'issue-2',
+            'issue-2',
+        ])
         expect(open).toHaveBeenCalledTimes(1)
     })
 
