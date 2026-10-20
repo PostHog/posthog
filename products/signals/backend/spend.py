@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import asyncio
 from dataclasses import field
 from datetime import timedelta
@@ -625,7 +626,7 @@ async def publish_report_spend(*, team_id: int, report_id: str) -> None:
         await publish_signal_spend(team_id=team_id, signal_id=signal_id)
 
 
-def complete_task_spend(*, team_id: int, run_id: str) -> bool:
+def complete_task_spend(*, team_id: int, run_id: str, deadline: float | None = None) -> bool:
     from products.tasks.backend.facade.api import get_task_run  # noqa: PLC0415 — keeps task services off startup
     from products.tasks.backend.facade.billing import (  # noqa: PLC0415 — keeps task services off startup
         TaskTokenUsageUnavailable,
@@ -651,7 +652,7 @@ def complete_task_spend(*, team_id: int, run_id: str) -> bool:
         if run.task_id not in spend.task_ids:
             spend.task_ids.append(run.task_id)
             spend.save(update_fields=["task_ids"])
-    process_pending_gateway_usage(run_id=UUID(run_id), team_id=team_id, limit=1000)
+    process_pending_gateway_usage(run_id=UUID(run_id), team_id=team_id, limit=1000, deadline=deadline)
     refresh_task_spend(team_id=team_id, run_id=run_id, strict=True)
     usage = get_task_run_token_usage(run_id=UUID(run_id), team_id=team_id)
     trial = (run.state or {}).get("self_driving_funding", {}).get("funding") == "trial"
@@ -667,5 +668,11 @@ def complete_task_spend(*, team_id: int, run_id: str) -> bool:
         # Research stays open until its parent finishes the implementation decision.
         if (run.state or {}).get("ai_stage") not in {"research", "repo_selection"}:
             finish_report_spend(team_id=team_id, report_id=str(spend.report_id))
-        async_to_sync(publish_report_spend)(team_id=team_id, report_id=str(spend.report_id))
+        if deadline is None:
+            async_to_sync(publish_report_spend)(team_id=team_id, report_id=str(spend.report_id))
+        else:
+            async_to_sync(asyncio.wait_for)(
+                publish_report_spend(team_id=team_id, report_id=str(spend.report_id)),
+                timeout=max(0, deadline - time.monotonic()),
+            )
     return True

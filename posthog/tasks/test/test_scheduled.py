@@ -10,6 +10,18 @@ from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_pro
 
 
 class TestScheduledTasks(SimpleTestCase):
+    def test_spend_recovery_runs_every_ten_minutes_and_expires_before_the_next_sweep(self) -> None:
+        sender = MagicMock()
+        setup_periodic_tasks(sender)
+        calls = [
+            call
+            for call in sender.add_periodic_task.call_args_list
+            if call.kwargs.get("name") == "recover signals spend"
+        ]
+        assert len(calls) == 1
+        assert calls[0].args[0].minute == {0, 10, 20, 30, 40, 50}
+        assert calls[0].kwargs["expires"] == 10 * 60
+
     def test_scheduled_tasks(self) -> None:
         """
         `setup_periodic_tasks` may fail silently. This test ensures that it doesn't.

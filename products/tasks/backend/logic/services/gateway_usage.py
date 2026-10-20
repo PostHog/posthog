@@ -136,18 +136,27 @@ def _pending_ids(state: dict[str, Any]) -> list[str]:
     )
 
 
-def process_pending_gateway_usage(*, run_id: UUID, team_id: int, limit: int = 20) -> TaskRunCost:
+def process_pending_gateway_usage(
+    *, run_id: UUID, team_id: int, limit: int = 20, deadline: float | None = None
+) -> TaskRunCost:
     with transaction.atomic():
         run = _locked_run(run_id, team_id)
         state = run.state or {}
         if not gateway_usage_enabled(run):
             return _cost_sources(run).as_contract()
         pending = _pending_ids(state)[:limit]
-    deadline = time.monotonic() + _PROCESSING_SECONDS
+    processing_deadline = time.monotonic() + _PROCESSING_SECONDS
+    if deadline is not None:
+        processing_deadline = min(processing_deadline, deadline)
     for request_id in pending:
-        if time.monotonic() >= deadline:
+        remaining_seconds = processing_deadline - time.monotonic()
+        if remaining_seconds <= 0:
             break
-        request_cost = async_to_sync(_fetch_gateway_cost)(request_id)
+        request_cost = (
+            async_to_sync(_fetch_gateway_cost)(request_id, timeout_seconds=remaining_seconds)
+            if deadline is not None
+            else async_to_sync(_fetch_gateway_cost)(request_id)
+        )
         with transaction.atomic():
             run = _locked_run(run_id, team_id)
             state = dict(run.state or {})
@@ -205,9 +214,12 @@ def get_task_cost(*, team_id: int, task_id: UUID) -> TaskRunCost:
     ).as_contract()
 
 
-async def _fetch_gateway_cost(request_id: str) -> GatewayRequestCost | None:
+async def _fetch_gateway_cost(request_id: str, *, timeout_seconds: float = 15) -> GatewayRequestCost | None:
     return await fetch_gateway_cost(
-        request_id, base_url=settings.SANDBOX_AI_GATEWAY_URL or "", api_key=settings.SANDBOX_AI_GATEWAY_MINT_KEY or ""
+        request_id,
+        base_url=settings.SANDBOX_AI_GATEWAY_URL or "",
+        api_key=settings.SANDBOX_AI_GATEWAY_MINT_KEY or "",
+        timeout_seconds=timeout_seconds,
     )
 
 

@@ -456,7 +456,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     add_periodic_task_with_expiry(
-        sender, crontab(minute="*"), recover_incomplete_spend.s(), name="recover signals spend"
+        sender,
+        crontab(minute="*/10"),
+        recover_incomplete_spend.s(),
+        name="recover signals spend",
+        expires_seconds=10 * 60,
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM

@@ -1,20 +1,30 @@
 from datetime import timedelta
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
+from posthog import redis
 from posthog.models import Team
 
 from products.signals.backend.facade.trial import start_task_trial
 from products.signals.backend.models import SignalSpend
 from products.signals.backend.spend import record_llm_spend, record_task_spend
-from products.signals.backend.spend_recovery import recover_incomplete_spend, recover_spend
+from products.signals.backend.spend_recovery import (
+    RECOVERY_BUDGET_SECONDS,
+    RECOVERY_LOCK_SECONDS,
+    RECOVERY_SOURCE_LIMIT,
+    recover_incomplete_spend,
+    recover_spend,
+)
 from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.trial.tasks import REPORT_RESERVATION_RECOVERY_CURSOR_KEY
@@ -35,6 +45,107 @@ class TestTrialSpendRecovery(BaseTest):
 
     def claim(self) -> SignalTrialGrant:
         return self.policy.claim(user_id=self.user.pk)
+
+    def _pending_llm_spend(self, count: int = 1) -> SignalSpend:
+        grant = self.claim()
+        signal_id = uuid4()
+        for index in range(count):
+            record_llm_spend(
+                f"request-{index:02}",
+                team_id=self.team.id,
+                signal_id=str(signal_id),
+                stage="research",
+                source_id=f"generation:{index:02}",
+                token_cost_microusd=None,
+                trial_grant_id=str(grant.id),
+            )
+        return SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
+
+    def _gateway_response(self, request_id: str, *, settled: bool = False) -> MagicMock:
+        response = MagicMock(
+            status=200 if settled else 404,
+            json=AsyncMock(return_value={"request_id": request_id, "cost_usd": "0.001"}),
+        )
+        response.__aenter__.return_value = response
+        return response
+
+    @parameterized.expand(
+        [("lookup_error", RuntimeError("lookup failed")), ("worker_timeout", SoftTimeLimitExceeded())]
+    )
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
+    @patch("aiohttp.ClientSession._request")
+    def test_overlapping_recovery_skips_the_owned_spend_and_releases_after_failure(
+        self, _name: str, failure: Exception, get: Mock
+    ) -> None:
+        spend = self._pending_llm_spend()
+
+        async def overlapping_pass(*_args: object, **_kwargs: object) -> MagicMock:
+            get.side_effect = None
+            get.return_value = self._gateway_response("request-00")
+            recover_spend(self.team.id, str(spend.id))
+            raise failure
+
+        get.side_effect = overlapping_pass
+        if isinstance(failure, SoftTimeLimitExceeded):
+            with self.assertRaises(SoftTimeLimitExceeded):
+                recover_spend(self.team.id, str(spend.id))
+        else:
+            recover_spend(self.team.id, str(spend.id))
+        assert get.call_count == 1
+        spend.refresh_from_db()
+        assert spend.accounting_failed
+        get.return_value = self._gateway_response("request-00", settled=True)
+        recover_spend(self.team.id, str(spend.id))
+        spend = SignalSpend.objects.for_team(self.team.id).get(id=spend.id)
+        assert not spend.accounting_failed
+        assert spend.token_cost_microusd == 1000
+
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
+    @patch("aiohttp.ClientSession._request")
+    def test_recovery_resumes_after_a_dead_workers_lease_expires(self, get: Mock) -> None:
+        spend = self._pending_llm_spend()
+        key = f"signals:spend-recovery:{self.team.id}:{spend.id}"
+        get.return_value = self._gateway_response("request-00", settled=True)
+        with time_machine.travel(timezone.now(), tick=False) as clock:
+            redis.get_client().set(key, "dead-worker", ex=RECOVERY_LOCK_SECONDS)
+            self.addCleanup(redis.get_client().delete, key)
+            recover_spend(self.team.id, str(spend.id))
+            get.assert_not_called()
+            clock.shift(RECOVERY_LOCK_SECONDS + 1)
+            recover_spend(self.team.id, str(spend.id))
+        spend.refresh_from_db()
+        assert not spend.accounting_failed
+        assert spend.token_cost_microusd == 1000
+
+    @parameterized.expand([("time_budget", 1), ("source_budget", RECOVERY_SOURCE_LIMIT)])
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
+    @patch("aiohttp.ClientSession._request")
+    def test_bounded_pass_keeps_partial_costs_and_resumes_at_the_next_source(
+        self, budget: str, checked: int, get: Mock
+    ) -> None:
+        spend = self._pending_llm_spend(RECOVERY_SOURCE_LIMIT + 1)
+        observed: list[str] = []
+        with patch("products.signals.backend.spend_recovery.time") as clock:
+            clock.monotonic.return_value = 100
+
+            async def lookup(_method: str, url: str, **_kwargs: object) -> MagicMock:
+                request_id = url.rsplit("/", 1)[-1]
+                observed.append(request_id)
+                if budget == "time_budget":
+                    clock.monotonic.return_value += RECOVERY_BUDGET_SECONDS + 1
+                return self._gateway_response(request_id, settled=request_id == "request-00")
+
+            get.side_effect = lookup
+            recover_spend(self.team.id, str(spend.id))
+            assert len(observed) == checked
+            spend.refresh_from_db()
+            assert spend.accounting_failed
+            assert spend.token_cost_microusd == 1000
+            recover_spend(self.team.id, str(spend.id))
+        assert observed[checked] == f"request-{checked:02}"
+        spend.refresh_from_db()
+        assert spend.accounting_failed
+        assert spend.token_cost_microusd == 1000
 
     def test_failed_cost_notification_keeps_settled_receipt_recoverable(self) -> None:
         grant = self.claim()
@@ -120,7 +231,7 @@ class TestTrialSpendRecovery(BaseTest):
             patch("products.tasks.backend.facade.billing.process_pending_gateway_usage") as pending,
         ):
             recover_spend(self.team.id, str(spend.id))
-        pending.assert_called_once_with(run_id=run.id, team_id=child.id, limit=1000)
+        pending.assert_called_once_with(run_id=run.id, team_id=child.id, limit=1000, deadline=ANY)
         grant.refresh_from_db()
         assert grant.settled_microusd == 50
         assert grant.incomplete_sources == 0
@@ -184,7 +295,7 @@ class TestTrialSpendRecovery(BaseTest):
         pending = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
         with patch("products.signals.backend.spend_recovery.recover_spend.apply_async") as dispatch:
             recover_incomplete_spend()
-        dispatch.assert_called_once_with(args=(self.team.id, str(pending.id)), expires=60)
+        dispatch.assert_called_once_with(args=(self.team.id, str(pending.id)), expires=10 * 60)
 
     def test_terminal_accounting_failure_recovers_from_pre_execution_receipt(self) -> None:
         grant = self.claim()
