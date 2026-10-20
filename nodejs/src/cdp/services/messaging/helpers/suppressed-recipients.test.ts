@@ -30,6 +30,14 @@ describe('removeSuppressedRecipients', () => {
             { skip: false, cc: 'b@example.com', bcc: '', removed: ['bounced@example.com'] },
         ],
         [
+            'checks the mailbox, not an address inside a quoted display name',
+            {
+                to: { email: 'a@example.com' },
+                cc: '"Bob <ok@example.com>" <bounced@example.com>, "Doe, Jane" <j@example.com>',
+            },
+            { skip: false, cc: '"Doe Jane" <j@example.com>', bcc: '', removed: ['bounced@example.com'] },
+        ],
+        [
             'promotes the first deliverable cc address when to is suppressed',
             {
                 to: { email: 'bounced@example.com' },

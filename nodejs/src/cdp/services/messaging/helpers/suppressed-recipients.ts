@@ -1,3 +1,5 @@
+import addressparser from 'nodemailer/lib/addressparser'
+
 export type EmailRecipients = {
     to?: { email?: string }
     cc?: string
@@ -14,27 +16,22 @@ export type SuppressedRecipientsResult = {
     removed: string[]
 }
 
-// One entry of a comma-separated address list, in plain `email` or RFC-822 `"Name" <email>` form.
-const parseAddressEntry = (entry: string): { email: string; name?: string } => {
-    // SES delivers to the bracketed address even with text after it, so match it anywhere in the entry.
-    const bracketed = entry.match(/^(.*?)<([^>]+)>/)
-    if (!bracketed) {
-        return { email: entry.trim() }
-    }
-    const name = bracketed[1]
-        .trim()
-        .replace(/^"(.*)"$/, '$1')
-        .trim()
-    return { email: bracketed[2].trim(), ...(name ? { name } : {}) }
-}
+type ParsedAddress = { email: string; name?: string }
 
-const splitAddressList = (value: string | undefined): string[] =>
+// Parses the list the way SES does (RFC 5322), so quoted display names, comments and commas inside
+// quotes never hide the mailbox that receives the email.
+const parseAddressList = (value: string | undefined): ParsedAddress[] =>
     typeof value === 'string'
-        ? value
-              .split(',')
-              .map((entry) => entry.trim())
-              .filter((entry) => entry.length > 0)
+        ? addressparser(value, { flatten: true })
+              .filter((entry) => entry.address.trim().length > 0)
+              .map((entry) => {
+                  const name = entry.name.replace(/[\x00-\x1F\x7F"\\<>,;]/g, '').trim()
+                  return { email: entry.address.trim(), ...(name ? { name } : {}) }
+              })
         : []
+
+// Rebuilt from the parsed parts, so delivery sends to exactly the address the suppression check saw.
+const formatAddress = ({ email, name }: ParsedAddress): string => (name ? `"${name}" <${email}>` : email)
 
 /**
  * Removes the addresses on the team's suppression list from an email's recipients. SES delivers to
@@ -46,37 +43,51 @@ const splitAddressList = (value: string | undefined): string[] =>
  * after the first address bounces. A bcc address is never promoted, because that would show a
  * hidden recipient to everyone else on the email.
  *
- * Kept cc and bcc entries stay in their original form.
+ * Kept cc and bcc entries are rewritten from their parsed parts, so the consent check, the send caps
+ * and SES all see the address that was checked here.
  */
 export const removeSuppressedRecipients = async (
     recipients: EmailRecipients,
     isSuppressed: (email: string) => Promise<boolean>
 ): Promise<SuppressedRecipientsResult> => {
     const removed: string[] = []
-    const keepDeliverable = async (entries: string[]): Promise<string[]> => {
-        const suppressed = await Promise.all(entries.map((entry) => isSuppressed(parseAddressEntry(entry).email)))
+    const keepDeliverable = async (entries: ParsedAddress[]): Promise<ParsedAddress[]> => {
+        const suppressed = await Promise.all(entries.map((entry) => isSuppressed(entry.email)))
         return entries.filter((entry, i) => {
             if (suppressed[i]) {
-                removed.push(parseAddressEntry(entry).email)
+                removed.push(entry.email)
             }
             return !suppressed[i]
         })
     }
+    const formatList = (original: string | undefined, entries: ParsedAddress[]): string | undefined =>
+        original === undefined ? undefined : entries.map(formatAddress).join(', ')
 
     const toEmail = recipients.to?.email?.trim()
     const toSuppressed = !!toEmail && (await isSuppressed(toEmail))
     if (toEmail && toSuppressed) {
         removed.push(toEmail)
     }
-    const ccEntries = await keepDeliverable(splitAddressList(recipients.cc))
-    const bccEntries = await keepDeliverable(splitAddressList(recipients.bcc))
+    const ccEntries = await keepDeliverable(parseAddressList(recipients.cc))
+    const bccEntries = await keepDeliverable(parseAddressList(recipients.bcc))
 
     if (removed.length === 0) {
-        return { skip: false, cc: recipients.cc, bcc: recipients.bcc, removed }
+        return {
+            skip: false,
+            cc: formatList(recipients.cc, ccEntries),
+            bcc: formatList(recipients.bcc, bccEntries),
+            removed,
+        }
     }
     if (toSuppressed && ccEntries.length === 0) {
         return { skip: true, removed }
     }
-    const promotedTo = toSuppressed ? parseAddressEntry(ccEntries.shift()!) : undefined
-    return { skip: false, promotedTo, cc: ccEntries.join(', '), bcc: bccEntries.join(', '), removed }
+    const promotedTo = toSuppressed ? ccEntries.shift() : undefined
+    return {
+        skip: false,
+        promotedTo,
+        cc: ccEntries.map(formatAddress).join(', '),
+        bcc: bccEntries.map(formatAddress).join(', '),
+        removed,
+    }
 }
