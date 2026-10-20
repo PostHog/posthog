@@ -11,7 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
+from posthog.models import ActivityLog, OrganizationMembership, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
@@ -389,3 +389,26 @@ class TestPlatformAlertAPI(APIBaseTest):
             configuration.refresh_from_db()
         assert (configuration.check_status, configuration.consecutive_failures) == ("ok", 0)
         assert configuration.next_check_at is not None
+
+    def test_an_edit_logs_the_settings_it_changed_and_runtime_writes_log_nothing(self) -> None:
+        self._set_flag(True)
+        self._create_configuration(self.team, "Seed copy")
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        with team_scope(self.team.id):
+            configuration.next_check_at = datetime(2026, 10, 1, tzinfo=UTC)
+            configuration.consecutive_failures = 3
+            configuration.save(update_fields=["next_check_at", "consecutive_failures"])
+
+        response = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        logged = ActivityLog.objects.filter(team_id=self.team.id, scope="PlatformAlertConfiguration")
+        assert [(row.item_id, row.activity) for row in logged.order_by("created_at")] == [
+            (str(configuration.id), "created"),
+            (str(configuration.id), "updated"),
+        ]
+        edit = logged.get(activity="updated")
+        assert edit.user == self.user and edit.detail is not None
+        assert [(change["field"], change["before"], change["after"]) for change in edit.detail["changes"]] == [
+            ("name", "API errors", "Renamed")
+        ]
