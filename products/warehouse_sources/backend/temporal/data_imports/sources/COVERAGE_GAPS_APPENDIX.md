@@ -13250,9 +13250,9 @@ Today (5): `candidates`, `jobs`, `members`, `recruiters`, `stages`
 
 Diffed against: <https://workable.readme.io/reference/jobs>
 
-- [ ] `candidate activities (GET /candidates/{id}/activities)` — the stage-transition and action history behind every candidate; without it stages is a static snapshot (high)
-- [ ] `employees (GET /employees)` — the entire Workable HR side is absent, and it is what links hires back to headcount (high)
-- [ ] `departments (GET /departments)` — lookup resolving the department carried on jobs, requisitions and employees (high)
+- [x] `candidate activities (GET /candidates/{id}/activities)` — the stage-transition and action history behind every candidate; without it stages is a static snapshot (high)
+- [x] `employees (GET /employees)` — the entire Workable HR side is absent, and it is what links hires back to headcount (high)
+- [x] `departments (GET /departments)` — lookup resolving the department carried on jobs, requisitions and employees (high)
 - [ ] `locations (GET /accounts/{subdomain}/locations)` — lookup resolving the location id on jobs and candidates (high)
 - [ ] `time entries (GET /time-tracking/time-entries)` — time tracking fact table for employees (high)
 - [ ] `job activities (GET /jobs/{shortcode}/activities)` — per-job event stream for pipeline throughput analysis (medium)
