@@ -1,9 +1,11 @@
-"""Inputs and a cost projection for per-person activity summaries, with no LLM call.
+"""Per-person activity summaries: their inputs, a cost projection, the summaries and their vectors.
 
-Two assets on the shared daily partition, each writing Parquet under the dataset prefix:
+Four assets on the shared daily partition, each writing Parquet under the dataset prefix:
 
     activity_summary_inputs/v1/dt=D/           one filtered, rendered input per (project, member)
     activity_summary_cost_projection/v1/dt=D/  eligible pairs, token percentiles and monthly volume
+    activity_summaries/v1/dt=D/                one LLM summary per inputs row
+    activity_summary_embeddings/v1/dt=D/       one vector per summary, kept past the source table's TTL
 
 The inputs asset covers only members of the dogfood project's organization with an `@posthog.com`
 email, in that organization's own projects, so no customer project's activity gets in. It reads
@@ -13,6 +15,7 @@ activity log. The projection covers every MCP pair in the events and writes coun
 """
 
 import json
+import time
 import datetime
 from collections import defaultdict
 from collections.abc import Collection
@@ -30,6 +33,17 @@ from posthog.dataclasses import frozen
 from posthog.models import ActivityLog, OrganizationMembership, Team, User
 
 from products.signals.dags.inbox_ranking.activity_summary import queries
+from products.signals.dags.inbox_ranking.activity_summary.embeddings import (
+    EMBEDDING_MODEL,
+    LandedVector,
+    SummaryDocument,
+    document_id,
+    emit_summary_embedding,
+    flush_embedding_requests,
+    landed_vectors,
+    pending_documents,
+)
+from products.signals.dags.inbox_ranking.activity_summary.prompt import PROMPT_VERSION
 from products.signals.dags.inbox_ranking.activity_summary.render import (
     MAX_ACTIVITY_ROWS_PER_PERSON,
     MAX_TASKS_PER_PERSON,
@@ -49,14 +63,30 @@ from products.signals.dags.inbox_ranking.activity_summary.render import (
     projection_rows,
     sampling_seed,
 )
+from products.signals.dags.inbox_ranking.activity_summary.summaries import (
+    DEFAULT_MODEL,
+    PIPELINE_DISTINCT_ID,
+    STATUS_OK,
+    SummaryPrices,
+    SummaryRequest,
+    gateway_client,
+    summarize,
+    summarize_all,
+    summary_events,
+    summary_row,
+)
 from products.signals.dags.inbox_ranking.common import (
+    DATASET_VERSION,
+    PARQUET_PART_NAME,
     S3_BUCKET_ENV,
     dataset_bucket,
     dataset_unconfigured,
     ensure_utc,
+    object_row_count,
     owner_tags,
     partition_def,
     partition_object_key,
+    partition_write_allowed,
     read_parquet_if_exists,
     s3_client,
     skip_unconfigured,
@@ -64,10 +94,17 @@ from products.signals.dags.inbox_ranking.common import (
     write_parquet,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import LABELS_TEAM_ID, labels_team
+from products.signals.dags.inbox_ranking.training.telemetry import capture_training_events
 from products.tasks.backend.facade.user_task_summaries import list_user_task_summaries
 
 INPUTS_TABLE = "activity_summary_inputs"
 COST_PROJECTION_TABLE = "activity_summary_cost_projection"
+SUMMARIES_TABLE = "activity_summaries"
+SUMMARY_EMBEDDINGS_TABLE = "activity_summary_embeddings"
+
+# The newest earlier summary of a pair counts as its previous summary only within this many days. An
+# older one describes work that has gone quiet, so the pair starts over.
+PREVIOUS_SUMMARY_MAX_AGE_DAYS = 60
 
 COHORT_EMAIL_DOMAIN = "@posthog.com"
 # Tasks a person started: in PostHog AI, in Slack, or by hand in the web or desktop app. Scouts,
@@ -114,6 +151,33 @@ _COST_PROJECTION_FIELDS: list[tuple[str, pa.DataType]] = [
 ]
 COST_PROJECTION_SCHEMA = pa.schema(_COST_PROJECTION_FIELDS)
 
+_SUMMARIES_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("team_id", pa.int64()),
+    ("user_id", pa.int64()),
+    # The normalized answer: summary, focus_areas, products and recent_shift. Null when status is failed.
+    ("summary_json", pa.string()),
+    ("summary_text", pa.string()),
+    ("used_previous_summary", pa.bool_()),
+    ("model", pa.string()),
+    ("prompt_version", pa.int32()),
+    ("tokens_in", pa.int64()),
+    ("tokens_out", pa.int64()),
+    ("latency_ms", pa.int64()),
+    ("cost_usd", pa.float64()),
+    ("status", pa.string()),
+    ("error", pa.string()),
+]
+SUMMARIES_SCHEMA = pa.schema(_SUMMARIES_FIELDS)
+
+_SUMMARY_EMBEDDINGS_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("team_id", pa.int64()),
+    ("user_id", pa.int64()),
+    ("prompt_version", pa.int32()),
+    ("embedding", pa.list_(pa.float32())),
+    ("embedding_model", pa.string()),
+]
+SUMMARY_EMBEDDINGS_SCHEMA = pa.schema(_SUMMARY_EMBEDDINGS_FIELDS)
+
 ASSET_KWARGS: dict[str, Any] = {
     "group_name": "activity_summary",
     "partitions_def": partition_def,
@@ -135,6 +199,28 @@ class CostProjectionConfig(dagster.Config):
     # the default is that bound, so the projection errs high.
     capped_sections_tokens: int = capped_sections_tokens()
     output_tokens_per_update: int = 500
+
+
+class SummariesConfig(dagster.Config):
+    """Prices are per million tokens and stay unset by default, like the cost projection's, so
+    `cost_usd` stays null until a run fills in the current price of `model`."""
+
+    model: str = DEFAULT_MODEL
+    # Off to compare the stateful and the stateless summaries on the same inputs.
+    use_previous_summary: bool = True
+    # Puts the summary text and focus topics on the events. Off by default, because an event cannot be
+    # edited or deleted the way a partition can.
+    capture_summary_text: bool = False
+    input_price_per_million_tokens: float | None = None
+    output_price_per_million_tokens: float | None = None
+    max_concurrency: int = 8
+
+
+class SummaryEmbeddingsConfig(dagster.Config):
+    # How long the asset waits for the embedding worker to write the vectors it asked for. A vector
+    # that lands later is picked up by the next materialization of the partition.
+    wait_seconds: int = 600
+    poll_interval_seconds: int = 30
 
 
 @frozen
@@ -462,9 +548,255 @@ def activity_summary_cost_projection(context: dagster.AssetExecutionContext, con
     )
 
 
+def summary_partitions_before(client, bucket: str, prefix: str, partition_key: str) -> list[str]:
+    """The written summaries partitions in the `PREVIOUS_SUMMARY_MAX_AGE_DAYS` before `partition_key`,
+    newest first."""
+    folder = f"{prefix}/{SUMMARIES_TABLE}/{DATASET_VERSION}/dt="
+    earliest = (
+        datetime.date.fromisoformat(partition_key) - datetime.timedelta(days=PREVIOUS_SUMMARY_MAX_AGE_DAYS)
+    ).isoformat()
+    partitions: set[str] = set()
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=folder):
+        for item in page.get("Contents", []):
+            partition, _, name = item["Key"].removeprefix(folder).partition("/")
+            if name == PARQUET_PART_NAME and earliest <= partition < partition_key:
+                partitions.add(partition)
+    return sorted(partitions, reverse=True)
+
+
+def usable_summaries(rows: list[dict[str, Any]], wanted: Collection[MemberProject]) -> dict[MemberProject, dict]:
+    """The successful summaries among one partition's rows, for the pairs in `wanted`."""
+    return {
+        member: json.loads(row["summary_json"])
+        for row in rows
+        if row["status"] == STATUS_OK
+        and row["summary_json"]
+        and (member := MemberProject(team_id=row["team_id"], user_id=row["user_id"])) in wanted
+    }
+
+
+def previous_summaries(
+    client, bucket: str, prefix: str, partition_key: str, pairs: Collection[MemberProject]
+) -> dict[MemberProject, dict]:
+    """Each pair's summary from the newest earlier partition that holds one for it. Only earlier
+    partitions are read, so a re-run of a partition sees the same previous summaries."""
+    wanted = set(pairs)
+    found: dict[MemberProject, dict] = {}
+    for partition in summary_partitions_before(client, bucket, prefix, partition_key):
+        if not wanted:
+            break
+        table = read_parquet_if_exists(
+            client,
+            bucket,
+            partition_object_key(prefix, SUMMARIES_TABLE, partition),
+            ["team_id", "user_id", "summary_json", "status"],
+        )
+        if table is None:
+            continue
+        newer = usable_summaries(table.to_pylist(), wanted)
+        found |= newer
+        wanted -= newer.keys()
+    return found
+
+
+@dagster.asset(name=SUMMARIES_TABLE, deps=[INPUTS_TABLE], **ASSET_KWARGS)
+def activity_summaries(context: dagster.AssetExecutionContext, config: SummariesConfig) -> None:
+    """One LLM summary per `activity_summary_inputs` row, with its tokens, latency and cost.
+
+    A row whose answer stays malformed after one retry, or whose request fails, is written with
+    `status = failed`. When every row fails, the asset fails and leaves the partition as it was."""
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    client = s3_client()
+    bucket = dataset_bucket()
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    inputs = read_parquet_if_exists(
+        client,
+        bucket,
+        partition_object_key(prefix, INPUTS_TABLE, partition_key),
+        ["team_id", "user_id", "rendered_input", "n_tasks", "n_mcp_sessions", "n_activity_lines", "drops"],
+    )
+    if inputs is None:
+        context.log.warning(f"{INPUTS_TABLE} has no object for dt={partition_key}; nothing to summarize")
+        return
+    input_rows_ = inputs.to_pylist()
+    members = [MemberProject(team_id=row["team_id"], user_id=row["user_id"]) for row in input_rows_]
+    previous = previous_summaries(client, bucket, prefix, partition_key, members) if config.use_previous_summary else {}
+    requests = [
+        SummaryRequest(
+            team_id=member.team_id,
+            user_id=member.user_id,
+            rendered_input=row["rendered_input"],
+            previous_summary=previous.get(member),
+        )
+        for member, row in zip(members, input_rows_, strict=True)
+    ]
+
+    llm = gateway_client(partition_key)
+    as_of = datetime.date.fromisoformat(partition_key)
+    outcomes = summarize_all(
+        requests, lambda request: summarize(llm, request, model=config.model, as_of=as_of), config.max_concurrency
+    )
+    prices = SummaryPrices(
+        input_price_per_million_tokens=config.input_price_per_million_tokens,
+        output_price_per_million_tokens=config.output_price_per_million_tokens,
+    )
+    rows = [
+        summary_row(request, outcome, model=config.model, prices=prices)
+        for request, outcome in zip(requests, outcomes, strict=True)
+    ]
+    failed = sum(1 for row in rows if row["status"] != STATUS_OK)
+    if rows and failed == len(rows):
+        raise dagster.Failure(
+            f"Every summary failed for dt={partition_key}, so the partition was not written",
+            metadata={"rows": len(rows), "first_error": str(rows[0]["error"])},
+        )
+
+    key = partition_object_key(prefix, SUMMARIES_TABLE, partition_key)
+    write_parquet(client, bucket, key, pa.Table.from_pylist(rows, schema=SUMMARIES_SCHEMA))
+    capture_training_events(
+        context,
+        partition_key,
+        summary_events(rows, input_rows_, capture_summary_text=config.capture_summary_text),
+        distinct_id=PIPELINE_DISTINCT_ID,
+    )
+    costs = [row["cost_usd"] for row in rows if row["cost_usd"] is not None]
+    context.add_output_metadata(
+        {
+            "rows": dagster.MetadataValue.int(len(rows)),
+            "failed": dagster.MetadataValue.int(failed),
+            "used_previous_summary": dagster.MetadataValue.int(sum(1 for row in rows if row["used_previous_summary"])),
+            "tokens_in": dagster.MetadataValue.int(sum(row["tokens_in"] for row in rows)),
+            "tokens_out": dagster.MetadataValue.int(sum(row["tokens_out"] for row in rows)),
+            "cost_usd": dagster.MetadataValue.float(sum(costs)) if costs else dagster.MetadataValue.null(),
+            "model": dagster.MetadataValue.text(config.model),
+            "prompt_version": dagster.MetadataValue.int(PROMPT_VERSION),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
+@frozen
+class EmbeddingTarget:
+    user_id: int
+    prompt_version: int
+    text: str
+
+
+def embedding_targets(rows: list[dict[str, Any]], partition_key: str) -> dict[SummaryDocument, EmbeddingTarget]:
+    """The successful summaries of a partition, keyed by their embedding document."""
+    return {
+        SummaryDocument(
+            team_id=row["team_id"], document_id=document_id(row["user_id"], partition_key)
+        ): EmbeddingTarget(user_id=row["user_id"], prompt_version=row["prompt_version"], text=row["summary_text"])
+        for row in rows
+        if row["status"] == STATUS_OK and row["summary_text"]
+    }
+
+
+def summary_embedding_rows(
+    targets: dict[SummaryDocument, EmbeddingTarget], landed: dict[SummaryDocument, LandedVector]
+) -> list[dict[str, Any]]:
+    """One row per summary whose vector landed and embeds the summary's current text."""
+    rows: list[dict[str, Any]] = []
+    for document, target in sorted(targets.items()):
+        vector = landed.get(document)
+        if vector is None or vector.content != target.text:
+            continue
+        rows.append(
+            {
+                "team_id": document.team_id,
+                "user_id": target.user_id,
+                "prompt_version": target.prompt_version,
+                "embedding": vector.embedding,
+                "embedding_model": EMBEDDING_MODEL.value,
+            }
+        )
+    return rows
+
+
+@dagster.asset(
+    name=SUMMARY_EMBEDDINGS_TABLE,
+    # Reads the summaries partition, and also keeps the vectors out of the LLM step's run pod memory.
+    deps=[SUMMARIES_TABLE],
+    **ASSET_KWARGS,
+)
+def activity_summary_embeddings(context: dagster.AssetExecutionContext, config: SummaryEmbeddingsConfig) -> None:
+    """The vector of each successful summary, copied out of `document_embeddings`.
+
+    The source table drops a row three months after its timestamp, which is the partition day, so
+    this Parquet is the history a backtest reads. Only a summary with no vector yet, or a vector of
+    other text, is sent to the worker, so a re-run does not embed the same text twice. A re-run that
+    would write fewer rows than the partition holds is refused: past the source TTL, the vectors it
+    lacks cannot come back."""
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    client = s3_client()
+    bucket = dataset_bucket()
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    summaries = read_parquet_if_exists(
+        client,
+        bucket,
+        partition_object_key(prefix, SUMMARIES_TABLE, partition_key),
+        ["team_id", "user_id", "prompt_version", "summary_text", "status"],
+    )
+    if summaries is None:
+        context.log.warning(f"{SUMMARIES_TABLE} has no object for dt={partition_key}; nothing to embed")
+        return
+    targets = embedding_targets(summaries.to_pylist(), partition_key)
+    wanted = {document: target.text for document, target in targets.items()}
+    day_start, _ = snapshot_bounds(partition_key)
+
+    landed = landed_vectors(wanted.keys(), day_start)
+    pending = pending_documents(wanted, landed)
+    emitted = len(pending)
+    if pending:
+        for document in pending:
+            target = targets[document]
+            emit_summary_embedding(
+                team_id=document.team_id,
+                user_id=target.user_id,
+                partition_key=partition_key,
+                prompt_version=target.prompt_version,
+                text=target.text,
+                day_start=day_start,
+            )
+        flush_embedding_requests()
+        deadline = time.monotonic() + config.wait_seconds
+        while pending and time.monotonic() < deadline:
+            time.sleep(config.poll_interval_seconds)
+            landed |= landed_vectors(pending, day_start)
+            pending = pending_documents({document: wanted[document] for document in pending}, landed)
+
+    rows = summary_embedding_rows(targets, landed)
+    key = partition_object_key(prefix, SUMMARY_EMBEDDINGS_TABLE, partition_key)
+    existing_rows = object_row_count(client, bucket, key)
+    written = partition_write_allowed(existing_rows, len(rows))
+    if written:
+        write_parquet(client, bucket, key, pa.Table.from_pylist(rows, schema=SUMMARY_EMBEDDINGS_SCHEMA))
+    else:
+        context.log.warning(
+            f"dt={partition_key} already holds {existing_rows} vectors and this run has {len(rows)}; "
+            "the partition was not overwritten"
+        )
+    context.add_output_metadata(
+        {
+            "summaries": dagster.MetadataValue.int(summaries.num_rows),
+            "skipped_failed_summaries": dagster.MetadataValue.int(summaries.num_rows - len(targets)),
+            "emitted": dagster.MetadataValue.int(emitted),
+            "missing_vectors": dagster.MetadataValue.int(len(pending)),
+            "rows": dagster.MetadataValue.int(len(rows)),
+            "written": dagster.MetadataValue.bool(written),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
 activity_summary_job = dagster.define_asset_job(
     name="activity_summary_job",
-    selection=[INPUTS_TABLE, COST_PROJECTION_TABLE],
+    selection=[INPUTS_TABLE, COST_PROJECTION_TABLE, SUMMARIES_TABLE, SUMMARY_EMBEDDINGS_TABLE],
     tags={**owner_tags, "dagster/max_runtime": str(60 * 60)},
 )
 

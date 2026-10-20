@@ -1,12 +1,28 @@
+import io
 import json
 import datetime
 from collections import Counter
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
+import dagster
+import pyarrow as pa
+from botocore.exceptions import ClientError
+from openai import APIConnectionError
 from parameterized import parameterized
 
+from posthog import settings
+
 from products.signals.dags.inbox_ranking.activity_summary import dag
+from products.signals.dags.inbox_ranking.activity_summary.embeddings import LandedVector, SummaryDocument
+from products.signals.dags.inbox_ranking.activity_summary.prompt import (
+    MalformedSummaryError,
+    normalize_summary,
+    summary_text,
+    user_message,
+)
 from products.signals.dags.inbox_ranking.activity_summary.render import (
     ACTIVITY_HEADER,
     ACTIVITY_LINE_CHARS,
@@ -39,6 +55,15 @@ from products.signals.dags.inbox_ranking.activity_summary.render import (
     sample_units,
     sampling_seed,
     task_units,
+)
+from products.signals.dags.inbox_ranking.activity_summary.summaries import (
+    PIPELINE_DISTINCT_ID,
+    SummaryPrices,
+    SummaryRequest,
+    cost_usd,
+    summarize,
+    summary_events,
+    summary_row,
 )
 
 AS_OF = datetime.datetime(2026, 10, 19, tzinfo=datetime.UTC)
@@ -361,3 +386,406 @@ def test_asset_rows_match_their_schemas_and_skip_projects_outside_the_organizati
         ),
     )
     assert set(projection[0]) | {"window_start", "window_end"} == set(dag.COST_PROJECTION_SCHEMA.names)
+
+
+PARTITION = "2026-10-18"
+PREFIX = "inbox_ranking"
+PREVIOUS = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": ["product_analytics"]}
+
+
+@parameterized.expand([("with a previous summary", PREVIOUS), ("cold start", None)])
+def test_user_message_sends_only_the_rendered_input_and_the_previous_summary(
+    _name: str, previous: dict[str, Any] | None
+) -> None:
+    message = user_message("- 2026-10-17 Build a funnel", previous, datetime.date(2026, 10, 18))
+    assert message.startswith("Today is 2026-10-18.")
+    assert message.endswith("Recent activity:\n- 2026-10-17 Build a funnel")
+    if previous:
+        assert json.dumps(PREVIOUS["summary"]) in message
+    else:
+        assert "Previous summary:\nNone" in message
+
+
+def _answer(**overrides: Any) -> str:
+    return json.dumps(
+        {
+            "summary": "Builds the signup funnel.",
+            "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-17"}],
+            "products": ["product_analytics"],
+            "recent_shift": "Moved from flags to funnels.",
+            **overrides,
+        }
+    )
+
+
+@parameterized.expand(
+    [
+        ("recent_shift is dropped without a previous summary", _answer(), False, {"recent_shift": None}),
+        (
+            "recent_shift is kept with a previous summary",
+            _answer(),
+            True,
+            {"recent_shift": "Moved from flags to funnels."},
+        ),
+        ("a 'None' recent_shift becomes null", _answer(recent_shift="None"), True, {"recent_shift": None}),
+        ("a 'null' recent_shift becomes null", _answer(recent_shift=" null "), True, {"recent_shift": None}),
+        (
+            "the summary is cut to the word cap",
+            _answer(summary="word " * 80),
+            False,
+            {"summary": " ".join(["word"] * 60)},
+        ),
+        (
+            "at most six focus areas, an unknown strength is low and a bad date is null",
+            _answer(focus_areas=[{"topic": f"t{i}", "strength": "huge", "last_seen": "soon"} for i in range(8)]),
+            False,
+            {"focus_areas": [{"topic": f"t{i}", "strength": "low", "last_seen": None} for i in range(6)]},
+        ),
+        (
+            "a focus area without a topic is dropped",
+            _answer(focus_areas=[{"strength": "high"}]),
+            False,
+            {"focus_areas": []},
+        ),
+    ]
+)
+def test_normalize_summary(_name: str, content: str, had_previous: bool, expected: dict[str, Any]) -> None:
+    assert normalize_summary(content, had_previous_summary=had_previous).items() >= expected.items()
+
+
+@parameterized.expand(
+    [
+        ("empty", None),
+        ("not JSON", "Here is the summary: ..."),
+        ("not an object", "[1, 2]"),
+        ("no summary", _answer(summary="  ")),
+    ]
+)
+def test_normalize_summary_rejects_a_malformed_answer(_name: str, content: str | None) -> None:
+    with pytest.raises(MalformedSummaryError):
+        normalize_summary(content, had_previous_summary=False)
+
+
+def test_summary_text_is_deterministic_and_keeps_the_focus_order() -> None:
+    summary = normalize_summary(
+        _answer(
+            focus_areas=[
+                {"topic": "b", "strength": "high", "last_seen": ""},
+                {"topic": "a", "strength": "low", "last_seen": ""},
+            ]
+        ),
+        had_previous_summary=False,
+    )
+    reloaded = json.loads(json.dumps(summary, sort_keys=True))
+    assert summary_text(summary) == summary_text(reloaded) == "Builds the signup funnel.\nFocus areas: b; a"
+    assert summary_text({**summary, "focus_areas": []}) == "Builds the signup funnel."
+
+
+@parameterized.expand(
+    [
+        (
+            "both prices",
+            1_000_000,
+            200_000,
+            SummaryPrices(input_price_per_million_tokens=0.1, output_price_per_million_tokens=0.5),
+            0.2,
+        ),
+        (
+            "no output price",
+            1_000,
+            100,
+            SummaryPrices(input_price_per_million_tokens=0.1, output_price_per_million_tokens=None),
+            None,
+        ),
+        (
+            "no prices",
+            1_000,
+            100,
+            SummaryPrices(input_price_per_million_tokens=None, output_price_per_million_tokens=None),
+            None,
+        ),
+    ]
+)
+def test_cost_usd(_name: str, tokens_in: int, tokens_out: int, prices: SummaryPrices, expected: float | None) -> None:
+    assert cost_usd(tokens_in, tokens_out, prices) == (pytest.approx(expected) if expected is not None else None)
+
+
+class _FakeLLM:
+    def __init__(self, answers: list[str | Exception]):
+        self.answers = list(answers)
+        self.requests: list[dict[str, Any]] = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.requests.append(kwargs)
+        answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        if isinstance(answer, Exception):
+            raise answer
+        return SimpleNamespace(
+            usage=SimpleNamespace(prompt_tokens=100, completion_tokens=20),
+            choices=[SimpleNamespace(message=SimpleNamespace(content=answer))],
+        )
+
+
+_CONNECTION_ERROR = APIConnectionError(request=SimpleNamespace())  # type: ignore[arg-type]
+
+
+@parameterized.expand(
+    [
+        ("a malformed answer is retried once", ["not json", _answer()], "ok", 2, None),
+        (
+            "two malformed answers fail the row",
+            ["not json", "still not json"],
+            "failed",
+            2,
+            "malformed_output: response is not JSON",
+        ),
+        (
+            "a failed request fails the row without a retry",
+            [_CONNECTION_ERROR],
+            "failed",
+            1,
+            "api_error: APIConnectionError",
+        ),
+    ]
+)
+def test_summarize_retries_a_malformed_answer_once(
+    _name: str, answers: list[str | Exception], status: str, attempts: int, error: str | None
+) -> None:
+    llm = _FakeLLM(answers)
+    request = SummaryRequest(team_id=2, user_id=7, rendered_input="- a line", previous_summary=None)
+    outcome = summarize(llm, request, model="gpt-6-luna", as_of=datetime.date(2026, 10, 18))  # type: ignore[arg-type]
+    row = summary_row(
+        request,
+        outcome,
+        model="gpt-6-luna",
+        prices=SummaryPrices(input_price_per_million_tokens=None, output_price_per_million_tokens=None),
+    )
+
+    assert len(llm.requests) == attempts
+    assert {req["user"] for req in llm.requests} == {PIPELINE_DISTINCT_ID}
+    assert (row["status"], row["error"]) == (status, error)
+    successful_calls = attempts if not isinstance(answers[0], Exception) else 0
+    assert (row["tokens_in"], row["tokens_out"]) == (100 * successful_calls, 20 * successful_calls)
+    assert set(row) == set(dag.SUMMARIES_SCHEMA.names)
+
+
+@parameterized.expand([("text off by default", False), ("text on when asked", True)])
+def test_summary_events_carry_free_text_only_when_asked(_name: str, capture_text: bool) -> None:
+    request = SummaryRequest(team_id=2, user_id=7, rendered_input="- a line", previous_summary=None)
+    outcome = summarize(_FakeLLM([_answer()]), request, model="gpt-6-luna", as_of=datetime.date(2026, 10, 18))  # type: ignore[arg-type]
+    row = summary_row(
+        request,
+        outcome,
+        model="gpt-6-luna",
+        prices=SummaryPrices(input_price_per_million_tokens=None, output_price_per_million_tokens=None),
+    )
+    input_row = {"n_tasks": 1, "n_mcp_sessions": 0, "n_activity_lines": 3, "drops": json.dumps({"burst_cap": 4})}
+
+    (event,) = summary_events([row], [input_row], capture_summary_text=capture_text)
+
+    assert {
+        "team_id": 2,
+        "user_id": 7,
+        "status": "ok",
+        "n_activity_lines": 3,
+        "drops_burst_cap": 4,
+    }.items() <= event.properties.items()
+    free_text = {"summary_text", "focus_topics"} & event.properties.keys()
+    assert free_text == ({"summary_text", "focus_topics"} if capture_text else set())
+    if not capture_text:
+        assert not any(isinstance(value, str) and "signup" in value for value in event.properties.values())
+
+
+class _MemoryS3:
+    def __init__(self) -> None:
+        self.objects: dict[str, tuple[bytes, dict[str, str]]] = {}
+
+    def upload_fileobj(self, fileobj: io.IOBase, bucket: str, key: str, ExtraArgs: dict[str, Any]) -> None:
+        self.objects[key] = (fileobj.read(), ExtraArgs["Metadata"])
+
+    def _get(self, key: str, operation: str) -> tuple[bytes, dict[str, str]]:
+        if key not in self.objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, operation)
+        return self.objects[key]
+
+    def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
+        return {"Body": io.BytesIO(self._get(Key, "GetObject")[0])}
+
+    def head_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
+        return {"Metadata": self._get(Key, "HeadObject")[1]}
+
+    def get_paginator(self, _name: str) -> "_MemoryS3":
+        return self
+
+    def paginate(self, *, Bucket: str, Prefix: str):  # noqa: ANN201
+        yield {"Contents": [{"Key": key} for key in sorted(self.objects) if key.startswith(Prefix)]}
+
+    def write(self, table: str, partition: str, rows: list[dict[str, Any]], schema: pa.Schema) -> None:
+        key = dag.partition_object_key(PREFIX, table, partition)
+        dag.write_parquet(self, "bucket", key, pa.Table.from_pylist(rows, schema=schema))
+
+    def read(self, table: str, partition: str) -> list[dict[str, Any]]:
+        table_ = dag.read_parquet_if_exists(self, "bucket", dag.partition_object_key(PREFIX, table, partition))
+        return [] if table_ is None else table_.to_pylist()
+
+
+class _FailingCapture:
+    def capture(self, **kwargs: Any) -> None:
+        raise RuntimeError("capture is down")
+
+    def shutdown(self) -> None:
+        pass
+
+
+@pytest.fixture
+def memory_s3(monkeypatch: pytest.MonkeyPatch) -> _MemoryS3:
+    s3 = _MemoryS3()
+    monkeypatch.setattr(dag, "skip_unconfigured", lambda context: False)
+    monkeypatch.setattr(dag, "s3_client", lambda: s3)
+    monkeypatch.setattr(dag, "dataset_bucket", lambda: "bucket")
+    monkeypatch.setattr(settings, "INBOX_RANKING_DATASET_S3_PREFIX", PREFIX)
+    return s3
+
+
+def _input_row(team_id: int, user_id: int, text: str) -> dict[str, Any]:
+    window = dag.activity_window(PARTITION)
+    return {
+        "team_id": team_id,
+        "user_id": user_id,
+        "window_start": window.start,
+        "window_end": window.end,
+        "n_tasks": 0,
+        "n_mcp_sessions": 1,
+        "n_activity_lines": 0,
+        "rendered_input": text,
+        "task_chars": 0,
+        "mcp_chars": len(text),
+        "activity_chars": 0,
+        "input_chars": len(text),
+        "input_tokens_estimate": 1,
+        "drops": "{}",
+        "render_version": 2,
+    }
+
+
+def _summary_row(team_id: int, user_id: int, status: str, summary: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "team_id": team_id,
+        "user_id": user_id,
+        "summary_json": json.dumps(summary) if summary else None,
+        "summary_text": summary_text(summary) if summary else None,
+        "used_previous_summary": False,
+        "model": "gpt-6-luna",
+        "prompt_version": 1,
+        "tokens_in": 1,
+        "tokens_out": 1,
+        "latency_ms": 1,
+        "cost_usd": None,
+        "status": status,
+        "error": None if summary else "malformed_output: empty response",
+    }
+
+
+def test_summaries_asset_reads_earlier_partitions_only_and_survives_a_failed_capture(
+    memory_s3: _MemoryS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    memory_s3.write(
+        dag.INPUTS_TABLE,
+        PARTITION,
+        [_input_row(2, 7, "- input seven"), _input_row(2, 8, "- input eight")],
+        dag.INPUTS_SCHEMA,
+    )
+    older = {"summary": "Older work on flags.", "focus_areas": [], "products": []}
+    memory_s3.write(dag.SUMMARIES_TABLE, "2026-10-10", [_summary_row(2, 7, "ok", older)], dag.SUMMARIES_SCHEMA)
+    memory_s3.write(
+        dag.SUMMARIES_TABLE,
+        "2026-10-17",
+        [_summary_row(2, 7, "ok", PREVIOUS), _summary_row(2, 8, "failed", None)],
+        dag.SUMMARIES_SCHEMA,
+    )
+    memory_s3.write(dag.SUMMARIES_TABLE, "2026-10-19", [_summary_row(2, 8, "ok", older)], dag.SUMMARIES_SCHEMA)
+    llm = _FakeLLM([_answer()])
+    monkeypatch.setattr(dag, "gateway_client", lambda partition_key: llm)
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.is_cloud", lambda: True)
+    monkeypatch.setattr(
+        "products.signals.dags.inbox_ranking.training.telemetry.get_client", lambda region, **kwargs: _FailingCapture()
+    )
+
+    for _ in range(2):
+        dag.activity_summaries(dagster.build_asset_context(partition_key=PARTITION), dag.SummariesConfig())
+
+    rows = memory_s3.read(dag.SUMMARIES_TABLE, PARTITION)
+    assert [(row["user_id"], row["status"], row["used_previous_summary"]) for row in rows] == [
+        (7, "ok", True),
+        (8, "ok", False),
+    ]
+    messages = {
+        req["messages"][1]["content"].rsplit("\n", 1)[-1]: req["messages"][1]["content"] for req in llm.requests
+    }
+    assert "Builds the signup funnel." in messages["- input seven"]
+    assert "Previous summary:\nNone" in messages["- input eight"]
+
+
+def test_summaries_asset_leaves_the_partition_alone_when_every_row_fails(
+    memory_s3: _MemoryS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    memory_s3.write(dag.INPUTS_TABLE, PARTITION, [_input_row(2, 7, "- input seven")], dag.INPUTS_SCHEMA)
+    memory_s3.write(dag.SUMMARIES_TABLE, PARTITION, [_summary_row(2, 7, "ok", PREVIOUS)], dag.SUMMARIES_SCHEMA)
+    monkeypatch.setattr(dag, "gateway_client", lambda partition_key: _FakeLLM([_CONNECTION_ERROR]))
+
+    with pytest.raises(dagster.Failure):
+        dag.activity_summaries(dagster.build_asset_context(partition_key=PARTITION), dag.SummariesConfig())
+
+    assert [row["summary_json"] for row in memory_s3.read(dag.SUMMARIES_TABLE, PARTITION)] == [json.dumps(PREVIOUS)]
+
+
+def test_embeddings_asset_embeds_only_new_text_and_never_shrinks_a_written_partition(
+    memory_s3: _MemoryS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": []}
+    memory_s3.write(
+        dag.SUMMARIES_TABLE,
+        PARTITION,
+        [_summary_row(2, 7, "ok", current), _summary_row(2, 8, "ok", current), _summary_row(2, 9, "failed", None)],
+        dag.SUMMARIES_SCHEMA,
+    )
+    vector = [0.5] * 4
+    store = {
+        SummaryDocument(team_id=2, document_id=f"7:{PARTITION}"): LandedVector(
+            embedding=vector, content=summary_text(current)
+        ),
+        SummaryDocument(team_id=2, document_id=f"8:{PARTITION}"): LandedVector(
+            embedding=vector, content="text before a re-run"
+        ),
+    }
+    emitted: list[tuple[int, str]] = []
+
+    def emit(
+        *, team_id: int, user_id: int, partition_key: str, prompt_version: int, text: str, day_start: datetime.datetime
+    ) -> None:
+        emitted.append((user_id, text))
+        store[SummaryDocument(team_id=team_id, document_id=f"{user_id}:{partition_key}")] = LandedVector(
+            embedding=vector, content=text
+        )
+
+    monkeypatch.setattr(dag, "emit_summary_embedding", emit)
+    monkeypatch.setattr(dag, "flush_embedding_requests", lambda: None)
+    monkeypatch.setattr(dag.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        dag, "landed_vectors", lambda documents, day_start: {d: store[d] for d in documents if d in store}
+    )
+
+    dag.activity_summary_embeddings(dagster.build_asset_context(partition_key=PARTITION), dag.SummaryEmbeddingsConfig())
+
+    assert emitted == [(8, summary_text(current))]
+    rows = memory_s3.read(dag.SUMMARY_EMBEDDINGS_TABLE, PARTITION)
+    assert [row["user_id"] for row in rows] == [7, 8]
+    assert set(rows[0]) == set(dag.SUMMARY_EMBEDDINGS_SCHEMA.names)
+
+    store.clear()
+    monkeypatch.setattr(dag, "emit_summary_embedding", lambda **kwargs: None)
+    dag.activity_summary_embeddings(
+        dagster.build_asset_context(partition_key=PARTITION), dag.SummaryEmbeddingsConfig(wait_seconds=0)
+    )
+    assert [row["user_id"] for row in memory_s3.read(dag.SUMMARY_EMBEDDINGS_TABLE, PARTITION)] == [7, 8]
