@@ -136,11 +136,40 @@ describe('FeatureFlagDeletedCohortBanner', () => {
             says: /^Cohort ID 5 was deleted\. The flag fails to evaluate for anyone who reaches a release condition that targets it\. Update the release conditions to remove it\.$/,
             showsEdit: true,
         },
+        {
+            state: 'a deleted flag whose cohort no longer exists',
+            flag: buildFlag({ active: true, deleted: true }, { cohort_name: undefined, cohort_missing: true }),
+            says: /You can't restore the flag while a release condition targets the cohort\.$/,
+            showsEdit: false,
+        },
+        {
+            state: 'a flag with two deleted cohorts where one no longer exists',
+            flag: buildFlag({
+                active: true,
+                filters: {
+                    groups: [
+                        {
+                            properties: [
+                                cohortProperty(5, { cohort_deleted: true }),
+                                cohortProperty(6, {
+                                    cohort_deleted: true,
+                                    cohort_name: undefined,
+                                    cohort_missing: true,
+                                }),
+                            ],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
+            }),
+            says: /^Cohorts 'Frequent buyers' and ID 6 were deleted\. .* Update the release conditions to remove them\.$/,
+            showsEdit: true,
+        },
     ])('gives the next step for $state', async ({ flag, says, showsEdit }) => {
         useMocks(endpointMocks(flag))
         await renderBanner()
 
-        expect(screen.getByText(/was deleted\./)).toHaveTextContent(says)
+        expect(screen.getByText(/(was|were) deleted\./)).toHaveTextContent(says)
         expect(document.querySelectorAll(EDIT_SELECTOR).length > 0).toBe(showsEdit)
     })
 
@@ -154,6 +183,7 @@ describe('FeatureFlagDeletedCohortBanner', () => {
         })
 
         expect(logic.values.isEditingFlag).toBe(true)
+        expect(posthog.capture).toHaveBeenCalledWith('feature flag deleted cohort banner edit clicked')
         const loadedCaptures = jest
             .mocked(posthog.capture)
             .mock.calls.filter(([event]) => event === 'feature flag with deleted cohort loaded')
