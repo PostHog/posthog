@@ -74,8 +74,11 @@ Call `workflows-create-email-template` with:
     "templating": "liquid",
     "email": {
       "subject": "Welcome to {{ person.properties.company | default: 'our product' }}",
-      "preheader": "Three short steps to get you set up",
-      "design": { "counters": { "u_row": 1 }, "schemaVersion": 16, "body": { "rows": ["…"] } },
+      "design": {
+        "counters": { "u_row": 1 },
+        "schemaVersion": 16,
+        "body": { "rows": ["…"], "values": { "preheaderText": "Three short steps to get you set up" } }
+      },
       "text": "Plain-text fallback of the same message"
     }
   }
@@ -83,7 +86,7 @@ Call `workflows-create-email-template` with:
 ```
 
 - `subject` is required for email templates.
-- `preheader` is the preview text most inboxes show after the subject. Leave the design's own `preheaderText` empty, so the email carries one preview text.
+- Put the preview text that most inboxes show after the subject in the design's `body.values.preheaderText`. The rendered html carries it, so it reaches the inbox on every send path. Leave `content.email.preheader` unset, so the email carries one preview text.
 - Always author the `design` and omit `html` - the server renders html from the design. Sending hand-written html without a design produces an email the visual editor can only show as one raw block.
 - Always provide `text` as a real plain-text rendering of the message - clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes, and a text part that doesn't match the html hurts deliverability.
 - The tool result returns an edit link into the PostHog library.
