@@ -128,10 +128,15 @@ def literal_static_cohort_id(inputs: Any) -> int | None:
 
 
 def static_cohort_ids(actions: Any) -> set[int]:
-    """The cohorts that the "Add to static cohort" steps in these actions add people to."""
+    """The cohorts that the "Add to static cohort" steps in these actions add people to.
+
+    Only function actions count, because the serializer checks cohort access for those alone.
+    """
     cohort_ids: set[int] = set()
     for action in actions if isinstance(actions, list) else []:
-        config = action.get("config") if isinstance(action, dict) else None
+        if not isinstance(action, dict) or action.get("type") != "function":
+            continue
+        config = action.get("config")
         if not isinstance(config, dict) or config.get("template_id") != ADD_TO_STATIC_COHORT_TEMPLATE_ID:
             continue
         cohort_id = literal_static_cohort_id(config.get("inputs"))

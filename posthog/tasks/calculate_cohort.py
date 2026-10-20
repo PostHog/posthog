@@ -25,6 +25,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
+from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.interceptor import is_transient_rpc_error
@@ -1126,18 +1127,22 @@ def schedule_static_cohort_count_refresh(*, team_id: int, cohort_id: int) -> Non
     Call it after the insert. The task deletes the key before it counts, so an insert that finds the key
     already set is still in the pending count.
     """
-    if cache.add(
-        _static_cohort_count_refresh_key(cohort_id),
-        True,
-        timeout=STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS * 10,
-    ):
+    key = _static_cohort_count_refresh_key(cohort_id)
+    if not cache.add(key, True, timeout=STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS * 10):
+        return
+    try:
         refresh_static_cohort_count.apply_async(
             kwargs={"team_id": team_id, "cohort_id": cohort_id},
             countdown=STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS,
         )
+    except Exception:
+        # No task is queued to delete the key, so leaving it set would block the next insert's recount.
+        cache.delete(key)
+        raise
 
 
-@shared_task(ignore_result=True, max_retries=0)
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
 def refresh_static_cohort_count(team_id: int, cohort_id: int) -> None:
     cache.delete(_static_cohort_count_refresh_key(cohort_id))
     count = count_cohort_members(team_id=team_id, cohort_id=cohort_id, consistency="strong")

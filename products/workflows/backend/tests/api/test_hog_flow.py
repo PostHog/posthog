@@ -8255,3 +8255,31 @@ class TestAddToStaticCohortActionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions", response.json()
+
+    def test_a_cohort_stored_on_a_non_function_action_is_still_checked(self) -> None:
+        exit_with_step_config = {**self._step(self.cohort.id), "type": "exit"}
+        flow = HogFlow.objects.create(
+            team=self.team, name="Onboarding", trigger=_TRIGGER["config"], actions=[_TRIGGER, exit_with_step_config]
+        )
+        self._restrict_cohort(resource_level=None, object_level="viewer")
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+                {"actions": [_TRIGGER, self._step(self.cohort.id)]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_a_lenient_draft_save_checks_the_cohort_while_the_flag_is_off(self) -> None:
+        self._restrict_cohort(resource_level=None, object_level="viewer")
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                {"name": "Onboarding", "actions": [_TRIGGER, self._step(self.cohort.id)], "edges": []},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

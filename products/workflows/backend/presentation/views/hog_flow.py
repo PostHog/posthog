@@ -1896,6 +1896,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                 get_team = self.context.get("get_team")
                 if get_team is not None:
                     _apply_email_template_content(config, get_team(), strict, self.context)
+            # Before template resolution, because a lenient save of a gated or unknown template skips input
+            # validation but still stores the cohort ID that the callback later trusts.
+            if data.get("type") == "function" and template_id == ADD_TO_STATIC_COHORT_TEMPLATE_ID:
+                self._validate_add_to_static_cohort_action(config.get("inputs") or {}, strict=strict)
             template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
@@ -1960,8 +1964,6 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_classify_action(data["config"]["inputs"])
                 if template_id == _REPLAY_VISION_TEMPLATE_ID:
                     self._validate_replay_vision_action(data["config"].get("inputs") or {}, strict=strict)
-                if template_id == ADD_TO_STATIC_COHORT_TEMPLATE_ID:
-                    self._validate_add_to_static_cohort_action(data["config"].get("inputs") or {}, strict=strict)
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only

@@ -7,9 +7,9 @@ returns contract DTOs or primitives, never ORM instances or QuerySets.
 
 from __future__ import annotations
 
+from posthog.dataclasses import frozen
 from posthog.tasks.calculate_cohort import schedule_static_cohort_count_refresh
 
-from products.cohorts.backend.facade.contracts import CohortRef
 from products.cohorts.backend.models.cohort import Cohort, ImportResolution
 
 
@@ -19,6 +19,15 @@ def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
     A soft-deleted cohort still counts, so a caller that holds a reference to one keeps it.
     """
     return Cohort.objects.filter(team_id=team_id, id=cohort_id).exists()
+
+
+@frozen
+class CohortRef:
+    id: int
+    team_id: int
+    created_by_id: int | None
+    is_static: bool
+    deleted: bool
 
 
 def get_cohort_ref(*, team_id: int, cohort_id: int) -> CohortRef | None:
