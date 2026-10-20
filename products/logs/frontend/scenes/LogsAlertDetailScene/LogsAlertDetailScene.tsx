@@ -118,16 +118,21 @@ function primaryDisabledReason({
     alertForm,
     alertFormChanged,
     nameError,
+    maxInstancesError,
     hasPendingNotifications,
 }: {
     isDraft: boolean
     alertForm: { name: string; severityLevels: string[]; serviceNames: string[]; filterGroup: UniversalFiltersGroup }
     alertFormChanged: boolean
     nameError: string | undefined
+    maxInstancesError: string | undefined
     hasPendingNotifications: boolean
 }): string | undefined {
     if (nameError) {
         return nameError
+    }
+    if (maxInstancesError) {
+        return maxInstancesError
     }
     if (isDraft) {
         return !hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
@@ -142,7 +147,8 @@ function AlertHeader(): JSX.Element {
     const { toggleEnabled, snoozeAlert, unsnoozeAlert, resetAlert, deleteAlert, enableAlert } =
         useActions(logsAlertDetailSceneLogic)
 
-    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormErrors } = useValues(logsAlertFormLogic)
+    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormErrors, alertFormValidationErrors } =
+        useValues(logsAlertFormLogic)
     const { submitAlertForm, setAlertFormValue } = useActions(logsAlertFormLogic)
     const { pendingNotifications } = useValues(logsAlertNotificationLogic)
 
@@ -211,6 +217,7 @@ function AlertHeader(): JSX.Element {
                                 alertForm,
                                 alertFormChanged,
                                 nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                                maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
                                 hasPendingNotifications: pendingNotifications.length > 0,
                             })}
                             data-attr={isDraft ? 'logs-alert-enable-primary' : 'logs-alert-save-primary'}

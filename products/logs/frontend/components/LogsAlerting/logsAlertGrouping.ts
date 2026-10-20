@@ -18,15 +18,16 @@ export const GROUP_BY_LABELS: Record<LogsAlertGroupBy, string> = {
 
 export const GROUPING_NEEDS_ABOVE = 'Grouping only works when the alert fires above a threshold.'
 
+export const SIMULATION_NEEDS_UNGROUPED =
+    'Simulation can\'t show grouped alerts. Set Group by to "Don\'t group" to run one.'
+
+export const MAX_INSTANCES_LIMIT = 100
+
 const GROUP_BY_KEYS: Record<LogsAlertGroupBy, string[]> = {
     none: [],
     service: ['service_name'],
     severity: ['severity_text'],
     service_and_severity: ['service_name', 'severity_text'],
-}
-
-export function groupingKeysOf(groupBy: LogsAlertGroupBy): string[] {
-    return GROUP_BY_KEYS[groupBy]
 }
 
 export function groupByOf(grouping: LogsAlertGroupingApi | undefined): LogsAlertGroupBy {
@@ -40,20 +41,38 @@ export function groupByOf(grouping: LogsAlertGroupingApi | undefined): LogsAlert
     return match ?? 'none'
 }
 
-export function groupingPayloadOf(groupBy: LogsAlertGroupBy, maxInstances: number): LogsAlertGroupingApi {
+/**
+ * The grouping a save sends, or undefined to keep the stored one. The API compares keys in order, so
+ * an unchanged selection sends the stored keys as they are. Otherwise a reordered or unrecognized
+ * stored grouping would regroup the alert on an unrelated save.
+ */
+export function groupingPayloadOf(
+    groupBy: LogsAlertGroupBy,
+    maxInstances: number,
+    stored: LogsAlertGroupingApi | undefined
+): LogsAlertGroupingApi | undefined {
+    const unchanged = stored !== undefined && groupByOf(stored) === groupBy
     if (groupBy === 'none') {
-        return { mode: GroupingModeEnumApi.Single }
+        return unchanged ? undefined : { mode: GroupingModeEnumApi.Single }
     }
-    return { mode: GroupingModeEnumApi.ByResultLabels, keys: groupingKeysOf(groupBy), max_instances: maxInstances }
+    const keys = unchanged && stored.keys ? stored.keys : GROUP_BY_KEYS[groupBy]
+    return { mode: GroupingModeEnumApi.ByResultLabels, keys, max_instances: maxInstances }
+}
+
+export function maxInstancesError(groupBy: LogsAlertGroupBy, maxInstances: number | undefined): string | undefined {
+    if (groupBy === 'none') {
+        return undefined
+    }
+    const valid =
+        maxInstances !== undefined &&
+        Number.isInteger(maxInstances) &&
+        maxInstances >= 1 &&
+        maxInstances <= MAX_INSTANCES_LIMIT
+    return valid ? undefined : `Enter a whole number from 1 to ${MAX_INSTANCES_LIMIT}.`
 }
 
 export function isRegroup(alert: LogsAlertConfigurationApi | null, groupBy: LogsAlertGroupBy): boolean {
-    if (!alert) {
-        return false
-    }
-    const before = [...groupingKeysOf(groupByOf(alert.grouping))].sort()
-    const after = [...groupingKeysOf(groupBy)].sort()
-    return before.join(',') !== after.join(',')
+    return alert !== null && groupByOf(alert.grouping) !== groupBy
 }
 
 /**
@@ -72,7 +91,7 @@ export function canGroupAlert(
 
 /** What a save that changes the grouping does to the state the alert tracks now. */
 export function regroupConfirmationText(alert: LogsAlertConfigurationApi | null): string {
-    if (groupByOf(alert?.grouping) !== 'none') {
+    if (alert?.grouping?.mode === GroupingModeEnumApi.ByResultLabels) {
         return "Saving resets every group this alert tracks. Groups that are firing now won't get a resolve message for their open notifications."
     }
     const reset = "Saving resets this alert's state, and it starts tracking each group on its own."

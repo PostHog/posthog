@@ -31,7 +31,7 @@ export function LogsAlertCreateModal({ isOpen, onClose }: LogsAlertCreateModalPr
 
 function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.Element {
     const formLogicProps = { alert: null, onSubmitSuccess: onClose }
-    const { isAlertFormSubmitting, alertFormChanged, alertForm, canGroup } = useValues(
+    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormValidationErrors, canGroup } = useValues(
         logsAlertFormLogic(formLogicProps)
     )
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
@@ -42,10 +42,12 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
         ? undefined
         : 'Select at least one severity or service, or add an attribute filter.'
     const configurationCannotAdvanceReason = nameError ?? filterError
+    const triggerCannotAdvanceReason = alertFormValidationErrors.maxInstances as string | undefined
     const steps = buildLogsAlertWizardSteps({
         alertForm,
         pendingNotifications,
         configurationCannotAdvanceReason,
+        triggerCannotAdvanceReason,
         nameError,
         filterError,
         canGroup,
@@ -79,6 +81,7 @@ function buildLogsAlertWizardSteps({
     alertForm,
     pendingNotifications,
     configurationCannotAdvanceReason,
+    triggerCannotAdvanceReason,
     nameError,
     filterError,
     canGroup,
@@ -86,6 +89,7 @@ function buildLogsAlertWizardSteps({
     alertForm: LogsAlertFormType
     pendingNotifications: PendingLogsAlertNotification[]
     configurationCannotAdvanceReason: string | undefined
+    triggerCannotAdvanceReason: string | undefined
     nameError: string | undefined
     filterError: string | undefined
     canGroup: boolean
@@ -108,6 +112,8 @@ function buildLogsAlertWizardSteps({
             key: 'trigger',
             title: 'Set trigger',
             description: 'Set the log count that fires the alert and reduce notification noise if needed.',
+            canAdvance: !triggerCannotAdvanceReason,
+            cannotAdvanceReason: triggerCannotAdvanceReason,
             content: (
                 <div className="space-y-6">
                     <LogsAlertTrigger />

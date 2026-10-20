@@ -8,6 +8,7 @@ import { LogsAlertTrigger } from './LogsAlertForm'
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 import type { LogsAlertGroupBy } from './logsAlertGrouping'
 import { LogsAlertRegroupConfirmModal } from './LogsAlertRegroupConfirmModal'
+import { LogsAlertSimulation } from './LogsAlertSimulation'
 
 const UNGROUPED_ALERT: LogsAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-0000000000aa',
@@ -74,14 +75,22 @@ function GroupByForm({
     alert,
     width,
     regroupTo,
+    maxInstances,
 }: {
     alert: LogsAlertConfigurationApi
     width?: string
     regroupTo?: LogsAlertGroupBy
+    maxInstances?: number
 }): JSX.Element {
     const props = { alert }
     const { canGroup } = useValues(logsAlertFormLogic(props))
-    const { setGroupBy, submitAlertForm } = useActions(logsAlertFormLogic(props))
+    const { setGroupBy, submitAlertForm, setAlertFormValue } = useActions(logsAlertFormLogic(props))
+
+    useEffect(() => {
+        if (maxInstances !== undefined) {
+            setAlertFormValue('maxInstances', maxInstances)
+        }
+    }, [maxInstances, setAlertFormValue])
 
     useEffect(() => {
         if (regroupTo && canGroup) {
@@ -92,8 +101,9 @@ function GroupByForm({
 
     return (
         <BindLogic logic={logsAlertFormLogic} props={props}>
-            <div className={width}>
+            <div className={`space-y-6 ${width}`}>
                 <LogsAlertTrigger />
+                <LogsAlertSimulation embedded />
             </div>
             <LogsAlertRegroupConfirmModal />
         </BindLogic>
@@ -111,6 +121,10 @@ export const GroupedByService: Story = {
 // Pinned to the width a scene has with the nav and the side panel open.
 export const GroupedByServiceNarrow: Story = {
     render: () => <GroupByForm alert={GROUPED_ALERT} width="w-[360px]" />,
+}
+
+export const GroupLimitOutOfRange: Story = {
+    render: () => <GroupByForm alert={GROUPED_ALERT} width="max-w-2xl" maxInstances={0} />,
 }
 
 export const GroupFiringAlertConfirmation: Story = {

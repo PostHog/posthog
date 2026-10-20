@@ -7,9 +7,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LogsAlertConfigurationThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
-import { GROUP_BY_LABELS, GROUPING_NEEDS_ABOVE, LogsAlertGroupBy } from './logsAlertGrouping'
+import { GROUP_BY_LABELS, GROUPING_NEEDS_ABOVE, LogsAlertGroupBy, MAX_INSTANCES_LIMIT } from './logsAlertGrouping'
 
-const GROUP_BY_HELP: Record<Exclude<LogsAlertGroupBy, 'none'>, string> = {
+const GROUP_BY_HELP: Record<LogsAlertGroupBy, string> = {
+    none: 'Split the count by service or severity to alert on each one separately.',
     service:
         'Each service fires and notifies on its own, so several services over the threshold send several notifications.',
     severity:
@@ -19,7 +20,7 @@ const GROUP_BY_HELP: Record<Exclude<LogsAlertGroupBy, 'none'>, string> = {
 }
 
 export function LogsAlertGroupByField(): JSX.Element | null {
-    const { alertForm, canGroup } = useValues(logsAlertFormLogic)
+    const { alertForm, alertFormValidationErrors, canGroup } = useValues(logsAlertFormLogic)
     const { setGroupBy, setAlertFormValue } = useActions(logsAlertFormLogic)
 
     if (!canGroup) {
@@ -35,13 +36,8 @@ export function LogsAlertGroupByField(): JSX.Element | null {
     return (
         <LemonField.Pure
             label="Group by"
-            help={
-                isGrouped ? (
-                    <span>{GROUP_BY_HELP[alertForm.groupBy as Exclude<LogsAlertGroupBy, 'none'>]}</span>
-                ) : (
-                    <span>Split the count by service or severity to alert on each one separately.</span>
-                )
-            }
+            error={alertFormValidationErrors.maxInstances}
+            help={<span>{GROUP_BY_HELP[alertForm.groupBy]}</span>}
         >
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <LemonSelect<LogsAlertGroupBy>
@@ -61,9 +57,9 @@ export function LogsAlertGroupByField(): JSX.Element | null {
                         <LemonInput
                             type="number"
                             min={1}
-                            max={100}
+                            max={MAX_INSTANCES_LIMIT}
                             value={alertForm.maxInstances}
-                            onChange={(value) => setAlertFormValue('maxInstances', value ?? 1)}
+                            onChange={(value) => setAlertFormValue('maxInstances', value ?? NaN)}
                             className="w-20"
                             size="small"
                             data-attr="logs-alert-group-max-instances"

@@ -5,7 +5,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 
 export function LogsAlertRegroupConfirmModal(): JSX.Element {
-    const { isRegroupConfirmationOpen, regroupConfirmation, isAlertFormSubmitting } = useValues(logsAlertFormLogic)
+    const { isRegroupConfirmationOpen, regroupConfirmation } = useValues(logsAlertFormLogic)
     const { closeRegroupConfirmation, confirmRegroup } = useActions(logsAlertFormLogic)
 
     return (
@@ -19,12 +19,7 @@ export function LogsAlertRegroupConfirmModal(): JSX.Element {
                     <LemonButton type="secondary" onClick={closeRegroupConfirmation}>
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={confirmRegroup}
-                        loading={isAlertFormSubmitting}
-                        data-attr="logs-alert-regroup-confirm"
-                    >
+                    <LemonButton type="primary" onClick={confirmRegroup} data-attr="logs-alert-regroup-confirm">
                         Save and reset
                     </LemonButton>
                 </div>
