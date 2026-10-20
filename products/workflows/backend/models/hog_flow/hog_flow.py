@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
@@ -112,6 +112,32 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-view",
     "internal-event",
 }
+
+
+# The "Add to static cohort" step. Its template lives in the plugin server.
+ADD_TO_STATIC_COHORT_TEMPLATE_ID: Final[str] = "template-posthog-add-to-static-cohort"
+
+
+def literal_static_cohort_id(inputs: Any) -> int | None:
+    """The cohort id an "Add to static cohort" step names as a plain value, or None."""
+    cohort_input = inputs.get("cohort_id") if isinstance(inputs, dict) else None
+    cohort_id = cohort_input.get("value") if isinstance(cohort_input, dict) else None
+    if isinstance(cohort_id, bool) or not isinstance(cohort_id, int) or cohort_id < 1:
+        return None
+    return cohort_id
+
+
+def static_cohort_ids(actions: Any) -> set[int]:
+    """The cohorts that the "Add to static cohort" steps in these actions add people to."""
+    cohort_ids: set[int] = set()
+    for action in actions if isinstance(actions, list) else []:
+        config = action.get("config") if isinstance(action, dict) else None
+        if not isinstance(config, dict) or config.get("template_id") != ADD_TO_STATIC_COHORT_TEMPLATE_ID:
+            continue
+        cohort_id = literal_static_cohort_id(config.get("inputs"))
+        if cohort_id is not None:
+            cohort_ids.add(cohort_id)
+    return cohort_ids
 
 
 def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:

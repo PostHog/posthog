@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import InterfaceError, OperationalError, transaction
 from django.db.models import Case, DurationField, ExpressionWrapper, F, OuterRef, Q, QuerySet, Subquery, When
 from django.utils import timezone
@@ -46,6 +47,7 @@ from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     CohortErrorCode,
     close_open_population_attempts,
+    count_cohort_members,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
@@ -1109,6 +1111,37 @@ def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int)
     # paging at the cap risks a deterministic, retry-immune timeout on large or
     # condition-heavy flags, so page well below it.
     get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=2_000)
+
+
+STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS = 10
+
+
+def _static_cohort_count_refresh_key(cohort_id: int) -> str:
+    return f"static-cohort-count-refresh:{cohort_id}"
+
+
+def schedule_static_cohort_count_refresh(*, team_id: int, cohort_id: int) -> None:
+    """Recount a static cohort soon, at most once per delay, for callers that add members one at a time.
+
+    Call it after the insert. The task deletes the key before it counts, so an insert that finds the key
+    already set is still in the pending count.
+    """
+    if cache.add(
+        _static_cohort_count_refresh_key(cohort_id),
+        True,
+        timeout=STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS * 10,
+    ):
+        refresh_static_cohort_count.apply_async(
+            kwargs={"team_id": team_id, "cohort_id": cohort_id},
+            countdown=STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS,
+        )
+
+
+@shared_task(ignore_result=True, max_retries=0)
+def refresh_static_cohort_count(team_id: int, cohort_id: int) -> None:
+    cache.delete(_static_cohort_count_refresh_key(cohort_id))
+    count = count_cohort_members(team_id=team_id, cohort_id=cohort_id, consistency="strong")
+    Cohort.objects.filter(team_id=team_id, id=cohort_id, is_static=True).update(count=count)
 
 
 def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start_time: datetime) -> None:
