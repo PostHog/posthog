@@ -23,8 +23,7 @@ function lead(enabled: boolean, disabledReason: string | null, verifying: boolea
 
 /** The workflow's own next step inside the domain setup it opened, in place of the workflow suggestions. */
 export function WorkflowDomainSetupActions(): JSX.Element | null {
-    const { originalWorkflow, enableFromSenderDomainSetupDisabledReason, senderFilledFromDomainSetup } =
-        useValues(workflowLogic)
+    const { originalWorkflow, enableFromSenderDomainSetupDisabledReason, senderDomainSetup } = useValues(workflowLogic)
     const { enableFromSenderDomainSetup, closeSenderDomainSetup } = useActions(workflowLogic)
     const { phase } = useValues(emailDomainLogic)
     const { domain, fromAddress } = useValues(emailDomainSenderLogic)
@@ -43,7 +42,7 @@ export function WorkflowDomainSetupActions(): JSX.Element | null {
                 <p className="m-0 text-sm text-secondary break-words">
                     {lead(enabled, enableFromSenderDomainSetupDisabledReason, verifying, domain ?? 'the domain')}
                 </p>
-                {senderFilledFromDomainSetup && fromAddress && (
+                {senderDomainSetup?.filledEmptySenders && fromAddress && (
                     <p className="m-0 text-sm text-secondary break-words">
                         Your workflow now sends from <strong>{fromAddress}</strong>.
                     </p>
