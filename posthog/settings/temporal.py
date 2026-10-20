@@ -301,6 +301,14 @@ DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED: bool = get_from_env(
 DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED", False, type_cast=str_to_bool
 )
+# An incremental merge import moves its watermark each time a contiguous prefix of its batches is
+# loaded, so a run that fails keeps the progress of the batches that loaded. The import pods record
+# the per-batch values and the load pods promote them, so set it on both. Enable it only when every
+# source that says sort_mode="asc" reads its rows in that order, because the next run reads only
+# the rows above the promoted value.
+DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED", False, type_cast=str_to_bool
+)
 # At a worker shutdown the import pipeline stops waiting for a source that neither yields an item
 # nor reaches a safe point, and hands the run to another worker. It applies only to runs whose
 # hand-offs are free (DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED), because preemption makes

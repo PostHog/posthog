@@ -2404,6 +2404,8 @@ export interface DataSuggestionApi {
     stage: DataSuggestionStageEnumApi
     /** The main planned step kinds after the trigger, in order. */
     step_outline: DataSuggestionStepKindEnumApi[]
+    /** Whether PostHog prepared this suggestion ahead of time with its workflow already built. Build it with save_draft to save the draft and stop offering the suggestion. */
+    premade: boolean
 }
 
 export interface DataSuggestionsResponseApi {

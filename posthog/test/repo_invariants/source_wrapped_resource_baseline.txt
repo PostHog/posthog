@@ -19,7 +19,6 @@ drip/drip.py::_campaign_subscriber_pages
 dynatrace/dynatrace.py::_endpoint_pages
 emailoctopus/emailoctopus.py::_fan_out_items
 fintoc/fintoc.py::FintocAPI.rows
-flutterwave/flutterwave.py::get_rows
 freshservice/freshservice.py::_approvals_source.items
 fusionauth/fusionauth.py::fusionauth_source.pages
 gainsight_px/gainsight_px.py::_event_pages

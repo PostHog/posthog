@@ -793,6 +793,8 @@ class DataSuggestion:
     weekly_count: int
     stage: LifecycleStage
     step_outline: tuple[OutlineKind, ...]
+    # Prepared ahead of time with its workflow already built, so a click creates the draft without a model call.
+    premade: bool = False
 
 
 @frozen
@@ -826,8 +828,21 @@ class BuiltSuggestion:
     missing_inputs: tuple[MissingInput, ...] = ()
 
 
+@frozen
+class PreparedIdeas:
+    """What `prepare_workflow_ideas` did for one project."""
+
+    status: DataSuggestionsStatus
+    stored: tuple[str, ...] = ()
+    failed_builds: int = 0
+
+
 class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
+class WorkflowIdeaAlreadyResolved(Exception):
+    """The premade idea was already used."""
 
 
 class EmailDraftSourceNotFound(Exception):
