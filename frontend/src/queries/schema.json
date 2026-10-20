@@ -2248,6 +2248,16 @@
             "required": ["kind"],
             "type": "object"
         },
+        "AssistantBareMetricsQuery": {
+            "additionalProperties": {},
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/AssistantMetricsNodeKind"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "AssistantBaseMultipleBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
@@ -4106,6 +4116,10 @@
                 "ai/planning",
                 "ai/task_execution"
             ],
+            "type": "string"
+        },
+        "AssistantMetricsNodeKind": {
+            "enum": ["MetricsQuery", "MetricsHistogramQuery"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -30432,6 +30446,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantBareHogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBareMetricsQuery"
                 },
                 {
                     "$ref": "#/definitions/AssistantEventsQuery"
