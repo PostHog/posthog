@@ -21,9 +21,7 @@ class TransactionalEmailDeliveryUncertain(Exception):
 
 def is_transactional_email_configured() -> bool:
     return bool(
-        settings.POSTHOG_TRANSACTIONAL_EMAIL_API_HOST
-        and settings.POSTHOG_TRANSACTIONAL_EMAIL_PROJECT_ID > 0
-        and settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY
+        settings.POSTHOG_HOST and settings.POSTHOG_PROJECT_ID > 0 and settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY
     )
 
 
@@ -31,7 +29,7 @@ def _send_url(template_id: str) -> str:
     if not is_transactional_email_configured():
         raise ImproperlyConfigured("PostHog transactional email settings are missing")
 
-    host = settings.POSTHOG_TRANSACTIONAL_EMAIL_API_HOST.rstrip("/")
+    host = settings.POSTHOG_HOST.rstrip("/")
     parsed_host = urlsplit(host)
     if (
         parsed_host.scheme != "https"
@@ -42,12 +40,12 @@ def _send_url(template_id: str) -> str:
         or parsed_host.query
         or parsed_host.fragment
     ):
-        raise ImproperlyConfigured("POSTHOG_TRANSACTIONAL_EMAIL_API_HOST must be an HTTPS origin")
+        raise ImproperlyConfigured("POSTHOG_HOST must be an HTTPS origin")
     try:
         template_uuid = UUID(template_id)
     except ValueError:
         raise ImproperlyConfigured("Transactional email template ID must be a UUID") from None
-    return f"{host}/api/projects/{settings.POSTHOG_TRANSACTIONAL_EMAIL_PROJECT_ID}/messaging_templates/{template_uuid}/send/"
+    return f"{host}/api/projects/{settings.POSTHOG_PROJECT_ID}/messaging_templates/{template_uuid}/send/"
 
 
 def send_transactional_email(
