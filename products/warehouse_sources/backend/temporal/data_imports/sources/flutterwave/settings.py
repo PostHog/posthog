@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -26,6 +26,12 @@ class FlutterwaveEndpointConfig:
     partition_key: Optional[str] = "created_at"
     # /transactions documents `from` and `to` as required, so the floor window is sent on every run.
     requires_date_window: bool = False
+    data_selector: str = "data"
+    # None marks an endpoint that returns its whole list in one response.
+    total_pages_path: Optional[str] = "meta.page_info.total_pages"
+    params: dict[str, Any] = field(default_factory=dict)
+    # The endpoint is queried once per value of this parameter, and each row carries the value.
+    fan_out_param: Optional[str] = None
 
 
 FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
@@ -51,7 +57,42 @@ FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
     "subaccounts": FlutterwaveEndpointConfig(name="subaccounts", path="/subaccounts"),
     # Saved payout recipients.
     "beneficiaries": FlutterwaveEndpointConfig(name="beneficiaries", path="/beneficiaries"),
+    # Reference list of the banks and mobile money providers each payout country supports, used to
+    # resolve bank codes on transfers and beneficiaries. The list carries no timestamp.
+    "banks": FlutterwaveEndpointConfig(
+        name="banks",
+        path="/banks/{country}",
+        primary_keys=["country", "id"],
+        partition_key=None,
+        total_pages_path=None,
+        params={"include_provider_type": 1},
+        fan_out_param="country",
+    ),
+    # Credits and debits on the merchant wallet. `from`, `to` and `currency` are all required, so the
+    # endpoint is queried once per wallet currency over the full history window. A statement line has
+    # no id: one reference can show up as a debit and later as its reversal credit.
+    "wallet_statement": FlutterwaveEndpointConfig(
+        name="wallet_statement",
+        path="/wallet/statement",
+        primary_keys=["currency", "reference", "type", "date"],
+        partition_key="date",
+        requires_date_window=True,
+        data_selector="data.transactions",
+        total_pages_path="data.page_info.total_pages",
+        params={"include_transaction_type": "true", "include_payout_id": "true"},
+        fan_out_param="currency",
+    ),
+    # Airtime, data, cable and utility bills bought through the account.
+    "bill_payments": FlutterwaveEndpointConfig(
+        name="bill_payments",
+        path="/bills/history",
+        partition_key="transaction_date",
+        requires_date_window=True,
+    ),
 }
+
+# The payout countries the v3 banks reference documents.
+BANK_COUNTRIES = ("NG", "GH", "KE", "UG", "ZA", "TZ")
 
 ENDPOINTS = tuple(FLUTTERWAVE_ENDPOINTS.keys())
 
