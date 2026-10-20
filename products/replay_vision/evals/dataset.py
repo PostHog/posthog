@@ -4,7 +4,7 @@ A dataset is a plain directory, never committed to the repo (it contains real se
 
     manifest.json                  # GoldenDataset
     cases/<case_id>/video.mp4      # rasterized recording, byte-identical to what production sent to Gemini
-    cases/<case_id>/inputs.json    # ScannerLlmInputs snapshot (events table, session metadata, navigation)
+    cases/<case_id>/inputs.json    # ScannerLlmInputs snapshot (events table, session metadata)
 """
 
 import os
@@ -54,6 +54,11 @@ class GoldenCase(BaseModel, frozen=True):
         default_factory=list,
         description="The rendered video's active/inactive map, for converting the model's video-time citations. "
         "Empty on cases collected before it was captured, which then score as if nothing was cut.",
+    )
+    navigation: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="The page and tab changes the rendered video shows, for the prompt's navigation timeline. "
+        "Empty on cases collected before the renderer recorded them, which then scan without one.",
     )
     label_is_correct: bool | None = None
     label_feedback: str = ""

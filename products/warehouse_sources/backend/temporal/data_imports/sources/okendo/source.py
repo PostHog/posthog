@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OkendoSource(ResumableSource[OkendoSourceConfig, OkendoResumeConfig]):
+    codebase_detection = detect(
+        env=("^OKENDO_",), script_hosts=("cdn-static.okendo.io",), npm=("@okendo/shopify-hydrogen",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2025-02-01",)
     default_version = "2025-02-01"

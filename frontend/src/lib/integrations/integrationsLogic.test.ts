@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { IntegrationKind, IntegrationType } from '~/types'
+import { IntegrationKind, IntegrationType, SLACK_INTEGRATION_SCOPES } from '~/types'
 
 import * as integrationsApi from 'products/integrations/frontend/generated/api'
 import type {
@@ -19,7 +19,7 @@ import type {
     IntegrationConfigApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 
-import { integrationsLogic } from './integrationsLogic'
+import { integrationsLogic, reconnectReturnUrl } from './integrationsLogic'
 
 const githubIntegration = (overrides: Partial<IntegrationType> = {}): IntegrationType =>
     ({
@@ -138,6 +138,7 @@ describe('integrationsLogic', () => {
             logic.actions.loadGithubAvailableInstallations()
             await waitFor(() => expect(logic.values.githubAvailableInstallations).toHaveLength(1))
             request.mockRejectedValueOnce(new Error('synthetic failure'))
+            logic.actions.invalidateGithubSuggestions()
             logic.actions.loadGithubAvailableInstallations()
             expect(logic.values.githubAvailableInstallations).toBeNull()
             await waitFor(() => expect(logic.values.githubDiscoveryFailed).toBe(true))
@@ -358,6 +359,29 @@ describe('integrationsLogic', () => {
         })
     })
 
+    describe('reconnectReturnUrl', () => {
+        it.each([
+            [
+                '/project/1/data-warehouse/new-source',
+                '?kind=googlesearchconsole',
+                '/project/1/data-warehouse/new-source?kind=googlesearchconsole',
+            ],
+            [
+                '/project/1/data-warehouse/new-source',
+                '?kind=googlesearchconsole&integration_id=5&integration_error=access_denied',
+                '/project/1/data-warehouse/new-source?kind=googlesearchconsole',
+            ],
+            [
+                '/project/1/data-warehouse/connect',
+                '?kind=GoogleAds',
+                '/project/1/data-warehouse/connect?kind=GoogleAds',
+            ],
+            ['/project/1/data-warehouse/sources/abc', '', '/project/1/data-warehouse/sources/abc'],
+        ])('returns a reconnect from %s%s to the same wizard step', (pathname, search, expected) => {
+            expect(reconnectReturnUrl(pathname, search)).toEqual(expected)
+        })
+    })
+
     describe('handleOauthCallback', () => {
         it('redirects stripe marketplace callbacks to the confirmation page without POSTing', async () => {
             await expectLogic(logic, () => {
@@ -477,15 +501,17 @@ describe('integrationsLogic', () => {
 
         describe('integration create team scoping', () => {
             let requestedTeamIds: string[]
+            let createdConfig: Record<string, unknown>
 
             beforeEach(() => {
                 requestedTeamIds = []
+                createdConfig = {}
                 document.cookie = 'ph_oauth_state=csrf-tok'
                 useMocks({
                     post: {
                         '/api/environments/:team_id/integrations/': ({ params }) => {
                             requestedTeamIds.push(String(params.team_id))
-                            return [201, { id: 7, kind: 'slack' }]
+                            return [201, { id: 7, kind: 'slack', config: createdConfig }]
                         },
                     },
                 })
@@ -524,6 +550,32 @@ describe('integrationsLogic', () => {
                     undefined
                 )
                 expect(requestedTeamIds).toEqual([String(MOCK_TEAM_ID)])
+            })
+
+            it.each([
+                ['every requested scope', SLACK_INTEGRATION_SCOPES.join(','), null],
+                [
+                    'fewer scopes than requested',
+                    SLACK_INTEGRATION_SCOPES.filter((scope) => scope !== 'users:read' && scope !== 'files:write').join(
+                        ','
+                    ),
+                    ['files:write', 'users:read'],
+                ],
+                ['no recorded scopes', undefined, null],
+            ])('reports a Slack install that granted %s', async (_name, grantedScope, expectedMissing) => {
+                createdConfig = grantedScope === undefined ? {} : { scope: grantedScope }
+                const successSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
+                const warningSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast')
+                const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+
+                await expectLogic(logic, () => {
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
+                }).toFinishAllListeners()
+
+                expect(warningSpy.mock.calls.map(([message]) => message)).toEqual(
+                    expectedMissing ? [expect.stringContaining(`: ${expectedMissing.join(', ')}.`)] : []
+                )
+                expect(successSpy).toHaveBeenCalledTimes(expectedMissing ? 0 : 1)
             })
         })
     })

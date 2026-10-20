@@ -84,6 +84,7 @@ export interface retentionLogicValues {
     breakdownDisplayNames: Record<string, string>
     breakdownValues: (number | string | null | undefined)[]
     dateMappings: DateMappingOption[]
+    excludeIncompletePeriods: boolean
     filteredResults: ProcessedRetentionPayload[]
     getRetentionColor: (
         rawBreakdownValue: number | string | null | undefined,
@@ -147,12 +148,17 @@ export interface retentionLogicMeta {
         isPropertyValueAggregation: (retentionFilter: RetentionFilter | null) => boolean
         hasEntityPropertyFilters: (retentionFilter: RetentionFilter | null) => boolean
         allCohortsEmpty: (results: ProcessedRetentionPayload[]) => boolean
+        excludeIncompletePeriods: (
+            dateRange: DateRange | null | undefined,
+            retentionFilter: RetentionFilter | null
+        ) => boolean
         results: (
             insightQuery: DataNode<Record<string, any>>,
             insightData: Record<string, any>,
             retentionFilter: RetentionFilter | null,
             timezone: string,
-            isPropertyValueAggregation: boolean
+            isPropertyValueAggregation: boolean,
+            excludeIncompletePeriods: boolean
         ) => ProcessedRetentionPayload[]
         filteredResults: (
             results: ProcessedRetentionPayload[],
@@ -353,18 +359,42 @@ export const retentionLogic = kea<retentionLogicType>([
             (results: ProcessedRetentionPayload[]): boolean =>
                 results.length > 0 && results.every((result) => (result.values[0]?.count ?? 0) === 0),
         ],
+        excludeIncompletePeriods: [
+            (s) => [s.dateRange, s.retentionFilter],
+            // Rolling 24-hour windows end mid-day, so clipping at the period boundary would drop completed returns
+            (dateRange: DateRange | null | undefined, retentionFilter: RetentionFilter | null): boolean =>
+                !!dateRange?.excludeIncompletePeriods && retentionFilter?.timeWindowMode !== '24_hour_windows',
+        ],
         results: [
-            (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone, s.isPropertyValueAggregation],
+            (s) => [
+                s.insightQuery,
+                s.insightData,
+                s.retentionFilter,
+                s.timezone,
+                s.isPropertyValueAggregation,
+                s.excludeIncompletePeriods,
+            ],
             (
                 insightQuery: import('~/queries/schema/schema-general').DataNode<Record<string, any>>,
                 insightData: Record<string, any>,
                 retentionFilter: RetentionFilter | null,
                 timezone: string,
-                isPropertyValueAggregation: boolean
+                isPropertyValueAggregation: boolean,
+                excludeIncompletePeriods: boolean
             ): ProcessedRetentionPayload[] => {
                 if (isPropertyValueAggregation && !retentionFilter?.aggregationProperty) {
                     return []
                 }
+
+                const periodUnit = (retentionFilter?.period ?? RetentionPeriod.Day).toLowerCase() as dayjs.UnitTypeLong
+                const now = dayjs().tz(timezone)
+                const brackets = retentionFilter?.retentionCustomBrackets
+                // A cell is complete once its last period ends; custom bracket cells span several periods
+                const isIncomplete = (cohortDate: dayjs.ConfigType, index: number): boolean =>
+                    dayjs(cohortDate)
+                        .tz(timezone)
+                        .add(brackets?.length ? sum(brackets.slice(0, index)) + 1 : index + 1, periodUnit)
+                        .isAfter(now)
 
                 const rawResults = isRetentionQuery(insightQuery) ? (insightData?.result ?? []) : []
 
@@ -378,11 +408,7 @@ export const retentionLogic = kea<retentionLogicType>([
                             retentionFilter?.retentionReference === 'previous' ? previousCount : totalCount
                         const percentage = referenceCount > 0 ? (value['count'] / referenceCount) * 100 : 0
 
-                        const periodUnit = (
-                            retentionFilter?.period ?? RetentionPeriod.Day
-                        ).toLowerCase() as dayjs.UnitTypeLong
                         const cellDate = dayjs(result.date).tz(timezone).add(index, periodUnit)
-                        const now = dayjs().tz(timezone)
 
                         return {
                             ...value,
@@ -394,7 +420,7 @@ export const retentionLogic = kea<retentionLogicType>([
                     }),
                 }))
 
-                // Filter out future values and handle breakdown label
+                // Filter out future values (and the current period when excluded) and handle breakdown label
                 return results.map((result) => ({
                     ...result,
                     date: dayjs(result.date).tz(timezone),
@@ -406,7 +432,10 @@ export const retentionLogic = kea<retentionLogicType>([
                     // Dashboard breakdown color configs store the raw value, so keep it
                     // alongside the display-mapped one.
                     rawBreakdownValue: result.breakdown_value ?? null,
-                    values: result.values.filter((value) => !value.isFuture),
+                    values: result.values.filter(
+                        (value, index) =>
+                            !value.isFuture && !(excludeIncompletePeriods && isIncomplete(result.date, index))
+                    ),
                 }))
             },
         ],

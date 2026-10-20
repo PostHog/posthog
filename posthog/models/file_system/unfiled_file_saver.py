@@ -18,7 +18,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
@@ -29,7 +28,6 @@ MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
     "experiment": Experiment,
     "insight": Insight,
     "dashboard": Dashboard,
-    "link": Link,
     "notebook": Notebook,
     "early_access_feature": EarlyAccessFeature,
     "session_recording_playlist": SessionRecordingPlaylist,
@@ -43,6 +41,12 @@ MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
 MIXIN_MODELS_BY_SURFACE: dict[str, dict[str, type[FileSystemSyncMixin]]] = {
     DEFAULT_SURFACE: MIXIN_MODELS,
 }
+
+
+def register_mixin_model(file_type: str, model_cls: type[FileSystemSyncMixin], surface: str = DEFAULT_SURFACE) -> None:
+    """For a sealed product to add its model from its own `AppConfig.ready()`, so this module
+    never has to import the product's internals."""
+    MIXIN_MODELS_BY_SURFACE.setdefault(surface, {})[file_type] = model_cls
 
 
 class UnfiledFileSaver:

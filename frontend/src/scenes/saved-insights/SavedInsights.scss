@@ -1,6 +1,69 @@
 @import '../../styles/mixins';
 @import '../../styles/vars';
 
+@layer utilities {
+    @container home-overview (max-width: 32rem) {
+        .home-tab-date-controls {
+            .LemonButton__chrome > .LemonButton__icon:first-child {
+                display: none !important;
+            }
+
+            .LemonButton__content > span {
+                display: block !important;
+                overflow: hidden;
+                font-size: 0.75rem !important;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+        }
+    }
+
+    @container saved-insights (max-width: 32rem) {
+        .saved-insights--home {
+            // The overview already explains the page; keep the narrow header focused on navigation.
+            > div:has(> .scene-description) {
+                display: none !important;
+            }
+
+            [data-attr='toggle-description-button-collapse'],
+            [data-attr='toggle-description-button-expand'] {
+                display: none !important;
+            }
+
+            .scene-title-section {
+                flex-direction: row !important;
+                align-items: center !important;
+                padding-top: 0.5rem !important;
+                padding-bottom: 0 !important;
+                padding-left: 1.5rem !important;
+
+                > :last-child {
+                    flex-wrap: nowrap !important;
+                    align-self: center !important;
+                    order: initial !important;
+                    margin-left: 0 !important;
+                }
+            }
+
+            .scene-name h1 {
+                font-size: 1rem !important;
+            }
+
+            > .LemonTabs {
+                margin-top: -0.5rem !important;
+
+                .LemonTabs__bar {
+                    scrollbar-width: none;
+
+                    &::-webkit-scrollbar {
+                        display: none;
+                    }
+                }
+            }
+        }
+    }
+}
+
 .saved-insights {
     .new-insight-dropdown-btn {
         height: 40px;

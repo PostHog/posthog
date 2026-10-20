@@ -154,10 +154,12 @@ class _VideoAsset:
     created_at: dt.datetime
     # Absent on assets rendered before the rasterizer recorded its cut map.
     inactivity_periods: list[dict[str, Any]] = field(default_factory=list)
+    # Absent on assets rendered before the renderer recorded the page and tab changes it shows.
+    navigation: list[dict[str, Any]] = field(default_factory=list)
 
 
-def _load_periods(raw: Any) -> list[dict[str, Any]]:
-    """The rasterizer's active/inactive map, absent on assets rendered before it was recorded."""
+def _load_json_list(raw: Any) -> list[dict[str, Any]]:
+    """A list the rasterizer wrote into `export_context`, empty on assets rendered before it wrote it."""
     if not raw:
         return []
     try:
@@ -181,7 +183,8 @@ def lookup_video_assets(api: PostHogApi, team_id: int, session_ids: list[str]) -
             SELECT JSONExtractString(toString(export_context), 'session_recording_id') AS sid,
                    min(id) AS asset_id,
                    argMin(toTimeZone(created_at, 'UTC'), id) AS asset_created_at,
-                   argMin(JSONExtractString(toString(export_context), 'inactivity_periods'), id) AS inactivity_periods
+                   argMin(JSONExtractString(toString(export_context), 'inactivity_periods'), id) AS inactivity_periods,
+                   argMin(JSONExtractRaw(toString(export_context), 'navigation'), id) AS navigation
             FROM postgres.posthog_exportedasset
             WHERE team_id = {team_id}
               AND export_format = {export_format}
@@ -204,9 +207,12 @@ def lookup_video_assets(api: PostHogApi, team_id: int, session_ids: list[str]) -
                 "session_ids": chunk,
             },
         )
-        for sid, asset_id, created_raw, periods_raw in rows:
+        for sid, asset_id, created_raw, periods_raw, navigation_raw in rows:
             found[str(sid)] = _VideoAsset(
-                asset_id=int(asset_id), created_at=parse_utc(created_raw), inactivity_periods=_load_periods(periods_raw)
+                asset_id=int(asset_id),
+                created_at=parse_utc(created_raw),
+                inactivity_periods=_load_json_list(periods_raw),
+                navigation=_load_json_list(navigation_raw),
             )
     return found
 
@@ -349,8 +355,6 @@ def build_llm_inputs(
         url_mapping=processed.url_mapping,
         window_mapping=processed.window_mapping,
         event_timestamps=processed.event_timestamps,
-        navigation=processed.navigation,
-        navigation_dropped=processed.navigation_dropped,
         product_context=product_context,
         event_descriptions=event_descriptions.for_session(processed.columns, processed.rows)
         if event_descriptions
@@ -473,6 +477,7 @@ def _write_case(
         label_is_correct=label.get("is_correct"),
         label_feedback=label.get("feedback") or "",
         inactivity_periods=asset.inactivity_periods,
+        navigation=asset.navigation,
         collected_at=dt.datetime.now(dt.UTC).isoformat(),
     )
     case_dir = case.case_dir(root)

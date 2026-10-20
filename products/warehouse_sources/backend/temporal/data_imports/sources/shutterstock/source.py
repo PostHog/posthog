@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -49,6 +50,8 @@ def _auth_from_config(config: ShutterstockSourceConfig) -> ShutterstockAuth:
 
 @SourceRegistry.register
 class ShutterstockSource(ResumableSource[ShutterstockSourceConfig, ShutterstockResumeConfig]):
+    codebase_detection = detect(env=("^SHUTTERSTOCK_",), npm=("shutterstock-api",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

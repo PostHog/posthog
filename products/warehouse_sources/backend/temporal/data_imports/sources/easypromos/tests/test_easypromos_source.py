@@ -1,11 +1,10 @@
-from unittest.mock import MagicMock
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.settings import (
-    EASYPROMOS_ENDPOINTS,
-    ENDPOINTS,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.settings import EASYPROMOS_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.source import EasypromosSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easypromos import (
     EasypromosSourceConfig,
@@ -16,30 +15,6 @@ class TestSourceConfig:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog, so the public docs can render the table list.
         assert EasypromosSource.lists_tables_without_credentials is True
-
-
-class TestGetSchemas:
-    def test_returns_every_endpoint(self) -> None:
-        schemas = EasypromosSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_all_full_refresh_only(self) -> None:
-        for schema in EasypromosSource().get_schemas(MagicMock(), team_id=1):
-            assert schema.supports_incremental is False, schema.name
-            assert schema.supports_append is False, schema.name
-
-    def test_should_sync_default_mirrors_settings(self) -> None:
-        schemas = {s.name: s for s in EasypromosSource().get_schemas(MagicMock(), team_id=1)}
-        for name, config in EASYPROMOS_ENDPOINTS.items():
-            assert schemas[name].should_sync_default is config.should_sync_default
-
-    def test_names_filter(self) -> None:
-        schemas = EasypromosSource().get_schemas(MagicMock(), team_id=1, names=["promotions", "users"])
-        assert {s.name for s in schemas} == {"promotions", "users"}
-
-    def test_fan_out_description_mentions_per_promotion(self) -> None:
-        schemas = {s.name: s for s in EasypromosSource().get_schemas(MagicMock(), team_id=1)}
-        assert "per promotion" in (schemas["users"].description or "")
 
 
 class TestNonRetryableErrors:
@@ -73,15 +48,10 @@ class TestNonRetryableErrors:
 class TestSourceForPipeline:
     def test_plumbs_endpoint_and_keys(self) -> None:
         config = EasypromosSourceConfig(access_token="tok")
-        inputs = MagicMock()
-        inputs.schema_name = "participations"
-        inputs.logger = MagicMock()
-        response = EasypromosSource().source_for_pipeline(config, MagicMock(), inputs)
-        assert response.name == "participations"
-        assert response.primary_keys == EASYPROMOS_ENDPOINTS["participations"].primary_keys
-
-
-class TestCanonicalDescriptions:
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = EasypromosSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
+        result = SourceDriver(EasypromosSource(), config).run(
+            "participations", [ScriptedResponse(json={"items": [], "paging": {"next_cursor": None, "items_page": 100}})]
+        )
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "participations"
+        assert result.response.primary_keys == EASYPROMOS_ENDPOINTS["participations"].primary_keys

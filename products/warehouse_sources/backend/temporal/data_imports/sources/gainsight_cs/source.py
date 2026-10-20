@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +49,8 @@ CREDENTIAL_PROBE_OBJECT = "company"
 
 @SourceRegistry.register
 class GainsightCsSource(ResumableSource[GainsightCsSourceConfig, GainsightCsResumeConfig]):
+    codebase_detection = detect(env=("^(GAINSIGHT_CS|GAINSIGHTCS)_",))
+
     lists_tables_without_credentials = True  # static object catalog — safe for public docs
     api_docs_url = "https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs"
 

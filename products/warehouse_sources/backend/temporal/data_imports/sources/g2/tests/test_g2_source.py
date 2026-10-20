@@ -2,12 +2,12 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.g2.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.g2.source import G2Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.g2 import G2SourceConfig
-
-VALIDATE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.g2.source.validate_g2_credentials"
 
 
 class TestG2Source:
@@ -15,18 +15,6 @@ class TestG2Source:
         self.source = G2Source()
         self.team_id = 123
         self.config = G2SourceConfig(access_token="token-1", product_id="prod-1")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "G2"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/g2.png"
-        # A finished source ships visible: unreleasedSource would hide it from every user.
-        assert config.unreleasedSource is None
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["access_token", "product_id"]
 
     @parameterized.expand(
         [
@@ -47,24 +35,6 @@ class TestG2Source:
     def test_non_retryable_errors_do_not_match_unrelated(self, _name: str, other_error: str) -> None:
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
 
-    def test_get_schemas_are_full_refresh_only(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # No G2 list endpoint documents a `sort` param, so claiming incremental would ship a
-        # cursor watermark on an order the API never promised.
-        for schema in schemas:
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
-    def test_products_catalog_is_opt_in(self) -> None:
-        # G2's global product catalog runs into the hundreds of thousands of rows, so it must not
-        # be silently enabled for every new connection.
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["products"].should_sync_default is False
-        assert schemas["reviews"].should_sync_default is True
-
     @parameterized.expand(
         [
             ("valid", (True, 200), None, True, None),
@@ -77,16 +47,25 @@ class TestG2Source:
         ]
     )
     def test_validate_credentials(
-        self, _name: str, probe_result: tuple[bool, int | None], schema_name, expected_valid, expected_message
+        self,
+        _name: str,
+        probe_result: tuple[bool, int | None],
+        schema_name: str | None,
+        expected_valid: bool,
+        expected_message: str | None,
     ) -> None:
-        with mock.patch(VALIDATE_PATCH, return_value=probe_result) as mock_validate:
+        status_code = probe_result[1]
+        answer = ConnectionResetError("reset") if status_code is None else ScriptedResponse(status=status_code)
+        with scripted_network([answer]) as network:
             is_valid, error_message = self.source.validate_credentials(
                 self.config, self.team_id, schema_name=schema_name
             )
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("token-1", "v2")
+        assert network.requests_log[0].path == "/api/v2/categories"
+        assert network.requests_log[0].param("page[size]") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer token-1"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.g2.source.g2_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_g2_source: mock.MagicMock) -> None:

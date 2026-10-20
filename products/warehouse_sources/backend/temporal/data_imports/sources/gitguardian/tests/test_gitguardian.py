@@ -1,96 +1,38 @@
-from collections.abc import Sequence
-from datetime import UTC, date, datetime
-from typing import Any, NamedTuple
-from urllib.parse import parse_qs, urlsplit
-
-import pytest
-from unittest.mock import MagicMock, patch
+from datetime import date, datetime
+from typing import Any
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian import gitguardian
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitguardian import (
+    GitguardianSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.gitguardian import (
     GitGuardianResumeConfig,
+    GitGuardianRetryableError,
     check_endpoint_access,
-    get_rows,
-    gitguardian_source,
     resolve_base_url,
     validate_base_url,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
 
 BASE_URL = "https://api.gitguardian.com"
 
 
-def _page(rows: Any, next_url: str | None = None) -> MagicMock:
-    response = MagicMock()
-    response.json.return_value = rows
-    response.links = {"next": {"url": next_url}} if next_url else {}
-    return response
+def _driver(base_url: str | None = None) -> SourceDriver:
+    return SourceDriver(GitguardianSource(), GitguardianSourceConfig(api_key="gg_sat_x", base_url=base_url))
 
 
-class _FakeManager:
-    def __init__(self, state: GitGuardianResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[GitGuardianResumeConfig] = []
-        self.cleared = False
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> GitGuardianResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: GitGuardianResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared = True
-
-
-class _GetRowsResult(NamedTuple):
-    rows: list[dict]
-    fetched: list[str]
-    manager: _FakeManager
-
-
-def _run_get_rows(
-    monkeypatch: Any,
-    endpoint: str,
-    responses: Sequence[MagicMock | Exception],
-    manager: _FakeManager | None = None,
-    **kwargs: Any,
-) -> _GetRowsResult:
-    fetched: list[str] = []
-    resp_iter = iter(responses)
-
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> MagicMock:
-        fetched.append(url)
-        response = next(resp_iter)
-        if isinstance(response, Exception):
-            raise response
-        return response
-
-    monkeypatch.setattr(gitguardian, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(gitguardian, "make_tracked_session", lambda *a, **k: MagicMock())
-
-    manager = manager or _FakeManager()
-    rows: list[dict] = []
-    for page in get_rows(
-        api_key="gg_sat_x",
-        base_url=BASE_URL,
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        **kwargs,
-    ):
-        rows.extend(page)
-    return _GetRowsResult(rows, fetched, manager)
-
-
-def _query(url: str) -> dict[str, list[str]]:
-    return parse_qs(urlsplit(url).query)
+def _page(rows: Any, next_url: str | None = None) -> ScriptedResponse:
+    headers = {"Link": f'<{next_url}>; rel="next"'} if next_url else {}
+    return ScriptedResponse(json=rows, headers=headers)
 
 
 class TestResolveBaseUrl:
@@ -133,49 +75,10 @@ class TestValidateBaseUrl:
 
 
 class TestLinkHeaderPagination:
-    def test_walks_pages_until_link_header_exhausted(self, monkeypatch: Any) -> None:
-        # The next-page cursor lives in the Link header; the walk must follow it and stop when absent.
-        next_url = f"{BASE_URL}/v1/incidents/secrets?cursor=abc&per_page=100&ordering=date"
-        responses = [
-            _page([{"id": 1}, {"id": 2}], next_url=next_url),
-            _page([{"id": 3}]),
-        ]
-        rows, fetched, _ = _run_get_rows(monkeypatch, "secret_incidents", responses)
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        assert fetched == [f"{BASE_URL}/v1/incidents/secrets?per_page=100&ordering=date", next_url]
-
-    def test_honeytoken_events_fetch_every_status(self, monkeypatch: Any) -> None:
-        responses = [_page([]), _page([]), _page([])]
-        _, fetched, _ = _run_get_rows(monkeypatch, "honeytoken_events", responses)
-        assert [_query(url)["status"] for url in fetched] == [["open"], ["archived"], ["allowed"]]
-
-    def test_first_sync_sends_ordering_but_no_date_filter(self, monkeypatch: Any) -> None:
-        # No watermark => full backfill, but ordering must still be explicit so sort_mode="asc" holds.
-        responses = [_page([{"id": 1}])]
-        _, fetched, _ = _run_get_rows(
-            monkeypatch,
-            "secret_incidents",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        query = _query(fetched[0])
-        assert query["ordering"] == ["date"]
-        assert "date_after" not in query
-
-    def test_incremental_sends_date_after_with_lookback(self, monkeypatch: Any) -> None:
-        # The watermark must reach the server as date_after (minus the safety lookback), otherwise
-        # every "incremental" sync silently re-fetches all history.
-        responses = [_page([{"id": 1}])]
-        _, fetched, _ = _run_get_rows(
-            monkeypatch,
-            "secret_incidents",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
-            incremental_field="date",
-        )
-        assert _query(fetched[0])["date_after"] == ["2026-01-03T00:00:00Z"]
+    def test_honeytoken_events_fetch_every_status(self) -> None:
+        result = _driver().run("honeytoken_events", [_page([]), _page([]), _page([])])
+        assert result.raised is None
+        assert result.params("status") == ["open", "archived", "allowed"]
 
     @parameterized.expand(
         [
@@ -184,130 +87,151 @@ class TestLinkHeaderPagination:
         ]
     )
     def test_incremental_value_types_are_formatted_utc(self, _name: str, value: Any, expected: str) -> None:
-        responses = [_page([{"id": 1}])]
-        with pytest.MonkeyPatch.context() as monkeypatch:
-            _, fetched, _ = _run_get_rows(
-                monkeypatch,
-                "secret_incidents",
-                responses,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=value,
-            )
-        assert _query(fetched[0])["date_after"] == [expected]
+        result = _driver().run(
+            "secret_incidents",
+            [_page([{"id": 1}])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=value,
+        )
+        assert result.raised is None
+        assert result.params("date_after") == [expected]
 
-    def test_cross_origin_next_link_is_refused(self, monkeypatch: Any) -> None:
+    @parameterized.expand(
+        [
+            # Mutable triage fields: re-pull a 7-day trailing window, walking the detection date.
+            ("secret_incidents", "/v1/incidents/secrets", "2026-01-03T00:00:00Z", "date"),
+            ("public_secret_incidents", "/v1/public-incidents/secrets", "2026-01-03T00:00:00Z", "date"),
+            # Immutable rows and no `ordering` param on the API: exact watermark, no ordering sent.
+            ("audit_logs", "/v1/audit_logs", "2026-01-10T00:00:00Z", None),
+        ]
+    )
+    def test_incremental_request_shaping(
+        self, endpoint: str, path: str, expected_date_after: str, expected_ordering: str | None
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [_page([{"id": 1}])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 10),
+        )
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.params("date_after") == [expected_date_after]
+        assert result.params("ordering") == [expected_ordering]
+
+    @parameterized.expand([("secret_incidents",), ("public_secret_incidents",)])
+    def test_share_url_bearer_link_is_stripped(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [_page([{"id": 1, "share_url": "https://dashboard.example.com/share/fake-token", "severity": "high"}])],
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 1, "severity": "high"}]
+
+    def test_cross_origin_next_link_is_refused(self) -> None:
         # Pagination URLs are fetched with the Authorization token attached; a tampered Link
         # header must not be able to steer the token to another host.
-        responses = [_page([{"id": 1}], next_url="https://attacker.example/v1/incidents/secrets?cursor=abc")]
-        with pytest.raises(ValueError, match="cross-origin"):
-            _run_get_rows(monkeypatch, "secret_incidents", responses)
+        result = _driver().run(
+            "secret_incidents",
+            [_page([{"id": 1}], next_url="https://attacker.example/v1/incidents/secrets?cursor=abc")],
+        )
+        assert isinstance(result.raised, ValueError)
+        assert "cross-origin" in str(result.raised)
+        assert result.paths == ["/v1/incidents/secrets"]
 
-    def test_non_list_response_raises_instead_of_yielding_garbage(self, monkeypatch: Any) -> None:
-        responses = [_page({"detail": "Not found."})]
-        with pytest.raises(ValueError, match="non-list response"):
-            _run_get_rows(monkeypatch, "secret_incidents", responses)
-
-    def test_share_url_bearer_link_is_stripped_before_yield(self, monkeypatch: Any) -> None:
-        # share_url is a no-auth bearer link that can expose the leaked secret itself; it must
-        # never reach the warehouse. Other fields survive.
-        responses = [
-            _page([{"id": 1, "share_url": "https://dashboard.gitguardian.com/share/xyz", "date": "2026-01-01"}])
-        ]
-        rows, _, _ = _run_get_rows(monkeypatch, "secret_incidents", responses)
-        assert rows == [{"id": 1, "date": "2026-01-01"}]
-
-
-def _http_error(status_code: int) -> requests.HTTPError:
-    response = MagicMock()
-    response.status_code = status_code
-    return requests.HTTPError(f"{status_code} Client Error", response=response)
+    def test_non_list_response_raises_instead_of_yielding_garbage(self) -> None:
+        result = _driver().run("secret_incidents", [_page({"detail": "Not found."})])
+        assert isinstance(result.raised, ValueError)
+        assert "non-list response" in str(result.raised)
+        assert result.rows == []
 
 
 class TestFanOut:
-    def test_walks_every_parent_page_and_each_childs_pages(self, monkeypatch: Any) -> None:
+    def test_walks_every_parent_page_and_each_childs_pages(self) -> None:
         teams_next = f"{BASE_URL}/v1/teams?cursor=t2&per_page=100"
         child_next = f"{BASE_URL}/v1/teams/1/team_memberships?cursor=m2&per_page=100"
-        responses = [
-            _page([{"id": 1}], next_url=teams_next),
-            _page([{"id": 10, "team_id": 1}], next_url=child_next),
-            _page([{"id": 11, "team_id": 1}]),
-            _page([{"id": 2}]),
-            _page([{"id": 20, "team_id": 2}]),
-        ]
-        rows, fetched, manager = _run_get_rows(monkeypatch, "team_memberships", responses)
-        assert [r["id"] for r in rows] == [10, 11, 20]
-        assert fetched == [
+        result = _driver().run(
+            "team_memberships",
+            [
+                _page([{"id": 1}], next_url=teams_next),
+                _page([{"id": 10, "team_id": 1}], next_url=child_next),
+                _page([{"id": 11, "team_id": 1}]),
+                _page([{"id": 2}]),
+                _page([{"id": 20, "team_id": 2}]),
+            ],
+        )
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [10, 11, 20]
+        assert result.urls == [
             f"{BASE_URL}/v1/teams?per_page=100",
             f"{BASE_URL}/v1/teams/1/team_memberships?per_page=100",
             child_next,
             teams_next,
             f"{BASE_URL}/v1/teams/2/team_memberships?per_page=100",
         ]
-        assert manager.saved == []
+        assert result.saved_states == []
 
-    def test_child_requests_keep_their_own_ordering(self, monkeypatch: Any) -> None:
-        responses = [_page([{"id": 7}]), _page([{"id": 70, "incident_id": 7}])]
-        _, fetched, _ = _run_get_rows(monkeypatch, "secret_incident_activity_logs", responses)
-        assert fetched == [
-            f"{BASE_URL}/v1/incidents/secrets?per_page=100&ordering=date",
-            f"{BASE_URL}/v1/incidents/secrets/7/activity-logs?per_page=100&ordering=created_at",
-        ]
+    def test_parent_deleted_mid_sync_is_skipped(self) -> None:
+        result = _driver().run(
+            "team_memberships",
+            [
+                _page([{"id": 1}, {"id": 2}]),
+                ScriptedResponse(status=404),
+                _page([{"id": 20, "team_id": 2}]),
+            ],
+        )
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [20]
 
-    def test_parent_deleted_mid_sync_is_skipped(self, monkeypatch: Any) -> None:
-        responses: Sequence[MagicMock | Exception] = [
-            _page([{"id": 1}, {"id": 2}]),
-            _http_error(404),
-            _page([{"id": 20, "team_id": 2}]),
-        ]
-        rows, _, _ = _run_get_rows(monkeypatch, "team_memberships", responses)
-        assert [r["id"] for r in rows] == [20]
-
-    def test_child_denial_is_not_swallowed(self, monkeypatch: Any) -> None:
-        responses: Sequence[MagicMock | Exception] = [_page([{"id": 1}]), _http_error(403)]
-        with pytest.raises(requests.HTTPError):
-            _run_get_rows(monkeypatch, "team_memberships", responses)
+    def test_child_denial_is_not_swallowed(self) -> None:
+        result = _driver().run(
+            "team_memberships",
+            [_page([{"id": 1}]), ScriptedResponse(status=403)],
+        )
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.paths == ["/v1/teams", "/v1/teams/1/team_memberships"]
 
 
 class TestResumeCheckpoints:
-    def test_resumes_from_saved_url(self, monkeypatch: Any) -> None:
-        saved_url = f"{BASE_URL}/v1/incidents/secrets?cursor=abc&per_page=100"
-        manager = _FakeManager(GitGuardianResumeConfig(url=saved_url))
-        responses = [_page([{"id": 4}])]
-        rows, fetched, _ = _run_get_rows(monkeypatch, "secret_incidents", responses, manager=manager)
-        assert [r["id"] for r in rows] == [4]
-        assert fetched == [saved_url]
-
-    def test_cross_origin_resume_url_is_refused(self, monkeypatch: Any) -> None:
+    def test_cross_origin_resume_url_is_refused(self) -> None:
         # Resume URLs come from persisted state; a tampered value must not receive the token either.
-        manager = _FakeManager(GitGuardianResumeConfig(url="https://attacker.example/v1/incidents/secrets?cursor=abc"))
-        with pytest.raises(ValueError, match="cross-origin"):
-            _run_get_rows(monkeypatch, "secret_incidents", [], manager=manager)
+        result = _driver().run(
+            "secret_incidents",
+            [],
+            resume_state=GitGuardianResumeConfig(url="https://attacker.example/v1/incidents/secrets?cursor=abc"),
+        )
+        assert isinstance(result.raised, ValueError)
+        assert "cross-origin" in str(result.raised)
+        assert result.requests == []
 
-    def test_checkpoints_current_page_url_after_yield_and_clears_on_completion(self, monkeypatch: Any) -> None:
-        # Resume must re-fetch the last yielded page (checkpoint the CURRENT URL, not the next one)
-        # so a crash can't skip rows, and a finished walk must drop its checkpoint or a retry that
-        # re-runs extract would resume from the final page and skip everything before it.
-        next_url = f"{BASE_URL}/v1/incidents/secrets?cursor=abc&per_page=100"
-        responses = [
-            _page([{"id": 1}], next_url=next_url),
-            _page([{"id": 2}]),
+    @parameterized.expand(
+        [
+            ("public_secret_incidents", "/v1/public-incidents/secrets"),
+            ("audit_logs", "/v1/audit_logs"),
         ]
-        _, fetched, manager = _run_get_rows(monkeypatch, "secret_incidents", responses)
-        assert [s.url for s in manager.saved] == fetched
-        assert manager.cleared is True
+    )
+    def test_incremental_endpoints_resume_from_the_saved_page(self, endpoint: str, path: str) -> None:
+        saved_url = f"{BASE_URL}{path}?cursor=c2&per_page=100"
+        result = _driver().run(
+            endpoint,
+            [_page([{"id": 2}])],
+            resume_state=GitGuardianResumeConfig(url=saved_url),
+        )
+        assert result.raised is None
+        assert result.urls == [saved_url]
+        assert result.rows == [{"id": 2}]
+        assert result.saved_states == [GitGuardianResumeConfig(url=saved_url)]
+        assert result.final_state is None
 
-    def test_full_refresh_endpoints_never_checkpoint(self, monkeypatch: Any) -> None:
+    def test_full_refresh_endpoints_never_checkpoint(self) -> None:
         # sources/members/teams merge nothing on resume, so a restart re-reads from page one.
-        responses = [_page([{"id": 1}])]
-        _, _, manager = _run_get_rows(monkeypatch, "sources", responses)
-        assert manager.saved == []
-        assert manager.cleared is False
-
-    def test_full_refresh_endpoints_ignore_stale_resume_state(self, monkeypatch: Any) -> None:
-        manager = _FakeManager(GitGuardianResumeConfig(url=f"{BASE_URL}/v1/sources?cursor=zzz"))
-        responses = [_page([{"id": 1}])]
-        _, fetched, _ = _run_get_rows(monkeypatch, "sources", responses, manager=manager)
-        assert fetched == [f"{BASE_URL}/v1/sources?per_page=100"]
+        previous = GitGuardianResumeConfig(url=f"{BASE_URL}/v1/sources?cursor=old")
+        result = _driver().run("sources", [_page([{"id": 1}])], resume_state=previous)
+        assert result.raised is None
+        assert result.rows == [{"id": 1}]
+        assert result.urls == [f"{BASE_URL}/v1/sources?per_page=100"]
+        assert result.saved_states == []
+        assert result.final_state == previous
 
 
 class TestValidateCredentials:
@@ -320,57 +244,42 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(gitguardian, "make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             valid, error = validate_credentials("gg_sat_x", BASE_URL)
         assert valid is expected_valid
         assert (error is None) is expected_valid
+        assert {request.path for request in network.requests_log} == {"/v1/health"}
+        assert network.requests_log[0].headers["authorization"] == "Token gg_sat_x"
+        assert network.session_options[0]["allow_redirects"] is False
 
     def test_network_error_is_invalid_not_raised(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(gitguardian, "make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))) as network:
             valid, error = validate_credentials("gg_sat_x", BASE_URL)
         assert valid is False
         assert error is not None
+        assert {request.path for request in network.requests_log} == {"/v1/health"}
 
 
 class TestCheckEndpointAccess:
-    def _probe(self, response: MagicMock | Exception, endpoint: str = "secret_incidents") -> str | None:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        with patch.object(gitguardian, "make_tracked_session", return_value=session):
-            return check_endpoint_access("gg_sat_x", BASE_URL, endpoint)
-
-    def test_reachable_endpoint_reports_no_error(self) -> None:
-        response = MagicMock()
-        response.status_code = 200
-        assert self._probe(response) is None
-
     def test_denial_surfaces_the_apis_own_detail_message(self) -> None:
-        response = MagicMock()
-        response.status_code = 403
-        response.json.return_value = {"detail": "You do not have the required incidents:read scope."}
-        assert self._probe(response) == "You do not have the required incidents:read scope."
+        with scripted_network(
+            [ScriptedResponse(status=403, json={"detail": "You do not have the required incidents:read scope."})]
+        ):
+            reason = check_endpoint_access("gg_sat_x", BASE_URL, "secret_incidents")
+        assert reason == "You do not have the required incidents:read scope."
 
     @parameterized.expand(
         [
             ("secret_incidents", "incidents:read"),
             ("sources", "sources:read"),
             ("honeytokens", "honeytokens:read"),
+            ("custom_tags", "custom_tags:read"),
+            ("audit_logs", "audit_logs:read"),
         ]
     )
     def test_denial_without_detail_names_the_required_scope(self, endpoint: str, scope: str) -> None:
-        response = MagicMock()
-        response.status_code = 403
-        response.json.side_effect = ValueError("no json")
-        reason = self._probe(response, endpoint=endpoint)
+        with scripted_network([ScriptedResponse(status=403, body=b"no json")]):
+            reason = check_endpoint_access("gg_sat_x", BASE_URL, endpoint)
         assert reason is not None and scope in reason
 
     @parameterized.expand(
@@ -382,12 +291,14 @@ class TestCheckEndpointAccess:
     def test_non_denial_errors_do_not_block_the_table(self, _name: str, status_code: int) -> None:
         # Only a real 401/403 is a missing scope; a throttle or blip must not mark the table
         # unreachable in the schema picker.
-        response = MagicMock()
-        response.status_code = status_code
-        assert self._probe(response) is None
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            reason = check_endpoint_access("gg_sat_x", BASE_URL, "secret_incidents")
+        assert reason is None
 
     def test_network_error_does_not_block_the_table(self) -> None:
-        assert self._probe(requests.ConnectionError("boom")) is None
+        with scripted_network(always(ConnectionError("boom"))):
+            reason = check_endpoint_access("gg_sat_x", BASE_URL, "secret_incidents")
+        assert reason is None
 
     @parameterized.expand(
         [
@@ -398,13 +309,9 @@ class TestCheckEndpointAccess:
     def test_fan_out_endpoints_probe_their_parent(self, endpoint: str, parent_path: str) -> None:
         # The child path needs a real parent id; probing the placeholder would 404 and hide a
         # missing scope. The parent carries the same scope.
-        response = MagicMock()
-        response.status_code = 200
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(gitguardian, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             check_endpoint_access("gg_sat_x", BASE_URL, endpoint)
-        assert urlsplit(session.get.call_args.args[0]).path == parent_path
+        assert [request.path for request in network.requests_log] == [parent_path]
 
 
 class TestFetchPageRetries:
@@ -415,62 +322,49 @@ class TestFetchPageRetries:
         ]
     )
     def test_retryable_status_is_retried(self, _name: str, status_code: int) -> None:
-        bad = MagicMock()
-        bad.status_code = status_code
-        good = MagicMock()
-        good.status_code = 200
-        good.ok = True
-        session = MagicMock()
-        session.get.side_effect = [bad, good]
+        result = _driver().run(
+            "secret_incidents",
+            [ScriptedResponse(status=status_code), _page([{"id": 1}])],
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 1}]
+        assert result.paths == ["/v1/incidents/secrets", "/v1/incidents/secrets"]
 
-        with patch.object(gitguardian._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = gitguardian._fetch_page(session, f"{BASE_URL}/v1/incidents/secrets", {}, MagicMock())
-
-        assert result is good
-        assert session.get.call_count == 2
+    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
+    def test_persistent_retryable_status_raises_retryable_error(self, _name: str, status_code: int) -> None:
+        result = _driver().run("secret_incidents", always(ScriptedResponse(status=status_code)))
+        assert isinstance(result.raised, GitGuardianRetryableError)
 
     def test_unauthorized_raises_and_is_not_retried(self) -> None:
-        response = MagicMock()
-        response.status_code = 401
-        response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized", response=response)
-        session = MagicMock()
-        session.get.return_value = response
-
-        with pytest.raises(requests.HTTPError):
-            gitguardian._fetch_page(session, f"{BASE_URL}/v1/incidents/secrets", {}, MagicMock())
-        assert session.get.call_count == 1
+        result = _driver().run("secret_incidents", [ScriptedResponse(status=401)])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.paths == ["/v1/incidents/secrets"]
 
 
 class TestSourceResponseShape:
     @parameterized.expand(
         [
-            ("secret_incidents", ["date"]),
-            ("secret_occurrences", ["date"]),
+            ("secret_incidents", ["date"], "asc"),
+            ("secret_occurrences", ["date"], "asc"),
+            ("public_secret_incidents", ["date"], "asc"),
+            # No `ordering` param, so the watermark must only be promoted when the sync completes.
+            ("audit_logs", ["date"], "desc"),
         ]
     )
     def test_incremental_endpoints_partition_on_stable_detection_date(
-        self, endpoint: str, expected_partition: list[str]
+        self, endpoint: str, expected_partition: list[str], expected_sort_mode: str
     ) -> None:
-        response = gitguardian_source(
-            api_key="gg_sat_x",
-            base_url=BASE_URL,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_keys == expected_partition
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
+        result = _driver().run(endpoint, [_page([])])
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.partition_keys == expected_partition
+        assert result.response.primary_keys == ["id"]
+        assert result.response.sort_mode == expected_sort_mode
 
-    @parameterized.expand([("sources",), ("honeytokens",), ("members",), ("teams",)])
+    @parameterized.expand([("sources",), ("honeytokens",), ("members",), ("teams",), ("custom_tags",)])
     def test_full_refresh_endpoints_are_unpartitioned(self, endpoint: str) -> None:
-        response = gitguardian_source(
-            api_key="gg_sat_x",
-            base_url=BASE_URL,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        result = _driver().run(endpoint, [_page([])])
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.partition_mode is None
+        assert result.response.partition_keys is None

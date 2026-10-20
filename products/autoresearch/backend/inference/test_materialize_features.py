@@ -140,6 +140,7 @@ class TestMaterializeFeatures(TeamScopedTestMixin, APIBaseTest):
         assert body["n_holdout"] == 2
         assert body["n_features"] == 2
         assert body["feature_cols"] == ["pv", "uploads"]
+        assert (body["rows_read"], body["hints"]) == (0, [])
         # All four parquet files land in one per-request directory under the framework-controlled base.
         directory = body["train_features_path"].rsplit("/", 1)[0]
         assert directory.startswith("/tmp/workspace/autoresearch/data/")

@@ -1,11 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     BoxPlotMissingPropertyState,
@@ -30,7 +33,6 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
-import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
@@ -46,6 +48,7 @@ import {
 } from '~/types'
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
+import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -62,9 +65,16 @@ import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/tren
 import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable'
 import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
+import { FlagCallsRetentionNotice } from './FlagCallsRetentionNotice'
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
+
+// Query.tsx reaches this file through static imports, so a static import of web analytics puts its
+// tiles on every page that shows an insight.
+const WebAnalyticsInsight = lazyWithRetry(() =>
+    import('scenes/web-analytics/WebAnalyticsInsight').then((m) => ({ default: m.WebAnalyticsInsight }))
+)
 
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
 function DashboardInsightRefreshHintOrLoading({
@@ -210,14 +220,25 @@ export function InsightVizDisplay({
         validationError,
         validationErrorCode,
         theme,
+        showsFlagCallsRetentionNotice,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+    const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
 
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
+
+    const insightLoadingState = (
+        <InsightLoadingState
+            queryId={queryId}
+            key={queryId}
+            insightProps={insightProps}
+            renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+            suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+        />
+    )
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -225,15 +246,7 @@ export function InsightVizDisplay({
             if (hasRenderableResults) {
                 return null
             }
-            return (
-                <InsightLoadingState
-                    queryId={queryId}
-                    key={queryId}
-                    insightProps={insightProps}
-                    renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
-                    suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
-                />
-            )
+            return insightLoadingState
         }
 
         // Insight specific empty states - note order is important here
@@ -261,13 +274,8 @@ export function InsightVizDisplay({
                 <LemonButton
                     type="primary"
                     loading={insightDataLoading}
-                    onClick={() =>
-                        updateQuerySource({
-                            filterTestAccounts: false,
-                            properties: undefined,
-                            samplingFactor: undefined,
-                        })
-                    }
+                    // updateQuerySource also clears the filter groups and test account filtering that the series cannot take.
+                    onClick={() => updateQuerySource({ samplingFactor: undefined })}
                 >
                     Reset unsupported settings
                 </LemonButton>
@@ -315,6 +323,8 @@ export function InsightVizDisplay({
                 <InsightErrorState
                     query={query}
                     queryId={erroredQueryId}
+                    titleStatus={insightDataError?.status}
+                    retryAfterTimestamp={insightDataError?.retryAfterTimestamp}
                     onRetry={() => {
                         loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                     }}
@@ -430,7 +440,20 @@ export function InsightVizDisplay({
             case InsightType.JOURNEYS:
                 return <Journeys showPersonsModal={!inSharedMode} />
             case InsightType.WEB_ANALYTICS:
-                return <WebAnalyticsInsight context={context} editMode={editMode} />
+                return (
+                    <ChunkLoadErrorBoundary>
+                        {/* The image exporter waits for every .Spinner to detach, so a Spinner fallback stops it capturing the page before this chunk loads. */}
+                        <Suspense
+                            fallback={
+                                <div className="flex justify-center my-8">
+                                    <Spinner className="text-3xl" />
+                                </div>
+                            }
+                        >
+                            <WebAnalyticsInsight context={context} editMode={editMode} />
+                        </Suspense>
+                    </ChunkLoadErrorBoundary>
+                )
             default:
                 return null
         }
@@ -531,18 +554,11 @@ export function InsightVizDisplay({
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
+    const showsDataChecks = !!context?.showDataChecks && !inSharedMode
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
-        return (
-            <InsightLoadingState
-                queryId={queryId}
-                key={queryId}
-                insightProps={insightProps}
-                renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
-                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
-            />
-        )
+        return insightLoadingState
     }
 
     return (
@@ -585,10 +601,12 @@ export function InsightVizDisplay({
                                     <div className="flex items-center gap-2">
                                         {isPaths && <PathCanvasLabel />}
                                         {isFunnels && <FunnelCanvasLabel />}
+                                        {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
                                     </div>
                                 </div>
                             )}
 
+                        {!embedded && showsFlagCallsRetentionNotice && <FlagCallsRetentionNotice />}
                         <div
                             className={clsx(
                                 'InsightVizDisplay__content',

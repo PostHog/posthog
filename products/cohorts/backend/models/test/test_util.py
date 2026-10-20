@@ -1283,7 +1283,7 @@ class TestParseErrorCode(BaseTest):
         raise ValueError(f"Unknown exception type: {exception_type}")
 
 
-class TestGetFriendlyErrorMessage(BaseTest):
+class TestGetFriendlyErrorMessage(SimpleTestCase):
     @parameterized.expand(
         [
             (CohortErrorCode.CAPACITY, "system was busy"),
@@ -1296,6 +1296,7 @@ class TestGetFriendlyErrorMessage(BaseTest):
             (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),
             (CohortErrorCode.INCOMPATIBLE_TYPES, "an error occurred"),
             (CohortErrorCode.NO_PROPERTIES, "no matching criteria"),
+            (CohortErrorCode.FLAG_EVALUATION_FAILED, "couldn't evaluate the feature flag"),
             (CohortErrorCode.UNKNOWN, "an error occurred"),
         ]
     )

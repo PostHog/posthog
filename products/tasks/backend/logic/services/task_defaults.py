@@ -8,15 +8,16 @@ from products.tasks.backend.models import UserTasksConfig
 
 
 class TaskDefaults(TypedDict):
-    start_in_plan_mode: bool
-    auto_publish_cloud_runs: bool
+    # None means the person never set the value, so a client can apply its own default.
+    start_in_plan_mode: bool | None
+    auto_publish_cloud_runs: bool | None
 
 
-def _flag(value: Any) -> bool:
-    return value if isinstance(value, bool) else False
+def _flag(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
 
 
-def _with_defaults(stored: dict[str, Any] | None) -> TaskDefaults:
+def _from_stored(stored: dict[str, Any] | None) -> TaskDefaults:
     stored = stored or {}
     return TaskDefaults(
         start_in_plan_mode=_flag(stored.get("start_in_plan_mode")),
@@ -32,7 +33,7 @@ def get_user_task_defaults(team_id: int, user_id: int) -> TaskDefaults:
         .values_list("task_defaults", flat=True)
         .first()
     )
-    return _with_defaults(stored)
+    return _from_stored(stored)
 
 
 def update_user_task_defaults(team_id: int, user_id: int, changes: dict[str, Any]) -> TaskDefaults:
@@ -41,7 +42,7 @@ def update_user_task_defaults(team_id: int, user_id: int, changes: dict[str, Any
     configs.get_or_create(team_id=canonical_team_id, user_id=user_id)
     with transaction.atomic():
         config = configs.select_for_update().get(user_id=user_id)
-        defaults = _with_defaults({**(config.task_defaults or {}), **changes})
-        config.task_defaults = dict(defaults)
+        defaults = _from_stored({**(config.task_defaults or {}), **changes})
+        config.task_defaults = {key: value for key, value in defaults.items() if value is not None}
         config.save(update_fields=["task_defaults", "updated_at"])
     return defaults

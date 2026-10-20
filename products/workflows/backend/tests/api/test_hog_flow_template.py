@@ -1,15 +1,17 @@
+import json
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.templates.fixtures import template_slack
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models import Organization, Team, User
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.templates import clear_template_cache, load_global_templates
 
@@ -53,6 +55,13 @@ class TestHogFlowTemplateAPI(APIBaseTest):
                     "label": "Headers",
                     "required": False,
                     "default": {"Content-Type": "application/json"},
+                },
+                {
+                    "key": "api_key",
+                    "type": "string",
+                    "label": "API key",
+                    "required": False,
+                    "secret": True,
                 },
             ],
             type="destination",
@@ -123,6 +132,71 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         # Verify inputs are preserved - only url was provided in custom_inputs
         assert function_action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
 
+    def _template_with_secret_inputs(self, secret: str) -> dict[str, Any]:
+        inputs = {"url": {"value": "https://custom.example.com"}, "api_key": {"value": secret}}
+        hog_flow_data = self._create_hog_flow_data(custom_inputs=inputs)
+        hog_flow_data["actions"][0]["config"] = {
+            "type": "webhook",
+            "template_id": "template-test-defaults",
+            "inputs": inputs,
+        }
+        return hog_flow_data
+
+    def test_template_never_stores_secret_inputs(self):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flow_templates",
+            self._template_with_secret_inputs("CREATE-SECRET"),
+            format="json",
+        )
+        assert create.status_code == 201, create.json()
+        template_id = create.json()["id"]
+
+        update = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}",
+            self._template_with_secret_inputs("UPDATE-SECRET"),
+            format="json",
+        )
+        assert update.status_code == 200, update.json()
+
+        stored = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}").json()
+        for body in (create.json(), update.json(), stored):
+            for action in body["actions"]:
+                assert action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
+            assert body["trigger"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
+
+    def _template_stored_with_secrets(self) -> HogFlowTemplate:
+        stored = self._template_with_secret_inputs("STORED-SECRET")
+        return HogFlowTemplate.objects.create(
+            team=self.team,
+            name=stored["name"],
+            scope="team",
+            actions=stored["actions"],
+            trigger=stored["actions"][0]["config"],
+        )
+
+    def test_reading_a_template_stored_with_secrets_drops_them(self):
+        template = self._template_stored_with_secrets()
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates/{template.id}").json()
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates").json()
+
+        assert "STORED-SECRET" not in json.dumps([retrieved, listed])
+        assert retrieved["actions"][1]["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
+
+    def test_scope_only_update_drops_secret_inputs_stored_before(self):
+        template = self._template_stored_with_secrets()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flow_templates/{template.id}",
+            {"scope": "organization"},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        template.refresh_from_db()
+        assert template.scope == "organization"
+        assert "STORED-SECRET" not in json.dumps([template.actions, template.trigger])
+
     def test_template_creation_with_multiple_function_actions(self):
         """Test that all function actions preserve their inputs when creating templates"""
         trigger_action = {
@@ -174,6 +248,40 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         assert function_actions[0]["config"]["inputs"] == {"url": {"value": "https://custom1.example.com"}}
         assert function_actions[1]["config"]["inputs"] == {"url": {"value": "https://custom2.example.com"}}
 
+    @parameterized.expand(
+        [
+            ("schedule", {"type": "schedule"}, 201),
+            ("cohort", {"type": "cohort", "cohort_id": 1, "transition": "entered"}, 201),
+            (
+                "slack_message",
+                {
+                    "type": "internal-event",
+                    "filters": {
+                        "source": "internal-events",
+                        "events": [{"id": "$slack_message_received", "type": "events"}],
+                        "properties": [{"key": "bot_id", "operator": "is_set", "type": "event"}],
+                    },
+                },
+                201,
+            ),
+            (
+                "disallowed_internal_event",
+                {
+                    "type": "internal-event",
+                    "filters": {"source": "internal-events", "events": [{"id": "$billing_event", "type": "events"}]},
+                },
+                400,
+            ),
+        ]
+    )
+    def test_template_creation_trigger_types(self, _name: str, trigger_config: dict, expected_status: int) -> None:
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["actions"][0]["config"] = trigger_config
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data, format="json")
+
+        assert response.status_code == expected_status, response.json()
+
     def test_template_creation_sets_team_and_created_by(self):
         """Test that team_id and created_by are set from context"""
         hog_flow_data = self._create_hog_flow_data()
@@ -186,44 +294,26 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         assert template.team_id == self.team.id
         assert template.created_by == self.user
 
-    def test_template_function_validation(self):
-        """Test that function actions validate template_id exists"""
-        trigger_action = {
-            "id": "trigger_node",
-            "name": "trigger_1",
-            "type": "trigger",
-            "config": {
-                "type": "event",
-                "filters": {
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                },
-            },
-        }
+    @parameterized.expand(
+        [
+            ("missing_template", "function", "missing", "actions__1__template_id", "Template not found"),
+            # A trigger kind sent as a step type skipped both the template check and secret stripping.
+            ("trigger_kind_as_step_type", "webhook", "template-test-defaults", "actions__1__type", "Unsupported"),
+        ]
+    )
+    def test_template_action_validation(
+        self, _name: str, action_type: str, template_id: str, expected_attr: str, expected_detail: str
+    ) -> None:
+        hog_flow_data = self._create_hog_flow_data(custom_inputs={"api_key": {"value": "SECRET"}})
+        hog_flow_data["actions"][1]["type"] = action_type
+        hog_flow_data["actions"][1]["config"]["template_id"] = template_id
 
-        action = {
-            "id": "action_1",
-            "name": "action_1",
-            "type": "function",
-            "config": {
-                "template_id": "missing",
-                "inputs": {},
-            },
-        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data, format="json")
 
-        hog_flow_data = {
-            "name": "Test Flow",
-            "actions": [trigger_action, action],
-            "scope": "team",
-        }
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
         assert response.status_code == 400, response.json()
-        assert response.json() == {
-            "attr": "actions__1__template_id",
-            "code": "invalid_input",
-            "detail": "Template not found",
-            "type": "validation_error",
-        }
+        assert response.json()["attr"] == expected_attr
+        assert expected_detail in response.json()["detail"]
+        assert not HogFlowTemplate.objects.exists()
 
     def test_template_scope_field(self):
         """Test that scope field can be set to team but not global (global templates are code-only)"""

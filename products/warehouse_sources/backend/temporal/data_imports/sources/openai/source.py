@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,72 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^OPENAI_",
+            "^CODEX_API_KEY$",
+            "^NEXT_PUBLIC_CHATKIT_WORKFLOW_ID$",
+        ),
+        script_hosts=("cdn.platform.openai.com",),
+        npm=(
+            "openai",
+            "@ai-sdk/openai",
+            "@langchain/openai",
+            "@openai/agents",
+            "@openai/agents-core",
+            "@openai/agents-openai",
+            "@openai/agents-realtime",
+            "@openai/agents-extensions",
+            "@openai/chatkit",
+            "@openai/chatkit-react",
+            "@openai/codex-sdk",
+            "@openai/codex",
+            "@openai/guardrails",
+            "@llamaindex/openai",
+            "openai-edge",
+        ),
+        pypi=(
+            "openai",
+            "langchain-openai",
+            "openai-agents",
+            "openai-guardrails",
+            "openai-chatkit",
+            "openai-codex",
+            "llama-index-llms-openai",
+            "llama-index-embeddings-openai",
+        ),
+        cargo=("async-openai", "openai-api-rs"),
+        composer=("openai-php/client", "openai-php/laravel", "openai-php/symfony", "orhanerday/open-ai"),
+        go=(
+            "github.com/openai/openai-go",
+            "github.com/sashabaranov/go-openai",
+        ),
+        hex=("openai_ex", "openai"),
+        maven=(
+            "com.openai:openai-java",
+            "com.openai:openai-java-core",
+            "com.openai:openai-java-client-okhttp",
+            "com.openai:openai-java-spring-boot-starter",
+            "com.openai:openai-java-bedrock",
+            "com.aallam.openai:openai-client",
+            "com.aallam.openai:openai-client-bom",
+            "com.theokanning.openai-gpt3-java:service",
+            "com.theokanning.openai-gpt3-java:api",
+            "com.theokanning.openai-gpt3-java:client",
+            "org.springframework.ai:spring-ai-openai",
+            "org.springframework.ai:spring-ai-openai-spring-boot-starter",
+            "org.springframework.ai:spring-ai-starter-model-openai",
+            "dev.langchain4j:langchain4j-open-ai",
+            "dev.langchain4j:langchain4j-open-ai-spring-boot-starter",
+            "dev.langchain4j:langchain4j-open-ai-official",
+            "io.cequence:openai-scala-client_2.13",
+            "io.cequence:openai-scala-client_3",
+        ),
+        pub=("dart_openai", "openai_dart", "langchain_openai"),
+        rubygems=("openai", "ruby-openai"),
+        swiftpm=("github.com/macpaw/openai", "github.com/dylanshine/openai-kit"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://platform.openai.com/docs/api-reference"
 
@@ -78,6 +145,8 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         return {
             "401 Client Error: Unauthorized for url: https://api.openai.com": "Your OpenAI Admin API key is invalid or has been revoked. Create a new Admin API key in your OpenAI organization settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.openai.com": "Your OpenAI API key does not have organization admin access. Use an Admin API key (prefixed sk-admin) created by an organization owner, then reconnect.",
+            # Reached only after every later start time in the source's fallback was rejected too.
+            "code=reporting_lookback_exceeded": "OpenAI doesn't report data this far back for this table, and PostHog couldn't find a start date that OpenAI accepts. Contact support so we can fix the sync.",
         }
 
     def get_retryable_errors(self) -> set[str]:

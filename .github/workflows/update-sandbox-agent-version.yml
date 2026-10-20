@@ -23,6 +23,7 @@ permissions:
 
 jobs:
     update-sandbox-agent-version:
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-24.04
         timeout-minutes: 125
         concurrency:
@@ -587,7 +588,7 @@ jobs:
     verify_rollout:
         needs: update-sandbox-agent-version
         name: Verify the bump reaches the master image
-        if: ${{ !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && needs.update-sandbox-agent-version.outputs.action == 'bump' && needs.update-sandbox-agent-version.outputs.enqueued == 'true' }}
+        if: ${{ !cancelled() && github.repository == 'PostHog/posthog' && needs.update-sandbox-agent-version.outputs.action == 'bump' && needs.update-sandbox-agent-version.outputs.enqueued == 'true' }}
         runs-on: ubuntu-24.04
         timeout-minutes: 160
         concurrency:
@@ -684,7 +685,7 @@ jobs:
 
             - name: Rebuild the master image
               id: repair
-              if: steps.merge.outputs.state == 'merged' && steps.master.outputs.live != 'true'
+              if: steps.merge.outputs.state == 'merged' && steps.master.outputs.live != 'true' && vars.CD_DEPLOY_ENABLED == 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |

@@ -3,12 +3,14 @@ import { expectLogic } from 'kea-test-utils'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 
 import { initKeaTests } from '~/test/init'
-import { EntityFilter } from '~/types'
 
 import filtersJson from './__mocks__/filters.json'
+import { legacyFiltersToSeries } from './legacyFilters'
+
+const series = legacyFiltersToSeries(filtersJson as any)
 
 describe('renameModalLogic', () => {
     let logic: ReturnType<typeof renameModalLogic.build>
@@ -20,13 +22,13 @@ describe('renameModalLogic', () => {
         someInsightDataLogic = insightDataLogic({ dashboardItemId: 'new' })
         someInsightDataLogic.mount()
         relevantEntityFilterLogic = entityFilterLogic({
-            setFilters: jest.fn(),
-            filters: filtersJson,
+            onChange: jest.fn(),
+            series,
             typeKey: 'new',
         })
         relevantEntityFilterLogic.mount()
         logic = renameModalLogic({
-            filter: filtersJson.events[0] as EntityFilter,
+            node: series[0],
             typeKey: 'new',
         })
         logic.mount()
@@ -39,7 +41,7 @@ describe('renameModalLogic', () => {
 
         it('name', async () => {
             await expectLogic(logic).toMatchValues({
-                name: getDisplayNameFromEntityFilter(filtersJson.events[0] as EntityFilter),
+                name: getDisplayNameFromEntityNode(series[0]),
             })
         })
     })
@@ -53,16 +55,26 @@ describe('renameModalLogic', () => {
                 .toMatchValues({ name: 'veggie_straws' })
         })
 
-        it('set filter', async () => {
+        it('follows the selected series', async () => {
             await expectLogic(relevantEntityFilterLogic, () => {
-                relevantEntityFilterLogic.actions.selectFilter({
-                    ...filtersJson.events[0],
+                relevantEntityFilterLogic.actions.selectSeries(0, {
+                    ...series[0],
                     custom_name: 'zesty_veggie_straws',
-                } as EntityFilter)
-            }).toDispatchActions(['selectFilter'])
+                })
+            }).toDispatchActions(['selectSeries'])
 
             await expectLogic(logic).toMatchValues({
                 name: 'zesty_veggie_straws',
+            })
+        })
+
+        it('selects the series the results table picks by index', async () => {
+            await expectLogic(relevantEntityFilterLogic, () => {
+                relevantEntityFilterLogic.actions.selectSeriesAt(2)
+            }).toDispatchActions(['selectSeriesAt', 'selectSeries'])
+
+            await expectLogic(logic).toMatchValues({
+                name: 'Users signed up',
             })
         })
     })

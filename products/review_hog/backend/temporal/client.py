@@ -27,15 +27,18 @@ targets a PR (`pr_url`), validated in `_build_resolution_inputs`.
 import asyncio
 import logging
 from collections.abc import Callable
+from datetime import timedelta
+from enum import StrEnum
 from typing import Any, cast
 
 from django.conf import settings
 
 from asgiref.sync import async_to_sync
-from temporalio.client import WorkflowExecutionStatus
-from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.client import WorkflowExecutionStatus, WorkflowQueryRejectedError
+from temporalio.common import QueryRejectCondition, RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
 
@@ -58,6 +61,65 @@ logger = logging.getLogger(__name__)
 _RESOLUTION_RETRY = RetryPolicy(maximum_attempts=2)
 
 
+class WorkflowProbe(StrEnum):
+    RUNNING = "running"
+    NOT_RUNNING = "not_running"
+    UNKNOWN = "unknown"
+
+
+def probe_workflow(workflow_id: str, rpc_timeout: timedelta | None = None) -> WorkflowProbe:
+    """Whether `workflow_id` has a live execution, with probe errors kept apart as UNKNOWN.
+
+    A status reader must not report a PR as idle when Temporal did not answer. A missed
+    `rpc_timeout` deadline reads as UNKNOWN too.
+    """
+    try:
+        client = sync_connect()
+        description = async_to_sync(client.get_workflow_handle(workflow_id).describe)(rpc_timeout=rpc_timeout)
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return WorkflowProbe.NOT_RUNNING
+        logger.warning("Workflow describe failed for %s: %s", workflow_id, e)
+        return WorkflowProbe.UNKNOWN
+    except Exception:
+        logger.exception("Workflow describe failed for %s", workflow_id)
+        return WorkflowProbe.UNKNOWN
+    if description.status == WorkflowExecutionStatus.RUNNING:
+        return WorkflowProbe.RUNNING
+    return WorkflowProbe.NOT_RUNNING
+
+
+@frozen
+class QueuedReviewHeads:
+    """The heads the PR's review queue still has to review. None is a request for the live head."""
+
+    # The request whose turn runs now, or waits for a resolution run to end before it starts.
+    active: tuple[str | None, ...] = ()
+    pending: tuple[str | None, ...] = ()
+
+
+def queued_review_heads(workflow_id: str, rpc_timeout: timedelta | None = None) -> QueuedReviewHeads:
+    """The heads the PR's review queue still has to review. Empty when no queue runs.
+
+    Raises when Temporal does not answer, so a caller cannot read an outage as "nothing queued".
+    """
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        # async_to_sync erases query's overloads, so mypy binds the wrong one.
+        query = cast(Callable[..., Any], async_to_sync(handle.query))
+        heads: dict[str, list[str | None]] = query(
+            "requested_heads", reject_condition=QueryRejectCondition.NOT_OPEN, rpc_timeout=rpc_timeout
+        )
+    except WorkflowQueryRejectedError:
+        return QueuedReviewHeads()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return QueuedReviewHeads()
+        raise
+    return QueuedReviewHeads(active=tuple(heads["active"]), pending=tuple(heads["pending"]))
+
+
 def workflow_running(workflow_id: str) -> bool:
     """Whether `workflow_id` has a live execution — the busy-guard's probe (CONTEXT.md — "Busy-guard").
 
@@ -67,18 +129,7 @@ def workflow_running(workflow_id: str) -> bool:
     trigger must not 500 over a flaky describe, and a real Temporal outage still surfaces on the
     start call itself.
     """
-    try:
-        client = sync_connect()
-        description = async_to_sync(client.get_workflow_handle(workflow_id).describe)()
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        logger.warning("Busy-guard describe failed for %s: %s", workflow_id, e)
-        return False
-    except Exception:
-        logger.exception("Busy-guard describe failed for %s", workflow_id)
-        return False
-    return description.status == WorkflowExecutionStatus.RUNNING
+    return probe_workflow(workflow_id) == WorkflowProbe.RUNNING
 
 
 def _build_inputs(
@@ -96,6 +147,8 @@ def _build_inputs(
     signal_priority: ReportPriority | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     requested_head_sha: str | None = None,
+    installation_id: str | None = None,
+    github_repo_id: int | None = None,
 ) -> tuple[ReviewPRWorkflowInputs, str]:
     """Validate the review target, the team, and build the workflow inputs + deterministic id.
 
@@ -134,6 +187,8 @@ def _build_inputs(
         resolve_comments=resolve_comments,
         review_mode=review_mode,
         requested_head_sha=requested_head_sha,
+        installation_id=installation_id,
+        github_repo_id=github_repo_id,
     )
     return inputs, workflow_id
 
@@ -208,6 +263,8 @@ def start_review_pr_workflow(
     resolve_comments: bool | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     requested_head_sha: str | None = None,
+    installation_id: str | None = None,
+    github_repo_id: int | None = None,
 ) -> str:
     """Start or signal the review queue without blocking and return the workflow id.
 
@@ -234,6 +291,8 @@ def start_review_pr_workflow(
         resolve_comments=resolve_comments,
         review_mode=review_mode,
         requested_head_sha=requested_head_sha,
+        installation_id=installation_id,
+        github_repo_id=github_repo_id,
     )
 
     client = sync_connect()

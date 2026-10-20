@@ -3,6 +3,9 @@
 Commands for emitting signals, tracking pipeline processing, and inspecting grouping results.
 Use these to test grouping strategies against real signal data end-to-end.
 
+For offline grouping and scout safety evaluations with mocked infrastructure, use the
+[pytest suites](../../eval/AGENTS.md), which publish results to offline experiments.
+
 ## Full flow
 
 Always clean up before re-ingesting to avoid stale data mixing with new results.
@@ -183,6 +186,15 @@ records. `--batch-size` bounds each page; the printed `--after` cursor resumes i
 The command is idempotent and does not call GitHub, change report state, or enqueue
 reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
 
+## Backfilling inbox summary participants
+
+`uv run manage.py backfill_inbox_summary --team-id <id> --dry-run` previews the next
+batch of verified implementation PRs that need participant snapshots. Remove
+`--dry-run` to queue the GitHub refresh. `--limit` bounds each invocation (default
+100, maximum 1000); use the printed `--after` cursor to continue. Run it without a
+cursor again to retry missing snapshots. The worker repairs missing merge times
+before checking the seven-day window. Completed snapshots are skipped.
+
 ## Repairing a report's cached actionability
 
 `SignalReport.latest_actionability` and `latest_already_addressed` cache the two values of a report's newest `actionability_judgment` artefact, so the inbox list can sort and filter on a column instead of walking the artefact log once per report.
@@ -218,6 +230,23 @@ uv run manage.py resume_setup_paused_operational_scouts --apply --team-id 1
 ```
 
 Idempotent. A resumed row no longer matches.
+
+## Reactivating report checks a paused scout retired
+
+Dispatch once treated a paused scout as a permanent refusal, so three ticks of a pause retired an `agent` check as `errored`.
+`reactivate_pause_errored_report_checks` makes such a check active and due again with a clear error count.
+A check matches only when its last result is the paused-scout refusal, its report is still resolved, and its horizon has not passed.
+If the scout is still paused, the reactivated check waits for the resume without spending errors.
+
+```bash
+# Dry run (the default): how many checks match, and the first team ids
+uv run manage.py reactivate_pause_errored_report_checks
+
+# Write, optionally for one environment
+uv run manage.py reactivate_pause_errored_report_checks --apply --team-id 1
+```
+
+Idempotent. A reactivated check no longer matches.
 
 ## Tips
 

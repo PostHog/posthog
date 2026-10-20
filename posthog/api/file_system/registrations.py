@@ -151,17 +151,6 @@ def _insight_post_restore(context: RestoreContext, insight: Any) -> None:
     )
 
 
-def _link_post_delete(context: DeletionContext, link: Any) -> None:
-    ref = context.entry.ref
-    link_name = getattr(link, "short_code", None) or getattr(link, "redirect_url", None) or ref
-    _log_deletion_activity(
-        context,
-        scope="Link",
-        item_id=ref,
-        name=link_name,
-    )
-
-
 def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
     # Deferred: session_recording_playlist_api pulls session_recording_api -> the session_summary
     # temporal workflow (-> google-genai). This module is imported from AppConfig.ready(), so a
@@ -323,6 +312,15 @@ def _feature_flag_post_delete(context: DeletionContext, feature_flag: Any) -> No
     )
 
 
+def _feature_flag_pre_restore(context: RestoreContext, feature_flag: Any) -> None:
+    from products.feature_flags.backend.facade.api import (
+        validate_flag_restorable,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    # The endpoint shows a ValidationError's message. It replaces a ValueError with its generic refusal.
+    validate_flag_restorable(feature_flag.id, team_id=feature_flag.team_id)
+
+
 def _feature_flag_post_restore(context: RestoreContext, feature_flag: Any) -> None:
     _log_restore_activity(
         context,
@@ -331,25 +329,7 @@ def _feature_flag_post_restore(context: RestoreContext, feature_flag: Any) -> No
         name=_first_non_blank(getattr(feature_flag, "name", None), getattr(feature_flag, "key", None))
         or "Untitled feature flag",
         object_type="feature flag",
-        extra_changes=[Change(type="FeatureFlag", action="changed", field="active", before=False, after=True)],
     )
-
-
-def _feature_flag_pre_delete(context: DeletionContext, feature_flag: Any) -> None:
-    # Deferred: the flag facade pulls FeatureFlagSerializer, which drags posthog.schema and the
-    # LLM SDKs in. This module is imported from AppConfig.ready(), so a module-level import would
-    # put all of that on every process's startup path.
-    from products.feature_flags.backend.facade.api import deactivate_trashed_flag  # noqa: PLC0415
-
-    deactivate_trashed_flag(feature_flag.id, team_id=feature_flag.team_id)
-    feature_flag.refresh_from_db(fields=["active"])
-
-
-def _feature_flag_pre_restore(context: RestoreContext, feature_flag: Any) -> None:
-    from products.feature_flags.backend.facade.api import reactivate_restored_flag  # noqa: PLC0415
-
-    reactivate_restored_flag(feature_flag.id, team_id=feature_flag.team_id)
-    feature_flag.refresh_from_db(fields=["active"])
 
 
 def register_core_file_system_types() -> None:
@@ -377,9 +357,8 @@ def register_core_file_system_types() -> None:
         "FeatureFlag",
         undo_message="Send PATCH /api/projects/@current/feature_flags/{id} with deleted=false.",
     )
-    register_pre_delete_hook("feature_flag", _feature_flag_pre_delete)
-    register_pre_restore_hook("feature_flag", _feature_flag_pre_restore)
     register_post_delete_hook("feature_flag", _feature_flag_post_delete)
+    register_pre_restore_hook("feature_flag", _feature_flag_pre_restore)
     register_post_restore_hook("feature_flag", _feature_flag_post_restore)
 
     register_file_system_type(
@@ -400,15 +379,6 @@ def register_core_file_system_types() -> None:
     )
     register_post_delete_hook("insight", _insight_post_delete)
     register_post_restore_hook("insight", _insight_post_restore)
-
-    register_file_system_type(
-        "link",
-        "links",
-        "Link",
-        allow_restore=False,
-        undo_message="Create a new link with the same details.",
-    )
-    register_post_delete_hook("link", _link_post_delete)
 
     register_file_system_type(
         "session_recording_playlist",

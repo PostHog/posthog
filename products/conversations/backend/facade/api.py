@@ -30,6 +30,7 @@ from posthog.models.team import Team
 from posthog.slack.identity import resolve_slack_profile_by_email
 from posthog.temporal.common.client import sync_connect
 
+from products.conversations.backend import role_sla
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
@@ -42,6 +43,7 @@ from products.conversations.backend.facade.types import (
     EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     PublicHumanReplies as PublicHumanReplies,
     ResolvedTicketRevision as ResolvedTicketRevision,
+    RoleSlaBreach as RoleSlaBreach,
     SupportChannel as SupportChannel,
     SupportSlackSender as SupportSlackSender,
     SupportTicketMessage as SupportTicketMessage,
@@ -998,6 +1000,12 @@ def _email_thread_addresses(value: object) -> list[EmailThreadAddress]:
         if isinstance(email, str) and isinstance(name, str):
             addresses.append(EmailThreadAddress(name=name, email=email))
     return addresses
+
+
+def list_role_sla_breaches(
+    team_id: int, user_id: int, *, due_after: datetime, due_before: datetime
+) -> list[RoleSlaBreach]:
+    return role_sla.list_role_sla_breaches(team_id, user_id, due_after=due_after, due_before=due_before)
 
 
 def list_account_email_thread_messages(

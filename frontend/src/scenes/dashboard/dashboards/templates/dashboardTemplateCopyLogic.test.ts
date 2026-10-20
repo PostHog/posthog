@@ -144,7 +144,7 @@ describe('dashboardTemplateCopyLogic', () => {
         expect(api.dashboardTemplates.copyBetweenProjects).toHaveBeenCalledWith(2, 'src-1')
         expect(getAllTemplates).toHaveBeenCalled()
         expect(lemonToast.success).toHaveBeenCalled()
-        expect(router.actions.push).toHaveBeenCalledWith(urls.dashboards(), { templates: '1' })
+        expect(router.actions.push).toHaveBeenCalledWith(urls.dashboardTemplates())
     })
 
     it('submitCopy shows an error toast when the API fails', async () => {

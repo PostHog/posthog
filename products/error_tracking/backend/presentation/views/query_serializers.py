@@ -6,10 +6,12 @@ from django.db import models
 
 from rest_framework import serializers
 
+from posthog.schema import ErrorTrackingOrderBy
+
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
 
 from products.error_tracking.backend.facade import contracts
-from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueSeverityField
+from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
     "oneOf": [
@@ -99,15 +101,13 @@ class VolumeResolutionField(serializers.IntegerField):
 
 class ErrorTrackingAssigneeSerializer(serializers.Serializer):
     id = StringOrIntegerField(help_text="User ID or role UUID to filter by.")
-    type = serializers.ChoiceField(choices=["user", "role"], help_text="Assignee target type: user or role.")
+    type = serializers.ChoiceField(choices=AssigneeType.choices, help_text="Assignee target type: user or role.")
 
 
-class ErrorTrackingIssueOrderBy(models.TextChoices):
-    LAST_SEEN = "last_seen", "last_seen"
-    FIRST_SEEN = "first_seen", "first_seen"
-    OCCURRENCES = "occurrences", "occurrences"
-    USERS = "users", "users"
-    SESSIONS = "sessions", "sessions"
+# django-stubs types only the class-body Choices syntax, not the functional API used here.
+ErrorTrackingIssueOrderBy = models.TextChoices(  # type: ignore[call-overload]
+    "ErrorTrackingIssueOrderBy", [(member.name, (member.value, member.value)) for member in ErrorTrackingOrderBy]
+)
 
 
 class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):

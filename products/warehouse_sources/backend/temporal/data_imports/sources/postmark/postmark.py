@@ -1,7 +1,7 @@
 """Postmark (ActiveCampaign) transactional email source.
 
 Postmark exposes a REST/JSON API at https://api.postmarkapp.com. Server-level resources
-(messages, bounces, templates, message streams) authenticate with a per-server token sent
+(messages, opens, bounces, templates, message streams) authenticate with a per-server token sent
 in the `X-Postmark-Server-Token` header.
 
 Sync is full-refresh only. Postmark's list endpoints accept `fromdate`/`todate` filters
@@ -211,7 +211,7 @@ def postmark_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

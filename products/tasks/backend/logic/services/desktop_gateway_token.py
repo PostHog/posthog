@@ -8,11 +8,13 @@ import json
 import logging
 import functools
 from collections.abc import Mapping
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
+from django.utils import timezone
 
 import requests
 import posthoganalytics
@@ -20,7 +22,6 @@ from prometheus_client import Counter
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import feature_enabled_or_false
 
 from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS
 
@@ -61,11 +62,42 @@ _MINT_TIMEOUT_SECONDS = 3
 
 PosthogCodePlan = Literal["paid", "free"]
 
+# The gateway's per-user spend limits for a token; see AI_GATEWAY_USER_LIMITS.
+LimitTier = Literal["provisional", "standard", "power", "exempt"]
+
+# Payload {"tier": <one of _OVERRIDE_TIERS>}, targeted on email, organization_id and team_id person
+# properties. "standard" lifts an org that would otherwise be provisional.
+DESKTOP_GATEWAY_LIMIT_OVERRIDE_FLAG = "posthog-desktop-gateway-limit-override"
+_OVERRIDE_TIERS: frozenset[str] = frozenset({"standard", "power", "exempt"})
+
+DESKTOP_GATEWAY_LIMIT_TIERS = Counter(
+    "posthog_desktop_gateway_limit_tiers_total",
+    "PostHog Desktop gateway mints by the limit tier sent (provisional/standard/power/exempt)",
+    labelnames=["tier"],
+)
+
 DESKTOP_GATEWAY_MINTS = Counter(
     "posthog_desktop_gateway_token_mints_total",
     "PostHog Desktop gateway token mints, by outcome (ok/rate_limited/refused/unreachable/malformed)",
     labelnames=["outcome"],
 )
+
+# Which mint refused: the Desktop endpoint or a sandbox run's.
+GatewayRefusalSurface = Literal["desktop", "sandbox"]
+
+
+def record_gateway_token_refusal(surface: GatewayRefusalSurface, reason: str, *, ai_product: str) -> None:
+    try:
+        client = posthoganalytics.default_client
+        if client is None:
+            return
+        client.metrics.count(
+            "tasks.gateway_token.refused",
+            1,
+            attributes={"surface": surface, "ai_product": ai_product, "reason": reason},
+        )
+    except Exception:
+        pass
 
 
 def _team_credit_refusal(team_id: int, bucket: str) -> str | None:
@@ -154,21 +186,77 @@ def plan_allowed_models(plan: PosthogCodePlan) -> list[str]:
     return list(DESKTOP_AGENT_MODELS) if plan == "paid" else list(FREE_TIER_MODELS)
 
 
-def desktop_rollout_enabled(organization: "Organization", team: "Team", distinct_id: str | None = None) -> bool:
-    """The rollout flag, targeted on the org. A flag outage reads as off, which keeps both legs on legacy."""
-    organization_id = str(organization.id)
-    try:
-        return feature_enabled_or_false(
-            settings.DESKTOP_GATEWAY_ROLLOUT_FLAG,
-            distinct_id or organization_id,
-            groups={"organization": organization_id, "project": str(team.id)},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.warning("desktop_gateway_token: rollout flag unavailable, treating as off", exc_info=True)
-        return False
+def posthog_code_billing_synced(organization: "Organization") -> bool:
+    """True once billing has synced posthog_code_credits usage and a period: the inputs quota
+    limiting needs before it can limit the org (ee/billing/quota_limiting.py). Billing writes an
+    empty entry for an org it does not bill, so the entry must carry usage or a limit."""
+    usage = organization.usage or {}
+    entry = usage.get("posthog_code_credits")
+    return bool(usage.get("period")) and isinstance(entry, dict) and ("usage" in entry or "limit" in entry)
+
+
+# (org age below, minimum highest product trust score); older orgs need none. Matches the
+# legacy gateway's PostHog Code account trust policy.
+_TRUST_MINIMUMS: tuple[tuple[timedelta, float], ...] = ((timedelta(days=7), 7), (timedelta(days=30), 3))
+
+
+def posthog_code_trusted(organization: "Organization") -> bool:
+    """Whether the org's age and best product trust score clear the minimum; a missing or
+    malformed score counts as zero."""
+    scores = organization.customer_trust_scores or {}
+    best = max((float(v) for v in scores.values() if isinstance(v, int | float)), default=0.0)
+    age = timezone.now() - organization.created_at
+    for below_age, minimum in _TRUST_MINIMUMS:
+        if age < below_age:
+            return best >= minimum
+    return True
+
+
+def _override_tier(raw: object) -> LimitTier | None:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            logger.warning("desktop_gateway_token: limit override payload is not JSON")
+            return None
+    tier = raw.get("tier") if isinstance(raw, dict) else None
+    if tier in _OVERRIDE_TIERS:
+        return tier
+    if raw is not None:
+        logger.warning("desktop_gateway_token: limit override payload has no valid tier")
+    return None
+
+
+def desktop_limit_tier(
+    *, organization: "Organization", team: "Team", distinct_id: str | None, email: str | None = None
+) -> LimitTier:
+    """The override flag's tier, else provisional until billing has synced and the org clears the
+    trust minimum, else standard. A flag outage falls back to the default tier, never a looser one."""
+    raw: object = None
+    if distinct_id:
+        # Always sent: the stored person email is client-writable ($set). Blank matches nothing.
+        person_properties = {
+            "organization_id": str(organization.id),
+            "team_id": str(team.id),
+            "email": email or "",
+        }
+        try:
+            raw = posthoganalytics.get_feature_flag_payload(
+                DESKTOP_GATEWAY_LIMIT_OVERRIDE_FLAG,
+                distinct_id,
+                person_properties=person_properties,
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            logger.warning("desktop_gateway_token: limit override flag unavailable", exc_info=True)
+    tier: LimitTier = _override_tier(raw) or (
+        "standard"
+        if posthog_code_billing_synced(organization) and posthog_code_trusted(organization)
+        else "provisional"
+    )
+    DESKTOP_GATEWAY_LIMIT_TIERS.labels(tier=tier).inc()
+    return tier
 
 
 class DesktopGatewayMintError(Exception):
@@ -206,7 +294,9 @@ def desktop_token_ttl_seconds() -> int:
     return max(_MIN_TTL_SECONDS, min(int(settings.DESKTOP_GATEWAY_TOKEN_TTL_SECONDS), _MAX_TTL_SECONDS))
 
 
-def mint_desktop_gateway_token(*, team_id: int, user: str, allowed_models: list[str]) -> dict[str, Any]:
+def mint_desktop_gateway_token(
+    *, team_id: int, user: str, allowed_models: list[str], limit_tier: LimitTier = "standard"
+) -> dict[str, Any]:
     """Mint one session token; returns Go's body. Raises DesktopGatewayMintError on any refusal or
     transport failure; the bearer never appears in logs or exception text."""
     body = {
@@ -216,6 +306,7 @@ def mint_desktop_gateway_token(*, team_id: int, user: str, allowed_models: list[
         "obo": str(team_id),
         "user": user,
         "allowed_models": allowed_models,
+        "limit_tier": limit_tier,
     }
     try:
         response = requests.post(

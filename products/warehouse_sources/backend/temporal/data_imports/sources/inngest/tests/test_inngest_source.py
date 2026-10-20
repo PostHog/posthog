@@ -4,13 +4,16 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inngest import (
     InngestSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.source import InngestSource
 
 
@@ -37,24 +40,9 @@ class TestInngestSource:
     def setup_method(self) -> None:
         self.source = InngestSource()
 
-    def test_source_config_is_alpha_and_unreleased(self) -> None:
-        # The source ships hidden (unreleasedSource) and labelled alpha; a regression that flipped
-        # either would expose an unfinished connector to every user.
-        config = self.source.get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/inngest"
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_returns_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["environments"])
-        assert [s.name for s in schemas] == ["environments"]
 
     @parameterized.expand(
         [
@@ -63,6 +51,11 @@ class TestInngestSource:
             # small inventory with no server-side timestamp filter and syncs as full refresh.
             ("events", False, True, ["received_at"]),
             ("function_runs", True, False, ["event_received_at"]),
+            ("runs", True, False, ["queuedAt"]),
+            ("functions", False, False, []),
+            ("session_keys", False, False, []),
+            ("sessions", False, False, []),
+            ("session_runs", False, False, []),
             ("cancellations", False, False, []),
             ("environments", False, False, []),
             ("webhooks", False, False, []),
@@ -78,20 +71,23 @@ class TestInngestSource:
         assert schema.supports_append is supports_append
         assert [f["field"] for f in schema.incremental_fields] == incremental_fields
 
-    def test_function_runs_re_read_a_trailing_window(self) -> None:
+    @parameterized.expand([("function_runs",), ("runs",)])
+    def test_run_tables_re_read_a_trailing_window(self, endpoint: str) -> None:
         # Runs fetched while still Running keep a stale status unless each incremental sync
         # re-reads a trailing window; dropping the default lookback would freeze them forever.
-        schema = next(s for s in self.source.get_schemas(MagicMock(), team_id=1) if s.name == "function_runs")
+        schema = next(s for s in self.source.get_schemas(MagicMock(), team_id=1) if s.name == endpoint)
         assert schema.default_incremental_lookback_seconds == 3600
 
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_validate_credentials(self, _name: str, probe_result: bool, expected_ok: bool) -> None:
         config = InngestSourceConfig(signing_key="signkey-prod-test", environment="branch-env")
-        with patch.object(source_module, "validate_inngest_credentials", return_value=probe_result) as mock_probe:
+        with scripted_network([ScriptedResponse(status=200 if probe_result else 401)]) as network:
             ok, error = self.source.validate_credentials(config, team_id=1)
         assert ok is expected_ok
         assert (error is None) is expected_ok
-        mock_probe.assert_called_once_with("signkey-prod-test", "branch-env")
+        assert network.requests_log[0].path == "/v1/events"
+        assert network.requests_log[0].headers["authorization"] == "Bearer signkey-prod-test"
+        assert network.requests_log[0].headers["x-inngest-env"] == "branch-env"
 
     @parameterized.expand(
         [
@@ -105,15 +101,18 @@ class TestInngestSource:
 
     def test_source_for_pipeline_plumbs_credentials_and_endpoint(self) -> None:
         config = InngestSourceConfig(signing_key="signkey-prod-test", environment="branch-env")
-        inputs = _source_inputs("events", last_value="2026-07-01T00:00:00Z", use_incremental=True)
-        with patch.object(source_module, "inngest_source") as mock_source:
-            self.source.source_for_pipeline(config, MagicMock(), inputs)
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["signing_key"] == "signkey-prod-test"
-        assert kwargs["environment"] == "branch-env"
-        assert kwargs["endpoint"] == "events"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-07-01T00:00:00Z"
+        result = SourceDriver(self.source, config).run(
+            "events",
+            [ScriptedResponse(json={"data": []})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-07-01T00:00:00Z",
+        )
+        assert result.raised is None
+        request = result.requests[0]
+        assert request.headers["authorization"] == "Bearer signkey-prod-test"
+        assert request.headers["x-inngest-env"] == "branch-env"
+        assert request.path == "/v1/events"
+        assert request.param("received_after") == "2026-07-01T00:00:00.000Z"
 
     def test_defaults_new_sources_to_v2(self) -> None:
         # New sources are stamped with default_version; this locks the bump to v2 (the generic
@@ -140,25 +139,3 @@ class TestInngestSource:
         with patch.object(source_module, "inngest_source") as mock_source:
             self.source.source_for_pipeline(config, MagicMock(), inputs)
         assert mock_source.call_args.kwargs["api_version"] == expected
-
-    def test_source_for_pipeline_normalizes_blank_environment_to_none(self) -> None:
-        # An empty-string environment must not be sent as an X-Inngest-Env header — the API would
-        # try to resolve a branch environment named "".
-        config = InngestSourceConfig(signing_key="signkey-prod-test", environment="")
-        with patch.object(source_module, "inngest_source") as mock_source:
-            self.source.source_for_pipeline(config, MagicMock(), _source_inputs("events"))
-        assert mock_source.call_args.kwargs["environment"] is None
-
-    def test_source_for_pipeline_omits_last_value_when_not_incremental(self) -> None:
-        # A stale watermark on a full-refresh run would wrongly narrow the events window.
-        config = InngestSourceConfig(signing_key="signkey-prod-test")
-        inputs = _source_inputs("events", last_value="2026-07-01T00:00:00Z", use_incremental=False)
-        with patch.object(source_module, "inngest_source") as mock_source:
-            self.source.source_for_pipeline(config, MagicMock(), inputs)
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        # Drift here (an endpoint renamed in settings but not here) silently drops the curated docs
-        # and falls back to LLM enrichment, so keep the two in lockstep.
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

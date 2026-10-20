@@ -136,11 +136,11 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
                 expectedMinCommits: 2,
             })
             const initialWorker0Routed = getPrometheusSample(metricsAfterInitialBatch, {
-                name: 'ingestion_consumer_dispatcher_messages_routed_total',
+                name: 'ingestion_consumer_batcher_messages_sent_total',
                 labels: { worker: workers[0].url },
             })
             const initialWorker1Routed = getPrometheusSample(metricsAfterInitialBatch, {
-                name: 'ingestion_consumer_dispatcher_messages_routed_total',
+                name: 'ingestion_consumer_batcher_messages_sent_total',
                 labels: { worker: workers[1].url },
             })
             expect(initialWorker0Routed).toBeGreaterThan(0)
@@ -217,11 +217,11 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
 
             const metricsAfterHealthyBatch = await fetchMetrics(rustConsumer, rustMetricsPort)
             const worker0RoutedAfterHealthyBatch = getPrometheusSample(metricsAfterHealthyBatch, {
-                name: 'ingestion_consumer_dispatcher_messages_routed_total',
+                name: 'ingestion_consumer_batcher_messages_sent_total',
                 labels: { worker: workers[0].url },
             })
             const worker1RoutedAfterHealthyBatch = getPrometheusSample(metricsAfterHealthyBatch, {
-                name: 'ingestion_consumer_dispatcher_messages_routed_total',
+                name: 'ingestion_consumer_batcher_messages_sent_total',
                 labels: { worker: workers[1].url },
             })
             expect(worker0RoutedAfterHealthyBatch).toBeGreaterThan(0)
@@ -246,13 +246,13 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
                 const metrics = await fetchMetrics(rustConsumer, rustMetricsPort)
                 expect(
                     getPrometheusSample(metrics, {
-                        name: 'ingestion_consumer_dispatcher_messages_routed_total',
+                        name: 'ingestion_consumer_batcher_messages_sent_total',
                         labels: { worker: workers[0].url },
                     })
                 ).toBe(worker0RoutedAfterHealthyBatch)
                 expect(
                     getPrometheusSample(metrics, {
-                        name: 'ingestion_consumer_dispatcher_messages_routed_total',
+                        name: 'ingestion_consumer_batcher_messages_sent_total',
                         labels: { worker: workers[1].url },
                     })
                 ).toBeGreaterThanOrEqual(worker1RoutedAfterHealthyBatch + failoverEvents.length)
@@ -266,7 +266,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
 
             const metricsBeforeRecovery = await fetchMetrics(rustConsumer, rustMetricsPort)
             const worker0RoutedBeforeRecovery = getPrometheusSample(metricsBeforeRecovery, {
-                name: 'ingestion_consumer_dispatcher_messages_routed_total',
+                name: 'ingestion_consumer_batcher_messages_sent_total',
                 labels: { worker: workers[0].url },
             })
 
@@ -290,7 +290,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
                 const metrics = await fetchMetrics(rustConsumer, rustMetricsPort)
                 expect(
                     getPrometheusSample(metrics, {
-                        name: 'ingestion_consumer_dispatcher_messages_routed_total',
+                        name: 'ingestion_consumer_batcher_messages_sent_total',
                         labels: { worker: workers[0].url },
                     })
                 ).toBeGreaterThan(worker0RoutedBeforeRecovery)
@@ -314,7 +314,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
 
     test('Rust consumer holds the batch then exits when all Node ingestion API workers stay down', async () => {
         // During a full worker outage the consumer must hold the batch (nothing
-        // dropped, nothing committed) and retry for the configured deferred-flush
+        // dropped, nothing committed) and retry for the configured stall
         // timeout, then exit non-zero so the pod restarts and Kafka redelivers.
         // A short timeout keeps the bounded-exit contract observable quickly.
         const { workers, rustConsumer, rustMetricsPort } = await startRustNodeStack(services, {
@@ -343,7 +343,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
 
             const exit = await rustConsumer.waitForExit(60_000)
             expect(exit.exitCode).not.toBe(0)
-            expect(exit.output).toContain('deferred messages made no progress within the flush timeout')
+            expect(exit.output).toContain('pending work made no progress within the stall timeout')
             await waitForTopicMessageCount(KAFKA_EVENTS_JSON, 0)
         } finally {
             await producer.disconnect()
@@ -523,6 +523,9 @@ function startRustIngestionConsumer(
             CONSUMER_BATCH_TIMEOUT_MS: '1000',
             CONSUMER_MAX_BACKGROUND_TASKS: '1',
             INGESTION_WORKER_CONCURRENT_BATCHES: '1',
+            // A request packs every ready key up to the target, so a poll would
+            // go to one worker whole; a small target spreads it over both.
+            INGESTION_PACK_TARGET_EVENTS: '4',
             WORKER_ADDRESSES: workers.join(','),
             INGESTION_WORKER_GRPC_PORT_OFFSET: GRPC_PORT_OFFSET.toString(),
             WORKER_PROBE_INTERVAL_MS: '250',
@@ -978,7 +981,7 @@ async function waitForRoutedMetrics(
             (sum, worker) =>
                 sum +
                 getPrometheusSample(lastMetrics, {
-                    name: 'ingestion_consumer_dispatcher_messages_routed_total',
+                    name: 'ingestion_consumer_batcher_messages_sent_total',
                     labels: { worker },
                 }),
             0
@@ -986,9 +989,7 @@ async function waitForRoutedMetrics(
 
         expect(totalRouted).toBeGreaterThanOrEqual(expectedMessages)
         for (const worker of expectedWorkers) {
-            expect(lastMetrics).toContain(
-                `ingestion_consumer_dispatcher_sub_batches_assigned_total{worker="${worker}"}`
-            )
+            expect(lastMetrics).toContain(`ingestion_consumer_batcher_requests_sent_total{worker="${worker}"}`)
         }
         expect(getOffsetCommitCount(lastMetrics)).toBeGreaterThanOrEqual(expectedMinCommits)
     }, 30_000)

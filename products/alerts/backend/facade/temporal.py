@@ -1,29 +1,11 @@
-from products.alerts.backend.temporal.metrics import (
-    ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
-    ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
-)
-from products.alerts.backend.temporal.schedule import create_alerts_platform_tick_schedule
-from products.alerts.backend.temporal.telemetry import AlertsPlatformTelemetryInterceptor
-from products.alerts.backend.temporal.workflows import (
-    DELIVERY_ACTIVITIES,
-    DELIVERY_WORKFLOWS,
-    EVALUATION_ACTIVITIES,
-    EVALUATION_WORKFLOWS,
-    SHARED_ORCHESTRATION_ACTIVITIES,
-    SHARED_ORCHESTRATION_WORKFLOWS,
-    SOURCE_EVALUATION_TIMEOUT,
+"""Temporal workflows and activities this product registers on the alerts platform's queues."""
+
+from products.alerts.backend.temporal.platform_evaluate import (
+    PLATFORM_EVALUATION_ACTIVITIES,
+    PLATFORM_EVALUATION_WORKFLOWS,
 )
 
 __all__ = [
-    "ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS",
-    "ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS",
-    "DELIVERY_ACTIVITIES",
-    "DELIVERY_WORKFLOWS",
-    "EVALUATION_ACTIVITIES",
-    "EVALUATION_WORKFLOWS",
-    "SHARED_ORCHESTRATION_ACTIVITIES",
-    "SHARED_ORCHESTRATION_WORKFLOWS",
-    "SOURCE_EVALUATION_TIMEOUT",
-    "AlertsPlatformTelemetryInterceptor",
-    "create_alerts_platform_tick_schedule",
+    "PLATFORM_EVALUATION_ACTIVITIES",
+    "PLATFORM_EVALUATION_WORKFLOWS",
 ]

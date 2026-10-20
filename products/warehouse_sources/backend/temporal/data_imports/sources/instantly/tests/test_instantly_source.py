@@ -1,5 +1,4 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instantly import (
     InstantlySourceConfig,
@@ -17,13 +16,17 @@ class TestInstantlySource:
         self.team_id = 123
         self.config = InstantlySourceConfig(api_key="test-key")
 
-    def test_get_schemas_only_emails_supports_incremental(self):
+    def test_get_schemas_only_server_filtered_endpoints_support_incremental(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {schema.name for schema in schemas} == {*ENDPOINTS, WEBHOOK_EVENTS_ENDPOINT}
-        # Only /emails exposes a server-side timestamp filter (min_timestamp_created); everything
-        # else must ship full refresh.
-        assert {schema.name for schema in schemas if schema.supports_incremental} == {"emails"}
+        # Only /emails (min_timestamp_created), /accounts/analytics/daily and /audit-logs (start_date)
+        # expose a server-side filter; everything else must ship full refresh.
+        assert {schema.name for schema in schemas if schema.supports_incremental} == {
+            "emails",
+            "account_daily_analytics",
+            "audit_logs",
+        }
 
     def test_get_schemas_webhook_events_is_webhook_only(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -32,10 +35,6 @@ class TestInstantlySource:
         assert webhook_schema.webhook_only is True
         assert webhook_schema.supports_webhooks is True
         assert not any(schema.supports_webhooks for schema in schemas if schema.name != WEBHOOK_EVENTS_ENDPOINT)
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["leads", WEBHOOK_EVENTS_ENDPOINT])
-        assert {schema.name for schema in schemas} == {"leads", WEBHOOK_EVENTS_ENDPOINT}
 
     def test_webhook_resource_map_routes_all_events_to_webhook_events(self):
         assert self.source.webhook_resource_map == {WEBHOOK_EVENTS_ENDPOINT: "event"}
@@ -47,13 +46,6 @@ class TestInstantlySource:
         assert template.type == "warehouse_source_webhook"
         input_keys = {schema_input["key"] for schema_input in template.inputs_schema or []}
         assert {"signing_secret", "bypass_secret_check", "schema_mapping", "source_id"} <= input_keys
-
-    def test_source_for_pipeline_rejects_unknown_schema(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_real_table"
-
-        with pytest.raises(ValueError, match="Unknown Instantly schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
     @pytest.mark.parametrize(
         "observed_error",

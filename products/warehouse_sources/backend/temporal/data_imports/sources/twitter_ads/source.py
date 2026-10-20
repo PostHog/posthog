@@ -3,12 +3,14 @@ from urllib.parse import quote
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -53,6 +55,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwitterAdsSource(ResumableSource[TwitterAdsSourceConfig, TwitterAdsResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=("^(TWITTER_ADS|TWITTERADS)_",),
+        script_hosts=("static.ads-twitter.com",),
+        pypi=("twitter-ads",),
+        rubygems=("twitter-ads",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
@@ -74,6 +83,17 @@ class TwitterAdsSource(ResumableSource[TwitterAdsSourceConfig, TwitterAdsResumeC
             releaseStatus=ReleaseStatus.ALPHA,
             # Hidden until PostHog's X app is approved for Ads API access and its keys are deployed.
             featureFlag="dwh-twitter-ads",
+            suggestedTables=[
+                SuggestedTable(table="campaigns", tooltip="Required for campaign names in Marketing analytics."),
+                SuggestedTable(
+                    table="campaign_stats",
+                    tooltip="Required for daily spend, clicks, and impressions in Marketing analytics.",
+                ),
+                SuggestedTable(table="line_items", tooltip="Required for ad group names in Marketing analytics."),
+                SuggestedTable(
+                    table="line_item_stats", tooltip="Required for daily ad group metrics in Marketing analytics."
+                ),
+            ],
             fields=cast(
                 list[FieldType],
                 [

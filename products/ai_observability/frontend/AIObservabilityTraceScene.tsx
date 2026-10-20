@@ -39,6 +39,7 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -46,6 +47,7 @@ import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortc
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -95,7 +97,9 @@ import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
 import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
+import { TraceViewSwitch } from './redesign/trace/components/TraceViewSwitch'
 import { TraceScene } from './redesign/trace/TraceScene'
+import { traceViewPreferenceLogic } from './redesign/trace/traceViewPreferenceLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
@@ -363,6 +367,7 @@ function TraceNavigation(): JSX.Element {
     const { viewMode, newerTraceId, newerTimestamp, olderTraceId, olderTimestamp, neighborsLoading } =
         useValues(traceLogic)
     const { searchParams } = useValues(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const baseSearchParams = sanitizeTraceUrlSearchParams(searchParams)
 
     // Navigate to newer (more recent) or older traces
@@ -398,6 +403,33 @@ function TraceNavigation(): JSX.Element {
         [olderTraceId, newerTraceId, olderTimestamp, newerTimestamp, neighborsLoading, viewMode]
     )
 
+    if (todayRailNav) {
+        return (
+            <div className="flex items-center gap-1">
+                <Button
+                    variant="outline"
+                    aria-label="Newer trace"
+                    tooltip="Newer trace"
+                    disabled={!newerTraceId || neighborsLoading}
+                    onClick={goToNewer}
+                >
+                    <IconChevronLeft />
+                    <KeyboardShortcut p />
+                </Button>
+                <Button
+                    variant="outline"
+                    aria-label="Older trace"
+                    tooltip="Older trace"
+                    disabled={!olderTraceId || neighborsLoading}
+                    onClick={goToOlder}
+                >
+                    <IconChevronRight />
+                    <KeyboardShortcut n />
+                </Button>
+            </div>
+        )
+    }
+
     return (
         <div className="flex items-center gap-1">
             <LemonButton
@@ -423,8 +455,19 @@ function TraceNavigation(): JSX.Element {
 }
 
 function TraceSceneForFlag(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN] ? <TraceScene /> : <AIObservabilityTraceScene />
+    const { activeView } = useValues(traceViewPreferenceLogic)
+    const { switchView } = useActions(traceViewPreferenceLogic)
+    if (activeView === 'legacy') {
+        return <AIObservabilityTraceScene />
+    }
+    return (
+        <>
+            <div className="mb-2">
+                <TraceViewSwitch view="new" onSwitch={switchView} />
+            </div>
+            <TraceScene />
+        </>
+    )
 }
 
 export const scene: SceneExport = {
@@ -503,6 +546,8 @@ function TraceSceneWrapper(): JSX.Element {
               ? { name: previousQueueTraceId ? 'Previous trace' : 'Reviews', path: backPath, key: 'reviews' }
               : { name: 'Traces', path: backPath, key: 'traces' }
     const showTraceNavigation = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION]
+    const { isSwitchAvailable } = useValues(traceViewPreferenceLogic)
+    const { switchView } = useActions(traceViewPreferenceLogic)
 
     return (
         <>
@@ -519,7 +564,12 @@ function TraceSceneWrapper(): JSX.Element {
                             name={trace.id}
                             resourceType={{ type: 'llm_analytics' }}
                             forceBackTo={forceBackTo}
-                            actions={showTraceNavigation ? <TraceNavigation /> : undefined}
+                            actions={
+                                <>
+                                    {isSwitchAvailable && <TraceViewSwitch view="legacy" onSwitch={switchView} />}
+                                    {showTraceNavigation && <TraceNavigation />}
+                                </>
+                            }
                             noBorder
                         />
                         <div className="flex items-start justify-between">

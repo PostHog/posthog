@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WixSource(ResumableSource[WixSourceConfig, WixResumeConfig]):
+    codebase_detection = detect(
+        env=("^WIX_CLIENT_ID$", "^NEXT_PUBLIC_WIX_CLIENT_ID$"),
+        npm=("@wix/sdk", "@wix/cli", "@wix/api-client", "@wix/stores", "@wix/data"),
+    )
+
     # Wix versions each API family in its path rather than the account as a whole, so there is no
     # single account-wide version to pin.
     api_docs_url = "https://dev.wix.com/docs/rest/api-reference"

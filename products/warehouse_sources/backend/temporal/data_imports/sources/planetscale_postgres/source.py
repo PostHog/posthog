@@ -1,5 +1,6 @@
 import re
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -74,6 +75,8 @@ class PlanetScalePostgresSource(PostgresSource):
     is no SSH tunnel to configure. PlanetScale's original Vitess databases speak MySQL instead —
     see `planetscale_mysql`.
     """
+
+    codebase_detection = NOT_DETECTABLE
 
     api_docs_url = "https://planetscale.com/docs/postgres"
 

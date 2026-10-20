@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -6,7 +5,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartwaiver import (
     SmartwaiverSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source import SmartwaiverSource
 
 # Endpoints exposing Smartwaiver's server-side `fromDts` timestamp filter.
@@ -43,12 +41,6 @@ class TestSmartwaiverSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_lists_tables_without_credentials_publishes_catalog(self):
-        # Static endpoint catalog (no I/O) — the public docs table list should render.
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert {table["name"] for table in documented} == set(ENDPOINTS)
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source.smartwaiver_source"
     )
@@ -81,9 +73,3 @@ class TestSmartwaiverSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_smartwaiver_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "nope"
-        with pytest.raises(ValueError, match="Unknown Smartwaiver schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

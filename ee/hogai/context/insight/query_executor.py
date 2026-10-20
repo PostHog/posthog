@@ -37,9 +37,11 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import (
+    BaseHogQLError,
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
     QueryError,
+    ResolutionError,
     SyntaxError as HogQLSyntaxError,
     TableAccessDeniedError,
 )
@@ -49,15 +51,29 @@ from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.dataclasses import frozen
-from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError, QueryErrorCategory, classify_query_error
+from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    ExposedCHQueryError,
+    InternalCHQueryError,
+    QueryErrorCategory,
+    classify_query_error,
+    internal_ch_error_user_message,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.event_usage import EventSource
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    TRANSIENT_QUERY_ERROR_CODES,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+    QueryRanConcurrently,
+)
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
+from ee.hogai.context.insight.clickhouse_rejections import describe_clickhouse_rejection
 from ee.hogai.context.insight.format import (
     NULL_MARKER,
     TRUNCATED_MARKER,
@@ -108,6 +124,38 @@ logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
 
+# Splits the most common HogQL query errors, which share one `code_name`, so analytics can count each
+# without recording the message. The message can quote the caller's query.
+HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX = (
+    ("Unable to resolve field", "hogql_unresolved_field"),
+    ("Unknown table `", "hogql_unknown_table"),
+    ("Unsupported function call", "hogql_unsupported_function"),
+)
+
+
+def get_clickhouse_error_code(error: BaseException | None) -> str | None:
+    if not isinstance(error, InternalCHQueryError):
+        return None
+    code = look_up_clickhouse_error_code_meta(error).name.lower()
+    return code if internal_ch_error_user_message(code) else None
+
+
+def hogql_error_code(error: BaseException | None) -> str | None:
+    """Return a code for a HogQL error that holds no caller input, or None for any other error."""
+    if not isinstance(error, BaseHogQLError):
+        return None
+    message = str(error)
+    for prefix, code in HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX:
+        if message.startswith(prefix):
+            return code
+    if isinstance(error, ExposedHogQLError):
+        return error.code_name
+    if isinstance(error, HogQLNotImplementedError):
+        return "hogql_not_implemented"
+    if isinstance(error, ResolutionError):
+        return "hogql_resolution_error"
+    return "hogql_internal_error"
+
 
 def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
     cause: BaseException = error
@@ -118,9 +166,10 @@ def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
 
     if isinstance(cause, TableAccessDeniedError):
         return MaxToolFatalError(str(error), error_type="permission")
+    if isinstance(cause, (QueryError, HogQLSyntaxError)):
+        return MaxToolRetryableError(str(error), error_type="validation", error_code=hogql_error_code(cause))
     # User-safe errors can also describe outages; only known input errors should skip exception capture.
-    error_type: MaxToolErrorType = "validation" if isinstance(cause, (QueryError, HogQLSyntaxError)) else "internal"
-    return MaxToolRetryableError(str(error), error_type=error_type)
+    return MaxToolRetryableError(str(error), error_type="internal")
 
 
 @frozen
@@ -472,9 +521,27 @@ class AssistantQueryExecutor:
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
-                    if error_message := query_status.get("error_message"):
+                    if query_status.get("error_code") in TRANSIENT_QUERY_ERROR_CODES:
+                        raise MaxToolTransientError(
+                            query_status.get("error_message") or "The query service was too busy to run this query.",
+                            error_type=(
+                                "api_5xx"
+                                if query_status.get("error_code") == QueryRanConcurrently.default_code
+                                else "rate_limited"
+                            ),
+                        )
+                    error_code = query_status.get("error_code")
+                    cached_error_type: MaxToolErrorType = (
+                        "memory_limit" if error_code == ClickHouseQueryMemoryLimitExceeded.default_code else "internal"
+                    )
+                    error_code = (
+                        error_code.lower() if error_code and internal_ch_error_user_message(error_code) else None
+                    )
+                    if rejection := describe_clickhouse_rejection(error_code, query_status.get("error_message")):
+                        raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code)
+                    if error_message := query_status.get("error_message") or internal_ch_error_user_message(error_code):
                         # Async status loses the exception type, so keep retry advice without guessing its category.
-                        raise MaxToolRetryableError(error_message, error_type="internal")
+                        raise MaxToolRetryableError(error_message, error_type=cached_error_type, error_code=error_code)
                     raise Exception("Query failed")
 
                 # Use the completed query results
@@ -486,11 +553,13 @@ class AssistantQueryExecutor:
             raise MaxToolAccessDeniedError(err.resource, err.required_level) from err
         except (PermissionDenied, TableAccessDeniedError) as err:
             raise MaxToolFatalError(str(err), error_type="permission") from err
-        except (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded) as err:
+        except (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded, QueryRanConcurrently) as err:
             error_type: MaxToolErrorType = (
                 "rate_limited" if classify_query_error(err) == QueryErrorCategory.RATE_LIMITED else "api_5xx"
             )
-            raise MaxToolTransientError(str(err), error_type=error_type) from err
+            raise MaxToolTransientError(
+                str(err), error_type=error_type, error_code=get_clickhouse_error_code(err)
+            ) from err
         except ExposedHogQLError as err:
             raise _hogql_tool_error(err) from err
         except (
@@ -522,8 +591,16 @@ class AssistantQueryExecutor:
                     raise MaxToolFatalError(err_message, error_type="api_5xx") from err
             elif isinstance(err, APIException) and err.status_code == 429:
                 raise MaxToolTransientError(err_message, error_type="rate_limited") from err
-            raise MaxToolRetryableError(err_message, error_type=error_type) from err
+            raise MaxToolRetryableError(
+                err_message,
+                error_type=error_type,
+                error_code=get_clickhouse_error_code(err),
+            ) from err
         except Exception as err:
+            if isinstance(err, InternalCHQueryError):
+                error_code = look_up_clickhouse_error_code_meta(err).name.lower()
+                if rejection := describe_clickhouse_rejection(error_code):
+                    raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code) from err
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
             # text (truncated) so callers can diagnose the failure instead of an opaque message —
@@ -534,7 +611,7 @@ class AssistantQueryExecutor:
             max_len = 500
             if len(err_message) > max_len:
                 err_message = err_message[:max_len] + "… (truncated)"
-            raise Exception(f"There was an unknown error running this query: {err_message}")
+            raise Exception(f"There was an unknown error running this query: {err_message}") from err
 
         # A failed query can come back as a structurally-valid response that carries an `error`
         # field and empty `results` instead of raising — e.g. a direct-SQL adapter statement
@@ -596,7 +673,12 @@ class AssistantQueryExecutor:
                 else:
                     formatter_name = "TrendsResultsFormatter"
                     result = TrendsResultsFormatter(
-                        query, response["results"], self._team, self._utc_now_datetime
+                        query,
+                        response["results"],
+                        self._team,
+                        self._utc_now_datetime,
+                        resolved_date_range=response.get("resolved_date_range"),
+                        resolved_compare_date_range=response.get("resolved_compare_date_range"),
                     ).format()
             elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
                 formatter_name = "FunnelResultsFormatter"

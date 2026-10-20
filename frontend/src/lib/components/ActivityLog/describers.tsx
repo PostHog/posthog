@@ -17,7 +17,6 @@ import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { productTourActivityDescriber } from 'scenes/product-tours/activityDescriptions'
-import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import {
     legalDocumentActivityDescriber,
@@ -41,10 +40,12 @@ import { alertConfigurationActivityDescriber } from 'products/alerts/frontend/co
 import { annotationActivityDescriber } from 'products/annotations/frontend/activityDescriptions'
 import { canvasActivityDescriber } from 'products/canvas/frontend/activityDescriber'
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
+import { crossProjectDashboardActivityDescriber } from 'products/cross_project_dashboards/frontend/crossProjectDashboardActivityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
 import { groupActivityDescriber } from 'products/groups/frontend/activityDescriptions'
 import { personActivityDescriber } from 'products/persons/frontend/activityDescriptions'
+import { insightActivityDescriber } from 'products/product_analytics/frontend/insights/activityDescriptions'
 import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
 import { stamphogRepoConfigActivityDescriber } from 'products/stamphog/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
@@ -69,6 +70,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return exportedAssetActivityDescriber
         case ActivityScope.DASHBOARD:
             return dashboardActivityDescriber
+        case ActivityScope.CROSS_PROJECT_DASHBOARD:
+            return crossProjectDashboardActivityDescriber
         case ActivityScope.FEATURE_FLAG:
             return flagActivityDescriber
         case ActivityScope.HOG_FUNCTION:

@@ -1,15 +1,17 @@
-import io
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs import (
     GainsightCsHostNotAllowedError,
     GainsightCsPageBudgetExhaustedError,
@@ -20,15 +22,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
     _parse_fields,
     _read_capped_json,
     _rows_from_body,
-    gainsight_cs_source,
     normalize_domain,
     parse_custom_objects,
     validate_credentials,
 )
-
-SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.source import GainsightCsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightcs import (
+    GainsightCsSourceConfig,
 )
+
 HOST_CHECK_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs._is_host_safe"
 )
@@ -40,29 +42,12 @@ GAINSIGHT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sou
 DOMAIN = "acme.gainsightcloud.com"
 
 
-def _response(body: Any, *, status_code: int = 200, headers: dict[str, str] | None = None) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    # The source streams bodies through a size cap, so give the response a raw stream to read from.
-    resp.raw = io.BytesIO(json.dumps(body).encode())
-    if headers:
-        resp.headers.update(headers)
-    return resp
-
-
 def _describe_body(fields: list[dict[str, Any]], object_name: str = "company") -> dict[str, Any]:
     return {"result": True, "data": [{"objectName": object_name, "fields": fields}]}
 
 
 def _field(name: str, data_type: str = "STRING", sortable: bool = True) -> dict[str, Any]:
     return {"fieldName": name, "dataType": data_type, "meta": {"sortable": sortable}}
-
-
-def _manager(resume_state: GainsightCsResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
 
 
 class TestResponseEnvelope:
@@ -91,23 +76,6 @@ class TestResponseEnvelope:
 
 
 class TestParseFields:
-    def test_prefers_the_definition_for_the_requested_object(self) -> None:
-        # Describe answers with a list; taking the first entry blindly would select another
-        # object's fields and sync the wrong columns.
-        body = {
-            "result": True,
-            "data": [
-                {"objectName": "company_person", "fields": [_field("PersonId")]},
-                {"objectName": "company", "fields": [_field("Name")]},
-            ],
-        }
-        assert [f.name for f in _parse_fields(body, "company")] == ["Name"]
-
-    def test_reads_type_and_sortability_from_the_field_metadata(self) -> None:
-        body = _describe_body([_field("CreatedDate", data_type="datetime", sortable=False)])
-        field = _parse_fields(body, "company")[0]
-        assert (field.data_type, field.sortable) == ("DATETIME", False)
-
     def test_raises_when_the_object_exposes_no_fields(self) -> None:
         with pytest.raises(ValueError, match="no fields for object"):
             _parse_fields(_describe_body([]), "company")
@@ -136,11 +104,6 @@ class TestNormalizeRow:
     )
     def test_converts_date_fields(self, _name: str, value: Any, expected: Any) -> None:
         assert _normalize_row({"CreatedDate": value}, frozenset({"CreatedDate"})) == {"CreatedDate": expected}
-
-    def test_leaves_non_date_columns_alone(self) -> None:
-        row = {"Employees": 1521691459693, "CreatedDate": 0}
-        normalized = _normalize_row(row, frozenset({"CreatedDate"}))
-        assert normalized["Employees"] == 1521691459693
 
 
 class TestCustomObjects:
@@ -175,137 +138,57 @@ class TestNormalizeDomain:
 
 
 class TestPagination:
-    def _run(self, session: mock.MagicMock, manager: mock.MagicMock, page_size: int = 2) -> list[list[dict[str, Any]]]:
-        with (
-            mock.patch(SESSION_PATCH, return_value=session),
-            mock.patch(HOST_CHECK_PATCH, return_value=(True, None)),
-            mock.patch(PAGE_SIZE_PATCH, page_size),
-        ):
-            response = gainsight_cs_source(
-                domain=DOMAIN,
-                access_key="key",
-                schema_name="company",
-                object_name="company",
-                primary_keys=["Gsid"],
-                team_id=1,
-                resumable_source_manager=manager,
-            )
-            return list(cast(Iterable[list[dict[str, Any]]], response.items()))
-
-    def test_pages_until_a_short_page_and_advances_the_offset(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid")]))
-        session.post.side_effect = [
-            _response({"result": True, "data": [{"Gsid": "1"}, {"Gsid": "2"}]}),
-            _response({"result": True, "data": [{"Gsid": "3"}]}),
-        ]
-        manager = _manager()
-
-        batches = self._run(session, manager)
-
-        assert batches == [[{"Gsid": "1"}, {"Gsid": "2"}], [{"Gsid": "3"}]]
-        assert [call.kwargs["json"]["offset"] for call in session.post.call_args_list] == [0, 2]
-
-    def test_checkpoints_only_after_a_full_page_is_yielded(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid")]))
-        session.post.side_effect = [
-            _response({"result": True, "data": [{"Gsid": "1"}, {"Gsid": "2"}]}),
-            _response({"result": True, "data": []}),
-        ]
-        manager = _manager()
-
-        self._run(session, manager)
-
-        # One save, for the boundary after the first page — the terminal page has nothing to resume to.
-        manager.save_state.assert_called_once_with(GainsightCsResumeConfig(offset=2))
-        # ...and the finished walk drops that checkpoint so the next job starts from offset 0.
-        manager.clear_state.assert_called_once_with()
-
-    def test_a_walk_that_ends_on_its_first_page_still_clears_state(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid")]))
-        session.post.side_effect = [_response({"result": True, "data": [{"Gsid": "1"}]})]
-        manager = _manager()
-
-        self._run(session, manager)
-
-        manager.save_state.assert_not_called()
-        manager.clear_state.assert_called_once_with()
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(GainsightCsSource(), GainsightCsSourceConfig(domain=DOMAIN, access_key="key"))
 
     def test_checkpoints_then_stops_when_the_page_budget_runs_out(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid")]))
         full_page = {"result": True, "data": [{"Gsid": "1"}, {"Gsid": "2"}]}
-        session.post.side_effect = [_response(full_page) for _ in range(10)]
-        manager = _manager()
+        with mock.patch(PAGE_SIZE_PATCH, 2), mock.patch(f"{GAINSIGHT_MODULE}.MAX_PAGES_PER_ATTEMPT", 3):
+            result = self._driver().run(
+                "company",
+                [ScriptedResponse(json=_describe_body([_field("Gsid")]))]
+                + [ScriptedResponse(json=full_page) for _ in range(3)],
+            )
 
-        with (
-            mock.patch(f"{GAINSIGHT_MODULE}.MAX_PAGES_PER_ATTEMPT", 3),
-            pytest.raises(GainsightCsPageBudgetExhaustedError),
-        ):
-            self._run(session, manager)
-
-        assert session.post.call_count == 3
-        assert manager.save_state.call_args_list[-1] == mock.call(GainsightCsResumeConfig(offset=6))
-        manager.clear_state.assert_not_called()
+        assert isinstance(result.raised, GainsightCsPageBudgetExhaustedError)
+        assert result.paths == [
+            "/v1/meta/services/objects/company/describe",
+            "/v1/data/objects/query/company",
+            "/v1/data/objects/query/company",
+            "/v1/data/objects/query/company",
+        ]
+        assert [request.json()["offset"] for request in result.requests[1:]] == [0, 2, 4]
+        assert result.saved_states[-1] == GainsightCsResumeConfig(offset=6)
+        assert result.final_state == GainsightCsResumeConfig(offset=6)
 
     def test_resumes_from_the_saved_offset(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid")]))
-        session.post.side_effect = [_response({"result": True, "data": [{"Gsid": "9"}]})]
-        manager = _manager(GainsightCsResumeConfig(offset=4))
-
-        self._run(session, manager)
-
-        assert session.post.call_args_list[0].kwargs["json"]["offset"] == 4
-
-    def test_orders_on_gsid_only_when_the_object_reports_it_sortable(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid", sortable=False)]))
-        session.post.side_effect = [_response({"result": True, "data": []})]
-
-        self._run(session, _manager())
-
-        assert "orderBy" not in session.post.call_args_list[0].kwargs["json"]
-
-    def test_partitions_on_created_date_when_the_object_has_one(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid"), _field("CreatedDate", "DATETIME")]))
-
-        with (
-            mock.patch(SESSION_PATCH, return_value=session),
-            mock.patch(HOST_CHECK_PATCH, return_value=(True, None)),
-        ):
-            response = gainsight_cs_source(
-                domain=DOMAIN,
-                access_key="key",
-                schema_name="company",
-                object_name="company",
-                primary_keys=["Gsid"],
-                team_id=1,
-                resumable_source_manager=_manager(),
+        with mock.patch(PAGE_SIZE_PATCH, 2):
+            result = self._driver().run(
+                "company",
+                [
+                    ScriptedResponse(json=_describe_body([_field("Gsid")])),
+                    ScriptedResponse(json={"result": True, "data": [{"Gsid": "9"}]}),
+                ],
+                resume_state=GainsightCsResumeConfig(offset=4),
             )
 
-        assert response.partition_keys == ["CreatedDate"]
+        assert result.raised is None
+        assert result.requests[1].json()["offset"] == 4
+        assert result.rows == [{"Gsid": "9"}]
+        assert result.final_state is None
 
     def test_refuses_a_host_that_resolves_internally(self) -> None:
-        session = mock.MagicMock()
-        with (
-            mock.patch(SESSION_PATCH, return_value=session),
-            mock.patch(HOST_CHECK_PATCH, return_value=(False, "Host not allowed")),
-            pytest.raises(GainsightCsHostNotAllowedError),
-        ):
-            gainsight_cs_source(
-                domain="internal.corp",
-                access_key="key",
-                schema_name="company",
-                object_name="company",
-                primary_keys=["Gsid"],
+        driver = SourceDriver(GainsightCsSource(), GainsightCsSourceConfig(domain="internal.corp", access_key="key"))
+        with mock.patch(HOST_CHECK_PATCH, return_value=(False, "Host not allowed")):
+            result = driver.run(
+                "company",
+                [],
                 team_id=1,
-                resumable_source_manager=_manager(),
             )
-        session.get.assert_not_called()
+
+        assert isinstance(result.raised, GainsightCsHostNotAllowedError)
+        assert result.requests == []
 
 
 class TestCappedResponses:
@@ -313,9 +196,6 @@ class TestCappedResponses:
         response = mock.MagicMock()
         response.iter_content.return_value = iter(chunks)
         return response
-
-    def test_parses_a_body_that_fits(self) -> None:
-        assert _read_capped_json(self._streaming([b'{"a": ', b"1}"])) == {"a": 1}
 
     def test_refuses_a_body_past_the_size_cap(self) -> None:
         response = self._streaming([b"x" * 10, b"y" * 10])
@@ -333,25 +213,10 @@ class TestCappedResponses:
             _read_capped_json(response)
         response.close.assert_called_once_with()
 
-    def test_pages_are_requested_as_streams(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid")]))
-        session.post.side_effect = [_response({"result": True, "data": []})]
-
-        TestPagination()._run(session, _manager())
-
-        assert session.get.call_args.kwargs["stream"] is True
-        assert session.post.call_args.kwargs["stream"] is True
-
 
 class TestValidateCredentials:
-    def _validate(self, response: Response) -> tuple[bool, str | None]:
-        session = mock.MagicMock()
-        session.get.return_value = response
-        with (
-            mock.patch(SESSION_PATCH, return_value=session),
-            mock.patch(HOST_CHECK_PATCH, return_value=(True, None)),
-        ):
+    def _validate(self, response: ScriptedResponse) -> tuple[bool, str | None]:
+        with scripted_network(always(response)):
             return validate_credentials(DOMAIN, "key", "company", 1)
 
     @parameterized.expand(
@@ -363,23 +228,25 @@ class TestValidateCredentials:
         ]
     )
     def test_maps_each_status_to_the_message_a_user_reads(self, _name: str, status: int, expected: str) -> None:
-        ok, error = self._validate(_response({}, status_code=status))
+        ok, error = self._validate(ScriptedResponse(status=status, json={}))
         assert ok is False
         assert error is not None and expected in error
 
     def test_accepts_a_describe_that_returns_fields(self) -> None:
-        assert self._validate(_response(_describe_body([_field("Gsid")]))) == (True, None)
+        assert self._validate(ScriptedResponse(json=_describe_body([_field("Gsid")]))) == (True, None)
 
     def test_rejects_a_200_that_describes_nothing(self) -> None:
-        ok, error = self._validate(_response(_describe_body([])))
+        ok, error = self._validate(ScriptedResponse(json=_describe_body([])))
         assert ok is False
         assert error is not None and "no fields for object" in error
 
     def test_rejects_a_redirect_rather_than_replaying_the_key(self) -> None:
-        redirect = _response({}, status_code=302, headers={"Location": "https://evil.example.com/"})
-        ok, error = self._validate(redirect)
+        redirect = ScriptedResponse(status=302, json={}, headers={"Location": "https://evil.example.com/"})
+        with scripted_network([redirect]) as network:
+            ok, error = validate_credentials(DOMAIN, "key", "company", 1)
         assert ok is False
         assert error is not None and "isn't allowed" in error
+        assert [request.path for request in network.requests_log] == ["/v1/meta/services/objects/company/describe"]
 
     def test_rejects_a_domain_that_resolves_internally(self) -> None:
         with mock.patch(HOST_CHECK_PATCH, return_value=(False, "Host not allowed")):

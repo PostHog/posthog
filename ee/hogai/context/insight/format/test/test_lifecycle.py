@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import AssistantLifecycleEventsNode, AssistantLifecycleQuery, EventsNode, LifecycleQuery
 
@@ -24,7 +24,7 @@ def _make_result(event_id, event_name, status, data, days, order=0, custom_name=
     }
 
 
-class TestLifecycleResultsFormatter(BaseTest):
+class TestLifecycleResultsFormatter(SimpleTestCase):
     def test_format_single_series(self):
         results = [
             _make_result("$pageview", "$pageview", "new", [100, 80, 60], ["2025-01-01", "2025-01-02", "2025-01-03"]),

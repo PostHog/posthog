@@ -183,6 +183,7 @@ def test_activity_error_properties_names_the_application_failure_class():
     not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
+@pytest.mark.usefixtures("sandbox_ai_gateway")
 class TestProcessTaskWorkflow:
     """
     End-to-end workflow tests using real Modal sandboxes.
@@ -1431,16 +1432,41 @@ async def test_first_agent_activity_signal_is_recorded_once(monkeypatch):
     schedule.assert_called_once_with("agent_first_activity_observed")
 
 
-async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkeypatch):
+async def test_boot_milestone_signal_before_context_is_dropped(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    schedule = Mock()
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+
+    await workflow_instance.agent_activity_observed()
+    await workflow_instance.agent_command_dispatched()
+
+    schedule.assert_not_called()
+    assert workflow_instance._first_agent_activity_recorded is False
+    assert workflow_instance._first_command_dispatched_recorded is False
+
+
+@pytest.mark.parametrize(
+    ("agent_ready_at", "since_agent_ready_ms"),
+    [
+        (datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC), 1_000),
+        (None, None),
+    ],
+)
+async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(
+    monkeypatch, agent_ready_at, since_agent_ready_ms
+):
     workflow_instance = ProcessTaskWorkflow()
     workflow_instance._context = _build_context(github_integration_id=123)
     workflow_instance._sandbox_id_for_cleanup = "sandbox-123"
     workflow_instance._chain_started_at = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
-    workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC)
+    workflow_instance._agent_ready_at = agent_ready_at
     workflow_instance._boot_path = "overlap"
     workflow_instance._image_source = "base_image"
     track = AsyncMock()
     monkeypatch.setattr(workflow_instance, "_track_boot_milestone", track)
+    record_histogram = Mock()
+    monkeypatch.setattr(process_task_workflow_module, "record_agent_boot_milestone_ms", record_histogram)
     monkeypatch.setattr(
         process_task_workflow_module.workflow,
         "now",
@@ -1458,8 +1484,9 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkey
             "task_id": "task-id",
             "sandbox_id": "sandbox-123",
             "elapsed_ms": 21_000,
-            "since_agent_ready_ms": 1_000,
+            "since_agent_ready_ms": since_agent_ready_ms,
             "boot_path": "overlap",
+            "runtime": "gvisor",
             "image_source": "base_image",
             "origin_product": None,
             "mode": "background",
@@ -1471,6 +1498,87 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkey
             "prewarmed": False,
         },
     )
+    if since_agent_ready_ms is None:
+        # The milestone beat readiness: the sample waits for the ready stamp and clamps to zero.
+        record_histogram.assert_not_called()
+        workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 25, tzinfo=UTC)
+        workflow_instance._flush_boot_milestones_before_ready()
+        workflow_instance._flush_boot_milestones_before_ready()
+        expected_sample_ms = 0
+    else:
+        expected_sample_ms = since_agent_ready_ms
+    record_histogram.assert_called_once_with(
+        expected_sample_ms,
+        milestone="agent_first_command_dispatched",
+        origin_product=None,
+        boot_path="overlap",
+        runtime="gvisor",
+        sandbox_backend="modal",
+        runtime_adapter=None,
+        prewarmed=False,
+    )
+
+
+@pytest.mark.parametrize("timing_enabled", [False, True])
+@pytest.mark.parametrize(
+    ("same_run_resume", "requested_at"),
+    [(False, None), (True, None), (True, "2026-01-01T00:00:00.500000+00:00")],
+)
+@pytest.mark.parametrize("continued", [False, True])
+async def test_shared_startup_boundaries_are_present_only_for_new_workflows(
+    monkeypatch, timing_enabled, same_run_resume, requested_at, continued
+):
+    instance = ProcessTaskWorkflow()
+    instance._context = _build_context(github_integration_id=123)
+    instance._context.state = {
+        "startup_requested_at": "2026-01-01T00:00:00+00:00",
+        "same_run_resume": same_run_resume,
+    }
+    instance._context.startup_requested_at = requested_at
+    instance._startup_worker_started_at = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC) if timing_enabled else None
+    instance._startup_context_loaded_at = datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC) if timing_enabled else None
+    now = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
+    instance._chain_started_at = datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)
+    instance._agent_ready_at = now
+    if continued:
+        resumed = instance._build_resumed_input(ProcessTaskInput(run_id="run-id"), sandbox_id="sb-1")
+        restored = ProcessTaskWorkflow()
+        restored._context = instance._context
+        assert resumed.resumed_sandbox is not None
+        restored._restore_resumed_state(resumed.resumed_sandbox)
+        instance = restored
+    track = AsyncMock()
+    monkeypatch.setattr(instance, "_track_boot_milestone", track)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=now))
+    monkeypatch.setattr(
+        process_task_workflow_module.workflow,
+        "info",
+        Mock(return_value=SimpleNamespace(start_time=now if continued else instance._chain_started_at)),
+    )
+    monkeypatch.setattr(process_task_workflow_module, "record_agent_boot_milestone_ms", Mock())
+
+    instance._schedule_boot_milestone("agent_first_activity_observed")
+    await instance._flush_boot_telemetry_tasks()
+
+    properties = track.call_args.args[1]
+    if timing_enabled:
+        assert properties["startup_requested_at"] == (requested_at if same_run_resume else "2026-01-01T00:00:00+00:00")
+        assert properties["workflow_accepted_at"] == "2026-01-01T00:00:01+00:00"
+        assert properties["worker_started_at"] == "2026-01-01T00:00:02+00:00"
+        assert properties["context_loaded_at"] == "2026-01-01T00:00:03+00:00"
+        assert properties["observed_at"] == now.isoformat()
+        if same_run_resume and requested_at is None:
+            assert "since_startup_requested_ms" not in properties
+            assert "handoff_ms" not in properties
+        else:
+            assert properties["since_startup_requested_ms"] == (9500 if same_run_resume else 10000)
+            assert properties["handoff_ms"] == (500 if same_run_resume else 1000)
+        assert properties["worker_wait_ms"] == 1000
+        assert properties["task_setup_ms"] == 1000
+    else:
+        assert "startup_requested_at" not in properties
+        assert "observed_at" not in properties
+        assert "since_startup_requested_ms" not in properties
 
 
 @pytest.mark.parametrize(
@@ -2309,15 +2417,15 @@ class TestProcessTaskWorkflowUnit:
         update_task_run_status_mock = AsyncMock()
         track_workflow_event_mock = AsyncMock()
         post_slack_update_mock = AsyncMock()
-        complete_run_stream_mock = AsyncMock()
+        execute_activity = AsyncMock()
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
         monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
         monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
-        monkeypatch.setattr(workflow, "_complete_run_stream", complete_run_stream_mock)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
 
-        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+        result = await workflow.run(ProcessTaskInput(run_id="run-id", stream_generation="resumed-generation"))
 
         assert result.success is False
         assert result.error == "database connection closed"
@@ -2330,7 +2438,9 @@ class TestProcessTaskWorkflowUnit:
         )
         track_workflow_event_mock.assert_not_awaited()
         post_slack_update_mock.assert_not_awaited()
-        complete_run_stream_mock.assert_awaited_once_with("run-id")
+        assert execute_activity.call_args.args[1] == CompleteRunStreamInput(
+            run_id="run-id", stream_generation="resumed-generation"
+        )
 
     async def test_run_persists_activity_failure_cause_not_the_wrapper(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -2469,13 +2579,20 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(workflow, "_start_slack_agent_design_relay", start_slack_relay_mock)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
-        result = await workflow.run(ProcessTaskInput(run_id="run-id", slack_thread_context={"channel": "C1"}))
+        result = await workflow.run(
+            ProcessTaskInput(
+                run_id="run-id", slack_thread_context={"channel": "C1", "person_message": "Why is the export slow?"}
+            )
+        )
 
         assert result.success is True
         relay_sandbox_events_mock.assert_not_called()
         relay_agent_design_signals_mock.assert_called_once()
-        # The plan shows while the sandbox provisions, so the relay starts before the first turn.
-        start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Setting up sandbox")
+        # The plan shows while the sandbox provisions, so the relay starts before the first turn. The
+        # mention goes with it alone, not with the context every later payload carries.
+        start_slack_relay_mock.assert_awaited_once_with(
+            {"channel": "C1"}, setup_title="Setting up sandbox", person_message="Why is the export slow?"
+        )
 
     @pytest.mark.parametrize(
         "early_relay_open, expected_starts",
@@ -2532,6 +2649,8 @@ class TestProcessTaskWorkflowUnit:
             (None, False, 1, False, "completed"),
             ("slack", False, 1, False, "completed"),
             ("user_created", False, 1, None, "completed"),
+            ("signal_report", False, 1, None, "completed"),
+            ("signals_scout", False, 1, None, "completed"),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
             ("onboarding", False, 1, None, "failed"),
@@ -2604,7 +2723,15 @@ class TestProcessTaskWorkflowUnit:
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
 
+        async def finish_spend(activity_fn, run_id, **kwargs):
+            assert activity_fn is process_task_workflow_module.complete_signal_spend
+            assert run_id == "run-id"
+            cleanup_sandbox_mock.assert_awaited_once()
+
+        finish_spend_mock = AsyncMock(side_effect=finish_spend)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", finish_spend_mock)
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+        assert finish_spend_mock.await_count == (1 if origin_product in {"signal_report", "signals_scout"} else 0)
 
         assert result.success is True
         assert workflow._completion_status == expected_status
@@ -3341,7 +3468,8 @@ class TestProcessTaskWorkflowUnit:
         assert ready_inputs[1].failed_repositories == ["posthog/code"]
         assert ready_inputs[1].release_barrier is False
 
-    async def test_overlap_releases_agent_and_continues_when_primary_clone_fails(self, monkeypatch):
+    @pytest.mark.parametrize("fail_on_primary_clone_failure", [True, False])
+    async def test_overlap_primary_clone_failure(self, monkeypatch, fail_on_primary_clone_failure):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,
@@ -3390,8 +3518,22 @@ class TestProcessTaskWorkflowUnit:
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow,
+            "patched",
+            lambda patch_id: (
+                fail_on_primary_clone_failure
+                or patch_id != process_task_workflow_module._PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE
+            ),
+        )
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        if fail_on_primary_clone_failure:
+            with pytest.raises(RuntimeError, match="clone timed out"):
+                await workflow._get_sandbox_for_repository()
+            assert mark_repo_ready not in calls
+            assert checkout_branch_in_sandbox not in calls
+            return
 
         result = await workflow._get_sandbox_for_repository()
 

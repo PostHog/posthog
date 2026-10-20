@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { urls } from 'scenes/urls'
+
+import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
+import { ProjectTreeRef } from '~/types'
 
 import { productsItemName } from '../navbar/tabs/productsCatalog'
 import { getCustomIcon } from './customIconRegistry'
@@ -8,6 +12,8 @@ import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defau
 import {
     convertFileSystemEntryToTreeDataItem,
     escapePath,
+    isFileSystemEntryTypeEnabled,
+    isProjectTreeItemActive,
     joinPath,
     matchesRefType,
     reparentPath,
@@ -20,6 +26,46 @@ const catalogProducts = [...getDefaultTreeProducts(), ...getDefaultTreeData()].f
 )
 
 describe('project tree utils', () => {
+    describe('isFileSystemEntryTypeEnabled', () => {
+        it.each([
+            ['a Today type with its flag on', 'canvas', { 'today-rail-nav': true }, true],
+            ['a Today type with its flag off', 'canvas', {}, false],
+            ['a type behind another flag, with that flag off', 'task', {}, true],
+            ['an unflagged type', 'dashboard', {}, true],
+            ['a subtype of an unflagged type', 'insight/trends', {}, true],
+            ['a folder', 'folder', {}, true],
+            ['the Unfiled folder of a Today type with its flag off', 'folder:Unfiled/Canvases', {}, false],
+            [
+                'the Unfiled folder of a Today type with its flag on',
+                'folder:Unfiled/Canvases',
+                { 'today-rail-nav': true },
+                true,
+            ],
+        ])('keeps %s: %s', (_label, typeAndPath, featureFlags, expected) => {
+            const [type, path] = typeAndPath.split(':')
+            expect(isFileSystemEntryTypeEnabled({ type, path }, featureFlags)).toBe(expected)
+        })
+    })
+
+    describe('isProjectTreeItemActive', () => {
+        const insight: TreeDataItem = {
+            id: 'project/sql-insight',
+            name: 'SQL insight',
+            record: { type: 'insight', ref: 'sql123', href: '/insights/sql123' },
+        }
+
+        it.each<[string, string, ProjectTreeRef | null, boolean]>([
+            ['view mode', '/insights/sql123', null, true],
+            ['edit mode', '/sql', { type: 'insight', ref: 'sql123' }, true],
+            ['another insight', '/sql', { type: 'insight', ref: 'other' }, false],
+            ['another resource with the same ID', '/sql', { type: 'dashboard', ref: 'sql123' }, false],
+            ['unsaved SQL', '/sql', null, false],
+            ['new insight', '/sql', { type: 'insight', ref: null }, false],
+        ])('highlights the current insight in %s', (_, pathname, ref, expected) => {
+            expect(isProjectTreeItemActive(insight, pathname, ref)).toBe(expected)
+        })
+    })
+
     describe('resolveProjectTreeDrop', () => {
         const note: FileSystemEntry = { id: 'note', type: 'notebook', ref: 'note-ref', path: 'Research/Notes' }
         const folder: FileSystemEntry = { id: 'folder', type: 'folder', path: 'Research' }
@@ -180,6 +226,34 @@ describe('project tree utils', () => {
             expect(matchesRefType(undefined, 'dashboard')).toBe(false)
         })
     })
+
+    it.each(['trends', 'funnels', 'retention', 'paths', 'lifecycle', 'stickiness', 'hog', undefined, 'unknown'])(
+        'renders a saved insight with type %s using its insight icon and destination',
+        (insightType) => {
+            const [node] = convertFileSystemEntryToTreeDataItem({
+                imports: [
+                    {
+                        id: 'report',
+                        ref: 'report1',
+                        href: '/insights/report1',
+                        path: 'Report',
+                        type: 'insight',
+                        meta: { insight_type: insightType },
+                    },
+                ],
+                folderStates: {},
+                checkedItems: {},
+                root: 'project://',
+            })
+            expect(node.record?.href).toEqual(
+                insightType === 'hog' ? urls.sqlEditor({ insightShortId: 'report1' }) : '/insights/report1'
+            )
+            const expectedType = insightType && insightType !== 'unknown' ? `insight/${insightType}` : 'insight'
+            expect(renderToStaticMarkup(node.icon as JSX.Element)).toEqual(
+                renderToStaticMarkup(iconForType(expectedType as FileSystemIconType))
+            )
+        }
+    )
 
     describe('starred products', () => {
         it.each(catalogProducts.map((item) => [item.path, item]))(

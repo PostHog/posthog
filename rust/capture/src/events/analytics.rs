@@ -130,11 +130,7 @@ pub fn process_single_event(
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
 
-    let data_type = DataType::from_event_name(
-        &event.event,
-        context.historical_migration,
-        context.ai_lane_predicate,
-    );
+    let data_type = DataType::from_event_name(&event.event, context.historical_migration);
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -235,14 +231,9 @@ pub fn process_single_event(
 /// (resolved into `DataType::AiEvents` at classification time), event
 /// restrictions, the AI lane's per-project byte budget, global rate
 /// limiting (per `token:distinct_id`), historical rerouting, and per-key
-/// overflow rerouting via [`OverflowLimiter`]. Overflow stamping
-/// goes through the shared [`stamp_overflow_reason`] helper, which the AI
-/// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
-/// call so every `DataType::AnalyticsMain` event gets identical limiter
-/// semantics regardless of entry point. The kafka sink is a pure mechanism
-/// layer — it reads `ProcessedEventMetadata::data_type`,
-/// `overflow_reason`, `force_overflow`, `redirect_to_dlq`, and
-/// `redirect_to_topic` to decide which topic and key to produce to.
+/// overflow rerouting via [`OverflowLimiter`]. Overflow stamping goes through
+/// [`stamp_overflow_reason`], shared with the AI and OTEL handlers. The sink
+/// maps the stamped metadata to an address through [`crate::pipeline::resolve`].
 #[instrument(skip_all, fields(events = events.len(), request_id))]
 #[allow(clippy::too_many_arguments)]
 pub async fn process_events(
@@ -379,8 +370,8 @@ async fn process_events_inner(
     // abort path emits an `invalid_ai_event` ingestion warning alongside the
     // 400, so the project owner sees it too.
     //
-    // Lane membership follows the deployment's `AiLanePredicate`, the same
-    // answer `DataType::from_event_name` stamped on each event above.
+    // Lane membership is the same answer `DataType::from_event_name` stamped on
+    // each event above.
     if context.capture_mode == crate::config::CaptureMode::Ai {
         if let Some(offender) = events
             .iter()
@@ -437,12 +428,11 @@ async fn process_events_inner(
     // pipelines its host capture deployment serves; the pipeline argument
     // selects which slice of restrictions applies to each event. A DropEvent
     // tagged only for `analytics` will never silently drop an exception event
-    // on the way to the error tracking topic, and vice versa. Data types
-    // without a pipeline (heatmaps, ingestion warnings, snapshots) flow
-    // through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
-    // AI event is governed by ai-scoped restrictions (drop/DLQ/redirect still
-    // win over the lane, redirect_to_topic beats the AI topic in the sink,
-    // force_overflow keeps it on the AI lane) -- mirroring v1.
+    // on the way to the error tracking topic, and vice versa. Snapshots have
+    // no pipeline here and flow through unrestricted. `AiEvents` looks up the
+    // `ai` pipeline, so ai-scoped restrictions govern a diverted AI event.
+    // `force_overflow` sends it to the AI overflow lane where the deployment
+    // has one, never to analytics overflow.
     if let Some(ref service) = restriction_service {
         let mut filtered_events = Vec::with_capacity(events.len());
         let now_ts = context.now.timestamp();
@@ -494,23 +484,7 @@ async fn process_events_inner(
     drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
 
     // Per-(token, distinct_id) global rate limiting: skip person processing for
-    // hot distinct_ids and reroute AnalyticsMain events to overflow. Import mode
-    // opts out entirely — historical backfills must never be throttled — so the
-    // limiter is skipped even if one were wired.
-    //
-    // DIVERGENCE from v1 (`v1::analytics::process`), intentional and out of scope
-    // to reconcile here — a future routing refactor must not assume parity:
-    //   1. Ordering: legacy runs this GRL step BEFORE burst overflow stamping
-    //      (`stamp_overflow_reason` below); v1 runs the GRL AFTER its overflow
-    //      stamping. Both set overflow_reason on AnalyticsMain only, so the
-    //      end state matches, but the pass order differs.
-    //   2. Lane assignment is a single `DataType::from_event_name` match in
-    //      legacy versus assign-then-reroute in v1.
-    // Both paths charge the same shared limiter for every non-dropped event,
-    // including events whose person processing is already off, so per-key counts
-    // are identical regardless of which pipeline serves the key.
-    // Import is unaffected by both: the GRL never runs (guard below) and no
-    // overflowable lane is reachable, so behavior is identical across paths.
+    // hot distinct_ids and reroute AnalyticsMain events to overflow.
     if context.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
@@ -539,10 +513,9 @@ async fn process_events_inner(
 
                 if limited {
                     event.metadata.skip_person_processing = true;
-                    // Reroute the hot key to overflow. AnalyticsMain only: historical
-                    // never overflows, the AI lane keeps its dedicated topic (v1
-                    // gates the same way on Destination::AnalyticsMain), and only
-                    // AnalyticsMain acts on overflow_reason.
+                    // Reroute the hot key to overflow on AnalyticsMain only. Historical
+                    // never overflows. An AI hot key loses person processing but stays
+                    // on its lane.
                     if event.metadata.data_type == DataType::AnalyticsMain {
                         event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
                     }
@@ -663,7 +636,7 @@ mod tests {
     use super::*;
     use crate::ingestion_warnings::SdkAttribution;
     use crate::utils::uuid_v7_from_datetime;
-    use crate::v0_request::{AiLanePredicate, OverflowReason, ProcessingContext};
+    use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
     use common_ingestion_warnings::test_support::CollectingEmitter;
     use common_ingestion_warnings::WarningType;
@@ -690,7 +663,6 @@ mod tests {
             chatty_debug_enabled: false,
             capture_mode: crate::config::CaptureMode::Events,
             ai_max_event_bytes: 0,
-            ai_lane_predicate: AiLanePredicate::Allowlist,
             sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
@@ -1340,7 +1312,7 @@ mod tests {
     }
 
     /// The AI lane assignment holds across capture modes: `Events` and
-    /// `Import` both divert every allowlisted AI event (only the AI lane has AI
+    /// `Import` both divert every AI event (only the AI lane has AI
     /// processing, so imports must divert too), winning over historical.
     /// Non-AI events stay on their normal route in every mode. The topic
     /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
@@ -1436,7 +1408,7 @@ mod tests {
     /// End-to-end: `process_events` drops the over-budget `$ai_generation` and keeps the small one.
     #[tokio::test]
     async fn ai_events_over_byte_budget_are_dropped_end_to_end() {
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
         // 800-byte budget: the enveloped small event (~672 B) fits, and the
@@ -1446,7 +1418,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1492,10 +1464,10 @@ mod tests {
             1,
             "only the under-budget AI event must reach the sink"
         );
-        let topics = test_topics();
+        let topics = test_outputs();
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
-            records[0].topic, ai_topic,
+            &*records[0].topic, ai_topic,
             "the surviving record must be on the AI lane"
         );
     }
@@ -1667,41 +1639,24 @@ mod tests {
     /// second event is the one under test.
     struct AiLaneGateCase {
         second_event: &'static str,
-        predicate: AiLanePredicate,
         rejected: bool,
     }
 
     #[rstest]
     #[case::analytics_event_is_rejected(AiLaneGateCase {
         second_event: "$pageview",
-        predicate: AiLanePredicate::Allowlist,
         rejected: true,
     })]
-    #[case::analytics_event_is_rejected_under_prefix(AiLaneGateCase {
-        second_event: "$pageview",
-        predicate: AiLanePredicate::Prefix,
-        rejected: true,
-    })]
-    // Under `Allowlist` a prefixed-but-unlisted name resolves to AnalyticsMain,
-    // so it is rejected too; under `Prefix` the same name is on the lane.
-    #[case::prefixed_but_unlisted_name_is_rejected(AiLaneGateCase {
+    #[case::any_ai_prefixed_name_passes(AiLaneGateCase {
         second_event: "$ai_call",
-        predicate: AiLanePredicate::Allowlist,
-        rejected: true,
-    })]
-    #[case::prefixed_but_unlisted_name_passes_under_prefix(AiLaneGateCase {
-        second_event: "$ai_call",
-        predicate: AiLanePredicate::Prefix,
         rejected: false,
     })]
     #[case::exception_is_rejected(AiLaneGateCase {
         second_event: "$exception",
-        predicate: AiLanePredicate::Allowlist,
         rejected: true,
     })]
-    #[case::second_allowlisted_event_passes(AiLaneGateCase {
+    #[case::second_ai_event_passes(AiLaneGateCase {
         second_event: "$ai_span",
-        predicate: AiLanePredicate::Allowlist,
         rejected: false,
     })]
     #[tokio::test]
@@ -1713,7 +1668,6 @@ mod tests {
             .with_timezone(&Utc);
         let mut context = create_test_context(now, None);
         context.capture_mode = crate::config::CaptureMode::Ai;
-        context.ai_lane_predicate = case.predicate;
 
         let events = vec![
             create_test_event_with_name("$ai_generation", None, None, None),
@@ -1794,7 +1748,7 @@ mod tests {
     /// it diverts to `AiEvents` and the AI topic, exactly as under `Events`.
     #[tokio::test]
     async fn ai_mode_routes_ai_events_to_the_ai_lane_end_to_end() {
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
         // 800-byte budget: the small event fits, the large one takes the
@@ -1804,7 +1758,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1851,11 +1805,11 @@ mod tests {
             1,
             "only the under-budget event must reach the sink under Ai mode"
         );
-        let topics = test_topics();
+        let topics = test_outputs();
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
-            records[0].topic, ai_topic,
-            "an allowlisted AI event diverts to the AI lane under Ai mode too"
+            &*records[0].topic, ai_topic,
+            "an AI event diverts to the AI lane under Ai mode too"
         );
     }
 
@@ -1995,7 +1949,7 @@ mod tests {
     /// An ai-scoped RedirectToTopic applies to a diverted AI event: the
     /// event keeps its AI lane, but the stamped redirect beats the data type
     /// in the sink so operators can reroute an AI token's traffic ad hoc,
-    /// matching v1 where the restriction overwrites `Destination::AiEvents`
+    /// matching v1 where the restriction overwrites `Destination::AiMain`
     /// with `Destination::Custom`.
     #[tokio::test]
     async fn test_process_events_restriction_redirect_applies_to_ai_events() {
@@ -2443,26 +2397,22 @@ mod tests {
         );
     }
 
-    struct AiValveCase {
+    struct AiLimiterCase {
         ai_limiter_present: bool,
         expected_reason: Option<OverflowReason>,
     }
 
-    /// End-to-end gate for the AI overflow valve: a diverted AI event
-    /// is overflow-stamped only when the AI limiter is wired (setup builds
-    /// it exactly when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
-    /// configured), and keeps its AI lane either way.
     #[rstest]
-    #[case::limiter_present(AiValveCase {
+    #[case::limiter_present(AiLimiterCase {
         ai_limiter_present: true,
         expected_reason: Some(OverflowReason::ForceLimited),
     })]
-    #[case::limiter_absent(AiValveCase {
+    #[case::limiter_absent(AiLimiterCase {
         ai_limiter_present: false,
         expected_reason: None,
     })]
     #[tokio::test]
-    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiValveCase) {
+    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiLimiterCase) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2904,6 +2854,16 @@ mod tests {
             }
         }
 
+        #[async_trait::async_trait]
+        impl crate::outputs::PublishPrepared for RejectingSink {
+            async fn publish_prepared(
+                &self,
+                _events: Vec<crate::outputs::PreparedEvent>,
+            ) -> Vec<crate::sinks::sink::SinkResult> {
+                unreachable!("v0 endpoints publish events")
+            }
+        }
+
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -3241,7 +3201,7 @@ mod tests {
     // tests alone cover: stamp metadata in pipeline, ensure the real sink
     // reads the metadata and produces the expected topic, key, and headers.
 
-    use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+    use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
     use crate::sinks::producer::MockKafkaProducer;
 
     #[tokio::test]
@@ -3259,7 +3219,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
         // test_token in reroute list -> ForceLimited stamped in pipeline.
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
@@ -3279,7 +3239,7 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 1);
         assert_eq!(
-            records[0].topic, "events_plugin_ingestion_overflow",
+            &*records[0].topic, "events_plugin_ingestion_overflow",
             "ForceLimited must route to overflow topic"
         );
         assert_eq!(
@@ -3315,7 +3275,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
         // burst=1 => event[1] stamped RateLimited { preserve_locality }.
         let limiter = build_limiter(1, 1, None, preserve_locality);
@@ -3335,11 +3295,11 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 2);
         assert_eq!(
-            records[0].topic, "events_plugin_ingestion",
+            &*records[0].topic, "events_plugin_ingestion",
             "event[0]: within burst -> main topic"
         );
         assert_eq!(
-            records[1].topic, "events_plugin_ingestion_overflow",
+            &*records[1].topic, "events_plugin_ingestion_overflow",
             "event[1]: over burst -> overflow topic"
         );
         assert!(
@@ -3513,7 +3473,7 @@ mod tests {
 
     /// A `$cookieless_mode` event with heatmap data must produce a redirect
     /// that carries every property the cookieless identity hash reads in
-    /// `nodejs/src/ingestion/cookieless/cookieless-manager.ts`. Without
+    /// `nodejs/src/ingestion/common/cookieless/cookieless-manager.ts`. Without
     /// these, the ingestion pipeline emits `cookieless_missing_user_agent`
     /// against the redirect and silently drops every heatmap/scroll-depth
     /// data point from cookieless-mode customers.
@@ -3703,7 +3663,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         run_pipeline(outputs, events, &context, PipelineOptions::default())
@@ -3719,11 +3679,11 @@ mod tests {
 
         let original = records
             .iter()
-            .find(|r| r.topic == "events_plugin_ingestion")
+            .find(|r| &*r.topic == "events_plugin_ingestion")
             .expect("original event should land on the main events topic");
         let redirect = records
             .iter()
-            .find(|r| r.topic == "heatmaps")
+            .find(|r| &*r.topic == "heatmaps")
             .expect("redirect should land on the heatmaps topic");
 
         // ---- original on events topic ----
@@ -4070,6 +4030,16 @@ mod tests {
                 _events: Vec<ProcessedEvent>,
             ) -> Result<(), CaptureError> {
                 Err(CaptureError::RetryableSinkError)
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl crate::outputs::PublishPrepared for RejectingSink {
+            async fn publish_prepared(
+                &self,
+                _events: Vec<crate::outputs::PreparedEvent>,
+            ) -> Vec<crate::sinks::sink::SinkResult> {
+                unreachable!("v0 endpoints publish events")
             }
         }
 

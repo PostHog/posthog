@@ -181,6 +181,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         return {
             source: {
+                id: hogFunction.id,
                 name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
                 url: `${projectUrl}/functions/${hogFunction.id}`,
             },

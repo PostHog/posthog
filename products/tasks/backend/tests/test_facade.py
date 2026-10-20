@@ -7,12 +7,13 @@ from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import close_old_connections
-from django.test import TestCase, TransactionTestCase
+from django.db import close_old_connections, transaction
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
+from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
 from posthog.models.scoping import team_scope
@@ -28,6 +29,7 @@ from products.tasks.backend.facade import (
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
+    ChannelMembership,
     SandboxCustomImage,
     SandboxEnvironment,
     Task,
@@ -49,7 +51,7 @@ FACADE_MODULES = [
 ]
 
 
-class TestFacadeImports(TestCase):
+class TestFacadeImports(SimpleTestCase):
     @parameterized.expand([(m,) for m in FACADE_MODULES])
     def test_module_imports_and_all_symbols_resolve(self, module_path):
         module = importlib.import_module(module_path)
@@ -201,6 +203,50 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
         self.assertEqual(self.task.created_by_id, self.recipient.id)
 
 
+class TestUpsertInternalSandboxEnvConcurrency(TransactionTestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    def test_concurrent_upsert_reuses_the_row_another_caller_created(self) -> None:
+        results: list[UUID] = []
+        errors: list[BaseException] = []
+        finished = threading.Event()
+
+        def upsert() -> None:
+            close_old_connections()
+            try:
+                results.append(
+                    facade.upsert_internal_sandbox_env(
+                        self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+                    )
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                finished.set()
+                close_old_connections()
+
+        with transaction.atomic():
+            first_id = facade.upsert_internal_sandbox_env(
+                self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+            )
+            thread = threading.Thread(target=upsert)
+            thread.start()
+            self.assertFalse(finished.wait(timeout=1))
+        thread.join(timeout=10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(results, [first_id])
+        self.assertEqual(
+            list(
+                SandboxEnvironment.objects.filter(team_id=self.team.id, name="SIGNALS_X").values_list("id", flat=True)
+            ),
+            [first_id],
+        )
+
+
 class TestBootstrapTaskRun(TestCase):
     def test_invalid_cloud_origin_returns_validation_error(self) -> None:
         organization = Organization.objects.create(name="Legacy task org")
@@ -284,6 +330,8 @@ class TestFacadeReadsAndMappers(TestCase):
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
+                "unknown_server_context": {"title": "Saved context"},
+                "posthog_mcp_scopes": "read_only",
                 "task_summary": "Private workflow context",
                 "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["request-1"]}}},
                 "compute_cost": 2,
@@ -305,6 +353,8 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
+        assert "unknown_server_context" not in detail.state
+        assert "posthog_mcp_scopes" not in detail.state
         assert {"token_cost", "compute_cost", "token_cost_incomplete", "unprocessed_request_ids"}.isdisjoint(
             detail.state
         )
@@ -414,14 +464,85 @@ class TestFacadeReadsAndMappers(TestCase):
             ),
         }
 
-    def test_task_exists_and_visibility(self):
-        task = self._make_task()
+    @parameterized.expand([("ordinary", False), ("scout_trial", True), ("scout_judge", True, "scout-trial-judge:")])
+    def test_task_exists_and_visibility(self, _name: str, is_trial: bool, prefix: str = "scout-trial:") -> None:
+        task = self._make_task(
+            **{
+                "origin_product": Task.OriginProduct.SIGNALS_SCOUT,
+                "origin_key": f"{prefix}{uuid4()}:{uuid4()}",
+            }
+            if is_trial
+            else {}
+        )
         self.assertTrue(facade.task_exists(task.id, self.team.id))
         self.assertFalse(facade.task_exists(task.id, self.team.id + 999))
         # Creator can control it; an unrelated user cannot.
         self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
+        self.assertFalse(facade.task_visible(task.id, self.team.id, other_user.id))
+        if is_trial:
+            self.assertIsNone(facade.get_task_detail(task.id, self.team.id, other_user.id, bypass_visibility=True))
+            self.assertFalse(
+                facade.task_accessible_for_run_view(task.id, self.team.id, other_user.id, bypass_visibility=True)
+            )
+            self.assertTrue(
+                facade.task_accessible_for_run_view(
+                    task.id, self.team.id, other_user.id, bypass_visibility=True, sandbox_task_id=task.id
+                )
+            )
+
+    @parameterized.expand(
+        [
+            ("ordinary", False, False, False, True),
+            ("owner", True, False, False, True),
+            ("bound", True, True, True, True),
+            ("sibling", True, True, False, False),
+            ("legacy", True, True, None, False),
+        ]
+    )
+    def test_run_authorization_classifies_trial_in_one_lookup(
+        self, _name: str, is_trial: bool, sandbox: bool, bound: bool | None, allowed: bool
+    ) -> None:
+        task = self._make_task(
+            **{"origin_product": Task.OriginProduct.SIGNALS_SCOUT, "origin_key": f"scout-trial:{uuid4()}"}
+            if is_trial
+            else {}
+        )
+        reset_query_tags()
+        try:
+            with self.assertNumQueries(1):
+                result = facade.task_accessible_for_run_view(
+                    task.id,
+                    self.team.id,
+                    self.user.id,
+                    bypass_visibility=bool(bound),
+                    sandbox_request=sandbox,
+                    sandbox_task_id=(task.id if bound else uuid4()) if bound is not None and sandbox else None,
+                )
+            assert result is allowed
+            assert (get_query_tags().is_scout_experiment is True) == is_trial
+        finally:
+            reset_query_tags()
+
+    @parameterized.expand([("read", False), ("control", True)])
+    def test_run_authorization_checks_all_private_channel_members(self, _name: str, for_control: bool) -> None:
+        other_user = User.objects.create(email="channel-member@example.com", distinct_id="channel-member")
+        outsider = User.objects.create(email="channel-outsider@example.com", distinct_id="channel-outsider")
+        channel = Channel.objects.for_team(self.team.id).create(
+            team=self.team, name="Private", channel_type=Channel.ChannelType.PRIVATE, created_by=other_user
+        )
+        ChannelMembership.objects.for_team(self.team.id).bulk_create(
+            [
+                ChannelMembership(team=self.team, channel=channel, user=other_user),
+                ChannelMembership(team=self.team, channel=channel, user=self.user),
+            ]
+        )
+        task = self._make_task(channel=channel, created_by=self.user if for_control else other_user)
+
+        with self.assertNumQueries(1):
+            assert facade.task_accessible_for_run_view(task.id, self.team.id, self.user.id, for_control=for_control)
+        assert not facade.task_accessible_for_run_view(task.id, self.team.id, outsider.id, for_control=for_control)
 
     def test_task_control_runtime_and_origin_uses_control_predicate(self):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
@@ -1809,7 +1930,7 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
 
 
-class TestAppendLogAgentActivity(TestCase):
+class TestAppendLogAgentActivity(SimpleTestCase):
     # Guards the self-sustaining heartbeat loop: infra log lines (credential refresh ->
     # _posthog/console) heartbeating with agent_active=True reset the workflow's inactivity
     # timer on every write, so a run whose agent went silent could never time out.

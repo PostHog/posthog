@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Max
 
 from posthog.models import Team, User
@@ -402,7 +402,8 @@ def create_dataset(
 ) -> Dataset:
     normalized_metadata = metadata if metadata is not None else {}
     normalized_name = _validate_dataset_fields(name=name, description=description, metadata=normalized_metadata)
-    Team.objects.select_for_update().only("id").get(id=team.id)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"aio-dataset-allocation:{team.id}"])
     current_count = Dataset.objects.for_team(team.id, canonical=True).count()
     if current_count >= MAX_DATASETS_PER_TEAM:
         raise DatasetLimitExceeded(

@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product workflows
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product workflows --file ../../products/workflows/mcp/email_templates.yaml
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Workflows
 feature: workflows
 url_prefix: /workflows/library/templates
@@ -32,9 +30,11 @@ tools:
             user.
         exclude_params:
             - content.email.html
+            - draft_content
         response:
             exclude:
                 - content
+                - draft_content
                 - created_by
     workflows-get-email-template:
         operation: messaging_templates_retrieve
@@ -56,6 +56,7 @@ tools:
             exclude:
                 - content.email.html
                 - created_by
+                - draft_content
     workflows-list-email-templates:
         operation: messaging_templates_list
         enabled: true
@@ -75,6 +76,7 @@ tools:
             exclude:
                 - content
                 - created_by
+                - draft_content
     workflows-patch-email-template:
         operation: messaging_templates_design_partial_update
         enabled: true
@@ -102,6 +104,7 @@ tools:
             exclude:
                 - content
                 - created_by
+                - draft_content
     workflows-show-email-template:
         operation: messaging_templates_retrieve
         enabled: true
@@ -122,6 +125,7 @@ tools:
             exclude:
                 - content.email.design
                 - created_by
+                - draft_content
     workflows-update-email-template:
         operation: messaging_templates_partial_update
         enabled: true
@@ -143,7 +147,9 @@ tools:
             the returned _posthogUrl edit link.
         exclude_params:
             - content.email.html
+            - draft_content
         response:
             exclude:
                 - content
+                - draft_content
                 - created_by

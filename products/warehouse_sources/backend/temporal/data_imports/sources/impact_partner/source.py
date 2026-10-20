@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ImpactPartnerSource(ResumableSource[ImpactPartnerSourceConfig, ImpactPartnerResumeConfig]):
+    codebase_detection = detect(env=("^(IMPACT_PARTNER|IMPACTPARTNER)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = ("16",)
     default_version = "16"
@@ -141,7 +144,10 @@ If your account is a brand (advertiser) account, use the impact.com source inste
         ):
             return True, None
 
-        return False, "Invalid Impact.com Account SID or Auth Token"
+        return False, (
+            "Your impact.com Account SID or Auth token isn't valid for a partner account. "
+            "Check both values, or use the impact.com source for a brand account."
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ImpactPartnerResumeConfig]:
         return ResumableSourceManager[ImpactPartnerResumeConfig](inputs, ImpactPartnerResumeConfig)

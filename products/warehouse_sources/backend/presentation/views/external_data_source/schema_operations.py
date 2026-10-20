@@ -14,6 +14,8 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql.direct_sql.capability import is_direct_capable
+
 from posthog.api.utils import action
 from posthog.permissions import is_service_auth
 
@@ -21,10 +23,10 @@ from products.access_control.backend.facade.user_access_control import access_le
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
-    SCHEMA_RESOURCE_ID_METADATA_KEY,
     ExternalDataSchema,
     ExternalDataSource,
     auto_enable_new_schemas,
+    discovered_schema_finder,
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
@@ -235,7 +237,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
-                if instance.is_direct_query
+                if is_direct_capable(instance)
                 else instance.connection_metadata
             )
             schema_names = {s.name: s.label for s in schemas}
@@ -274,7 +276,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
-            if instance.is_direct_query and connection_metadata != instance.connection_metadata:
+            if connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
@@ -521,20 +523,11 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
 
         # Not every source honors the `names` filter, so match by name instead of order. Sheets are
         # discovered without that filter because a renamed worksheet is matched by its stable id.
-        discovered_by_name = {discovered_schema.name: discovered_schema for discovered_schema in discovered}
-        discovered_by_resource_id = {
-            str(resource_id): discovered_schema
-            for discovered_schema in discovered
-            if (resource_id := (discovered_schema.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY))
-            is not None
-        }
+        find_discovered_schema = discovered_schema_finder(discovered)
         defaulted_schema_ids: set[str] = set()
         for schema_update in needing_defaults:
             schema = source_schemas_by_id[schema_update["id"]]
-            stored_resource_id = (schema.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY)
-            discovered_schema = (
-                discovered_by_resource_id.get(str(stored_resource_id)) if stored_resource_id is not None else None
-            ) or discovered_by_name.get(schema.name)
+            discovered_schema = find_discovered_schema(schema.name, schema.schema_metadata)
             if discovered_schema is None:
                 failures[str(schema.id)] = (
                     schema.name,

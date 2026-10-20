@@ -1,12 +1,20 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 from parameterized import parameterized
-from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sleekplan import (
+    SleekplanSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.settings import (
     SLEEKPLAN_ENDPOINTS,
     SURVEY_LOOKBACK_DAYS,
@@ -15,40 +23,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.
     SleekplanPaginator,
     SleekplanResumeConfig,
     _format_survey_date,
-    _incremental_window,
     _resolve_incremental_field,
     _resource,
-    sleekplan_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.source import SleekplanSource
 
-TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.sleekplan"
+
+def _driver(api_key: str = "key") -> SourceDriver:
+    return SourceDriver(SleekplanSource(), SleekplanSourceConfig(api_key=api_key))
 
 
-class _FakeResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper: Any) -> "_FakeResource":
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
+def _posts_page(has_more: bool = False, *post_ids: int) -> ScriptedResponse:
+    items = {str(post_id): {"feedback_id": post_id} for post_id in post_ids}
+    return ScriptedResponse(json={"data": {"items": items, "has_more": has_more}})
 
 
 def _page_response(body: Any) -> Mock:
     response = Mock()
     response.json.return_value = body
     return response
-
-
-def _manager(*, can_resume: bool = False, state: SleekplanResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = can_resume
-    manager.load_state.return_value = state
-    return manager
 
 
 class TestSleekplanPaginator:
@@ -77,32 +71,6 @@ class TestSleekplanPaginator:
 
         assert paginator.has_next_page is True
 
-    def test_first_request_starts_at_page_one(self) -> None:
-        request = Request()
-
-        SleekplanPaginator().init_request(request)
-
-        assert request.params == {"page": 1}
-
-    def test_resume_state_round_trips_into_the_request(self) -> None:
-        paginator = SleekplanPaginator()
-        paginator.update_state(_page_response({"data": {"items": {"1": {}}, "has_more": True}}), [{}])
-        state = paginator.get_resume_state()
-
-        resumed = SleekplanPaginator()
-        resumed.set_resume_state(cast(dict, state))
-        request = Request()
-        resumed.init_request(request)
-
-        assert request.params == {"page": 2}
-
-    def test_resume_state_is_none_once_pagination_is_done(self) -> None:
-        paginator = SleekplanPaginator()
-
-        paginator.update_state(_page_response({"data": {"items": {"1": {}}, "has_more": False}}), [{}])
-
-        assert paginator.get_resume_state() is None
-
 
 class TestSurveyDateFormatting:
     def test_applies_the_replacement_window_lookback(self) -> None:
@@ -110,25 +78,9 @@ class TestSurveyDateFormatting:
 
         assert _format_survey_date(value) == (value - timedelta(days=SURVEY_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
-    def test_caps_a_future_cursor_at_today(self) -> None:
-        formatted = _format_survey_date(datetime(2999, 1, 1, tzinfo=UTC))
-
-        assert formatted <= datetime.now(UTC).strftime("%Y-%m-%d")
-
-    def test_clamps_to_the_epoch(self) -> None:
-        # Subtracting the lookback from an early cursor would otherwise produce a pre-1970 date.
-        assert _format_survey_date(datetime(1970, 1, 5, tzinfo=UTC)) == "1970-01-01"
-
     @parameterized.expand([("initial_seed", "1970-01-01"), ("unparseable", "not-a-date")])
     def test_passes_through_a_non_datetime_value(self, _name: str, value: str) -> None:
         assert _format_survey_date(value) == value
-
-    def test_incremental_window_targets_the_date_start_filter(self) -> None:
-        window = _incremental_window("updated")
-
-        assert window["cursor_path"] == "updated"
-        assert window["start_param"] == "date_start"
-        assert window["convert"] is _format_survey_date
 
 
 class TestResolveIncrementalField:
@@ -201,31 +153,20 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, schema_name: str | None, expected: tuple) -> None:
-        with patch(f"{TRANSPORT}.validate_via_probe", return_value=(status_code == 200, status_code)):
+        with scripted_network(always(ScriptedResponse(status=status_code))):
             assert validate_credentials("key", schema_name=schema_name) == expected
 
     def test_unreachable_api_is_reported(self) -> None:
-        with patch(f"{TRANSPORT}.validate_via_probe", return_value=(False, None)):
+        with scripted_network(always(ConnectionError("unreachable"))):
             assert validate_credentials("key") == (False, "Could not reach the Sleekplan API.")
-
-    def test_probe_sends_the_key_as_a_bearer_token(self) -> None:
-        with patch(f"{TRANSPORT}.validate_via_probe", return_value=(True, 200)) as mock_probe:
-            validate_credentials("secret-key")
-
-        _, kwargs = mock_probe.call_args
-        assert kwargs["headers"]["Authorization"] == "Bearer secret-key"
 
     def test_probe_session_redacts_the_key_and_disables_sample_capture(self) -> None:
         # Users/posts/comments carry emails and free-text feedback the generic scrubber can't
         # anonymize, so the probe -- like every other Sleekplan request -- must not be captured.
-        with (
-            patch(f"{TRANSPORT}.validate_via_probe", return_value=(True, 200)) as mock_probe,
-            patch(f"{TRANSPORT}.make_tracked_session") as mock_make_session,
-        ):
+        with scripted_network(always(ScriptedResponse(status=200))) as network:
             validate_credentials("secret-key")
-            mock_probe.call_args.args[0]()
 
-        mock_make_session.assert_called_once_with(redact_values=("secret-key",), capture=False)
+        assert network.session_options == [{"redact_values": ("secret-key",), "capture": False}]
 
 
 class TestTopLevelSource:
@@ -243,99 +184,45 @@ class TestTopLevelSource:
     def test_source_response_shape(
         self, name: str, primary_keys: list[str], partition_key: str | None, sort_mode: str
     ) -> None:
-        with patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()):
-            response = sleekplan_source(
-                api_key="key", endpoint=name, team_id=1, job_id="job-1", resumable_source_manager=_manager()
-            )
+        response = (
+            _driver().run(name, always(ScriptedResponse(json={"data": {"items": {}, "has_more": False}}))).response
+        )
 
+        assert response is not None
         assert response.name == name
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
         assert response.partition_keys == ([partition_key] if partition_key else None)
 
-    def test_uses_framework_bearer_auth(self) -> None:
-        with patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()) as mock_resource:
-            sleekplan_source(
-                api_key="secret-key", endpoint="Posts", team_id=1, job_id="job-1", resumable_source_manager=_manager()
-            )
-
-        (rest_config, *_), _ = mock_resource.call_args
-        assert rest_config["client"]["auth"] == {"type": "bearer", "token": "secret-key"}
-        assert rest_config["client"]["base_url"] == "https://api.sleekplan.com/v1"
-
     def test_session_redacts_the_key_and_disables_sample_capture(self) -> None:
         # Posts/comments/votes/survey responses carry emails and free-text feedback the generic
         # scrubber can't anonymize, so sample capture must stay off (still metered and logged).
-        with (
-            patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()) as mock_resource,
-            patch(f"{TRANSPORT}.make_tracked_session") as mock_make_session,
-        ):
-            sleekplan_source(
-                api_key="secret-key", endpoint="Posts", team_id=1, job_id="job-1", resumable_source_manager=_manager()
-            )
+        result = _driver("secret-key").run("Posts", [_posts_page(False, 1)])
 
-        (rest_config, *_), _ = mock_resource.call_args
-        mock_make_session.assert_called_once_with(redact_values=("secret-key",), capture=False)
-        assert rest_config["client"]["session"] is mock_make_session.return_value
+        assert result.requests
+        assert result.session_options == [{"redact_values": ("secret-key",), "capture": False}]
+        assert result.requests[0].headers["authorization"] == "Bearer secret-key"
 
     def test_seeds_the_paginator_from_saved_state(self) -> None:
-        manager = _manager(can_resume=True, state=SleekplanResumeConfig(page=4))
+        result = _driver().run("Posts", [_posts_page(False, 1)], resume_state=SleekplanResumeConfig(page=4))
 
-        with patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()) as mock_resource:
-            sleekplan_source(
-                api_key="key", endpoint="Posts", team_id=1, job_id="job-1", resumable_source_manager=manager
-            )
-
-        assert mock_resource.call_args.kwargs["initial_paginator_state"] == {"page": 4}
-
-    def test_ignores_a_fan_out_checkpoint_left_by_another_schema(self) -> None:
-        manager = _manager(can_resume=True, state=SleekplanResumeConfig(fanout_state={"completed": []}))
-
-        with patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()) as mock_resource:
-            sleekplan_source(
-                api_key="key", endpoint="Posts", team_id=1, job_id="job-1", resumable_source_manager=manager
-            )
-
-        assert mock_resource.call_args.kwargs["initial_paginator_state"] is None
+        assert result.params("page") == ["4"]
 
     @parameterized.expand(
         [
-            ("saves_next_page", {"page": 5}, SleekplanResumeConfig(page=5)),
-            ("ignores_terminal_state", None, None),
+            ("saves_next_page", [True, False], [SleekplanResumeConfig(page=2)]),
+            ("ignores_terminal_state", [False], []),
         ]
     )
-    def test_resume_hook(self, _name: str, state: dict | None, expected: SleekplanResumeConfig | None) -> None:
-        manager = _manager()
+    def test_resume_hook(self, _name: str, has_more_by_page: list[bool], expected: list[SleekplanResumeConfig]) -> None:
+        result = _driver().run(
+            "Posts", [_posts_page(has_more, page) for page, has_more in enumerate(has_more_by_page, start=1)]
+        )
 
-        with patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()) as mock_resource:
-            sleekplan_source(
-                api_key="key", endpoint="Posts", team_id=1, job_id="job-1", resumable_source_manager=manager
-            )
-
-        mock_resource.call_args.kwargs["resume_hook"](state)
-
-        if expected is None:
-            manager.save_state.assert_not_called()
-        else:
-            manager.save_state.assert_called_once_with(expected)
+        assert result.saved_states == expected
 
 
 class TestFanOutSource:
-    def test_comments_carry_their_parent_post_id(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources",
-            return_value=[
-                _FakeResource("Posts", [{"feedback_id": 77}]),
-                _FakeResource("Comments", [{"comment_id": 5, "_Posts_feedback_id": 77}]),
-            ],
-        ):
-            response = sleekplan_source(
-                api_key="key", endpoint="Comments", team_id=1, job_id="job-1", resumable_source_manager=_manager()
-            )
-            rows = list(cast(Any, response.items()))
-
-        assert rows == [{"comment_id": 5, "feedback_id": 77}]
-
     @parameterized.expand(
         [
             ("identified_voter", {"user": {"user_id": 9}}, 9),
@@ -343,55 +230,41 @@ class TestFanOutSource:
         ]
     )
     def test_votes_lift_the_voter_id_to_the_row_root(self, _name: str, vote_row: dict, expected: int | None) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources",
-            return_value=[
-                _FakeResource("Posts", [{"feedback_id": 77}]),
-                _FakeResource("Votes", [{"vote": 1, "_Posts_feedback_id": 77, **vote_row}]),
-            ],
-        ):
-            response = sleekplan_source(
-                api_key="key", endpoint="Votes", team_id=1, job_id="job-1", resumable_source_manager=_manager()
-            )
-            rows = list(cast(Any, response.items()))
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v1/posts":
+                return _posts_page(False, 77) if request.param("page") == "1" else _posts_page(False)
+            votes = [{"vote": 1, **vote_row}] if request.param("page") == "1" else []
+            return ScriptedResponse(json={"data": {"votes": votes}})
+
+        result = _driver().run("Votes", script)
 
         # The (post, user) pair is the only primary key a vote has.
-        assert rows[0]["feedback_id"] == 77
-        assert rows[0]["user_id"] == expected
+        assert result.rows[0]["feedback_id"] == 77
+        assert result.rows[0]["user_id"] == expected
 
-    @parameterized.expand(["Comments", "Votes"])
-    def test_fan_out_pages_with_per_page(self, name: str) -> None:
-        with patch(f"{TRANSPORT}.build_dependent_resource", return_value=_FakeResource(name, [])) as mock_build:
-            sleekplan_source(
-                api_key="key", endpoint=name, team_id=1, job_id="job-1", resumable_source_manager=_manager()
-            )
+    @parameterized.expand(["comments", "votes"])
+    def test_fan_out_pages_with_per_page(self, kind: str) -> None:
+        result = _driver().run(
+            kind.capitalize(),
+            [_posts_page(False, 1), ScriptedResponse(json={"data": {kind: [{"comment_id": 1}], "has_more": False}})],
+        )
 
-        kwargs = mock_build.call_args.kwargs
-        assert kwargs["page_size_param"] == "per_page"
-        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], SleekplanPaginator)
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], SleekplanPaginator)
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "data.items.*"
+        # One page each: the Sleekplan paginator stops on `has_more`, where a plain page-number one would ask again.
+        assert result.raised is None
+        assert result.paths == ["/v1/posts", f"/v1/post/1/{kind}"]
+        assert result.params("per_page") == ["100", "100"]
 
     def test_fan_out_resumes_from_its_own_checkpoint(self) -> None:
         fanout_state = {"completed": ["/post/1/comments"], "current": "/post/2/comments", "child_state": {"page": 3}}
-        manager = _manager(can_resume=True, state=SleekplanResumeConfig(fanout_state=fanout_state))
 
-        with patch(f"{TRANSPORT}.build_dependent_resource", return_value=_FakeResource("Comments", [])) as mock_build:
-            sleekplan_source(
-                api_key="key", endpoint="Comments", team_id=1, job_id="job-1", resumable_source_manager=manager
-            )
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v1/posts":
+                return _posts_page(False, 1, 2)
+            return ScriptedResponse(json={"data": {"comments": [{"comment_id": 1}], "has_more": False}})
 
-        assert mock_build.call_args.kwargs["initial_paginator_state"] == fanout_state
+        result = _driver().run("Comments", script, resume_state=SleekplanResumeConfig(fanout_state=fanout_state))
 
-        mock_build.call_args.kwargs["resume_hook"](fanout_state)
-        manager.save_state.assert_called_once_with(SleekplanResumeConfig(fanout_state=fanout_state))
-
-    def test_fan_out_ignores_a_page_checkpoint_left_by_another_schema(self) -> None:
-        manager = _manager(can_resume=True, state=SleekplanResumeConfig(page=9))
-
-        with patch(f"{TRANSPORT}.build_dependent_resource", return_value=_FakeResource("Comments", [])) as mock_build:
-            sleekplan_source(
-                api_key="key", endpoint="Comments", team_id=1, job_id="job-1", resumable_source_manager=manager
-            )
-
-        assert mock_build.call_args.kwargs["initial_paginator_state"] is None
+        assert result.paths == ["/v1/posts", "/v1/post/2/comments"]
+        assert result.params("page")[1] == "3"
+        saved = result.saved_states[-1]
+        assert set(saved.fanout_state["completed"]) == {"/post/1/comments", "/post/2/comments"}

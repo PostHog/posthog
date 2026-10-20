@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LobSource(ResumableSource[LobSourceConfig, LobResumeConfig]):
+    codebase_detection = detect(
+        env=("^LOB_API_KEY$",),
+        npm=("lob", "@lob/lob-typescript-sdk"),
+        pypi=("lob", "lob-python"),
+        composer=("lob/lob-php",),
+        go=("github.com/lob/lob-go",),
+        maven=("com.lob:lob-java",),
+        rubygems=("lob",),
+    )
+
     api_docs_url = "https://docs.lob.com/"
 
     @property

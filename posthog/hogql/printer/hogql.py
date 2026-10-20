@@ -109,13 +109,23 @@ class HogQLPrinter(BasePrinter):
         return self._print_identifier(table_type.table.to_printed_hogql())
 
     def _render_untyped_join_expr(self, node: ast.JoinExpr) -> list[str]:
-        parts = [self.visit(node.table)]
+        table = self.visit(node.table)
+        if node.table_args is not None:
+            table = f"{table}({', '.join(self.visit(arg) for arg in node.table_args)})"
+        parts = [table]
         if node.alias is not None:
             parts.append(f"AS {self._print_identifier(node.alias)}")
         return parts
 
     def _expands_placeholder_macros(self) -> bool:
         return False
+
+    def visit_call(self, node: ast.Call):
+        if node.name.lower() == "sha1":
+            connection_function = self._render_connection_supported_function(node)
+            if connection_function is not None:
+                return connection_function
+        return super().visit_call(node)
 
     def _render_connection_supported_function(self, node: ast.Call) -> str | None:
         if node.name.lower() in self._get_connection_supported_functions():

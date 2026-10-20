@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
@@ -17,9 +17,10 @@ import {
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { getMCPPropertyFilterOptions } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -692,9 +693,21 @@ describe('taxonomicFilterLogic', () => {
                 barrierLogic.actions.setSearchQuery('whatever')
             }).toMatchValues({ revealBarrierOpen: false })
 
+            const captureSpy = jest.spyOn(posthog, 'capture')
             await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
             await expectLogic(barrierLogic).toDispatchActions(['openRevealBarrier']).delay(1)
             expect(barrierLogic.values.revealBarrierOpen).toBe(true)
+
+            const latencyCalls = captureSpy.mock.calls.filter(([event]) => event === 'taxonomic filter search latency')
+            expect(latencyCalls).toHaveLength(1)
+            expect(latencyCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.SuggestedFilters,
+                searchQuery: 'whatever',
+                time_to_see_data_ms: expect.any(Number),
+                revealedBy: 'all_groups_settled',
+                pendingGroupTypes: [],
+            })
+            captureSpy.mockRestore()
         })
     })
 
@@ -1004,14 +1017,11 @@ describe('taxonomicFilterLogic', () => {
     describe('events whose data is moving out of the events table', () => {
         const HIDDEN_EVENT = '$feature_flag_called'
 
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
-        const eventsGroupExclusions = (props: Record<string, any>): (string | null)[] => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true,
-            })
+        const eventsGroupExclusions = (
+            props: Record<string, any>,
+            mode: FlagEvaluationsModeEnumApi = FlagEvaluationsModeEnumApi.Number1
+        ): (string | null)[] => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
             const testLogic = taxonomicFilterLogic({
                 taxonomicFilterLogicKey: `hidden-events-${JSON.stringify(props)}`,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
@@ -1031,8 +1041,11 @@ describe('taxonomicFilterLogic', () => {
             expect(eventsGroupExclusions({})).toContain(HIDDEN_EVENT)
         })
 
-        it('offers them to a picker that opts out', () => {
-            expect(eventsGroupExclusions({ includeHiddenEvents: true })).not.toContain(HIDDEN_EVENT)
+        it.each([
+            ['a team on the Events mode', {}, FlagEvaluationsModeEnumApi.Number0],
+            ['a picker that opts out', { includeHiddenEvents: true }, FlagEvaluationsModeEnumApi.Number1],
+        ])('offers them to %s', (_label, props, mode) => {
+            expect(eventsGroupExclusions(props, mode)).not.toContain(HIDDEN_EVENT)
         })
 
         // Cohorts exclude "All events" and transformations exclude $exception; adding ours must not
@@ -1047,6 +1060,46 @@ describe('taxonomicFilterLogic', () => {
     })
 
     describe('SuggestedFilters presence', () => {
+        it.each([
+            { restriction: 'none', props: {}, expected: true },
+            {
+                restriction: 'exclusion',
+                props: { excludedProperties: { [TaxonomicFilterGroupType.EventProperties]: ['$pathname'] } },
+                expected: false,
+            },
+            {
+                restriction: 'allowlist mismatch',
+                props: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: ['$host'] } },
+                expected: false,
+            },
+            {
+                restriction: 'empty allowlist',
+                props: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: [] } },
+                expected: false,
+            },
+            {
+                restriction: 'allowlist match',
+                props: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: ['$pathname'] } },
+                expected: true,
+            },
+            { restriction: 'numeric properties only', props: { showNumericalPropsOnly: true }, expected: false },
+        ])('offers a primary property in Suggested with $restriction', ({ restriction, props, expected }) => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: `testPrimary-${restriction}`,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                eventNames: ['$pageview'],
+                ...props,
+            })
+            testLogic.mount()
+
+            const suggested = testLogic.values.taxonomicGroups.find(
+                (group) => group.type === TaxonomicFilterGroupType.SuggestedFilters
+            )
+            expect(suggested?.options?.some((option) => option.name === '$pathname')).toBe(expected)
+
+            testLogic.unmount()
+        })
+
         it.each([
             {
                 description: 'keeps SuggestedFilters when explicitly listed in a multi-group picker',
@@ -1065,15 +1118,15 @@ describe('taxonomicFilterLogic', () => {
                 expectDefault: true,
             },
             {
-                description: 'does not add SuggestedFilters for a single substantive group',
+                description: 'adds SuggestedFilters after a single substantive group without making it the default',
                 groupTypes: [TaxonomicFilterGroupType.Events],
-                expectPresent: false,
+                expectPresent: true,
                 expectDefault: false,
             },
             {
-                description: 'strips explicitly listed SuggestedFilters for a single substantive group',
+                description: 'moves explicitly listed SuggestedFilters after a single substantive group',
                 groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                expectPresent: false,
+                expectPresent: true,
                 expectDefault: false,
             },
         ])('$description', ({ groupTypes, expectPresent, expectDefault }) => {
@@ -1095,6 +1148,69 @@ describe('taxonomicFilterLogic', () => {
 
             testLogic.unmount()
         })
+    })
+
+    describe('search-only groups', () => {
+        it.each([
+            {
+                picker: 'property picker',
+                groupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                ],
+                hidden: [TaxonomicFilterGroupType.EmailAddresses],
+                shown: [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.PageviewUrls],
+            },
+            {
+                picker: 'series picker',
+                groupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                ],
+                hidden: [
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                ],
+                shown: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            },
+            {
+                picker: 'picker of a search-only group and a meta group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses, TaxonomicFilterGroupType.HogQLExpression],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+            {
+                picker: 'picker of only a search-only group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+        ])(
+            'keeps search-only groups searched but out of the categories in a $picker',
+            ({ picker, groupTypes, hidden, shown }) => {
+                const testLogic = taxonomicFilterLogic({
+                    taxonomicFilterLogicKey: `testSearchOnly-${picker}`,
+                    taxonomicGroupTypes: groupTypes,
+                })
+                testLogic.mount()
+
+                for (const groupType of hidden) {
+                    expect(testLogic.values.categoryGroupTypes).not.toContain(groupType)
+                    expect(testLogic.values.taxonomicGroupTypes).toContain(groupType)
+                }
+                for (const groupType of shown) {
+                    expect(testLogic.values.categoryGroupTypes).toContain(groupType)
+                }
+
+                testLogic.unmount()
+            }
+        )
     })
 
     describe('searchPlaceholder', () => {
@@ -1200,19 +1316,21 @@ describe('taxonomicFilterLogic', () => {
                 ],
             },
             {
-                description: 'single substantive group leads, with Recent/Pinned after it (no All)',
+                description: 'single substantive group leads, with Suggested then Recent/Pinned after it',
                 groupTypes: [TaxonomicFilterGroupType.Events],
                 expected: [
                     TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PinnedFilters,
                 ],
             },
             {
-                description: 'single substantive group drops an explicitly-prepended All and still leads',
+                description: 'single substantive group moves an explicitly-prepended All after it',
                 groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
                 expected: [
                     TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PinnedFilters,
                 ],

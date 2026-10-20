@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -25,6 +26,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KernelSource(SimpleSource[KernelSourceConfig]):
+    codebase_detection = detect(
+        env=("^KERNEL_API_KEY$", "^KERNEL_ORG_API_KEY$"),
+        npm=("@onkernel/sdk",),
+        pypi=("kernel",),
+        go=("github.com/kernel/kernel-go-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
     api_docs_url = "https://onkernel.com/docs/"
 
@@ -86,11 +94,13 @@ You can create an API key in your [Kernel dashboard](https://dashboard.onkernel.
             endpoint_config = KERNEL_ENDPOINTS[endpoint]
             return SourceSchema(
                 name=endpoint,
-                # Full refresh only - Kernel's server-side time filters are unverified for this
-                # alpha release, so no incremental/append sync mode is offered yet.
-                supports_incremental=False,
+                # Only audit_logs has a server-side time filter (its required `start`). The other
+                # endpoints stay full refresh, since their time filters are unverified for this
+                # alpha release. Append is not offered: an incremental audit-log sync re-reads
+                # the records at the watermark, which merge dedupes and append would duplicate.
+                supports_incremental=bool(endpoint_config.incremental_fields),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=endpoint_config.incremental_fields,
                 should_sync_default=endpoint_config.should_sync_default,
                 description=endpoint_config.description,
             )
@@ -125,4 +135,7 @@ You can create an API key in your [Kernel dashboard](https://dashboard.onkernel.
             api_key=config.api_key,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )

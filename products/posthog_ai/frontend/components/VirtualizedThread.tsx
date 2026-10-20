@@ -15,6 +15,9 @@ import {
 
 import { cn } from 'lib/utils/css-classes'
 
+import { FlowRows } from './FlowRows'
+import { VirtualizedThreadRowContext, type VirtualizedThreadRowContextValue } from './VirtualizedThreadRowContext'
+
 /**
  * Slack the virtualizer core is allowed to treat as "at the end" while the thread is pinned, so its own
  * growth compensation still smooths streaming that lands between our follow writes. Deliberately *not*
@@ -40,6 +43,16 @@ const AT_BOTTOM_EPSILON = 1
 
 /** The core snaps its own scroll writes to within 1.5px of their target — below that is never the reader. */
 const UNPIN_SLACK = 1.5
+
+/**
+ * True when the offset moved after the last scroll event `onScroll` handled or the last software write
+ * (`lastSeenTop`). The browser dispatches scroll events once per frame, so a timer can run after a reader's
+ * scroll and before its event. A timer write there erases the reader's scroll, and `onScroll` then takes the
+ * late event for the write's echo. A hidden scroller reads 0 and fires no event, so it never reports a move.
+ */
+function hasUnseenScroll(el: HTMLElement, lastSeenTop: number): boolean {
+    return el.clientHeight > 0 && Math.abs(el.scrollTop - lastSeenTop) > UNPIN_SLACK
+}
 
 /**
  * How long a recorded programmatic scroll write explains the scroll event it causes. Events land on the
@@ -110,12 +123,7 @@ interface RootContextValue {
     virtualized: boolean
 }
 
-interface RowContextValue {
-    index: number
-}
-
 const RootContext = createContext<RootContextValue | null>(null)
-const RowContext = createContext<RowContextValue | null>(null)
 
 /**
  * Virtualized row shell: publishes the row index via context and defers content to `renderRow`. Row
@@ -129,8 +137,8 @@ const InternalRow = memo(function InternalRow({
     index: number
     renderRow: (index: number) => ReactNode
 }): JSX.Element {
-    const value = useMemo<RowContextValue>(() => ({ index }), [index])
-    return <RowContext.Provider value={value}>{renderRow(index)}</RowContext.Provider>
+    const value = useMemo<VirtualizedThreadRowContextValue>(() => ({ index }), [index])
+    return <VirtualizedThreadRowContext.Provider value={value}>{renderRow(index)}</VirtualizedThreadRowContext.Provider>
 })
 
 export interface VirtualizedThreadRootProps<T> {
@@ -259,6 +267,8 @@ function Root<T>({
     const lastUserScrollAtRef = useRef(0)
     // The previous scroll event's offset — how the listener recognizes a shrink clamp (see `onScroll`).
     const lastScrollEventTopRef = useRef<number | null>(null)
+    // The offset as of the last scroll event or software scroll write (see `hasUnseenScroll`).
+    const lastSeenTopRef = useRef(0)
     // Keeps following for a beat after the turn reports done, so the trailing usage/cost row lands in
     // view (see `FOLLOW_GRACE_MS`).
     const [followGrace, setFollowGrace] = useState(false)
@@ -272,6 +282,15 @@ function Root<T>({
     itemsLengthRef.current = items.length
     // `undefined` means "thread not yet populated" — the anchor-change effect adopts the first real key.
     const prevAnchorKeyRef = useRef<string | null | undefined>(undefined)
+
+    const recordScrollWrite = useCallback((applied: number): void => {
+        lastSeenTopRef.current = applied
+        const writes = programmaticScrollsRef.current
+        writes.push({ value: applied, at: performance.now() })
+        if (writes.length > 12) {
+            writes.splice(0, writes.length - 12)
+        }
+    }, [])
 
     const renderRow = useCallback(
         (index: number): ReactNode => {
@@ -359,17 +378,12 @@ function Root<T>({
         // measurement — no stale-offset overlap while rows measure, and React re-renders only on range change.
         directDomUpdates: true,
         // The default `elementScroll`, wrapped so every scroll write the core performs is recorded for
-        // the scroll listener's programmatic-vs-reader test (see `programmaticScrollsRef`). Recorded
-        // *after* the write, from the element — `scrollTo` applies synchronously, so this is the value
-        // the write actually produced, clamping included.
+        // the scroll listener's programmatic-vs-reader test (see `programmaticScrollsRef`) and for
+        // `hasUnseenScroll` (see `lastSeenTopRef`). Recorded *after* the write, from the element — `scrollTo`
+        // applies synchronously, so this is the value the write actually produced, clamping included.
         scrollToFn: (offset, options, instance) => {
             elementScroll(offset, options, instance)
-            const applied = instance.scrollElement?.scrollTop ?? offset + (options.adjustments ?? 0)
-            const writes = programmaticScrollsRef.current
-            writes.push({ value: applied, at: performance.now() })
-            if (writes.length > 12) {
-                writes.splice(0, writes.length - 12)
-            }
+            recordScrollWrite(instance.scrollElement?.scrollTop ?? offset + (options.adjustments ?? 0))
         },
         // No `gap` — inter-row spacing is baked into the measured row height via `paddingBottom` (see `Row`).
         ...(stickToBottom
@@ -489,12 +503,8 @@ function Root<T>({
     const noteProgrammaticScroll = useCallback((): void => {
         const top = scrollRef.current?.scrollTop ?? 0
         peakTopRef.current = top
-        const writes = programmaticScrollsRef.current
-        writes.push({ value: top, at: performance.now() })
-        if (writes.length > 12) {
-            writes.splice(0, writes.length - 12)
-        }
-    }, [])
+        recordScrollWrite(top)
+    }, [recordScrollWrite])
 
     // Hold an unpinned anchor landing steady while the thread's measurements settle (see the settle
     // constants). Re-asserts via `scrollToIndex` so the corrective write re-computes the offset from the
@@ -510,7 +520,11 @@ function Root<T>({
                     return
                 }
                 const target = virtualizer.getOffsetForIndex(anchorIndex, 'start')?.[0]
-                if (target !== undefined && Math.abs(el.scrollTop - target) > ANCHOR_SETTLE_TOLERANCE_PX) {
+                if (
+                    target !== undefined &&
+                    !hasUnseenScroll(el, lastSeenTopRef.current) &&
+                    Math.abs(el.scrollTop - target) > ANCHOR_SETTLE_TOLERANCE_PX
+                ) {
                     virtualizer.scrollToIndex(anchorIndex, { align: 'start' })
                     noteProgrammaticScroll()
                 }
@@ -554,16 +568,13 @@ function Root<T>({
                 if (viewport > 0 && contentBelow >= viewport) {
                     return
                 }
-                if (itemsLengthRef.current !== itemsAtOpen) {
-                    commitBottomOpen(el)
-                    return
-                }
                 remaining -= 1
-                if (remaining > 0) {
+                const verdictDue = itemsLengthRef.current !== itemsAtOpen || remaining === 0
+                if (verdictDue && !hasUnseenScroll(el, lastSeenTopRef.current)) {
+                    commitBottomOpen(el)
+                } else if (remaining > 0) {
                     setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
-                    return
                 }
-                commitBottomOpen(el)
             }
             setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
         },
@@ -769,6 +780,7 @@ function Root<T>({
         }
         const onScroll = (): void => {
             const top = el.scrollTop
+            lastSeenTopRef.current = top
             const maxTop = Math.max(0, el.scrollHeight - el.clientHeight)
             // Content shrinking under the reader — a tool card's accordion collapsing the moment the tool
             // completes, which on this surface is every finished tool — lowers the scroll range, and the
@@ -819,12 +831,16 @@ function Root<T>({
         el.addEventListener('wheel', onWheel, { passive: true })
         el.addEventListener('touchstart', onTouchStart, { passive: true })
         el.addEventListener('touchmove', onTouchMove, { passive: true })
-        el.addEventListener('scroll', onScroll, { passive: true })
+        // Capture phase, so this listener runs before the virtualizer's own scroll listener on the same
+        // element. That listener re-renders this component synchronously when the reader's scroll changes the
+        // rendered range, and the follow effect in that re-render would write the bottom back while the
+        // thread still counts as pinned.
+        el.addEventListener('scroll', onScroll, { passive: true, capture: true })
         return () => {
             el.removeEventListener('wheel', onWheel)
             el.removeEventListener('touchstart', onTouchStart)
             el.removeEventListener('touchmove', onTouchMove)
-            el.removeEventListener('scroll', onScroll)
+            el.removeEventListener('scroll', onScroll, { capture: true })
         }
         // Deliberately not keyed on the pinned state: re-subscribing mid-gesture would reset the peak
         // baseline, which is the one thing that has to survive a gesture.
@@ -896,17 +912,18 @@ function Root<T>({
         }
     }, [virtualized, stickToBottom, noteProgrammaticScroll])
 
+    const lastIndex = virtualized ? rowCount - 1 : -1
     const rootValue = useMemo<RootContextValue>(
         () => ({
             measureElement: virtualizer.measureElement,
             gap,
-            lastIndex: rowCount - 1,
+            lastIndex,
             maxWidthClassName,
             virtualized,
             isFollowing: stickToBottom && (!virtualized || pinned),
             pauseFollowing: () => setPinned(false),
         }),
-        [virtualizer, gap, rowCount, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
+        [virtualizer, gap, lastIndex, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
     )
 
     // Flow mode: render rows directly so an ancestor scroll container (and its auto-scroller) keeps working.
@@ -915,21 +932,14 @@ function Root<T>({
     if (!virtualized) {
         return (
             <RootContext.Provider value={rootValue}>
-                {hasHeader && (
-                    <RowContext.Provider key="header" value={{ index: 0 }}>
-                        {header}
-                    </RowContext.Provider>
-                )}
-                {items.map((item, index) => (
-                    <RowContext.Provider key={getItemKey(item, index)} value={{ index }}>
-                        {children(item, index)}
-                    </RowContext.Provider>
-                ))}
-                {hasFooter && (
-                    <RowContext.Provider key="footer" value={{ index: rowCount - 1 }}>
-                        {footer}
-                    </RowContext.Provider>
-                )}
+                <FlowRows
+                    items={items}
+                    getItemKey={getItemKey}
+                    header={hasHeader ? header : null}
+                    footer={hasFooter ? footer : null}
+                    footerIndex={rowCount - 1}
+                    render={children}
+                />
             </RootContext.Provider>
         )
     }
@@ -970,7 +980,7 @@ function Root<T>({
  */
 function Row({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
     const root = useContext(RootContext)
-    const row = useContext(RowContext)
+    const row = useContext(VirtualizedThreadRowContext)
     if (!root || !row) {
         throw new Error('VirtualizedThread.Row must be rendered inside VirtualizedThread.Root')
     }

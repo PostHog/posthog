@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -17,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.better_sta
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import (
     BETTER_STACK_ENDPOINTS,
+    BETTER_STACK_V2,
+    BETTER_STACK_V3,
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -38,8 +43,40 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResumeConfig]):
-    supported_versions = ("v2",)
-    default_version = "v2"
+    # Logtail is Better Stack's log product - same account, same source.
+    codebase_detection = detect(
+        env=(
+            "^BETTERSTACK_",
+            "^BETTER_STACK_",
+            "^LOGTAIL_",
+            "^NEXT_PUBLIC_BETTER_STACK_",
+            "^BETTERUPTIME_API_TOKEN$",
+            "^NEXT_PUBLIC_LOGTAIL_SOURCE_TOKEN$",
+            "^NEXT_PUBLIC_LOGTAIL_URL$",
+        ),
+        script_hosts=("betterstack.net", "uptime.betterstack.com", "betteruptime.com"),
+        npm=(
+            "@logtail/node",
+            "@logtail/js",
+            "@logtail/browser",
+            "@logtail/next",
+            "@logtail/winston",
+            "@logtail/pino",
+            "@logtail/bunyan",
+            "@logtail/edge",
+            "@logtail/koa",
+            "@logtail/core",
+        ),
+        pypi=("logtail-python",),
+        composer=("logtail/monolog-logtail",),
+        go=("github.com/BetterStackHQ/slog-betterstack",),
+        maven=("com.logtail:logback-logtail",),
+        rubygems=("logtail", "logtail-rails", "logtail-rack", "logtail-ruby", "fluent-plugin-logtail"),
+        alternative_to=(ProductKey.LOGS,),
+    )
+
+    supported_versions = (BETTER_STACK_V2, BETTER_STACK_V3)
+    default_version = BETTER_STACK_V3
     api_docs_url = "https://betterstack.com/docs/uptime/api/getting-started-with-uptime-api/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -127,7 +164,7 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        status = probe_credentials(config.api_token, schema_name)
+        status = probe_credentials(config.api_token, self.resolve_api_version(api_version), schema_name)
 
         if status == 200:
             return True, None
@@ -156,6 +193,7 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

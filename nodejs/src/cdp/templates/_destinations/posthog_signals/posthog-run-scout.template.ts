@@ -55,7 +55,7 @@ return run
             // A missing or unrunnable scout answers 404, deliberately NOT listed here, so a
             // misconfigured node fails loudly.
             // required (despite being hidden): the backend only fills a schema default for a
-            // required input (posthog/cdp/validation.py), and an API- or MCP-built step has no
+            // required input (products/cdp/backend/validation.py), and an API- or MCP-built step has no
             // editor to pre-fill this from the template, so it would otherwise publish with the
             // field unset and fail its workflow on ordinary backpressure instead of skipping.
             key: 'non_failure_status_codes',

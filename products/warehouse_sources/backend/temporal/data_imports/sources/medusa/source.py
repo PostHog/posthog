@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,10 +42,19 @@ CAPTION = """Sync orders, products, customers and more from your self-hosted Med
 Requires Medusa v2. Create a secret API key in your Medusa Admin dashboard under **Settings > Secret API Keys**, then enter it here with your server's URL. Publishable API keys only work with the Store API and will not work here."""
 
 REJECTED_KEY_MESSAGE = "Medusa rejected the API key. Check that you're using a secret API key from a Medusa v2 server, not a publishable key."
+HTTPS_REQUIRED_MESSAGE = "The Medusa server URL must use HTTPS so your API key is not sent in the clear. Update the server URL and reconnect."
+INVALID_URL_MESSAGE = (
+    "The Medusa server URL is invalid. Enter your server's public URL, e.g. https://store.example.com, and reconnect."
+)
 
 
 @SourceRegistry.register
 class MedusaSource(ResumableSource[MedusaSourceConfig, MedusaResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^MEDUSA_", "^NEXT_PUBLIC_MEDUSA_"),
+        npm=("@medusajs/medusa", "@medusajs/js-sdk", "@medusajs/framework", "@medusajs/medusa-js", "medusa-react"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
 
     # The v2 Admin API carries no version token on the wire (no version path segment, header,
@@ -102,8 +112,8 @@ class MedusaSource(ResumableSource[MedusaSourceConfig, MedusaResumeConfig], Vali
         return {
             "401 Client Error": f"{REJECTED_KEY_MESSAGE} Then reconnect.",
             "403 Client Error": "The API key does not have access to this data. Check the key in your Medusa Admin dashboard, then reconnect.",
-            HTTPS_REQUIRED_ERROR: "The Medusa server URL must use HTTPS so your API key is not sent in the clear. Update the server URL and reconnect.",
-            INVALID_URL_ERROR: "The Medusa server URL is invalid. Enter your server's public URL, e.g. https://store.example.com, and reconnect.",
+            HTTPS_REQUIRED_ERROR: HTTPS_REQUIRED_MESSAGE,
+            INVALID_URL_ERROR: INVALID_URL_MESSAGE,
             PAGINATION_LIMIT_ERROR: "Medusa kept returning pages without reaching the total it reported. Check that the server URL points at your Medusa server.",
         }
 
@@ -137,7 +147,8 @@ class MedusaSource(ResumableSource[MedusaSourceConfig, MedusaResumeConfig], Vali
         try:
             hostname = hostname_of(config.base_url)
         except ValueError as e:
-            return False, str(e)
+            # The raw error can echo the pasted URL back, credentials included.
+            return False, HTTPS_REQUIRED_MESSAGE if str(e) == HTTPS_REQUIRED_ERROR else INVALID_URL_MESSAGE
 
         host_valid, host_error = self.is_database_host_valid(hostname, team_id)
         if not host_valid:

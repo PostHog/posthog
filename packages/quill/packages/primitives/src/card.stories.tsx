@@ -224,7 +224,7 @@ export const CardWithItems: Story = {
             <CardContent className="py-0">
                 <ItemGroup>
                     <Item
-                        variant="pressable"
+                        variant="outline"
                         render={
                             // eslint-disable-next-line react/forbid-elements
                             <a href="#">
@@ -239,7 +239,7 @@ export const CardWithItems: Story = {
                         }
                     />
                     <Item
-                        variant="pressable"
+                        variant="outline"
                         render={
                             // eslint-disable-next-line react/forbid-elements
                             <a href="#">

@@ -169,6 +169,11 @@ def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
             _backoff_sleep(attempt)
 
 
+META_TOKEN_REFRESH_ERROR_MESSAGE = (
+    "Your Meta Ads connection has expired or been revoked. Reconnect your Meta Ads account to continue."
+)
+
+
 class MetaAdsTokenRefreshError(Exception):
     """Meta refused to refresh the integration's access token — only re-authorization fixes it."""
 
@@ -180,9 +185,7 @@ def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
     meta_ads_integration.refresh_access_token()
 
     if meta_ads_integration.integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-        raise MetaAdsTokenRefreshError(
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
-        )
+        raise MetaAdsTokenRefreshError(META_TOKEN_REFRESH_ERROR_MESSAGE)
 
     return meta_ads_integration.integration
 
@@ -208,6 +211,8 @@ class MetaAdsSchema:
     single_object: bool = False
     # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
     hoisted_columns: tuple[HoistedColumn, ...] = ()
+    # Fields Meta can refuse to serve for a single row (see `META_INVALID_DOF_CREATIVE_ERROR_SUBCODE`).
+    refusable_fields: tuple[str, ...] = ()
 
 
 # Note: can make this static but keeping schemas.py to match other schema files for now
@@ -228,6 +233,7 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
             is_stats=schema_def.get("is_stats", False),
             single_object=schema_def.get("single_object", False),
             hoisted_columns=schema_def.get("hoisted_columns", ()),
+            refusable_fields=schema_def.get("refusable_fields", ()),
         )
 
         schemas[resource_name] = schema
@@ -272,16 +278,20 @@ PAGE_LIMIT_FALLBACK_SIZES = [500, 100, 50]
 MALFORMED_JSON_MAX_ATTEMPTS = 3
 
 
+def _override_query_param(url: str, key: str, value: str) -> str:
+    parts = urlsplit(url)
+    pairs = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != key]
+    pairs.append((key, value))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(pairs), parts.fragment))
+
+
 def _override_limit(url: str, limit: int) -> str:
     """Return ``url`` with its ``limit`` query parameter overridden.
 
     Meta's ``paging.next`` URLs encode the limit that produced the cursor; if
     we want a smaller batch on the retry, we have to rewrite the URL.
     """
-    parts = urlsplit(url)
-    pairs = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "limit"]
-    pairs.append(("limit", str(limit)))
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(pairs), parts.fragment))
+    return _override_query_param(url, "limit", str(limit))
 
 
 def _next_smaller_limit(current: int) -> int | None:
@@ -456,6 +466,16 @@ META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 # scratch with a new cursor.
 META_INVALID_CURSOR_ERROR_CODE = 2642
 
+# Meta error code 100, subcode 2446211: Meta validates an Advantage+ ("degrees of freedom") creative
+# again when it serves the creative-backed fields of an ad, and refuses when the creative's asset feed
+# spec no longer matches its object story spec. Meta refuses the whole page for one such ad, so
+# without a fallback every sync of the table stops at that ad. The schema's `refusable_fields` name
+# the fields to drop from the page request and then read again per ad (see `_restore_refusable_fields`).
+META_INVALID_DOF_CREATIVE_ERROR_SUBCODE = 2446211
+
+# Meta's multi-id lookup (`GET /?ids=...`) accepts at most 50 ids in one request.
+META_NODE_LOOKUP_MAX_IDS = 50
+
 META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
 )
@@ -469,6 +489,14 @@ META_INVALID_CURSOR_ERROR_MESSAGE = "Meta's pagination cursor for this sync beca
 # Matched by `MetaAdsSource.get_non_retryable_errors`, so it has to stay in sync
 # with the key there.
 SHRINK_EXHAUSTED_ERROR_MESSAGE = "Meta could not return this data even at the smallest request size"
+
+# Entity endpoints (campaigns, ads, ad creatives, ...) have no date range to narrow, so the page
+# limit is the only lever. When Meta still refuses the smallest page, the cause is load on Meta's
+# side, and the same request later succeeds. So the entity path retries the smallest page with
+# backoff, then raises this retryable marker. Temporal then resumes from the saved cursor, and the
+# schema stays enabled for the next scheduled sync.
+ENTITY_PAGE_REFUSED_ERROR_MESSAGE = "Meta could not return this page even at the smallest page size (retryable)"
+SMALLEST_PAGE_LIMIT_MAX_RETRIES = 3
 
 
 def _parse_json_leniently(response: Response) -> dict | None:
@@ -544,6 +572,10 @@ def _is_invalid_cursor_error(response: Response) -> bool:
     return _meta_error_code(response) == META_INVALID_CURSOR_ERROR_CODE
 
 
+def _is_invalid_dof_creative_error(response: Response) -> bool:
+    return _meta_error_subcode(response) == META_INVALID_DOF_CREATIVE_ERROR_SUBCODE
+
+
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     """Raise a descriptive exception for a non-200 Meta API response.
 
@@ -583,6 +615,20 @@ def _raise_shrink_exhausted_error(response: Response) -> typing.NoReturn:
     rather than retrying against the schedule forever.
     """
     raise Exception(f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+
+
+def _raise_entity_page_refused_error(response: Response) -> typing.NoReturn:
+    """Raise once the entity path has retried its smallest page and Meta still refuses it.
+
+    The message leaves out ``response.text`` on purpose. Meta's body carries "Please reduce the
+    amount of data you're asking for", which ``MetaAdsSource.get_non_retryable_errors`` matches
+    before the retryable patterns, so including it would disable the schema again.
+    """
+    error = _meta_error_body(response)
+    raise Exception(
+        f"{ENTITY_PAGE_REFUSED_ERROR_MESSAGE} (Meta API response: {response.status_code}, "
+        f"code {error.get('code')}, subcode {error.get('error_subcode')}, fbtrace_id {error.get('fbtrace_id')})"
+    )
 
 
 class MetaAdsAuthError(Exception):
@@ -658,11 +704,77 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
     raise IntegrationAccountListingError("Meta returned too many pages while listing ad accounts. Please try again.")
 
 
+def _is_refused_node(node_id: str, node: typing.Any, fields: tuple[str, ...]) -> bool:
+    """Return True for a node in a successful multi-id lookup that carries Meta's creative refusal.
+
+    Meta can report an error per node inside an HTTP 200 lookup. Any error other than the refusal
+    raises, so a transient or permission failure is not stored as empty fields.
+    """
+    error = node.get("error") if isinstance(node, dict) else None
+    if not isinstance(error, dict):
+        return False
+    if error.get("error_subcode") != META_INVALID_DOF_CREATIVE_ERROR_SUBCODE:
+        raise Exception(f"Meta API request failed: node lookup error - {json.dumps(error)}")
+    logger.warning("meta_ads_refused_fields_for_node", node_id=node_id, fields=fields)
+    return True
+
+
+def _fetch_refusable_fields(
+    node_lookup_url: str, ids: list[str], fields: tuple[str, ...], access_token: str
+) -> dict[str, dict]:
+    """Read ``fields`` for each node in ``ids``, keyed by id, without the nodes Meta refuses to serve.
+
+    A multi-id lookup fails as a whole when Meta refuses one node, so a refused batch is split in
+    half until the refused node is alone. Only that node then misses the fields.
+    """
+    params = {"ids": ",".join(ids), "fields": ",".join(fields), "access_token": access_token}
+    malformed_json_attempts = 0
+    while True:
+        response = _get_initial_request(node_lookup_url, params)
+        if response.status_code != 200:
+            break
+        try:
+            nodes = response.json()
+        except RequestsJSONDecodeError:
+            malformed_json_attempts += 1
+            if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
+                raise
+            continue
+        return {node_id: node for node_id, node in nodes.items() if not _is_refused_node(node_id, node, fields)}
+    if not _is_invalid_dof_creative_error(response):
+        _raise_meta_api_error(response)
+    if len(ids) == 1:
+        logger.warning("meta_ads_refused_fields_for_node", node_id=ids[0], fields=fields)
+        return {}
+    middle = len(ids) // 2
+    return {
+        **_fetch_refusable_fields(node_lookup_url, ids[:middle], fields, access_token),
+        **_fetch_refusable_fields(node_lookup_url, ids[middle:], fields, access_token),
+    }
+
+
+def _restore_refusable_fields(
+    rows: list[dict], node_lookup_url: str, fields: tuple[str, ...], access_token: str
+) -> list[dict]:
+    """Add ``fields`` back to rows fetched without them, as ``None`` for a row Meta refuses them for."""
+    ids = [str(row["id"]) for row in rows if row.get("id")]
+    nodes: dict[str, dict] = {}
+    for start in range(0, len(ids), META_NODE_LOOKUP_MAX_IDS):
+        nodes.update(
+            _fetch_refusable_fields(
+                node_lookup_url, ids[start : start + META_NODE_LOOKUP_MAX_IDS], fields, access_token
+            )
+        )
+    return [{**row, **{field: nodes.get(str(row.get("id")), {}).get(field) for field in fields}} for row in rows]
+
+
 def _iter_simple_pagination(
     initial_url: str,
     params: dict,
     resume_config: MetaAdsResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
+    refusable_fields: tuple[str, ...] = (),
+    node_lookup_url: str | None = None,
 ) -> collections.abc.Generator[list[dict]]:
     """Iterate a non-time-range Graph API request via ``paging.next`` URLs.
 
@@ -677,9 +789,19 @@ def _iter_simple_pagination(
     fails on those accounts. Retrying the same URL at a smaller limit never
     re-emits already-yielded rows — the initial request has yielded nothing
     yet, and a cursor points at the start of the next (not-yet-yielded) page.
+    If the smallest limit still fails, the page is retried with backoff and
+    then raised as retryable (see ``ENTITY_PAGE_REFUSED_ERROR_MESSAGE``).
+
+    When Meta refuses a page for one row's ``refusable_fields`` (see
+    ``META_INVALID_DOF_CREATIVE_ERROR_SUBCODE``), the same page is fetched
+    again without those fields, and the fields are read back per row from
+    ``node_lookup_url``. The next page asks for every field again.
     """
     access_token = params["access_token"]
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
+    all_fields = params.get("fields", "")
+    reduced_fields = ",".join(field for field in all_fields.split(",") if field not in refusable_fields)
+    without_refusable_fields = False
 
     # None while on the initial request; set to the active ``paging.next``
     # cursor once we start following pages. Used to retry-at-smaller-limit.
@@ -692,21 +814,34 @@ def _iter_simple_pagination(
         # healthy syncs keep their original request shape (saved cursor URLs and
         # the caller's params already encode the default limit).
         if cursor_url is not None:
-            url = (
-                _override_limit(cursor_url, current_limit)
-                if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]
-                else cursor_url
-            )
+            url = cursor_url
+            if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]:
+                url = _override_limit(url, current_limit)
+            if without_refusable_fields:
+                url = _override_query_param(url, "fields", reduced_fields)
             return _fetch_paging_url(url, access_token)
+        request_params = params
         if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]:
-            return _get_initial_request(initial_url, {**params, "limit": current_limit})
-        return _get_initial_request(initial_url, params)
+            request_params = {**request_params, "limit": current_limit}
+        if without_refusable_fields:
+            request_params = {**request_params, "fields": reduced_fields}
+        return _get_initial_request(initial_url, request_params)
 
     response = _issue()
     malformed_json_attempts = 0
+    smallest_limit_retries = 0
 
     while True:
         if response.status_code != 200:
+            if (
+                refusable_fields
+                and node_lookup_url is not None
+                and not without_refusable_fields
+                and _is_invalid_dof_creative_error(response)
+            ):
+                without_refusable_fields = True
+                response = _issue()
+                continue
             # Too-much-data: shrink the page limit and retry the same request.
             # Re-issuing the same URL/cursor at a smaller limit is safe — no
             # already-yielded rows are re-emitted.
@@ -716,7 +851,12 @@ def _iter_simple_pagination(
                     current_limit = smaller
                     response = _issue()
                     continue
-                _raise_shrink_exhausted_error(response)
+                if smallest_limit_retries < SMALLEST_PAGE_LIMIT_MAX_RETRIES:
+                    smallest_limit_retries += 1
+                    _backoff_sleep(smallest_limit_retries)
+                    response = _issue()
+                    continue
+                _raise_entity_page_refused_error(response)
             _raise_meta_api_error(response)
 
         try:
@@ -734,8 +874,12 @@ def _iter_simple_pagination(
             response = _issue()
             continue
         malformed_json_attempts = 0
+        smallest_limit_retries = 0
 
-        yield response_payload.get("data", [])
+        rows = response_payload.get("data", [])
+        if without_refusable_fields and node_lookup_url is not None:
+            rows = _restore_refusable_fields(rows, node_lookup_url, refusable_fields, access_token)
+        yield rows
 
         next_url = response_payload.get("paging", {}).get("next")
         if not next_url:
@@ -746,6 +890,10 @@ def _iter_simple_pagination(
         # Strip access_token from the URL before using it so we don't end up with a
         # duplicated `access_token` query param (requests merges `params=...` into the URL).
         cursor_url = _strip_access_token(next_url)
+        if without_refusable_fields:
+            # The cursor of a page fetched without the refusable fields carries the reduced field list.
+            cursor_url = _override_query_param(cursor_url, "fields", all_fields)
+            without_refusable_fields = False
         resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=cursor_url))
         response = _issue()
 
@@ -972,6 +1120,8 @@ def _make_paginated_api_request(
     access_token: str,
     time_range: dict | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
+    refusable_fields: tuple[str, ...] = (),
+    node_lookup_url: str | None = None,
 ) -> collections.abc.Generator[list[dict]]:
     """Make paginated requests to the Meta Graph API.
     This function handles two types of pagination:
@@ -983,7 +1133,9 @@ def _make_paginated_api_request(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if time_range is None:
-        yield from _iter_simple_pagination(url, params, resume_config, resumable_source_manager)
+        yield from _iter_simple_pagination(
+            url, params, resume_config, resumable_source_manager, refusable_fields, node_lookup_url
+        )
     else:
         yield from _iter_time_range_pagination(url, params, time_range, resume_config, resumable_source_manager)
 
@@ -1093,7 +1245,15 @@ def meta_ads_source(
             params.update(_attribution_params(config))
 
         yield from _hoist_columns(
-            _make_paginated_api_request(formatted_url, params, access_token, time_range, resumable_source_manager),
+            _make_paginated_api_request(
+                formatted_url,
+                params,
+                access_token,
+                time_range,
+                resumable_source_manager,
+                schema.refusable_fields,
+                f"https://graph.facebook.com/{api_version}/",
+            ),
             schema.hoisted_columns,
         )
 

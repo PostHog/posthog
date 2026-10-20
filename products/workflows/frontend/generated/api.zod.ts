@@ -20,8 +20,6 @@ export const hogFlowTemplatesCreateBodyActionsItemNameMax = 400
 
 export const hogFlowTemplatesCreateBodyActionsItemDescriptionDefault = ``
 export const hogFlowTemplatesCreateBodyActionsItemFiltersOneSourceDefault = `events`
-export const hogFlowTemplatesCreateBodyActionsItemTypeMax = 100
-
 export const hogFlowTemplatesCreateBodyAbortActionMax = 400
 
 export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
@@ -130,7 +128,26 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                             zod.null(),
                         ])
                         .optional(),
-                    type: zod.string().max(hogFlowTemplatesCreateBodyActionsItemTypeMax),
+                    type: zod
+                        .enum([
+                            'trigger',
+                            'function',
+                            'function_email',
+                            'function_sms',
+                            'function_push',
+                            'delay',
+                            'wait_until_condition',
+                            'wait_until_time_window',
+                            'conditional_branch',
+                            'random_cohort_branch',
+                            'exit',
+                        ])
+                        .describe(
+                            '\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                        )
+                        .describe(
+                            'One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.\n\n\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                        ),
                     config: zod.unknown(),
                     output_variable: zod.unknown().optional(),
                 })
@@ -166,8 +183,6 @@ export const hogFlowTemplatesUpdateBodyActionsItemNameMax = 400
 
 export const hogFlowTemplatesUpdateBodyActionsItemDescriptionDefault = ``
 export const hogFlowTemplatesUpdateBodyActionsItemFiltersOneSourceDefault = `events`
-export const hogFlowTemplatesUpdateBodyActionsItemTypeMax = 100
-
 export const hogFlowTemplatesUpdateBodyAbortActionMax = 400
 
 export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
@@ -276,7 +291,26 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                             zod.null(),
                         ])
                         .optional(),
-                    type: zod.string().max(hogFlowTemplatesUpdateBodyActionsItemTypeMax),
+                    type: zod
+                        .enum([
+                            'trigger',
+                            'function',
+                            'function_email',
+                            'function_sms',
+                            'function_push',
+                            'delay',
+                            'wait_until_condition',
+                            'wait_until_time_window',
+                            'conditional_branch',
+                            'random_cohort_branch',
+                            'exit',
+                        ])
+                        .describe(
+                            '\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                        )
+                        .describe(
+                            'One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.\n\n\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                        ),
                     config: zod.unknown(),
                     output_variable: zod.unknown().optional(),
                 })
@@ -312,8 +346,6 @@ export const hogFlowTemplatesPartialUpdateBodyActionsItemNameMax = 400
 
 export const hogFlowTemplatesPartialUpdateBodyActionsItemDescriptionDefault = ``
 export const hogFlowTemplatesPartialUpdateBodyActionsItemFiltersOneSourceDefault = `events`
-export const hogFlowTemplatesPartialUpdateBodyActionsItemTypeMax = 100
-
 export const hogFlowTemplatesPartialUpdateBodyAbortActionMax = 400
 
 export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
@@ -428,7 +460,26 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                                 zod.null(),
                             ])
                             .optional(),
-                        type: zod.string().max(hogFlowTemplatesPartialUpdateBodyActionsItemTypeMax),
+                        type: zod
+                            .enum([
+                                'trigger',
+                                'function',
+                                'function_email',
+                                'function_sms',
+                                'function_push',
+                                'delay',
+                                'wait_until_condition',
+                                'wait_until_time_window',
+                                'conditional_branch',
+                                'random_cohort_branch',
+                                'exit',
+                            ])
+                            .describe(
+                                '\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                            )
+                            .describe(
+                                'One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.\n\n\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                            ),
                         config: zod.unknown(),
                         output_variable: zod.unknown().optional(),
                     })
@@ -488,12 +539,16 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             ),
         origin_product: zod
             .union([
-                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod
+                    .enum(['loops', 'broadcasts', 'transactional_emails'])
+                    .describe(
+                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+                    ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
             ),
         trigger_masking: zod
             .union([
@@ -1896,12 +1951,16 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 ),
             origin_product: zod
                 .union([
-                    zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                    zod
+                        .enum(['loops', 'broadcasts', 'transactional_emails'])
+                        .describe(
+                            '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+                        ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2482,13 +2541,13 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
     .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
 
 /**
- * Whether PostHog may look at this workflow and suggest changes to it.
+ * Whether PostHog may suggest changes to this workflow.
  *
- * Turning it off stops a producer reading the workflow. Suggestions already made are left
- * alone: someone still has them to resolve.
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
  */
 export const HogFlowsOptimizationCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().describe("Whether PostHog may read this workflow's metrics and suggest changes to it."),
+    enabled: zod.boolean().describe('Whether PostHog may suggest changes to this workflow.'),
 })
 
 /**
@@ -2517,9 +2576,9 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
         .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
     base_version: zod
         .number()
-        .optional()
+        .min(1)
         .describe(
-            'Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise.'
+            'Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.'
         ),
     step_id: zod
         .string()
@@ -2551,6 +2610,18 @@ export const HogFlowsProposalsApproveCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'The draft_updated_at of the staged draft this overwrite was confirmed against. A draft with a different stamp returns 409 instead of being overwritten. Omit to overwrite unconditionally.'
+        ),
+})
+
+export const hogFlowsProposalsRejectCreateBodyReasonMax = 2000
+
+export const HogFlowsProposalsRejectCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .max(hogFlowsProposalsRejectCreateBodyReasonMax)
+        .optional()
+        .describe(
+            'Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads it before suggesting again, so a reason stops the same idea coming back in other words.'
         ),
 })
 
@@ -2766,12 +2837,16 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             ),
         origin_product: zod
             .union([
-                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod
+                    .enum(['loops', 'broadcasts', 'transactional_emails'])
+                    .describe(
+                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+                    ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
             ),
         trigger_masking: zod
             .union([
@@ -3155,5 +3230,80 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
         .default(hogFlowsUserBlastRadiusCreateBodySendsEmailDefault)
         .describe(
             'Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.'
+        ),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsBuildBodyRetryDefault = false
+export const workflowDataSuggestionsBuildBodySaveDraftDefault = false
+
+export const WorkflowDataSuggestionsBuildBody = /* @__PURE__ */ zod.object({
+    suggestion_id: zod.string().describe('The id of a suggestion from the list endpoint.'),
+    retry: zod
+        .boolean()
+        .default(workflowDataSuggestionsBuildBodyRetryDefault)
+        .describe(
+            "Start a new build when the last one failed. Leave it false when asking for a running build's status."
+        ),
+    save_draft: zod
+        .boolean()
+        .default(workflowDataSuggestionsBuildBodySaveDraftDefault)
+        .describe(
+            'Save the built draft in the project and return its workflow_id. Blank settings, like a webhook URL, stay blank and are listed in missing_inputs. Leave it false to get the workflow back without saving.'
+        ),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsGenerateBodyRefreshDefault = false
+
+export const WorkflowDataSuggestionsGenerateBody = /* @__PURE__ */ zod.object({
+    refresh: zod
+        .boolean()
+        .default(workflowDataSuggestionsGenerateBodyRefreshDefault)
+        .describe('Make new suggestions even when the cached ones are still valid.'),
+})
+
+/**
+ * Write a first draft of an email to the people an entity points at. A model writes it when the project has AI drafts on and the organization approved AI data processing; otherwise, or when the model fails, the fixed template for the source is returned. Nothing is saved.
+ * @summary Draft an email about an error, feature, survey, flag or cohort
+ */
+export const workflowEmailDraftsCreateBodySourceIdMax = 200
+
+export const WorkflowEmailDraftsCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .enum(['error_tracking', 'early_access', 'survey', 'feature_flag', 'cohort'])
+        .describe(
+            '\* `error_tracking` - Error tracking issue\n\* `early_access` - Early access feature\n\* `survey` - Survey\n\* `feature_flag` - Feature flag\n\* `cohort` - Cohort'
+        )
+        .describe(
+            'The kind of entity the email is about.\n\n\* `error_tracking` - Error tracking issue\n\* `early_access` - Early access feature\n\* `survey` - Survey\n\* `feature_flag` - Feature flag\n\* `cohort` - Cohort'
+        ),
+    source_id: zod
+        .string()
+        .max(workflowEmailDraftsCreateBodySourceIdMax)
+        .describe('ID of that entity: an issue, early access feature or survey UUID, or a feature flag or cohort ID.'),
+})
+
+/**
+ * @summary Create or update people from rows and add them to a new static cohort
+ */
+export const workflowPeopleImportsCreateBodyNameMax = 400
+
+export const workflowPeopleImportsCreateBodyRowsMax = 50000
+
+export const WorkflowPeopleImportsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(workflowPeopleImportsCreateBodyNameMax)
+        .describe('Name of the static cohort that holds the imported people.'),
+    rows: zod
+        .array(zod.record(zod.string(), zod.string()))
+        .max(workflowPeopleImportsCreateBodyRowsMax)
+        .describe(
+            'One object per person. Each needs \"email\". An optional \"distinct_id\" picks the person to update or create, and an \"id\" column counts as the distinct_id when there is no \"distinct_id\" column. Without either, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.'
         ),
 })
