@@ -141,7 +141,7 @@ describe('workflowEditorVisitLogic', () => {
     it('ends the visit to a new workflow at its first save, under the saved workflow', async () => {
         const created = { ...NEW_WORKFLOW, id: SAVED_ID }
         useMocks({
-            post: { '/api/environments/:team_id/hog_flows/': created },
+            post: { '/api/projects/:team_id/hog_flows/': created },
             get: { '/api/projects/:team_id/hog_flow_templates/tpl-1/': { ...created, id: 'tpl-1', name: 'Welcome' } },
         })
         const props = { id: 'new', templateId: 'tpl-1' }
@@ -186,7 +186,7 @@ describe('workflowEditorVisitLogic', () => {
             id: SAVED_ID,
             actions: [...NEW_WORKFLOW.actions, delayStep('wait_valid', { delay_duration: '10m' })],
         }
-        useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: draft } })
+        useMocks({ get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: draft } })
         const props = { id: SAVED_ID }
         const visit = await openEditor(props)
 
@@ -208,7 +208,7 @@ describe('workflowEditorVisitLogic', () => {
                 [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true,
             })
             useMocks({
-                get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } },
+                get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } },
             })
             const props = { id: SAVED_ID }
             router.actions.push(urls.workflow(SAVED_ID, startTab))
@@ -230,7 +230,7 @@ describe('workflowEditorVisitLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW], {
             [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true,
         })
-        useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } } })
+        useMocks({ get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } } })
         const props = { id: SAVED_ID }
         router.actions.push(urls.workflow(SAVED_ID, 'overview'))
         const visit = await openEditor(props)
@@ -254,7 +254,7 @@ describe('workflowEditorVisitLogic', () => {
             id: SAVED_ID,
             actions: [...NEW_WORKFLOW.actions, delayStep('orphan', { delay_duration: '10m' })],
         }
-        useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: withUnreachableStep } })
+        useMocks({ get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: withUnreachableStep } })
         const props = { id: SAVED_ID }
         router.actions.push(urls.workflow(SAVED_ID, 'workflow'))
         const visit = await openEditor(props)
@@ -280,7 +280,7 @@ describe('workflowEditorVisitLogic', () => {
                 { from: 'wait_valid', to: 'exit_node', type: 'continue' },
             ],
         } as HogFlow
-        useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: branched } })
+        useMocks({ get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: branched } })
         const props = { id: SAVED_ID }
         const visit = await openEditor(props)
 
@@ -302,7 +302,7 @@ describe('workflowEditorVisitLogic', () => {
             id: SAVED_ID,
             actions: [...NEW_WORKFLOW.actions, delayStep('wait_unset', {})],
         }
-        useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: draft } })
+        useMocks({ get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: draft } })
         const props = { id: SAVED_ID }
         const visit = await openEditor(props)
 
