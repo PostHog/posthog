@@ -44,6 +44,7 @@ import type {
     OrganizationMemberNoticeApi,
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
+    ProjectApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -755,7 +756,7 @@ export interface CorrelationConfigType {
     excluded_event_names?: string[]
 }
 
-export interface ProjectType extends ProjectBasicType {
+export interface ProjectType extends ProjectBasicType, Pick<ProjectApi, 'logo_media_id'> {
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null

@@ -84963,6 +84963,11 @@ export namespace Schemas {
          */
       name?: string;
       /**
+         * ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.
+         * @nullable
+         */
+      logo_media_id?: string | null;
+      /**
          * Short description of what the project is about. This is helpful to give our AI agents context about your project.
          * @maxLength 1000
          * @nullable
@@ -90157,6 +90162,11 @@ export namespace Schemas {
          */
       name?: string;
       /**
+         * ID of the uploaded image shown as this project's logo. Null when the project has no logo.
+         * @nullable
+         */
+      readonly logo_media_id: string | null;
+      /**
          * @maxLength 1000
          * @nullable
          */
@@ -90214,6 +90224,11 @@ export namespace Schemas {
          * @maxLength 200
          */
       name?: string;
+      /**
+         * ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.
+         * @nullable
+         */
+      logo_media_id?: string | null;
       /**
          * Short description of what the project is about. This is helpful to give our AI agents context about your project.
          * @maxLength 1000
@@ -132151,6 +132166,10 @@ export namespace Schemas {
      * @maximum 1000
      */
     limit?: number;
+    /**
+     * Return only the entries this writer created, matched against `created_by_skill` (a scout skill name or a `pipeline:*` identity). Omit to return entries from every writer.
+     */
+    skill_name?: string;
     /**
      * ILIKE substring match against `content`. Omit to return the most recent entries.
      */

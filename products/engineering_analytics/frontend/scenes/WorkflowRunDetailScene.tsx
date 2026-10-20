@@ -3,9 +3,12 @@ import { router } from 'kea-router'
 
 import { IconCheckCircle, IconExternal, IconHourglass, IconPause, IconXCircle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -61,6 +64,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
     const { repoOwner, repoName } = useMountedLogic(workflowRunDetailLogic).props
     const { loadRun, loadJobs, loadFailureLogs } = useActions(workflowRunDetailLogic)
     const { searchParams } = useValues(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!isValidRunId) {
         return (
@@ -130,15 +134,22 @@ export function WorkflowRunDetailScene(): JSX.Element {
                 repo={`${repoOwner}/${repoName}`}
                 actions={
                     githubUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={githubUrl}
-                            targetBlank
-                            sideIcon={<IconExternal />}
-                        >
-                            View on GitHub
-                        </LemonButton>
+                        todayRailNav ? (
+                            <Button variant="outline" render={<LinkPrimitive to={githubUrl} target="_blank" />}>
+                                View on GitHub
+                                <IconExternal />
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                to={githubUrl}
+                                targetBlank
+                                sideIcon={<IconExternal />}
+                            >
+                                View on GitHub
+                            </LemonButton>
+                        )
                     ) : undefined
                 }
             />

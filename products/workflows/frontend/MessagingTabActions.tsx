@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -15,6 +16,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { MessagingNavTabKey } from './messagingTabs'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
+import { QuillMessagingTabActions } from './QuillMessagingTabActions'
 import { newTemplateAgentLogic } from './TemplateLibrary/newTemplateAgentLogic'
 
 /** The scene-header action for a shared messaging tab, the same on every surface that shows the tab. */
@@ -26,6 +28,10 @@ export function MessagingTabActions({
     /** Where the Slack authorization flow returns to, so it lands back on the surface it left. */
     channelsUrl: string
 }): JSX.Element | null {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillMessagingTabActions tab={tab} channelsUrl={channelsUrl} />
+    }
     // One component per action, so a tab mounts (and loads) only the logic its own button needs.
     if (tab === 'library') {
         return <NewTemplateButton />

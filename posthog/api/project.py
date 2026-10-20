@@ -22,7 +22,7 @@ from posthog.schema import ProductKey
 from posthog.api import project_tags
 from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.api.scoped_related_fields import ProjectScopedPrimaryKeyRelatedField, TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
@@ -106,6 +106,7 @@ from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
 from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.team.util import actions_that_require_current_team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -587,6 +588,11 @@ class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """
 
     tags = project_tags.tags_field()
+    logo_media_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the uploaded image shown as this project's logo. Null when the project has no logo.",
+    )
 
     class Meta:
         model = Project
@@ -595,6 +601,7 @@ class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "id",
             "organization_id",
             "name",
+            "logo_media_id",
             "product_description",
             "created_at",
             "is_pending_deletion",
@@ -672,6 +679,15 @@ class ProjectBackwardCompatSerializer(
             "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
         ),
     )  # Compat with TeamSerializer
+    logo_media_id = ProjectScopedPrimaryKeyRelatedField(
+        source="logo_media",
+        queryset=UploadedMedia.objects.all(),
+        pk_field=serializers.UUIDField(),
+        required=False,
+        allow_null=True,
+        error_messages={"does_not_exist": "This image was not uploaded to this project."},
+        help_text="ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.",
+    )
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
@@ -711,6 +727,7 @@ class ProjectBackwardCompatSerializer(
             "id",
             "organization",
             "name",
+            "logo_media_id",
             "product_description",
             "tags",
             "created_at",
@@ -1479,7 +1496,11 @@ class ProjectCreateRequestSerializer(ProjectBackwardCompatSerializer):
         return {name: field for name, field in super().get_fields().items() if not field.read_only}
 
     class Meta(ProjectBackwardCompatSerializer.Meta):
-        fields = tuple(field for field in ProjectBackwardCompatSerializer.Meta.fields if field != "home_tab_dashboard")
+        fields = tuple(
+            field
+            for field in ProjectBackwardCompatSerializer.Meta.fields
+            if field not in ("home_tab_dashboard", "logo_media_id")
+        )
 
 
 @extend_schema(extensions={"x-product": "core"})

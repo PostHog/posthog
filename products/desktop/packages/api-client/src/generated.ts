@@ -20040,6 +20040,13 @@ export namespace Schemas {
          * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
          * onto /api/projects/ never loses a field.
          */
+        logo_media_id?: (string | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
         product_description?: (string | null) | undefined;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
