@@ -22,8 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     execute_with_conflict_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_hash import (
+    ROW_HASH_VERSION,
     compute_row_hashes,
-    is_current_row_hash,
 )
 
 if TYPE_CHECKING:
@@ -43,7 +43,8 @@ class Scd2DeltaWriter:
     via `build_scd2_table`.
 
     Passing `row_hash_column` turns on skip-unchanged: the writer stores a content hash of each
-    row in that column, and drops an incoming row that equals the current row of its key.
+    row in that column and the hash version in `<row_hash_column>_version`, and drops an incoming
+    row that equals the current row of its key.
     `row_hash_exclude_columns` names the columns that change on every sync without the row
     changing. Changing that set changes every hash, so every row reads as changed once.
     """
@@ -62,12 +63,13 @@ class Scd2DeltaWriter:
         self._valid_from_column = valid_from_column
         self._valid_to_column = valid_to_column
         self._row_hash_column = row_hash_column
+        self._row_hash_version_column = f"{row_hash_column}_version" if row_hash_column is not None else None
         # Batch columns arrive normalized, so a raw source name here would never match and every
         # row would read as changed.
         excluded = {normalize_column_name(name) for name in row_hash_exclude_columns}
         self._unhashed_columns = {valid_from_column, valid_to_column, *excluded}
         if row_hash_column is not None:
-            self._unhashed_columns.add(row_hash_column)
+            self._unhashed_columns.update({row_hash_column, f"{row_hash_column}_version"})
 
     def _drop_unchanged_rows(
         self, delta_table: deltalake.DeltaTable, data: pa.Table, primary_keys: list[str]
@@ -94,25 +96,26 @@ class Scd2DeltaWriter:
 
     def _current_row_hashes(
         self, delta_table: deltalake.DeltaTable, data: pa.Table, primary_keys: list[str]
-    ) -> dict[tuple[Any, ...], str | None]:
-        assert self._row_hash_column is not None
+    ) -> dict[tuple[Any, ...], bytes | None]:
+        assert self._row_hash_column is not None and self._row_hash_version_column is not None
         dataset = delta_table.to_pyarrow_dataset()
         rows = dataset.to_table(
-            columns=[*primary_keys, self._row_hash_column],
+            columns=[*primary_keys, self._row_hash_column, self._row_hash_version_column],
             filter=self._current_rows_filter(dataset, data, primary_keys),
         )
-        hashes = rows.column(self._row_hash_column).to_pylist()
-        current_hashes = dict(zip(_key_tuples(rows, primary_keys), hashes))
+        keys = _key_tuples(rows, primary_keys)
+        current_hashes = dict(zip(keys, rows.column(self._row_hash_column).to_pylist()))
 
-        is_stale = pa.array([not is_current_row_hash(row_hash) for row_hash in hashes], type=pa.bool_())
-        if is_stale.true_count:
+        is_stale = [version != ROW_HASH_VERSION for version in rows.column(self._row_hash_version_column).to_pylist()]
+        if any(is_stale):
             # A row written before skip-unchanged was on, or under another hash version, has no
             # comparable hash. Hash its stored values instead, so that it does not read as changed.
-            stale_keys = rows.filter(is_stale).select(primary_keys)
-            stale_rows = dataset.to_table(filter=self._current_rows_filter(dataset, stale_keys, primary_keys))
+            stale_keys = {key for key, stale in zip(keys, is_stale) if stale}
+            stale_key_rows = rows.filter(pa.array(is_stale, type=pa.bool_())).select(primary_keys)
+            stale_rows = dataset.to_table(filter=self._current_rows_filter(dataset, stale_key_rows, primary_keys))
             stale_hashes = compute_row_hashes(stale_rows, self._unhashed_columns).to_pylist()
             for key, row_hash in zip(_key_tuples(stale_rows, primary_keys), stale_hashes):
-                if not is_current_row_hash(current_hashes.get(key)):
+                if key in stale_keys:
                     current_hashes[key] = row_hash
 
         return current_hashes
@@ -155,12 +158,14 @@ class Scd2DeltaWriter:
         # relax_batch_nullability).
         data = relax_batch_nullability(data)
 
-        if self._row_hash_column is not None:
-            if self._row_hash_column in data.column_names:
-                raise ValueError(
-                    f"Source column {self._row_hash_column!r} collides with the history table's row hash column"
-                )
-            data = data.append_column(self._row_hash_column, compute_row_hashes(data, self._unhashed_columns))
+        if self._row_hash_column is not None and self._row_hash_version_column is not None:
+            for name in (self._row_hash_column, self._row_hash_version_column):
+                if name in data.column_names:
+                    raise ValueError(f"Source column {name!r} collides with the history table's row hash columns")
+            hashes = compute_row_hashes(data, self._unhashed_columns)
+            data = data.append_column(self._row_hash_column, hashes).append_column(
+                self._row_hash_version_column, pa.array([ROW_HASH_VERSION] * data.num_rows, type=pa.int16())
+            )
 
         delta_table = await self._table.get_delta_table()
 

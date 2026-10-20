@@ -1,35 +1,33 @@
 import json
 import decimal
-import hashlib
 from collections.abc import Collection
 from typing import cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
 
-# Raise this when the normalization or the digest below changes. A stored hash keeps the version
-# it was computed with, so a reader can tell it apart from a current one and recompute it instead
-# of reading every row as changed.
+# Raise this when the normalization or the digest below changes. The writer stores it next to each
+# hash, so a reader can tell an old hash apart from a current one and recompute it instead of
+# reading every row as changed.
 ROW_HASH_VERSION = 1
+ROW_HASH_TYPE = pa.binary(16)
 
-_VERSION_PREFIX = f"v{ROW_HASH_VERSION}:"
 _FIELD_SEPARATOR = b"\x1f"
 _BINARY = pa.large_binary()
 # Wider than the 76 digits of the widest Arrow decimal, so normalizing never rounds a value.
 _DECIMAL_CONTEXT = decimal.Context(prec=100)
 
 
-def is_current_row_hash(row_hash: str | None) -> bool:
-    return row_hash is not None and row_hash.startswith(_VERSION_PREFIX)
-
-
 def compute_row_hashes(table: pa.Table, exclude_columns: Collection[str] = ()) -> pa.Array:
-    """One version-stamped content hash per row of `table`.
+    """One 16-byte MD5 content hash per row of `table`, under `ROW_HASH_VERSION`.
 
     The hash covers the non-null values of every column outside `exclude_columns`. It does not
     depend on column order, on a numeric, decimal or temporal column changing width or unit, or on
     a column that holds null, so a schema change alone does not change the hash of a row.
     Values inside nested columns are not normalized beyond key order.
+
+    MD5 is a fixed algorithm, so a stored hash stays comparable after a library upgrade. It is not
+    used for security here.
     """
     pieces = [
         _named_values(name, table.column(name)) for name in sorted(table.column_names) if name not in exclude_columns
@@ -39,14 +37,20 @@ def compute_row_hashes(table: pa.Table, exclude_columns: Collection[str] = ()) -
         # pyarrow's stubs do not accept a mix of arrays and a scalar separator.
         payloads = pc.binary_join_element_wise(  # type: ignore[call-overload]
             *pieces, empty, null_handling="replace", null_replacement=""
-        ).to_pylist()
+        )
     else:
-        payloads = [b""] * table.num_rows
+        payloads = pa.array([b""] * table.num_rows, type=_BINARY)
 
-    return pa.array(
-        [_VERSION_PREFIX + hashlib.blake2b(payload, digest_size=16).hexdigest() for payload in payloads],
-        type=pa.string(),
-    )
+    import duckdb  # noqa: PLC0415 — keeps duckdb off the import path of every pipeline that loads the writer
+
+    # duckdb hashes the whole column in native code, which a Python loop over the rows cannot match.
+    connection = duckdb.connect(config={"threads": 1})
+    try:
+        connection.register("payloads", pa.table({"payload": payloads}))
+        digests = connection.sql("SELECT unhex(md5(payload)) AS digest FROM payloads").to_arrow_table()
+    finally:
+        connection.close()
+    return digests.column("digest").combine_chunks().cast(ROW_HASH_TYPE)
 
 
 def _named_values(name: str, column: pa.ChunkedArray) -> pa.Array:

@@ -106,3 +106,17 @@ class TestComputeRowHashes:
 
         assert first == third
         assert first != second
+
+    def test_digest_of_a_known_row_does_not_change(self) -> None:
+        # Stored hashes outlive this code. A change to the normalization or the digest that keeps
+        # ROW_HASH_VERSION would mark every stored row as changed, so it has to fail here first.
+        row = pa.table(
+            {
+                "id": pa.array([1]),
+                "name": pa.array(["x"]),
+                "amount": pa.array([Decimal("5.10")]),
+                "at": pa.array([_TS], type=pa.timestamp("us", tz="UTC")),
+            }
+        )
+
+        assert compute_row_hashes(row).to_pylist() == [bytes.fromhex("6eb5b7f8889929f8ef9b3525a2839006")]

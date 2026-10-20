@@ -213,13 +213,14 @@ class TestScd2SkipUnchanged:
             ("c", "free", ts2, None),
         ]
 
+    @parameterized.expand([("row_hash",), ("row_hash_version",)])
     @pytest.mark.asyncio
-    async def test_source_column_named_like_the_hash_column_is_rejected(self, tmp_path: Path) -> None:
+    async def test_source_column_named_like_a_hash_column_is_rejected(self, column: str) -> None:
         batch = _history_batch([("a", "free", 1, datetime(2026, 1, 1, tzinfo=UTC))])
 
-        with pytest.raises(ValueError, match="row_hash"):
-            await _make_skip_unchanged_writer(str(tmp_path / "scd2_table")).write(
-                data=batch.append_column("row_hash", pa.array(["from the source"])), primary_keys=["id"]
+        with tempfile.TemporaryDirectory() as tmp, pytest.raises(ValueError, match=column):
+            await _make_skip_unchanged_writer(str(Path(tmp) / "scd2_table")).write(
+                data=batch.append_column(column, pa.array(["from the source"])), primary_keys=["id"]
             )
 
     @pytest.mark.asyncio
@@ -263,12 +264,13 @@ class TestScd2SkipUnchanged:
     @parameterized.expand(
         [
             ("written_without_a_hash", None),
-            ("hashed_under_another_version", "v0:0123456789abcdef"),
+            # The stored bytes are wrong on purpose: only the version tells the writer not to trust them.
+            ("hashed_under_another_version", b"\x00" * 16),
         ]
     )
     @pytest.mark.asyncio
     async def test_current_row_without_a_comparable_hash_is_compared_by_value(
-        self, _name: str, stored_hash: str | None
+        self, _name: str, stored_hash: bytes | None
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             delta_path = str(Path(tmp) / "scd2_table")
@@ -276,7 +278,8 @@ class TestScd2SkipUnchanged:
             ts2 = datetime(2026, 2, 1, tzinfo=UTC)
             seed = _history_batch([("a", "free", 1, ts1), ("b", "free", 1, ts1)])
             if stored_hash is not None:
-                seed = seed.append_column("row_hash", pa.array([stored_hash, stored_hash]))
+                seed = seed.append_column("row_hash", pa.array([stored_hash, stored_hash], type=pa.binary(16)))
+                seed = seed.append_column("row_hash_version", pa.array([0, 0], type=pa.int16()))
             deltalake.write_deltalake(delta_path, seed)
 
             result = await _make_skip_unchanged_writer(delta_path).write(
