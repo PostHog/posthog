@@ -72,8 +72,12 @@ class TestAwaitingInput(SimpleTestCase):
             self.assertTrue(dispatch_awaiting_input(task_run, request_id="first"))
             for index in range(100):
                 self.assertFalse(dispatch_awaiting_input(task_run, request_id=f"request-{index}"))
-            # One run cooldown and one admitted request, regardless of burst size.
-            self.assertEqual(len(cache._cache), 2)
+            self.assertTrue(cache.get(f"tasks:awaiting_input:cooldown:{task_run.id}"))
+            self.assertTrue(cache.get(f"tasks:awaiting_input:v1:{task_run.id}:first"))
+            self.assertEqual(
+                cache.get_many([f"tasks:awaiting_input:v1:{task_run.id}:request-{index}" for index in range(100)]),
+                {},
+            )
         notify.assert_called_once()
 
     def test_cache_failure_does_not_fail_event_delivery(self) -> None:

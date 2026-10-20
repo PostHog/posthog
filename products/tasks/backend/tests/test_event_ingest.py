@@ -678,15 +678,16 @@ class TestTaskRunEventIngest(TestCase):
         self.task_run.state = {**(self.task_run.state or {}), "mode": mode}
         self.task_run.save(update_fields=["state"])
         token = self._create_token()
+        permission_request_params: dict[str, object] = {
+            "requestId": "request-1",
+            "toolCall": {"title": "Run the test suite"},
+            "options": [{"optionId": "allow", "kind": "allow_once", "name": "Allow"}],
+        }
         permission_request = {
             "type": "notification",
             "notification": {
                 "method": "_posthog/permission_request",
-                "params": {
-                    "requestId": "request-1",
-                    "toolCall": {"title": "Run the test suite"},
-                    "options": [{"optionId": "allow", "kind": "allow_once", "name": "Allow"}],
-                },
+                "params": permission_request_params,
             },
         }
 
@@ -696,7 +697,7 @@ class TestTaskRunEventIngest(TestCase):
         ):
             status, body = self._call_ingest(token, [{"seq": 1, "event": permission_request}])
             self.assertEqual((status, body["accepted"]), (200, 1))
-            permission_request["notification"]["params"]["requestId"] = "request-2"
+            permission_request_params["requestId"] = "request-2"
             status, body = self._call_ingest(token, [{"seq": 2, "event": permission_request}])
 
         self.assertEqual((status, body["accepted"]), (200, 1))
