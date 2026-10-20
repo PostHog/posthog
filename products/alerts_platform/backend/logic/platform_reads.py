@@ -8,7 +8,7 @@ from collections.abc import Collection, Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import Case, F, OuterRef, Prefetch, QuerySet, Subquery, Value, When
 
 from products.alerts_platform.backend.facade.contracts import (
     Grouping,
@@ -131,18 +131,23 @@ def runtime_by_legacy_id(
     """The runtime state of each named alert the platform owns, keyed by the source's id, in one query.
 
     An alert the platform does not own is left out, because its source's own row is then the one
-    that moves. Only the ungrouped instance is read: a source that shows one state per alert has
-    no groups, and a copy with no instance yet has not been checked since the handover.
+    that moves. A source shows one state per alert, so a grouped alert fires while any of its groups
+    fires, and was last notified when any group last was. A copy with no instance yet has not been
+    checked since the handover.
     """
     if not legacy_configuration_ids:
         return {}
-    ungrouped = PlatformAlert.objects.for_team(team_id).filter(configuration=OuterRef("pk"), grouping_key="")
+    instances = PlatformAlert.objects.for_team(team_id).filter(configuration=OuterRef("pk"))
+    firing_first = instances.order_by(
+        Case(When(state=PlatformAlertState.FIRING, then=Value(0)), default=Value(1)), "grouping_key"
+    )
+    latest_notified = instances.order_by(F("last_notified_at").desc(nulls_last=True))
     rows = (
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
         .annotate(
-            instance_state=Subquery(ungrouped.values("state")[:1]),
-            instance_last_notified_at=Subquery(ungrouped.values("last_notified_at")[:1]),
+            instance_state=Subquery(firing_first.values("state")[:1]),
+            instance_last_notified_at=Subquery(latest_notified.values("last_notified_at")[:1]),
         )
         .values_list(
             "legacy_configuration_id",
@@ -151,6 +156,7 @@ def runtime_by_legacy_id(
             "instance_last_notified_at",
             "consecutive_failures",
             "next_check_at",
+            "grouping",
         )
     )
     return {
@@ -166,8 +172,9 @@ def runtime_by_legacy_id(
             last_notified_at=last_notified_at,
             consecutive_failures=consecutive_failures,
             next_check_at=next_check_at,
+            grouping=Grouping.from_stored(grouping),
         )
-        for legacy_id, state, check_status, last_notified_at, consecutive_failures, next_check_at in rows
+        for legacy_id, state, check_status, last_notified_at, consecutive_failures, next_check_at, grouping in rows
         if legacy_id is not None
     }
 

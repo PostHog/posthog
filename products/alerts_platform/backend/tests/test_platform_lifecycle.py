@@ -204,6 +204,12 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 HandbackRefusal.NOT_PORTABLE,
             ),
             ("grouped", {}, {"grouping_key": "service=api"}, HandbackRefusal.NOT_PORTABLE),
+            (
+                "grouped_with_no_group_open",
+                {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+                {},
+                HandbackRefusal.NOT_PORTABLE,
+            ),
         ]
     )
     def test_the_platform_keeps_an_alert_its_source_cannot_take_back(

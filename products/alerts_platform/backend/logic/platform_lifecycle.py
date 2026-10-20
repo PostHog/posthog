@@ -899,7 +899,12 @@ def give_back_ownership(
         if configuration.owner != PlatformAlertOwner.PLATFORM:
             raise ValueError("the platform does not own this alert, so its owner disagrees with its source's")
         alerts = list(PlatformAlert.objects.for_team(team_id).filter(configuration=configuration))
-        if configuration.recurrence_unit is not None or any(alert.grouping_key for alert in alerts):
+        # A grouped copy with no group open yet still splits its results, which its source cannot do.
+        if (
+            configuration.recurrence_unit is not None
+            or Grouping.from_stored(configuration.grouping).mode != GroupingMode.SINGLE
+            or any(alert.grouping_key for alert in alerts)
+        ):
             return HandbackRefusal.NOT_PORTABLE
         alert = alerts[0] if alerts else None
         if alert is not None and (alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None):

@@ -47,6 +47,7 @@ tools:
                 - cooldown_minutes
                 - schedule_restriction
                 - snooze_until
+                - grouping
                 - next_check_at
                 - last_notified_at
                 - last_checked_at
@@ -213,6 +214,7 @@ tools:
                 - cooldown_minutes
                 - schedule_restriction
                 - snooze_until
+                - grouping
                 - next_check_at
                 - last_notified_at
                 - last_checked_at
@@ -249,6 +251,7 @@ tools:
                 - cooldown_minutes
                 - schedule_restriction
                 - snooze_until
+                - grouping
                 - next_check_at
                 - last_notified_at
                 - last_checked_at

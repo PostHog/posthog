@@ -6,6 +6,7 @@ Each call reads the logs row by id inside the caller's transaction, after the ca
 from datetime import datetime
 from uuid import UUID
 
+from products.alerts_platform.backend.facade.contracts import Grouping
 from products.logs.backend import platform_ownership
 from products.logs.backend.models import LogsAlertConfiguration
 
@@ -23,14 +24,15 @@ def on_created(*, team_id: int, alert_id: UUID, at: datetime) -> bool:
     return alert is not None and platform_ownership.on_created(alert, at)
 
 
-def on_updated(*, team_id: int, alert_id: UUID, snooze_changed: bool) -> None:
-    """Writes an edit the logs API saved onto the platform's copy.
+def on_updated(*, team_id: int, alert_id: UUID, snooze_changed: bool, grouping: Grouping | None = None) -> None:
+    """Writes an edit the logs API saved onto the platform's copy, with the grouping the edit set.
+    A `grouping` of None keeps the copy's own.
 
     Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit.
     """
     alert = _alert(team_id, alert_id)
     if alert is not None:
-        platform_ownership.on_updated(alert, snooze_changed=snooze_changed)
+        platform_ownership.on_updated(alert, snooze_changed=snooze_changed, grouping=grouping)
 
 
 def on_deleted(*, team_id: int, alert_id: UUID) -> None:

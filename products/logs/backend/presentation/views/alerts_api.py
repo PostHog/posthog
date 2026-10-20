@@ -51,6 +51,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+    Grouping,
     InvalidPlatformAlertEdit,
     PagerDutyRegion,
     PagerDutySeverity,
@@ -59,6 +60,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts_platform.backend.presentation.views.platform_alert import GroupingSerializer
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
@@ -124,6 +126,11 @@ STATE_TIMELINE_LOOKBACK_HOURS = 24
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
+_SINGLE_INSTANCE: Final = Grouping()
+GROUPING_NOT_AVAILABLE: Final = (
+    "Grouping isn't available for this alert yet. Set the mode to single, or contact support to turn on "
+    "grouping for this project."
+)
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -288,6 +295,15 @@ class _TimelineEvent:
     state_after: str
 
 
+class LogsAlertGroupingSerializer(GroupingSerializer):
+    """How a logs alert splits its results into instances."""
+
+    # The logs row has no grouping column. Every alert reads as single here, and `to_representation`
+    # of the alert serializer replaces it with the platform copy's grouping for an alert the platform owns.
+    def get_attribute(self, instance: LogsAlertConfiguration) -> Grouping:
+        return _SINGLE_INSTANCE
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(
         read_only=True,
@@ -420,6 +436,17 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "Notification destination types configured for this alert — e.g. 'slack', 'webhook'. "
             "Empty list means no notifications will fire. One or more destinations should be added "
             "after creating an alert."
+        ),
+    )
+    grouping = LogsAlertGroupingSerializer(
+        required=False,
+        help_text=(
+            "How the alert splits its results into instances. Mode single keeps one instance for the whole "
+            "alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per "
+            "service or severity, each firing and resolving on its own, and needs threshold_operator above. "
+            "Only an alert the alerts platform evaluates can group. Any other alert reads as single and "
+            "rejects a different value. Omit it on update to keep the current grouping. Changing the keys "
+            "deletes the existing instances and closes their notification threads without a message."
         ),
     )
 
@@ -641,6 +668,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             runtime.state, logs_state=instance.state, snooze_until=instance.snooze_until, at=timezone.now()
         ).value
         data["consecutive_failures"] = runtime.consecutive_failures
+        data["grouping"] = self.fields["grouping"].to_representation(runtime.grouping)
         data["next_check_at"] = self.fields["next_check_at"].to_representation(runtime.next_check_at)
         data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
 
@@ -683,6 +711,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
+            "grouping",
             "first_enabled_at",
             "created_at",
             "created_by",
@@ -749,6 +778,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             validated_data["name"] = "Untitled alert"
 
         snooze_data = validated_data.pop("snooze_until", _SENTINEL)
+        grouping: Grouping | None = validated_data.pop("grouping", None)
+        if grouping is not None and not instance.platform_owned:
+            _refuse_grouping(grouping)
 
         threshold_or_filter_fields = {
             "threshold_count",
@@ -830,7 +862,10 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             if updated.platform_owned:
                 try:
                     on_updated(
-                        team_id=updated.team_id, alert_id=updated.id, snooze_changed=snooze_data is not _SENTINEL
+                        team_id=updated.team_id,
+                        alert_id=updated.id,
+                        snooze_changed=snooze_data is not _SENTINEL,
+                        grouping=grouping,
                     )
                 except InvalidPlatformAlertEdit as error:
                     raise ValidationError({error.field_name: str(error)}) from error
@@ -849,6 +884,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
         if validated_data.get("enabled", True):
             validated_data["first_enabled_at"] = timezone.now()
+        grouping: Grouping | None = validated_data.pop("grouping", None)
 
         with transaction.atomic():
             # select_for_update().count() doesn't acquire row locks because
@@ -868,11 +904,29 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             created = super().create(validated_data)
             if on_created(team_id=created.team_id, alert_id=created.id, at=timezone.now()):
                 created.refresh_from_db(fields=["owner", "owner_changed_at"])
-            elif created.enabled:
-                transaction.on_commit(
-                    lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
-                )
+                if grouping is not None and grouping != _SINGLE_INSTANCE:
+                    try:
+                        on_updated(
+                            team_id=created.team_id, alert_id=created.id, snooze_changed=False, grouping=grouping
+                        )
+                    except InvalidPlatformAlertEdit as error:
+                        raise ValidationError({error.field_name: str(error)}) from error
+            else:
+                if grouping is not None:
+                    # Raised inside the transaction, so the alert is not created either.
+                    _refuse_grouping(grouping)
+                if created.enabled:
+                    transaction.on_commit(
+                        lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
+                    )
             return created
+
+
+def _refuse_grouping(grouping: Grouping) -> None:
+    # The single-instance default is what the API returns for this alert, so a client that sends back
+    # what it read still saves.
+    if grouping != _SINGLE_INSTANCE:
+        raise ValidationError({"grouping": GROUPING_NOT_AVAILABLE})
 
 
 def _validate_filters(filters: dict) -> None:

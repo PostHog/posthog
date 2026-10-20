@@ -518,6 +518,49 @@ export const LogsAlertDestinationTypeEnumApi = {
 } as const
 
 /**
+ * * `single` - Single
+ * * `by_result_labels` - By result labels
+ */
+export type GroupingModeEnumApi = (typeof GroupingModeEnumApi)[keyof typeof GroupingModeEnumApi]
+
+export const GroupingModeEnumApi = {
+    Single: 'single',
+    ByResultLabels: 'by_result_labels',
+} as const
+
+/**
+ * * `degrade_visible` - Degrade visible
+ */
+export type OnOverflowEnumApi = (typeof OnOverflowEnumApi)[keyof typeof OnOverflowEnumApi]
+
+export const OnOverflowEnumApi = {
+    DegradeVisible: 'degrade_visible',
+} as const
+
+/**
+ * How a logs alert splits its results into instances.
+ */
+export interface LogsAlertGroupingApi {
+    /** single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.
+     *
+     * * `single` - Single
+     * * `by_result_labels` - By result labels */
+    mode: GroupingModeEnumApi
+    /** Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message. */
+    keys?: string[]
+    /**
+     * Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.
+     * @minimum 1
+     * @maximum 100
+     */
+    max_instances?: number
+    /** What happens to groups past max_instances. degrade_visible names how many were left out.
+     *
+     * * `degrade_visible` - Degrade visible */
+    on_overflow?: OnOverflowEnumApi
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -659,6 +702,8 @@ export interface LogsAlertConfigurationApi {
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
+    /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+    grouping?: LogsAlertGroupingApi
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -831,6 +876,8 @@ export interface LogsAlertConfigurationDetailApi {
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
+    /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+    grouping?: LogsAlertGroupingApi
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -933,6 +980,8 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly LogsAlertDestinationTypeEnumApi[]
+    /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+    grouping?: LogsAlertGroupingApi
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable

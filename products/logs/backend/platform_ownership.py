@@ -15,6 +15,7 @@ from django.utils import timezone
 from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
+    Grouping,
     PlatformAlertConfigurationEdit,
     PlatformAlertNotEditable,
 )
@@ -32,15 +33,16 @@ def on_created(alert: LogsAlertConfiguration, at: datetime) -> bool:
     return not in_an_environment(alert) and has_begun_cutover(alert.team_id) and hand_over(alert, at)
 
 
-def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool) -> None:
-    """Writes an edit the logs API saved onto the platform's copy.
+def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool, grouping: Grouping | None = None) -> None:
+    """Writes an edit the logs API saved onto the platform's copy, with the grouping the edit set.
+    A `grouping` of None keeps the copy's own.
 
     Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit.
     """
     update_owned_copy(
         team_id=alert.team_id,
         legacy_configuration_id=alert.id,
-        change=_platform_change_of(alert),
+        change=_platform_change_of(alert, grouping),
         snooze_until=alert.snooze_until,
         snooze_changed=snooze_changed,
     )
@@ -51,13 +53,13 @@ def on_deleted(*, team_id: int, alert_id: UUID) -> None:
 
 
 def _platform_change_of(
-    alert: LogsAlertConfiguration,
+    alert: LogsAlertConfiguration, grouping: Grouping | None
 ) -> Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit]:
-    # Only the settings a logs alert has. The platform's own, such as grouping, keep what the copy
-    # stores, so an edit through the logs API never resets them.
+    # Only the settings a logs alert has, and a grouping the edit named. The logs row has no grouping,
+    # so an edit that names none keeps what the copy stores rather than resetting it.
     upsert = platform_upsert_of(alert)
     shared = {field: getattr(upsert, field) for field in SETTINGS_FIELDS}
-    return lambda stored: replace(stored, enabled=upsert.enabled, **shared)
+    return lambda stored: replace(stored, enabled=upsert.enabled, grouping=grouping or stored.grouping, **shared)
 
 
 def mirror_platform_edit(
