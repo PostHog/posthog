@@ -3368,7 +3368,7 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
         self._record_events_history()
 
         with patch(
-            "products.logs.backend.platform_alert_event_history.notable_checks_by_legacy_id",
+            "products.logs.backend.presentation.views.alerts_api.platform_check_rows",
             side_effect=Exception("ClickHouse is down"),
         ):
             response = self.client.get(f"{self.base_url}{self.alert.id}/events/")
