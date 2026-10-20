@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -30,8 +31,24 @@ const emailStep = (from: Record<string, unknown>): HogFlow['actions'][number] =>
         description: '',
         created_at: 0,
         updated_at: 0,
-        config: { template_id: 'template-email', inputs: { email: { value: { from, to: {}, subject: 'Hi' } } } },
+        config: {
+            template_id: 'template-email',
+            inputs: {
+                email: {
+                    value: {
+                        from,
+                        to: { email: '{{ person.properties.email }}' },
+                        subject: 'Hi',
+                        html: '<p>Hi</p>',
+                        text: 'Hi',
+                    },
+                },
+            },
+        },
     }) as HogFlow['actions'][number]
+
+const senderOf = (workflow: Partial<HogFlow>, stepId: string): unknown =>
+    (workflow.actions?.find(({ id }) => id === stepId)?.config as any)?.inputs?.email?.value?.from
 
 const withEmailStep = (workflow: HogFlow, from: Record<string, unknown>): HogFlow => ({
     ...workflow,
@@ -109,7 +126,17 @@ describe('workflowLogic send once verified', () => {
                     retrieveCount += 1
                     return [200, storedWorkflow]
                 },
-                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                '/api/projects/:team_id/hog_function_templates/': {
+                    results: [
+                        {
+                            id: 'template-email',
+                            name: 'Email',
+                            type: 'destination',
+                            inputs_schema: [{ type: 'native_email', key: 'email', label: 'Email', required: true }],
+                        },
+                    ],
+                    count: 1,
+                },
                 '/api/projects/:team_id/integrations/': () => [
                     200,
                     {
@@ -282,7 +309,7 @@ describe('workflowLogic send once verified', () => {
             from: {},
             unverified: [],
             senders: [],
-            notice: { stage: 'no_domain', url: '/workflows/channels' },
+            notice: { stage: 'no_domain' },
         },
         {
             name: 'a step has no sender and the project only has a pending domain',
@@ -290,7 +317,7 @@ describe('workflowLogic send once verified', () => {
             from: {},
             unverified: [],
             senders: [PENDING_PROJECT_SENDER],
-            notice: { stage: 'unverified', domains: ['example.com'], url: '/workflows/channels' },
+            notice: { stage: 'unverified', domains: ['example.com'], integrationId: 7 },
         },
         {
             name: 'the sender of a step was deleted and the project has no other sender',
@@ -298,7 +325,7 @@ describe('workflowLogic send once verified', () => {
             from: { integrationId: 99 },
             unverified: [],
             senders: [],
-            notice: { stage: 'no_domain', url: '/workflows/channels' },
+            notice: { stage: 'no_domain' },
         },
         {
             name: 'a draft sends from an unverified domain',
@@ -306,7 +333,7 @@ describe('workflowLogic send once verified', () => {
             from: { integrationId: 7 },
             unverified: [UNVERIFIED_SENDER],
             senders: [PENDING_PROJECT_SENDER, VERIFIED_PROJECT_SENDER],
-            notice: { stage: 'unverified', domains: ['example.com'], url: '/workflows/channels' },
+            notice: { stage: 'unverified', domains: ['example.com'], integrationId: 7 },
         },
         {
             name: 'an enabled workflow waits for its domain',
@@ -314,7 +341,15 @@ describe('workflowLogic send once verified', () => {
             from: { integrationId: 7 },
             unverified: [UNVERIFIED_SENDER],
             senders: [PENDING_PROJECT_SENDER],
-            notice: { stage: 'waiting', domains: ['example.com'], url: '/workflows/channels' },
+            notice: { stage: 'waiting', domains: ['example.com'], integrationId: 7 },
+        },
+        {
+            name: 'an enabled workflow waits for several domains',
+            status: 'waiting_for_domain',
+            from: { integrationIds: [7, 8] },
+            unverified: [UNVERIFIED_SENDER, { id: 8, domain: 'mail.example.org' }],
+            senders: [PENDING_PROJECT_SENDER],
+            notice: { stage: 'waiting', domains: ['example.com', 'mail.example.org'], integrationId: null },
         },
         {
             name: 'every sender is verified',
@@ -346,6 +381,247 @@ describe('workflowLogic send once verified', () => {
         await mountWith(makeWorkflow())
 
         expect(logic.values.senderDomainNotice).toBeNull()
+    })
+
+    it('opens the domain setup over the workflow and refreshes the notice once it closes', async () => {
+        await mountWith(withEmailStep(makeWorkflow(), {}), { senders: [] })
+        expect(logic.values.senderDomainNotice).toEqual({ stage: 'no_domain' })
+
+        logic.actions.openSenderDomainSetup(null)
+        expect(logic.values.senderDomainSetup).toEqual({ integrationId: null, filledEmptySenders: false })
+
+        projectSenders = [PENDING_PROJECT_SENDER]
+        await expectLogic(integrationsLogic, () => {
+            logic.actions.closeSenderDomainSetup()
+        }).toDispatchActions(['loadIntegrations', 'loadIntegrationsSuccess'])
+        expect(logic.values.senderDomainSetup).toBeNull()
+        expect(logic.values.senderDomainNotice).toEqual({
+            stage: 'unverified',
+            domains: ['example.com'],
+            integrationId: 7,
+        })
+    })
+
+    describe('a sender created in the domain setup', () => {
+        const CREATED_SENDER_ID = 9
+
+        const withEmailSteps = (...senders: Record<string, unknown>[]): HogFlow => {
+            const workflow = makeWorkflow()
+            const steps = senders.map((from, index) => ({ ...emailStep(from), id: `email_${index}` }))
+            return { ...workflow, actions: [workflow.actions[0], ...steps, workflow.actions[1]] }
+        }
+
+        it('fills only the steps without a sender, and saves them with the unsaved edits', async () => {
+            await mountWith(withEmailSteps({}, { integrationId: 8 }, {}), { senders: [VERIFIED_PROJECT_SENDER] })
+            logic.actions.openSenderDomainSetup(null)
+            logic.actions.setWorkflowValue('name', 'Welcome, renamed')
+            const capture = jest.spyOn(posthog, 'capture')
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Partial<HogFlow>
+                        patchBodies.push(body)
+                        storedWorkflow = { ...storedWorkflow, ...body, updated_at: '2026-05-04T00:00:00.000Z' }
+                        return [200, storedWorkflow]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.fillEmptySendersFromDomainSetup(CREATED_SENDER_ID)
+            })
+                .toDispatchActions(['saveWorkflowSuccess'])
+                .toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(1)
+            expect(logic.values.senderDomainSetup?.filledEmptySenders).toBe(true)
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+            expect(logic.values.workflow.name).toEqual('Welcome, renamed')
+            expect(['email_0', 'email_1', 'email_2'].map((id) => senderOf(logic.values.workflow, id))).toEqual([
+                { integrationId: CREATED_SENDER_ID },
+                { integrationId: 8 },
+                { integrationId: CREATED_SENDER_ID },
+            ])
+            expect(capture).toHaveBeenCalledWith('email sender preselected', {
+                surface: 'workflow',
+                reason: 'created_in_domain_setup',
+            })
+        })
+
+        it('keeps the fill when it saves behind an earlier save and its own save fails', async () => {
+            await mountWith(withEmailSteps({}), { senders: [VERIFIED_PROJECT_SENDER] })
+            logic.actions.openSenderDomainSetup(null)
+            let releaseFirstSave!: () => void
+            const firstSaveHeld = new Promise<void>((resolve) => {
+                releaseFirstSave = resolve
+            })
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Partial<HogFlow>
+                        patchBodies.push(body)
+                        if (patchBodies.length === 1) {
+                            await firstSaveHeld
+                        }
+                        if (patchBodies.length === 2) {
+                            return [500, { detail: 'Server error' }]
+                        }
+                        storedWorkflow = {
+                            ...storedWorkflow,
+                            ...body,
+                            updated_at: `2026-05-0${patchBodies.length + 3}`,
+                        }
+                        return [200, storedWorkflow]
+                    },
+                },
+            })
+            logic.actions.setWorkflowValue('name', 'Welcome, renamed')
+            logic.actions.flushAutoSave()
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+
+            logic.actions.fillEmptySendersFromDomainSetup(CREATED_SENDER_ID)
+            releaseFirstSave()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess', 'saveWorkflowFailure'])
+
+            expect(senderOf(logic.values.workflow, 'email_0')).toEqual({ integrationId: CREATED_SENDER_ID })
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it.each([
+            ['one sender', { integrationId: 8 }],
+            ['a sender rotation', { integrationIds: [8, 7] }],
+        ])('leaves a workflow whose steps all have %s alone', async (_name, from) => {
+            await mountWith(withEmailSteps(from), { senders: [VERIFIED_PROJECT_SENDER] })
+            logic.actions.openSenderDomainSetup(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.fillEmptySendersFromDomainSetup(CREATED_SENDER_ID)
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['saveWorkflow'])
+                .toMatchValues({ hasUnsavedChanges: false })
+            expect(patchBodies).toEqual([])
+            expect(logic.values.senderDomainSetup?.filledEmptySenders).toBe(false)
+        })
+    })
+
+    describe('a domain that verified while the setup was open', () => {
+        const waiting = (): HogFlow =>
+            withEmailStep(
+                makeWorkflow({ status: 'waiting_for_domain', unverified_email_senders: [UNVERIFIED_SENDER] }),
+                { integrationId: 7 }
+            )
+
+        const verifyWhileOpen = async (): Promise<void> => {
+            await mountWith(waiting())
+            logic.actions.openSenderDomainSetup(7)
+            storedWorkflow = {
+                ...waiting(),
+                status: 'active',
+                unverified_email_senders: [],
+                went_live_at: '2026-05-03T00:00:00.000Z',
+                updated_at: '2026-05-03T00:00:00.000Z',
+            }
+            projectSenders = [{ ...PENDING_PROJECT_SENDER, verified: true }]
+        }
+
+        it('shows the workflow live once the setup closes', async () => {
+            await verifyWhileOpen()
+
+            await expectLogic(logic, () => {
+                logic.actions.closeSenderDomainSetup()
+            })
+                .toDispatchActions(['setSyncingExternalEdit', 'loadWorkflowSuccess'])
+                .toMatchValues({ externallyEdited: false })
+
+            expect(logic.values.workflow.status).toEqual('active')
+            expect(logic.values.senderDomainNotice).toBeNull()
+        })
+
+        it('asks before it reloads over edits that auto-save cannot flush', async () => {
+            await verifyWhileOpen()
+            logic.actions.setAutoSaveEnabled(false)
+            logic.actions.setWorkflowValue('name', 'Welcome, renamed')
+
+            await expectLogic(logic, () => {
+                logic.actions.closeSenderDomainSetup()
+            })
+                .toDispatchActions(['setExternallyEdited'])
+                .toNotHaveDispatchedActions(['loadWorkflow'])
+                .toMatchValues({ externallyEdited: true })
+
+            expect(logic.values.workflow.name).toEqual('Welcome, renamed')
+        })
+
+        it.each([
+            ['after the save response lands', 'check'],
+            ['before the save response lands', 'save'],
+        ] as const)(
+            'does not mistake its own save for a server change when the check returns %s',
+            async (_name, held) => {
+                await mountWith(waiting())
+                logic.actions.openSenderDomainSetup(7)
+                let release!: () => void
+                const holding = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                const beforeTheSave = storedWorkflow
+                let afterTheSave = beforeTheSave
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/hog_flows/:id/': async () => {
+                            if (held === 'check') {
+                                await holding
+                            }
+                            return [200, afterTheSave]
+                        },
+                    },
+                    patch: {
+                        '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                            afterTheSave = {
+                                ...beforeTheSave,
+                                ...((await request.json()) as Partial<HogFlow>),
+                                updated_at: '2026-05-05T00:00:00.000Z',
+                            }
+                            if (held === 'save') {
+                                await holding
+                            }
+                            return [200, afterTheSave]
+                        },
+                    },
+                })
+
+                logic.actions.saveWorkflowPartial({ name: 'Saved during the check' })
+                if (held === 'check') {
+                    logic.actions.closeSenderDomainSetup()
+                    await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+                    release()
+                } else {
+                    await expectLogic(logic, () => {
+                        logic.actions.closeSenderDomainSetup()
+                    }).toDispatchActions(['resourceEdited'])
+                    release()
+                    await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+                }
+
+                await expectLogic(logic)
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['loadWorkflow', 'setExternallyEdited'])
+            }
+        )
+
+        it('leaves the workflow alone when nothing changed on the server', async () => {
+            await mountWith(waiting())
+            logic.actions.openSenderDomainSetup(7)
+
+            await expectLogic(logic, () => {
+                logic.actions.closeSenderDomainSetup()
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadWorkflow', 'setExternallyEdited'])
+
+            expect(logic.values.originalWorkflow?.status).toEqual('waiting_for_domain')
+        })
     })
 
     describe('while the workflow waits for its domain', () => {
@@ -438,6 +714,39 @@ describe('workflowLogic send once verified', () => {
             releaseCheck()
             await jest.advanceTimersByTimeAsync(0)
             await new Promise((resolve) => setImmediate(resolve))
+        })
+
+        it('drops a status answer that lands after the domain setup closed and reloaded the workflow', async () => {
+            await mountWaiting()
+            logic.actions.openSenderDomainSetup(7)
+            const turnedOff: HogFlow = { ...wentLive, status: 'draft', updated_at: '2026-05-04T00:00:00Z' }
+            let releaseCheck!: () => void
+            const checkReleased = new Promise<void>((resolve) => {
+                releaseCheck = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': async () => {
+                        retrieveCount += 1
+                        if (retrieveCount === 1) {
+                            await checkReleased
+                            return [200, wentLive]
+                        }
+                        return [200, turnedOff]
+                    },
+                },
+            })
+            await jest.advanceTimersByTimeAsync(10_000)
+            expect(retrieveCount).toEqual(1)
+
+            await expectLogic(logic, () => {
+                logic.actions.closeSenderDomainSetup()
+            }).toDispatchActions(['loadWorkflowSuccess'])
+            releaseCheck()
+            await jest.advanceTimersByTimeAsync(0)
+            await expectLogic(logic).toFinishAllListeners().toNotHaveDispatchedActions(['setWorkflowLifecycle'])
+
+            expect(logic.values.originalWorkflow?.status).toEqual('draft')
         })
 
         it('checks only while the tab is visible, and checks at once when it shows again', async () => {
