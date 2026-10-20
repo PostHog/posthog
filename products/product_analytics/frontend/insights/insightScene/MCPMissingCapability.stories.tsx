@@ -5,8 +5,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
-
-import __mcpMissingCapability from '../../../mocks/fixtures/api/projects/team_id/insights/mcpMissingCapability.json'
+import __mcpMissingCapability from '~/mocks/fixtures/api/projects/team_id/insights/mcpMissingCapability.json'
 
 type Story = StoryObj<{}>
 const meta: Meta = {
