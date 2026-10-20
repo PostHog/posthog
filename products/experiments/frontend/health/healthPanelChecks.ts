@@ -35,7 +35,8 @@ export function healthPanelChecks(
     }
     // A reset to draft keeps the previous exposure answer in the page, as for the findings.
     const exposureChecks = isExperimentDraft ? [] : (exposures?.health_checks ?? [])
-    return [...health.checks, ...exposureChecks].sort(
+    // A server from before the checks were reported sends none, for example while a deploy rolls out.
+    return [...(health.checks ?? []), ...exposureChecks].sort(
         (a, b) => CHECK_STATUS_ORDER[a.status] - CHECK_STATUS_ORDER[b.status]
     )
 }

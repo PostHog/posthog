@@ -1,6 +1,6 @@
 import { type ExperimentExposureQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
-import type { ExperimentHealthCheckResultApi } from '../generated/api.schemas'
+import type { ExperimentHealthApi, ExperimentHealthCheckResultApi } from '../generated/api.schemas'
 import {
     type ExposureChecksState,
     type HealthChipState,
@@ -57,6 +57,15 @@ describe('healthPanelChecks', () => {
         expect(
             healthPanelChecks(health, EXPOSURES, isExperimentDraft)?.map(({ key, status }) => `${key}:${status}`)
         ).toEqual(expected)
+    })
+
+    it('lists the exposure checks when the health response has no checks', () => {
+        const healthWithoutChecks = { findings: [] } as unknown as ExperimentHealthApi
+
+        expect(healthPanelChecks(healthWithoutChecks, EXPOSURES, false)?.map(({ key }) => key)).toEqual([
+            'srm',
+            'zero_exposures',
+        ])
     })
 
     test.each<{
