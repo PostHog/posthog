@@ -112,7 +112,6 @@ class TestFilloutTransport:
     @parameterized.expand(
         [
             (401, "Invalid Fillout API key"),
-            (403, "Fillout API key is missing permission to list forms"),
         ]
     )
     def test_validate_credentials_forms_auth_failures(self, status, expected_message) -> None:

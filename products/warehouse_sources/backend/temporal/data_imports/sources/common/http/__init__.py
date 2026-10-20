@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
     NO_REQUEST_TIMEOUT,
+    BoundedRetry,
     RequestTimeout,
     TrackedHTTPAdapter,
     current_request_deadline,
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 
 __all__ = [
     "DEFAULT_RETRY",
+    "BoundedRetry",
     "NO_REQUEST_TIMEOUT",
     "RequestTimeout",
     "JobContext",
