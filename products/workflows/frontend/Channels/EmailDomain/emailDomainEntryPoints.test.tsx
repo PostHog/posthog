@@ -11,7 +11,6 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
 import { MessageChannels } from '../MessageChannels'
@@ -237,7 +236,7 @@ describe('email domain setup entry points', () => {
             const sourceWorkflow = workflow(source)
             await renderInApp(
                 <EmailDomainSetupModal
-                    integration={{ id: SENDER_ID } as IntegrationType}
+                    integrationId={SENDER_ID}
                     entry="workflow"
                     workflow={sourceWorkflow}
                     onComplete={jest.fn()}

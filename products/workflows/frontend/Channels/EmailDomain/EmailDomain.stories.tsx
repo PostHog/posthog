@@ -11,9 +11,11 @@ import { useStorybookMocks } from '~/mocks/browser'
 
 import type { DataSuggestionApi } from '../../generated/api.schemas'
 import { FakeDnsHost, FakeEmailDomainBackend, FakeRecord } from './__mocks__/fakeEmailDomainBackend'
+import { SourceWorkflow } from './components/SourceWorkflowCard'
 import { emailDomainAgentLogic } from './emailDomainAgentLogic'
 import { emailDomainManualSetupLogic } from './emailDomainManualSetupLogic'
 import { EmailDomainScene } from './EmailDomainScene'
+import { EmailDomainSetupModal } from './EmailDomainSetupModal'
 import { emailDomainStatusLogic } from './emailDomainStatusLogic'
 
 const DOMAIN = 'mail.acme.com'
@@ -236,6 +238,49 @@ export const ReadyWithSuggestions: Story = {
         },
         aiApproved: true,
     },
+}
+
+export const VerifyingWithSuggestions: Story = {
+    args: {
+        host: 'cloudflare',
+        seed: (backend) => {
+            backend.publishRecords(DOMAIN, halfPublished)
+            backend.suggestWorkflows(SUGGESTED_WORKFLOWS)
+        },
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD, FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS],
+    },
+}
+
+const SOURCE_WORKFLOW: SourceWorkflow = {
+    name: 'Welcome new sign-ups',
+    enabled: false,
+    enableDisabledReason: null,
+    onEnable: () => {},
+    onBack: () => {},
+}
+
+function SetupFromWorkflow({ seed }: Pick<DomainPageArgs, 'seed'>): JSX.Element {
+    const backend = useMemo(() => seededBackend('cloudflare', seed), [seed])
+    useStorybookMocks(backend.mocks())
+    return (
+        <EmailDomainSetupModal
+            integrationId={42}
+            entry="workflow"
+            workflow={SOURCE_WORKFLOW}
+            onComplete={() => {}}
+            onClose={() => {}}
+        />
+    )
+}
+
+export const FromWorkflowVerifying: Story = {
+    render: () => <SetupFromWorkflow seed={(backend) => backend.publishRecords(DOMAIN, halfPublished)} />,
+}
+
+export const FromWorkflowReady: Story = {
+    render: () => <SetupFromWorkflow seed={(backend) => backend.verifyDomain(DOMAIN)} />,
 }
 
 export const Unavailable: Story = { render: () => <UnavailableDomainPage /> }

@@ -29,7 +29,14 @@ export const EmailSetupModal = ({ entry, ...props }: EmailSetupModalProps): JSX.
     // A verified sender keeps the settings form, which edits what the wizard does not: reply-to and the bounce subdomain.
     const editsVerifiedSender = props.integration?.config?.verified === true
     if (featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD] && !editsVerifiedSender) {
-        return <EmailDomainSetupModal {...props} entry={entry ?? (props.integration ? 'configure' : 'channels')} />
+        return (
+            <EmailDomainSetupModal
+                integrationId={props.integration?.id}
+                entry={entry ?? (props.integration ? 'configure' : 'channels')}
+                onComplete={props.onComplete}
+                onClose={props.onClose}
+            />
+        )
     }
     return <LegacyEmailSetupModal {...props} />
 }
