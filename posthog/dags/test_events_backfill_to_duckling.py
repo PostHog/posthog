@@ -62,7 +62,7 @@ from posthog.dags.events_backfill_to_duckling import (
 )
 
 from products.data_warehouse.backend.facade.backfill_status import BackfillOutcome, get_months_in_range
-from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE, NO_HISTORY_SENTINEL
+from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE
 from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
     DucklingTables,
@@ -702,28 +702,6 @@ class TestFullBackfillSensorEarliestDate:
         # The same tick uses the freshly resolved date (the contract is frozen, so the
         # sensor replaces its local value rather than mutating the control-plane row).
 
-    @patch("posthog.dags.events_backfill_to_duckling.resolve_team_earliest_event_date")
-    @patch("posthog.dags.events_backfill_to_duckling.list_enabled_backfill_team_memberships")
-    @patch("posthog.dags.events_backfill_to_duckling.timezone")
-    @patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", new=MagicMock(return_value=[]))
-    def test_no_events_returns_empty(self, mock_tz, mock_list_rows, mock_get_earliest):
-        from dagster import DagsterInstance, SensorResult, build_sensor_context
-
-        mock_tz.now.return_value = datetime(2025, 2, 10, 12, 0, 0)
-        mock_get_earliest.return_value = NO_HISTORY_SENTINEL
-
-        backfill = self._bf(1)
-        mock_list_rows.return_value = [backfill]
-
-        instance = DagsterInstance.ephemeral()
-        context = build_sensor_context(instance=instance)
-        result = duckling_events_full_backfill_sensor(context)
-        assert isinstance(result, SensorResult)
-        assert result.run_requests is not None
-
-        assert len(result.run_requests) == 0
-        # No events produces no historical partitions in this tick.
-
     def test_earliest_backfill_date_is_2015(self):
         assert EARLIEST_BACKFILL_DATE == datetime(2015, 1, 1)
 
@@ -760,18 +738,9 @@ class TestFullBackfillSensorEarliestDate:
             mock_list_rows.return_value = backfills
             mock_projection.objects.unscoped.return_value.filter.return_value.values_list.return_value = []
             if isinstance(get_earliest, list):
-                mock_ge.side_effect = [
-                    value.date() if isinstance(value, datetime) else NO_HISTORY_SENTINEL if value is None else value
-                    for value in get_earliest
-                ]
+                mock_ge.side_effect = [value.date() if isinstance(value, datetime) else value for value in get_earliest]
             else:
-                mock_ge.return_value = (
-                    get_earliest.date()
-                    if isinstance(get_earliest, datetime)
-                    else NO_HISTORY_SENTINEL
-                    if get_earliest is None
-                    else get_earliest
-                )
+                mock_ge.return_value = get_earliest.date() if isinstance(get_earliest, datetime) else get_earliest
 
             instance = DagsterInstance.ephemeral()
             if existing:
@@ -895,19 +864,13 @@ class TestFullBackfillSensorEarliestDate:
         runs_filter = mock_get_runs.call_args.kwargs["filters"]
         assert runs_filter.tags == {"duckling_backfill_type": "full"}
 
-    @parameterized.expand(
-        [
-            ("resolved_date", datetime(2020, 6, 15), date(2020, 6, 15)),
-            ("no_events_pushes_sentinel", None, NO_HISTORY_SENTINEL),
-        ]
-    )
-    def test_pushes_freshly_resolved_earliest_date_to_control_plane(self, _name, earliest_dt, expected_pushed):
-        # The resolved date (or the no-history sentinel) is persisted onto the team's
-        # duckgres control-plane row — the sensors' read source.
+    def test_pushes_freshly_resolved_earliest_date_to_control_plane(self):
+        # The resolved date is persisted onto the team's duckgres control-plane row — the
+        # sensors' read source.
         backfill = self._bf(1)
         with patch("products.managed_warehouse.backend.facade.api.update_team_earliest_event_date") as mock_push:
-            self._run_full_sensor([backfill], now=datetime(2020, 8, 10, 12, 0, 0), get_earliest=earliest_dt)
-        mock_push.assert_called_once_with(backfill.organization_id, 1, expected_pushed)
+            self._run_full_sensor([backfill], now=datetime(2020, 8, 10, 12, 0, 0), get_earliest=datetime(2020, 6, 15))
+        mock_push.assert_called_once_with(backfill.organization_id, 1, date(2020, 6, 15))
 
     def test_control_plane_push_failure_does_not_fail_tick(self):
         # The CP push is the persistence, but it is best-effort within a tick: a push
@@ -957,13 +920,7 @@ class TestFullBackfillSensorCpEnumeration:
             patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", return_value=[]),
             patch(
                 "posthog.dags.events_backfill_to_duckling.resolve_team_earliest_event_date",
-                return_value=(
-                    get_earliest.date()
-                    if isinstance(get_earliest, datetime)
-                    else NO_HISTORY_SENTINEL
-                    if get_earliest is None
-                    else get_earliest
-                ),
+                return_value=get_earliest.date() if isinstance(get_earliest, datetime) else get_earliest,
             ),
             patch("products.managed_warehouse.backend.facade.api.update_team_earliest_event_date") as mock_push,
         ):
