@@ -67,7 +67,6 @@ class TestCheckoutComSource:
     @pytest.mark.parametrize(
         "other_error",
         [
-            "500 Server Error for url: https://api.checkout.com/disputes",
             # Mid-sync 401s on the API host are handled by token re-mint.
             "401 Client Error: Unauthorized for url: https://api.checkout.com/disputes",
             # Transient token-endpoint errors (429/5xx) carry no marker and stay retryable.

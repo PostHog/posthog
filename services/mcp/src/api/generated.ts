@@ -30007,6 +30007,8 @@ export namespace Schemas {
       stage: DataSuggestionStageEnum;
       /** The main planned step kinds after the trigger, in order. */
       step_outline: DataSuggestionStepKindEnum[];
+      /** Whether PostHog prepared this suggestion ahead of time with its workflow already built. Build it with save_draft to save the draft and stop offering the suggestion. */
+      premade: boolean;
     }
 
     export interface DataSuggestionBuildRequest {
@@ -39472,6 +39474,8 @@ export namespace Schemas {
       subject?: string;
       /** Plain-text fallback body for clients that can't render the email. */
       text?: string;
+      /** Preview text that most inboxes show after the subject. Supports Liquid templating. */
+      preheader?: string;
       /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
       html?: string;
       /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
@@ -56313,6 +56317,7 @@ export namespace Schemas {
      * * `running` - Running
      * * `paused_by_user` - Paused By User
      * * `paused_by_system` - Paused By System
+     * * `dry_run` - Dry Run
      * * `not_running` - Not Running
      */
     export type SuggestionsScoutStatusEnum = typeof SuggestionsScoutStatusEnum[keyof typeof SuggestionsScoutStatusEnum];
@@ -56322,19 +56327,34 @@ export namespace Schemas {
       Running: 'running',
       PausedByUser: 'paused_by_user',
       PausedBySystem: 'paused_by_system',
+      DryRun: 'dry_run',
       NotRunning: 'not_running',
     } as const;
+
+    export interface SuggestionsSample {
+      /** Whether an email step of the live version has enough tracked sends, over enough time, for PostHog to judge it. */
+      readonly reached: boolean;
+      /** Tracked sends (sends with open tracking on) from the live version's busiest email step in the last 7 days. */
+      readonly tracked_sends: number;
+      /** Tracked sends an email step needs before PostHog judges it. */
+      readonly required_sends: number;
+      /** When the live version was published. PostHog waits 48 hours before judging it. */
+      readonly version_live_since: string;
+    }
 
     export interface HogFlowOptimization {
       /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
-      /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+      /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on. A scout in dry run runs but files nothing until someone turns on writing to the inbox in its scout settings.
        *
        * * `running` - Running
        * * `paused_by_user` - Paused By User
        * * `paused_by_system` - Paused By System
+       * * `dry_run` - Dry Run
        * * `not_running` - Not Running */
       readonly scout_status: SuggestionsScoutStatusEnum;
+      /** How close the live version is to the sample PostHog needs before it suggests anything. Null while suggestions are on but the scout is not running, or when the workflow has no email step. */
+      readonly sample: SuggestionsSample | null;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -110705,19 +110725,6 @@ export namespace Schemas {
     export interface SurveySummarizeRequest {
       /** When true, bypass cached summaries and regenerate. Defaults to false. */
       force_refresh?: boolean;
-    }
-
-    export interface TaggerCreate {
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfigurationWrite | null;
     }
 
     export interface TaggerUpdate {
