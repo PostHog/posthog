@@ -6,25 +6,27 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
+from django.urls import resolve
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.mcp_tool_definitions import get_mcp_tool_definitions
-from posthog.mcp_tool_operations import resolve_api_operation
+from posthog.mcp_tool_operations import request_matches_operation, resolve_api_operation
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
 from products.notebooks.backend.models import Notebook
+from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tool_policy import SANDBOX_HARNESS_OPERATIONS
 from products.tasks.backend.models import Task
 
 DISPATCH = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 NOTES_ONLY = ["conversations-tickets-notes-create"]
-TOKEN_SCOPES = "ticket:read ticket:write notebook:read notebook:write task:read task:write project:read query:read"
+TOKEN_SCOPES = "ticket:read ticket:write notebook:read notebook:write task:read task:write project:read query:read signal_scout_internal:write"
 # Hand-written tools whose handlers only read with GET, or make no API call, so they list no endpoint.
 GET_ONLY_TOOLS = frozenset(
     {
@@ -112,6 +114,15 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             ("picked_soft_delete", ["notebooks-destroy"], True, "patch", "notebook", status.HTTP_200_OK),
             ("mcp_store_tool_call", NOTES_ONLY, True, "post", "mcp_call_tool", status.HTTP_403_FORBIDDEN),
             ("mcp_store_tool_approval", NOTES_ONLY, True, "patch", "mcp_tool_approval", status.HTTP_403_FORBIDDEN),
+            ("update_can_edit", ["notebooks-partial-update"], True, "patch", "notebook_title", 200),
+            ("own_emit_signal", [], True, "post", "own_emit_signal", 400),
+            ("own_record_output", [], True, "post", "own_record_output", 400),
+            ("update_cannot_delete", ["notebooks-partial-update"], True, "patch", "notebook", 403),
+            ("delete_cannot_update", ["notebooks-destroy"], True, "patch", "notebook_title", 403),
+            ("foreign_harness_write", [], True, "patch", "foreign_run_summary", 403),
+            ("unpicked_report_artefact", [], True, "post", "report_artefact", 403),
+            ("foreign_emit_signal", [], True, "post", "emit_signal", 403),
+            ("foreign_record_output", [], True, "post", "record_output", 403),
             ("harness_write", [], True, "patch", "run_summary", status.HTTP_200_OK),
             ("malformed_stamp_fails_closed", "conversations-tickets-notes-create", True, "post", "ticket_notes", 403),
             ("not_narrowed", None, True, "post", "ticket_reply", status.HTTP_201_CREATED),
@@ -125,11 +136,40 @@ class TestScoutToolPolicyAPI(APIBaseTest):
         base = f"/api/projects/{self.team.id}"
         run = task.latest_run
         assert run is not None
+        own_scout_run = SignalScoutRun.objects.create(
+            team=self.team, task_run=run, skill_name="synthetic", skill_version=1
+        )
+        foreign_task_id, foreign_run_id, foreign_scout_run_id = uuid4(), uuid4(), uuid4()
+        if target in {"foreign_run_summary", "emit_signal", "record_output"}:
+            with patch(DISPATCH):
+                other_task = Task.create_and_run(
+                    team=self.team,
+                    title="Other scout",
+                    description="Other scout",
+                    origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+                    user_id=self.user.id,
+                )
+            other_run = other_task.latest_run
+            assert other_run is not None
+            foreign_task_id, foreign_run_id = other_task.id, other_run.id
+            foreign_scout_run_id = SignalScoutRun.objects.create(
+                team=self.team, task_run=other_run, skill_name="other", skill_version=1
+            ).id
         url, body = {
             "ticket": (f"{base}/conversations/tickets/{self.ticket.id}/", {"status": Status.PENDING}),
             "ticket_notes": (f"{base}/conversations/tickets/{self.ticket.id}/notes/", {"message": "Synthetic note"}),
             "ticket_reply": (f"{base}/conversations/tickets/{self.ticket.id}/reply/", {"message": "Synthetic reply"}),
             "notebooks": (f"{base}/notebooks/", {"title": "Synthetic notebook"}),
+            "notebook_title": (f"{base}/notebooks/{self.notebook.short_id}/", {"title": "Changed"}),
+            "foreign_run_summary": (
+                f"{base}/tasks/{foreign_task_id}/runs/{foreign_run_id}/set_summary/",
+                {"summary": "Changed"},
+            ),
+            "report_artefact": (f"{base}/signals/reports/{uuid4()}/artefacts/", {}),
+            "own_emit_signal": (f"{base}/signals/scout/runs/{own_scout_run.id}/emit-signal/", {}),
+            "own_record_output": (f"{base}/signals/scout/runs/{own_scout_run.id}/record-output/", {}),
+            "emit_signal": (f"{base}/signals/scout/runs/{foreign_scout_run_id}/emit-signal/", {}),
+            "record_output": (f"{base}/signals/scout/runs/{foreign_scout_run_id}/record-output/", {}),
             "notebook": (f"{base}/notebooks/{self.notebook.short_id}/", {"deleted": True}),
             "run_summary": (f"{base}/tasks/{task.id}/runs/{run.id}/set_summary/", {"summary": "Synthetic summary"}),
             "complete_onboarding": (f"{base}/complete_product_onboarding/", {"type": "product_analytics"}),
@@ -150,6 +190,19 @@ class TestScoutToolPolicyAPI(APIBaseTest):
 
 
 class TestScoutToolOperations(SimpleTestCase):
+    def test_skill_file_delete_matches_nested_path(self) -> None:
+        operation = get_mcp_tool_definitions()["skill-file-delete"].api_operations[0]
+        path = (
+            operation.path.replace("{project_id}", "1")
+            .replace("{skill_name}", "example")
+            .replace("{file_path}", "references/limits.md")
+        )
+        match = resolve(path)
+        view = match.func.cls()
+        view.action = match.func.actions["delete"]
+
+        assert request_matches_operation(view=view, method="DELETE", path=path, operation=operation)
+
     def test_every_catalogued_and_harness_operation_resolves_to_a_view(self) -> None:
         operations = {
             (name, operation)

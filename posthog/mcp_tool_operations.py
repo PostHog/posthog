@@ -74,7 +74,11 @@ def resolve_api_operation(operation: McpToolApiOperation) -> ApiOperationKey | N
 @lru_cache(maxsize=4096)
 def _path_pattern(path_template: str) -> re.Pattern[str]:
     parts = _PATH_PARAMETER.split(_normalize_path(path_template).rstrip("/"))
-    return re.compile("[^/]+".join(re.escape(part) for part in parts) + "/?")
+    parameters = _PATH_PARAMETER.findall(path_template)
+    pattern = re.escape(parts[0])
+    for parameter, part in zip(parameters, parts[1:]):
+        pattern += (".+" if parameter == "{file_path}" else "[^/]+") + re.escape(part)
+    return re.compile(pattern + "/?")
 
 
 def _normalize_path(path: str) -> str:

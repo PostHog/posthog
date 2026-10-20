@@ -940,6 +940,7 @@ class APIScopePermission(ScopeBasePermission):
             method=request.method,
             path=request.path_info,
             required_scopes=required_scopes,
+            data=request.data,
         )
         if denial is None:
             return True

@@ -231,3 +231,7 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   Metrics default to `date_from: "-13d"` with a daily interval. This gives 14 inclusive buckets, including today. A longer window keeps only the trailing 14 strip buckets, while the whole-window value covers the full window. Do not author comparisons. Non-currency units are lowercase. Currency units use uppercase ISO codes such as `USD`.
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`) to match.**
 - **If you change the harness layout or tool surface, update this file to match.**
+
+### Narrowed scout API writes
+
+`tool_policy.py` checks held tools at the API boundary, including soft-delete payloads on shared PATCH endpoints. Harness and scout run writes must target the token-bound task’s current run; report artefacts are not a harness bypass. `test_scout_tool_policy.py` covers these boundaries and nested skill file paths.
