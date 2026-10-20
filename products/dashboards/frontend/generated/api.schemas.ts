@@ -10930,7 +10930,7 @@ export type WidgetCatalogEntryApi =
     | CanvasAppWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
-    /** Registered dashboard widget types available when dashboard-widgets is enabled. */
+    /** Registered dashboard widget types. */
     results: WidgetCatalogEntryApi[]
 }
 
