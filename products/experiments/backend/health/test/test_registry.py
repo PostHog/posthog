@@ -209,6 +209,28 @@ class TestEvaluate(TestCase):
 
     @parameterized.expand(
         [
+            ("too_few_exposures", UNEVEN_FLAG, "Runs once enough users are exposed"),
+            (
+                "one_variant_in_the_split_after_a_ship",
+                replace(
+                    UNEVEN_FLAG,
+                    variants=(
+                        FlagVariant(key="control", rollout_percentage=0),
+                        FlagVariant(key="test", rollout_percentage=100),
+                    ),
+                ),
+                "Needs two or more variants in the split",
+            ),
+        ]
+    )
+    def test_srm_says_why_it_did_not_run(self, _name: str, flag: FlagState, reason: str) -> None:
+        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, flag=flag), EXPOSURE_HEALTH_CHECKS)
+
+        srm = next(check for check in health.checks if check.key == Key.SRM)
+        self.assertEqual((srm.status, srm.reason), (Status.NOT_APPLICABLE, reason))
+
+    @parameterized.expand(
+        [
             ("persons", False, "Many users were exposed to multiple variants"),
             ("groups", True, "Many groups were exposed to multiple variants"),
         ]
