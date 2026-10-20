@@ -18,7 +18,7 @@ from products.alerts_platform.backend.facade.testing import create_configuration
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.testing import count_workflows_for_test, stored_workflow_for_test
 
 ALERT_ID = "01936a2e-0000-7000-8000-0000000000aa"
 TRANSITIONS = {
@@ -294,7 +294,7 @@ class TestCreateFlowDrafts(_FlowPortCase):
 
         assert drafts.refusal is None
         (workflow_id,) = drafts.workflow_ids
-        flow = HogFlow.objects.get(team_id=self.team.id, id=workflow_id)
+        flow = stored_workflow_for_test(team_id=self.team.id, workflow_id=workflow_id)
         assert (flow.status, flow.origin_product) == ("draft", "alerts")
         (step,) = [action for action in flow.actions if action["type"] == "function"]
         assert "signing_secret" not in step["config"]["inputs"]
@@ -316,13 +316,13 @@ class TestCreateFlowDrafts(_FlowPortCase):
             self._function("$logs_alert_incident_opened", secret=SIGNING_SECRET)
         if case == "rerun":
             self._create()
-        workflows_before = HogFlow.objects.filter(team_id=self.team.id).count()
+        workflows_before = count_workflows_for_test(team_id=self.team.id)
 
         drafts = self._create()
 
         assert reason in (drafts.refusal or "")
         assert drafts.workflow_ids == ()
-        assert HogFlow.objects.filter(team_id=self.team.id).count() == workflows_before
+        assert count_workflows_for_test(team_id=self.team.id) == workflows_before
 
 
 class TestCreateFlowDraftsOnAnInsightAlert(_FlowPortCase):
@@ -335,7 +335,7 @@ class TestCreateFlowDraftsOnAnInsightAlert(_FlowPortCase):
         drafts = self._create()
 
         assert "Insight alerts" in (drafts.refusal or "")
-        assert not HogFlow.objects.filter(team_id=self.team.id).exists()
+        assert count_workflows_for_test(team_id=self.team.id) == 0
 
 
 class TestRewriteTemplate(SimpleTestCase):

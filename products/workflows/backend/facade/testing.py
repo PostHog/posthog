@@ -1,7 +1,10 @@
+from dataclasses import field
 from typing import Any
+from uuid import UUID
 
 from asgiref.sync import sync_to_async
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.workflows.backend.facade.contracts import WorkflowSummary
@@ -31,6 +34,32 @@ def create_workflow_for_test(
 
 
 acreate_workflow_for_test = sync_to_async(create_workflow_for_test)
+
+
+@frozen
+class StoredWorkflowForTest:
+    """A workflow row as stored, for another product's test to check what it saved."""
+
+    status: str
+    origin_product: str | None
+    actions: list[dict[str, Any]]
+    trigger_masking: dict[str, Any] | None
+    encrypted_inputs: dict[str, Any] | None = field(repr=False)
+
+
+def stored_workflow_for_test(*, team_id: int, workflow_id: UUID) -> StoredWorkflowForTest:
+    flow = HogFlow.objects.get(team_id=team_id, id=workflow_id)
+    return StoredWorkflowForTest(
+        status=flow.status,
+        origin_product=flow.origin_product,
+        actions=flow.actions,
+        trigger_masking=flow.trigger_masking,
+        encrypted_inputs=flow.encrypted_inputs,
+    )
+
+
+def count_workflows_for_test(*, team_id: int) -> int:
+    return HogFlow.objects.filter(team_id=team_id).count()
 
 
 def count_account_audience_for_test(*, team_id: int, filters: dict[str, Any]) -> int:
