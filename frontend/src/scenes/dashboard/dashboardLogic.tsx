@@ -372,6 +372,17 @@ interface PendingFilterChange {
     remainingInsightIds: Set<InsightShortId>
 }
 
+// Settings that differ mean the dashboard moved on, so this refresh's tiles no longer count toward that change.
+function pendingFilterChangeFor(
+    cache: Record<string, any>,
+    settings: DashboardSettings
+): PendingFilterChange | undefined {
+    const pendingFilterChange: PendingFilterChange | undefined = cache.pendingFilterChange
+    return pendingFilterChange && dashboardSettingsMatch(pendingFilterChange.settings, settings)
+        ? pendingFilterChange
+        : undefined
+}
+
 export interface RefreshStatus {
     /** Insight is about to be loaded */
     queued?: boolean
@@ -4811,11 +4822,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const { currentTeamId, effectiveRefreshFilters, settingsForRefresh, urlFilters } = values
             const savedMetricVariables = values.savedDashboardSettings.filters.metricVariables ?? []
             const urlVariables = settingsForRefresh.variables
-            const pendingFilterChange: PendingFilterChange | undefined = cache.pendingFilterChange
-            const filterChange =
-                pendingFilterChange && dashboardSettingsMatch(pendingFilterChange.settings, settingsForRefresh)
-                    ? pendingFilterChange
-                    : undefined
+            const filterChange = pendingFilterChangeFor(cache, settingsForRefresh)
             filterChange?.remainingInsightIds.add(insight.short_id)
             const signal = currentQuerySignal(cache)
             const queryId = uuid()
@@ -4893,11 +4900,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const settingsToRefresh = previewUnsavedFilters
                 ? values.currentDashboardSettings
                 : values.settingsForRefresh
-            const pendingFilterChange: PendingFilterChange | undefined = cache.pendingFilterChange
-            const filterChange =
-                pendingFilterChange && dashboardSettingsMatch(pendingFilterChange.settings, settingsToRefresh)
-                    ? pendingFilterChange
-                    : undefined
+            const filterChange = pendingFilterChangeFor(cache, settingsToRefresh)
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
             const initialUrlOverridesArePreviewed =
@@ -5213,11 +5216,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             )
             actions.setRefreshStatuses(shortIds, false, true)
             const settings = values.deferredTileRefresh.settings ?? values.settingsForRefresh
-            const pendingFilterChange: PendingFilterChange | undefined = cache.pendingFilterChange
-            const filterChange =
-                pendingFilterChange && dashboardSettingsMatch(pendingFilterChange.settings, settings)
-                    ? pendingFilterChange
-                    : undefined
+            const filterChange = pendingFilterChangeFor(cache, settings)
             shortIds.forEach((shortId) => filterChange?.remainingInsightIds.add(shortId))
             const tileRefreshContext: InsightTileRefreshContext = {
                 actions,
