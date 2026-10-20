@@ -35,16 +35,12 @@ class TestWizardInstallViewSet(APIBaseTest):
         super().setUp()
         cache.clear()
         self.integration = Integration.objects.create(team=self.team, kind="github", config={})
-        self.flag = patch(
-            "products.wizard.backend.presentation.installs.views.posthog_feature_flag_enabled", return_value=True
-        )
         self.resolve_integration = patch(
             f"{REPOSITORY_ACCESS}.resolve_team_github_integration_id", return_value=self.integration.id
         )
         self.repository_accessible = patch(
             f"{REPOSITORY_ACCESS}.repository_accessible_via_integration", return_value=True
         )
-        self.flag_enabled = self.flag.start()
         self.resolve_integration.start()
         self.accessible = self.repository_accessible.start()
         self.addCleanup(patch.stopall)
@@ -127,12 +123,12 @@ class TestWizardInstallViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
-    def test_flag_off_hides_both_endpoints(self) -> None:
-        run_id = self._start(idempotency_key="before-flag-off").json()["run_id"]
-        self.flag_enabled.return_value = False
+    def test_disabled_cloud_execution_hides_both_endpoints(self) -> None:
+        run_id = self._start(idempotency_key="before-cloud-off").json()["run_id"]
 
-        start = self._start(idempotency_key="flag-off")
-        status_response = self.client.get(self._url(run_id))
+        with override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=""):
+            start = self._start(idempotency_key="cloud-off")
+            status_response = self.client.get(self._url(run_id))
 
         self.assertEqual(start.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(status_response.status_code, status.HTTP_404_NOT_FOUND)
