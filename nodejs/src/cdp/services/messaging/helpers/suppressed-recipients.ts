@@ -18,6 +18,26 @@ export type SuppressedRecipientsResult = {
 
 type ParsedAddress = { email: string; name?: string }
 
+// The suppression list stores bare addresses, so a quoted local part (`"jo"@x.com`) is checked unquoted.
+const unquoteMailbox = (address: string): string => {
+    const at = address.lastIndexOf('@')
+    const local = address.slice(0, at).trim()
+    if (at < 0 || !/^".*"$/.test(local)) {
+        return address.trim()
+    }
+    return `${local.slice(1, -1).replace(/\\(.)/g, '$1')}@${address.slice(at + 1).trim()}`
+}
+
+// addressparser drops the quotes from a bare quoted local part, so they are added back for delivery.
+const quoteMailbox = (email: string): string => {
+    const at = email.lastIndexOf('@')
+    const local = email.slice(0, at)
+    if (at < 0 || /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local)) {
+        return email
+    }
+    return `"${local.replace(/(["\\])/g, '\\$1')}"${email.slice(at)}`
+}
+
 // Parses the list the way SES does (RFC 5322), so quoted display names, comments and commas inside
 // quotes never hide the mailbox that receives the email.
 const parseAddressList = (value: string | undefined): ParsedAddress[] =>
@@ -26,12 +46,13 @@ const parseAddressList = (value: string | undefined): ParsedAddress[] =>
               .filter((entry) => entry.address.trim().length > 0)
               .map((entry) => {
                   const name = entry.name.replace(/[\x00-\x1F\x7F"\\<>,;]/g, '').trim()
-                  return { email: entry.address.trim(), ...(name ? { name } : {}) }
+                  return { email: unquoteMailbox(entry.address), ...(name ? { name } : {}) }
               })
         : []
 
 // Rebuilt from the parsed parts, so delivery sends to exactly the address the suppression check saw.
-const formatAddress = ({ email, name }: ParsedAddress): string => (name ? `"${name}" <${email}>` : email)
+const formatAddress = ({ email, name }: ParsedAddress): string =>
+    name ? `"${name}" <${quoteMailbox(email)}>` : quoteMailbox(email)
 
 /**
  * Removes the addresses on the team's suppression list from an email's recipients. SES delivers to
@@ -82,7 +103,8 @@ export const removeSuppressedRecipients = async (
     if (toSuppressed && ccEntries.length === 0) {
         return { skip: true, removed }
     }
-    const promotedTo = toSuppressed ? ccEntries.shift() : undefined
+    const promoted = toSuppressed ? ccEntries.shift() : undefined
+    const promotedTo = promoted ? { ...promoted, email: quoteMailbox(promoted.email) } : undefined
     return {
         skip: false,
         promotedTo,

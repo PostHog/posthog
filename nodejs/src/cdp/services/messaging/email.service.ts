@@ -515,10 +515,13 @@ export class EmailService {
                     `Not sending to ${suppression.removed.join(', ')} because ${suppression.removed.length === 1 ? 'it is' : 'they are'} on the suppression list.${promoted} The email still goes to the other recipients.`
                 )
             }
-            const deliverableParams =
-                suppression.removed.length > 0
-                    ? { ...params, to: suppression.promotedTo ?? params.to, cc: suppression.cc, bcc: suppression.bcc }
-                    : params
+            // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
+            const deliverableParams = {
+                ...params,
+                to: suppression.promotedTo ?? params.to,
+                cc: suppression.cc,
+                bcc: suppression.bcc,
+            }
 
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.

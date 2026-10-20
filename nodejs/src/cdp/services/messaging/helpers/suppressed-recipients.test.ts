@@ -38,6 +38,11 @@ describe('removeSuppressedRecipients', () => {
             { skip: false, cc: '"Doe Jane" <j@example.com>', bcc: '', removed: ['bounced@example.com'] },
         ],
         [
+            'checks a quoted local part unquoted and keeps the quotes for delivery',
+            { to: { email: 'a@example.com' }, cc: '"bounced"@example.com, "john doe"@example.com' },
+            { skip: false, cc: '"john doe"@example.com', bcc: '', removed: ['bounced@example.com'] },
+        ],
+        [
             'promotes the first deliverable cc address when to is suppressed',
             {
                 to: { email: 'bounced@example.com' },
