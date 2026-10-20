@@ -125,7 +125,7 @@ class TestClassifyPerson(SimpleTestCase):
 
 
 def _pg_map(
-    *, version: int = 0, deleted: bool = False, owner: str = "b", owner_deleted: bool | None = False
+    *, version: int = 0, deleted: bool = False, owner: str | None = "b", owner_deleted: bool | None = False
 ) -> PgMapping:
     return PgMapping(
         person_id=1, person_uuid=owner, version=version, is_deleted=deleted, person_is_deleted=owner_deleted
@@ -169,6 +169,13 @@ class TestClassifyMapping(SimpleTestCase):
                 _pg_map(owner_deleted=True),
                 _ch_map(),
                 None,
+                _v("stray", None, None),
+            ),
+            (
+                "orphan_with_ch_on_another_person",
+                _pg_map(owner=None, owner_deleted=None),
+                _ch_map(owner="a"),
+                "absent",
                 _v("stray", None, None),
             ),
             ("live_missing_in_ch", _pg_map(), None, None, _v("missing_in_ch", None, "republish")),
