@@ -886,17 +886,35 @@ class SourceEditMirror(Protocol):
     ) -> Callable[[PlatformAlertConfigurationEdit], None] | None: ...
 
 
+class PlatformAlertCreateRefused(Exception):
+    """A create the source refuses as a whole, such as one past its per-team limit."""
+
+
+class SourceCreate(Protocol):
+    """Creates an alert through the platform API on a source that keeps its own row for it.
+
+    Runs in the create's transaction. It writes the source's row and the platform's copy, both owned
+    by the platform, the way the source hands over an alert it created itself, and returns the id of
+    the source's row. The copy carries that id as `legacy_configuration_id`. It raises
+    `PlatformAlertCreateRefused` when the source refuses the create.
+    """
+
+    def __call__(self, *, team_id: int, edit: PlatformAlertConfigurationEdit, created_by_id: int | None) -> UUID: ...
+
+
 @frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
     `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
-    spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction.
+    spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction. Without
+    `create`, the API cannot create alerts of the kind.
     """
 
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
     mirror: SourceEditMirror | None = None
+    create: SourceCreate | None = None
     # Where the source's incident destinations listen for a close, and the alert's page in the
     # source's product. A control-plane close needs both to address its resolve.
     incident_event_ids: Mapping[str, str] | None = None

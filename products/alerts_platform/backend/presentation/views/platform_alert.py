@@ -3,13 +3,14 @@ from functools import cache, cached_property
 from typing import Any, Literal, cast
 
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
 from posthog.permissions import (
@@ -30,6 +31,9 @@ from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
     InvalidPlatformAlertEdit,
     OnOverflow,
+    PlatformAlertConfigurationEdit,
+    PlatformAlertConfigurationView,
+    PlatformAlertCreateRefused,
     PlatformAlertNotEditable,
     SourceConfigSpec,
     SourceKind,
@@ -268,6 +272,72 @@ def edit_serializers() -> dict[str, type[PlatformAlertConfigurationEditSerialize
     return {source.value: _typed_edit_serializer(source, spec) for source, spec in editable_source_configs().items()}
 
 
+DEFAULT_ALERT_NAME = "Untitled alert"
+
+
+# The default of each setting a create may leave out, with the help text that names it.
+CREATE_DEFAULTS: dict[str, tuple[Any, str]] = {
+    "name": (DEFAULT_ALERT_NAME, f"Defaults to '{DEFAULT_ALERT_NAME}'."),
+    "enabled": (True, "Defaults to true."),
+    "grouping": (Grouping, "Defaults to mode single."),
+    "schedule_restriction": (None, "Defaults to null."),
+    "evaluation_periods": (1, "Defaults to 1."),
+    "datapoints_to_alarm": (1, "Defaults to 1."),
+    "cooldown_minutes": (0, "Defaults to 0."),
+}
+
+
+def _with_default(field: serializers.Field, default: Any, note: str) -> serializers.Field:
+    # Built again from the edit field's own arguments, so a create validates every setting as an edit does.
+    # DRF records every field's constructor arguments on `_args` and `_kwargs`, which its stubs leave out.
+    original: dict[str, Any] = field._kwargs  # type: ignore[attr-defined]
+    args: tuple[Any, ...] = field._args  # type: ignore[attr-defined]
+    return type(field)(*args, **{**original, "default": default, "help_text": f"{original['help_text']} {note}"})
+
+
+def _typed_create_serializer(
+    edit_serializer: type[PlatformAlertConfigurationEditSerializer],
+) -> type[PlatformAlertConfigurationEditSerializer]:
+    """The create serializer for one source kind: its edit serializer, with a default for every
+    setting but `source_config`, so a create stores each default and a read returns it."""
+    declared = edit_serializer._declared_fields
+    return type(
+        edit_serializer.__name__.replace("Edit", "Create"),
+        (edit_serializer,),
+        {
+            "__doc__": "The settings of a new alert. Every one but source_config has a default, which is stored.",
+            "source_kind": serializers.CharField(
+                help_text="Product whose data the alert evaluates. It cannot change after the create.",
+            ),
+            **{name: _with_default(declared[name], default, note) for name, (default, note) in CREATE_DEFAULTS.items()},
+        },
+    )
+
+
+@cache
+def create_serializers() -> dict[str, type[PlatformAlertConfigurationEditSerializer]]:
+    """One create serializer per kind whose source registered a create hook."""
+    creatable = {source.value for source, spec in editable_source_configs().items() if spec.create is not None}
+    return {
+        source_kind: _typed_create_serializer(serializer)
+        for source_kind, serializer in edit_serializers().items()
+        if source_kind in creatable
+    }
+
+
+PLATFORM_ALERT_CONFIGURATION_CREATE = PolymorphicProxySerializer(
+    component_name="PlatformAlertConfigurationCreate",
+    serializers=lambda: dict[str, serializers.Serializer | type[serializers.Serializer]](create_serializers()),
+    resource_type_field_name="source_kind",
+)
+
+CREATE_RESPONSES = {
+    201: PlatformAlertConfigurationSerializer,
+    400: OpenApiResponse(description="The settings are invalid, or the source refused the create."),
+    403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
+    409: OpenApiResponse(description="The URL names an environment, whose alerts are created on its own page."),
+}
+
 PLATFORM_ALERT_CONFIGURATION_EDIT = PolymorphicProxySerializer(
     component_name="PlatformAlertConfigurationEdit",
     serializers=lambda: dict[str, serializers.Serializer | type[serializers.Serializer]](edit_serializers()),
@@ -379,6 +449,59 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         if updated is None:
             raise NotFound()
         return Response(PlatformAlertConfigurationSerializer(updated).data)
+
+    @extend_schema(request=PLATFORM_ALERT_CONFIGURATION_CREATE, responses=CREATE_RESPONSES)
+    def create(self, request: Request, **kwargs) -> Response:
+        # The rows live on the project, so an alert made here would count the project's data rather
+        # than the environment's that the URL names.
+        if self.team.parent_team_id is not None:
+            raise Conflict("This URL names an environment. Create its alerts on that environment's logs alerts page.")
+        source_kind = request.data.get("source_kind") if isinstance(request.data, dict) else None
+        create_serializer = create_serializers().get(source_kind) if isinstance(source_kind, str) else None
+        if create_serializer is None:
+            raise ValidationError(
+                {"source_kind": f"Must be one of: {', '.join(sorted(create_serializers()))}."}, code="invalid_choice"
+            )
+        # The kind comes from the body, so the source product's scope and access are checked here
+        # rather than through `required_scopes`.
+        if source_kind not in self._source_kinds_with("editor", "write"):
+            raise PermissionDenied(f"You cannot create {source_kind} alerts.")
+
+        serializer = create_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        fields = dict(serializer.validated_data)
+        fields.pop("source_kind")
+        try:
+            created = platform_api.create_configuration(
+                team_id=self._canonical_team_id(),
+                source_kind=SourceKind(source_kind),
+                edit=PlatformAlertConfigurationEdit(**fields),
+                created_by_id=cast(User, request.user).id,
+            )
+        except PlatformAlertNotEditable as error:
+            raise Conflict(str(error)) from error
+        except InvalidPlatformAlertEdit as error:
+            raise ValidationError({error.field_name: str(error)}) from error
+        except PlatformAlertCreateRefused as error:
+            raise ValidationError(str(error)) from error
+        self._track("created", created)
+        return Response(PlatformAlertConfigurationSerializer(created).data, status=status.HTTP_201_CREATED)
+
+    def _track(self, action: Literal["created", "deleted"], configuration: PlatformAlertConfigurationView) -> None:
+        report_user_action(
+            cast(User, self.request.user),
+            f"alert {action}",
+            {
+                "alert_id": str(configuration.id),
+                "alert_name": configuration.name,
+                "config_type": "PlatformAlertConfiguration",
+                "source_kind": configuration.source_kind,
+                "legacy_configuration_id": str(configuration.legacy_configuration_id),
+                "enabled": configuration.enabled,
+            },
+            team=self.team,
+            request=self.request,
+        )
 
     @extend_schema(request=PLATFORM_ALERT_CONFIGURATION_EDIT, responses=EDIT_RESPONSES)
     def update(self, request: Request, pk: str, **kwargs) -> Response:

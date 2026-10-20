@@ -15,6 +15,8 @@ from django.utils import timezone as django_timezone
 from pydantic import ValidationError as PydanticValidationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+from posthog.models.signals import model_activity_signal
 
 from products.alerts_platform.backend.facade.contracts import (
     MAX_EVALUATION_PERIODS,
@@ -50,7 +52,7 @@ def edit_of(configuration: PlatformAlertConfiguration) -> PlatformAlertConfigura
 
 
 def _validated(
-    source_kind: SourceKind, current: PlatformAlertConfigurationEdit, edit: PlatformAlertConfigurationEdit
+    source_kind: SourceKind, current: PlatformAlertConfigurationEdit | None, edit: PlatformAlertConfigurationEdit
 ) -> PlatformAlertConfigurationEdit:
     spec = source_configs.spec(source_kind)
     if spec is None:
@@ -71,7 +73,7 @@ def _validated(
         raise InvalidPlatformAlertEdit("schedule_restriction", str(error)) from error
     source_config = edit.source_config
     # Settings the edit leaves alone may predate the schema, and must not block an unrelated change.
-    if source_config != current.source_config:
+    if current is None or source_config != current.source_config:
         try:
             parsed = spec.model.model_validate(source_config)
         except PydanticValidationError as error:
@@ -124,6 +126,44 @@ def update_configuration(
     return platform_reads.get_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
     )
+
+
+def create_configuration(
+    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+) -> PlatformAlertConfigurationView:
+    """Creates an alert the platform owns, through the hook its source registered.
+
+    Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
+    settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
+    """
+    spec = source_configs.spec(source_kind)
+    if spec is None or spec.create is None:
+        raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
+    validated = _validated(source_kind, None, edit)
+    with transaction.atomic():
+        legacy_configuration_id = spec.create(team_id=team_id, edit=validated, created_by_id=created_by_id)
+        configuration = _locked_owned_copy(team_id, legacy_configuration_id)
+        if configuration is None:
+            raise MissingPlatformCopy(f"The {source_kind} source created no platform copy of {legacy_configuration_id}")
+        # The copy was written as the source's and then handed over, so no write logged its creation.
+        model_activity_signal.send(
+            sender=PlatformAlertConfiguration,
+            scope=PlatformAlertConfiguration.__name__,
+            before_update=None,
+            after_update=configuration,
+            activity="created",
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+        )
+        # The source wrote the settings it shares with the copy. This writes the rest, such as grouping.
+        _, pending = _apply(configuration, lambda _: validated, now=django_timezone.now())
+        control_plane.announce_after_commit(pending)
+
+    view = platform_reads.get_configuration(
+        team_id=team_id, source_kinds=[source_kind.value], configuration_id=configuration.id
+    )
+    assert view is not None
+    return view
 
 
 def update_owned_copy(
