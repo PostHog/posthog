@@ -36,21 +36,6 @@ export interface warehouseDestinationsSceneLogicActions {
     destinationCreated: (destination: ExternalDataDestinationApi) => {
         destination: ExternalDataDestinationApi
     }
-    loadHasSources: () => any
-    loadHasSourcesFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadHasSourcesSuccess: (
-        hasSources: boolean,
-        payload?: any
-    ) => {
-        hasSources: boolean
-        payload?: any
-    }
     loadDestinations: () => any
     loadDestinationsFailure: (
         error: string,
@@ -64,6 +49,21 @@ export interface warehouseDestinationsSceneLogicActions {
         payload?: any
     ) => {
         destinations: ExternalDataDestinationApi[]
+        payload?: any
+    }
+    loadHasSources: () => any
+    loadHasSourcesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadHasSourcesSuccess: (
+        hasSources: boolean,
+        payload?: any
+    ) => {
+        hasSources: boolean
         payload?: any
     }
 }
@@ -145,9 +145,9 @@ export const warehouseDestinationsSceneLogic = kea<warehouseDestinationsSceneLog
             })
         },
         destinationCreated: () => {
-            actions.loadDestinations()
+            // A destination receives nothing until a source turns it on, so the toast points at that step.
             const hasSources = values.hasSources !== false
-            lemonToast.success('Turn this destination on for a source to start writing data to it.', {
+            lemonToast.success('Destination added. Turn it on for a source to start sending data to it.', {
                 button: {
                     label: hasSources ? 'Go to sources' : 'Add a source',
                     action: () => router.actions.push(hasSources ? urls.sources() : urls.dataWarehouseSourceNew()),

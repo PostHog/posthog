@@ -30,8 +30,9 @@ import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/
 export interface DestinationModalLogicProps {
     /** Distinguishes the source-level modal from the schema-level one so they keep separate form state. */
     modalKey: string
-    /** `created` is true for a new destination and false for an edit. */
-    onSaved: (destination: ExternalDataDestinationApi, meta: { created: boolean }) => void
+    onSaved: (destination: ExternalDataDestinationApi) => void
+    /** Called for a new destination in place of the generic success toast, so the caller can show its own next step. */
+    onCreated?: (destination: ExternalDataDestinationApi) => void
     /** Called after a destination is deleted, so the caller can drop it from its list. */
     onDeleted?: (destinationId: string) => void
 }
@@ -258,14 +259,19 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
                     config: buildDestinationConfig(definition, formValues),
                 }
                 const teamId = String(values.currentTeamId)
-                const created = !values.editing
                 const saved = values.editing
                     ? await externalDataDestinationsPartialUpdate(teamId, values.editing.id, payload)
                     : await externalDataDestinationsCreate(teamId, payload)
 
-                lemonToast.success(values.editing ? 'Destination updated' : 'Destination added')
+                if (values.editing) {
+                    lemonToast.success('Destination updated')
+                } else if (props.onCreated) {
+                    props.onCreated(saved)
+                } else {
+                    lemonToast.success('Destination added')
+                }
                 actions.closeModal()
-                props.onSaved(saved, { created })
+                props.onSaved(saved)
             },
         },
     })),

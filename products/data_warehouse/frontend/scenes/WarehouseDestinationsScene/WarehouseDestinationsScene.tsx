@@ -37,13 +37,8 @@ export function WarehouseDestinationsScene(): JSX.Element {
 
     const modalProps = {
         modalKey: MODAL_KEY,
-        onSaved: (destination: ExternalDataDestinationApi, { created }: { created: boolean }) => {
-            if (created) {
-                destinationCreated(destination)
-            } else {
-                loadDestinations()
-            }
-        },
+        onSaved: () => loadDestinations(),
+        onCreated: (destination: ExternalDataDestinationApi) => destinationCreated(destination),
     }
     const { openForCreate, openForEdit } = useActions(destinationModalLogic(modalProps))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
