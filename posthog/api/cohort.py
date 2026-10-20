@@ -8,7 +8,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 import requests
@@ -2026,12 +2026,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def _filter_queryset_by_parents_lookups(self, queryset: QuerySet) -> QuerySet:
         # The default project scoping filters on `team__project_id`, a JOIN to `posthog_team`.
         # With that JOIN, Postgres reads and sorts every cohort of the project before it applies
-        # the page limit. A filter on the project's team IDs lets `cohort_team_created_idx` serve
-        # the `-created_at` page directly.
+        # the page limit. A filter on `team_id` lets `cohort_team_created_idx` serve the
+        # `-created_at` page directly. A project and its only team share an id. This filter
+        # therefore selects the same rows as the default. The API cannot add a second team to a
+        # project, because `ProjectEnvironmentsViewSet` rejects every request.
         if set(self.parents_query_dict) != {"project_id"}:
             return super()._filter_queryset_by_parents_lookups(queryset)
-        team_ids = list(Team.objects.filter(project_id=self.team.project_id).values_list("id", flat=True))
-        return queryset.filter(team_id__in=team_ids)
+        # `RootTeamQuerySet.filter` rewrites a `team_id=` keyword into an `OR` over the parent team.
+        # That `OR` JOINs `posthog_team`. A `Q` object skips the rewrite, as the default
+        # `team__project_id` filter does.
+        return queryset.filter(Q(team_id=self.team_id))
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> tuple[QuerySet, bool]:
         # Returns (queryset, search_ordered). `search_ordered` is True only when a non-blank

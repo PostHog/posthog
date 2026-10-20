@@ -421,7 +421,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -436,14 +436,14 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_list_cohorts_does_not_join_team(self, patch_calculate_cohort, patch_capture):
-        # The list serializer never reads `cohort.team`, and project scoping filters on team IDs,
+        # The list serializer never reads `cohort.team`, and project scoping filters on the team ID,
         # so the cohort SELECT must not JOIN `posthog_team`. A JOIN hydrates the heavy team payload,
         # or, through a `team__project_id` filter, stops `cohort_team_created_idx` from serving the
         # ordered page. The query count does not change in either case, so assert the SQL directly.
@@ -463,17 +463,15 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_list_cohorts_includes_sibling_environments_only(self, patch_calculate_cohort, patch_capture):
-        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+    def test_list_cohorts_excludes_other_projects(self, patch_calculate_cohort, patch_capture):
         other_project_team = Team.objects.create(organization=self.organization)
         own = Cohort.objects.create(team=self.team, name="own")
-        sibling = Cohort.objects.create(team=sibling_team, name="sibling")
         Cohort.objects.create(team=other_project_team, name="other project")
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
 
         assert response.status_code == status.HTTP_200_OK
-        assert {c["id"] for c in response.json()["results"]} == {own.id, sibling.id}
+        assert {c["id"] for c in response.json()["results"]} == {own.id}
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
