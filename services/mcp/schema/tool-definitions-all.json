@@ -16015,6 +16015,36 @@
             "readOnlyHint": false
         }
     },
+    "workflows-sending-rules-get": {
+        "description": "The project-wide rules every workflow and broadcast follows when it sends: the marketing frequency cap, email tracking consent, and whether email engagement events are captured. Null cap fields mean no cap.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get sending rules",
+        "title": "Get sending rules",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-mcp-onboarding"
+    },
+    "workflows-sending-rules-update": {
+        "description": "Change the project-wide sending rules. Only the fields you send change. When a project has no frequency cap yet, recommend 1 marketing message every 2 days (max_messages 1, window_days 2) and turning on engagement events; leave tracking consent as it is unless the user asks. Confirm the values with the user before calling. Needs a project admin. Set both cap fields together, or both to null to turn the cap off.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Update sending rules",
+        "title": "Update sending rules",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-mcp-onboarding"
+    },
     "workflows-setup-status": {
         "description": "Which messaging setup steps the project has done: email channel, verified sending domain, opt-out categories, frequency cap, email template and first workflow. Call it first when a user asks to set up workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet. For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it is. Automations that only post to Slack or call webhooks need none of these steps. When data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.",
         "category": "Workflows",
