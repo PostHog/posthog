@@ -1069,7 +1069,7 @@ describe("Question relay", () => {
       vi.useFakeTimers();
       try {
         const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(15_000);
         await sendPromise;
       } finally {
         vi.useRealTimers();
