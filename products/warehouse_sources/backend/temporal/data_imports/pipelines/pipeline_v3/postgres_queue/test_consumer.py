@@ -384,10 +384,17 @@ class TestProcessSingle:
             (2, 1, None, True),
             # Three shutdowns came before this first error, so one retry is left.
             (3, 3, None, False),
-            # A failed history read counts every delivery as a retry, as before interruptions existed.
-            (3, 3, psycopg.OperationalError("server closed the connection"), True),
+            # A failed history read must not fail the run before the hard cap of retries plus interruptions.
+            (3, 3, psycopg.OperationalError("server closed the connection"), False),
+            (11, 10, psycopg.OperationalError("server closed the connection"), True),
         ],
-        ids=["errors_only", "errors_after_interruption", "interruptions_do_not_count", "history_read_fails"],
+        ids=[
+            "errors_only",
+            "errors_after_interruption",
+            "interruptions_do_not_count",
+            "history_read_fails_below_hard_cap",
+            "history_read_fails_at_hard_cap",
+        ],
     )
     @pytest.mark.asyncio
     async def test_error_at_max_attempts_fails_run(
@@ -421,6 +428,54 @@ class TestProcessSingle:
 
         assert mock_fail.called is expect_fail
         assert (SourceBatchStatus.State.WAITING_RETRY in states) is not expect_fail
+
+    @pytest.mark.parametrize(
+        "shutdown_during_executing_write,expected_states,expected_marked_attempts",
+        [
+            (False, [], []),
+            # The shutdown snapshot can miss an attempt whose executing write is in flight.
+            (True, ["executing"], [2]),
+        ],
+        ids=["before_executing_write", "during_executing_write"],
+    )
+    @pytest.mark.asyncio
+    async def test_shutdown_stops_a_batch_before_its_load(
+        self,
+        shutdown_during_executing_write: bool,
+        expected_states: list[str],
+        expected_marked_attempts: list[int],
+    ):
+        consumer = _make_consumer()
+        batch = _make_batch(latest_attempt=1)
+        consumer._process_batch = AsyncMock()
+        states: list[str] = []
+
+        async def track_status(conn, *, batch_id, job_state, attempt, **kwargs):
+            states.append(job_state)
+            if shutdown_during_executing_write:
+                consumer._shutdown.set()
+            return True
+
+        if not shutdown_during_executing_write:
+            consumer._shutdown.set()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                side_effect=track_status,
+            ),
+            patch.object(DeltaBatchConsumerAdapter, "should_process_batch", new_callable=AsyncMock, return_value=True),
+            patch.object(
+                consumer_module.BatchQueue, "mark_shutdown_interruptions", new_callable=AsyncMock, return_value=1
+            ) as mock_mark,
+        ):
+            succeeded = await consumer._process_single(batch)
+
+        assert succeeded is False
+        consumer._process_batch.assert_not_called()
+        assert states == expected_states
+        assert [a.attempt for c in mock_mark.call_args_list for a in c.kwargs["attempts"]] == expected_marked_attempts
+        assert consumer._executing == {}
 
     @pytest.mark.asyncio
     async def test_non_reportable_error_skips_error_tracking_even_at_max_attempts(self):
@@ -4750,6 +4805,29 @@ class TestProcessGroupCoalescing:
             (batches[1].id, "executing", expected_status_attempt),
             (batches[1].id, "succeeded", expected_status_attempt),
         ]
+
+    @pytest.mark.parametrize(
+        "error",
+        [CoalescingDeclined("schemas differ"), RuntimeError("merge blew up")],
+        ids=["declined", "failed"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_set_that_cannot_load_during_shutdown_starts_no_new_attempts(self, error: Exception):
+        # The shutdown marker covers only the set's own attempts, so a fallback delivery that
+        # started in the drain would use a retry when the drain cancels it.
+        process_batch = AsyncMock()
+
+        async def process_batches(batches, verify_ownership=None):
+            consumer._shutdown.set()
+            raise error
+
+        consumer = self._consumer(process_batches, process_batch)
+        batches = _run_batches(2)
+
+        statuses = await self._run_group(consumer, batches)
+
+        process_batch.assert_not_called()
+        assert statuses == [(b.id, "executing", 1) for b in batches]
 
     @pytest.mark.asyncio
     async def test_a_set_whose_post_write_status_update_fails_falls_back_to_its_members(self):

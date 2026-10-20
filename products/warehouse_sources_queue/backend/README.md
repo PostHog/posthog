@@ -56,6 +56,9 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
   - **Interruptions are not retries.** A consumer that gets SIGTERM marks each attempt it is still running with an `executing` status row that carries `{"shutdown": true}` (`mark_shutdown_interruptions`), before it drains.
     The sweep re-queues a marked attempt with `{"interrupted": true}`, and that attempt does not count against `max_attempts`. `max_interruptions` (10) caps it separately.
     An attempt without a marker lost its consumer without notice, most often to an OOM kill, so it still uses a retry.
+    After SIGTERM, a group task starts no new load. An attempt that wrote `executing` while the shutdown began marks itself.
+    The marker row has the time of the attempt start, so it does not restart the grace clock.
+    If the consumer cannot read the interruption history, only `max_attempts + max_interruptions` deliveries fail the run.
     The attempt number still goes up on each delivery, because the loader's redelivery checks read it.
   - **Reconcile sweep** (every 300s, `reconcile_failed_runs` + `get_failed_runs`): finds runs with a `failed` queue batch whose `ExternalDataJob` was left non-terminal and marks the job failed.
     It is single-flighted fleet-wide through a sentinel lease row (`try_acquire_reconcile_sweep_slot`, team_id 0 / `__reconcile-sweep__`, 240s slot TTL): the sweeps reconcile global state, so N pods running them concurrently is pure duplicated load, exactly when the queue DB can least afford it.

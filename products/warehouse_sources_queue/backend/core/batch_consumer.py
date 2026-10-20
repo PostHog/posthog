@@ -1360,19 +1360,22 @@ class BatchConsumer:
                 is_final_batch=batches[-1].is_final_batch,
                 resource_name=head.resource_name,
             )
-            for batch in batches:
-                await self._adapter.update_status(
-                    status_conn,
-                    batch_id=batch.id,
-                    job_state=self._adapter.executing_state,
-                    attempt=attempts[batch.id],
-                    batch_created_at=batch.created_at,
-                )
-                self._track_executing(batch, attempts[batch.id])
-
+            if await self._stop_for_shutdown(status_conn, batches, {}):
+                return False
             heartbeat_task: asyncio.Task[None] | None = None
             start = time.monotonic()
             try:
+                for batch in batches:
+                    await self._adapter.update_status(
+                        status_conn,
+                        batch_id=batch.id,
+                        job_state=self._adapter.executing_state,
+                        attempt=attempts[batch.id],
+                        batch_created_at=batch.created_at,
+                    )
+                    self._track_executing(batch, attempts[batch.id])
+                if await self._stop_for_shutdown(status_conn, batches, attempts):
+                    return False
                 if lock_conn is not None:
                     heartbeat_task = asyncio.create_task(self._set_heartbeat(lock_conn, batches, attempts))
                 try:
@@ -1488,8 +1491,10 @@ class BatchConsumer:
         status_conn = await self._get_status_conn(lock_conn)
 
         if attempt > self._config.max_attempts:
-            retries_used = await self._retries_used(status_conn, batch, attempt)
-            if retries_used > self._config.max_attempts:
+            spent, retries_used = await self._retry_budget_spent(
+                status_conn, batch, attempt, limit=self._config.max_attempts + 1
+            )
+            if spent:
                 logger.error(
                     self._event("batch_max_retries_exceeded"),
                     batch_id=batch.id,
@@ -1530,6 +1535,9 @@ class BatchConsumer:
                 self._metrics.batches_processed_total.labels(status="skipped").inc()
                 return False
 
+            if should_process and await self._stop_for_shutdown(status_conn, [batch], {}):
+                return False
+
             # Pre-increment: if we OOM during processing, recovery sees attempt=N+1
             # and knows this attempt was consumed.
             await self._adapter.update_status(
@@ -1540,6 +1548,9 @@ class BatchConsumer:
                 batch_created_at=batch.created_at,
             )
             self._track_executing(batch, attempt)
+
+            if should_process and await self._stop_for_shutdown(status_conn, [batch], {batch.id: attempt}):
+                return False
 
             if should_process:
                 if lock_conn is not None:
@@ -1610,15 +1621,23 @@ class BatchConsumer:
     ) -> InterruptionHistory:
         return await self._adapter.get_interruption_history(conn, batch_id=batch.id, attempt=attempt)
 
-    async def _retries_used(self, conn: psycopg.AsyncConnection[Any], batch: PendingBatch, attempt: int) -> int:
-        """The attempt number minus the earlier deliveries that a consumer shutdown cut off."""
+    async def _retry_budget_spent(
+        self, conn: psycopg.AsyncConnection[Any], batch: PendingBatch, attempt: int, *, limit: int
+    ) -> tuple[bool, int | None]:
+        """Whether ``attempt`` used up ``limit`` retries, with the retries used (None when unknown).
+
+        The retries used are the attempt number minus the earlier deliveries that a consumer
+        shutdown cut off. When the history read fails, only the hard cap of ``limit`` plus
+        ``max_interruptions`` deliveries counts as spent. Thus a transient read error does not
+        fail the run, and a batch still cannot retry forever.
+        """
         try:
             history = await self._interruption_history(conn, batch, attempt)
         except Exception as e:
-            # Fail toward the old budget: every delivery then counts as a retry.
             logger.warning(self._event("interruption_history_read_failed"), batch_id=batch.id, error=str(e))
-            return attempt
-        return attempt - history.recovered
+            return attempt >= limit + self._config.max_interruptions, None
+        retries_used = max(0, attempt - history.recovered)
+        return retries_used >= limit, retries_used
 
     async def _handle_batch_failure(
         self,
@@ -1667,7 +1686,7 @@ class BatchConsumer:
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         elif (
             attempt >= self._config.max_attempts
-            and await self._retries_used(status_conn, batch, attempt) >= self._config.max_attempts
+            and (await self._retry_budget_spent(status_conn, batch, attempt, limit=self._config.max_attempts))[0]
         ):
             reason = f"max retries exceeded: {err}"
             if isinstance(err, NonReportableError):
@@ -2055,19 +2074,59 @@ class BatchConsumer:
         try:
             async with asyncio.timeout(SHUTDOWN_MARK_TIMEOUT_SECONDS):
                 conn = await self._connect()
-                try:
-                    marked = await self._adapter.mark_shutdown_interruptions(conn, attempts=attempts)
-                finally:
-                    await conn.close()
         except Exception as e:
-            logger.warning(
-                self._event("shutdown_interruptions_mark_failed"),
-                count=len(attempts),
-                error=str(e) or type(e).__name__,
-            )
+            self._log_mark_failure(attempts, e)
+            return
+        try:
+            await self._write_shutdown_markers(conn, attempts)
+        finally:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(conn.close(), timeout=SHUTDOWN_MARK_TIMEOUT_SECONDS)
+
+    async def _stop_for_shutdown(
+        self, conn: psycopg.AsyncConnection[Any], batches: list[PendingBatch], attempts: dict[str, int]
+    ) -> bool:
+        """Return True when the consumer shuts down, so that the caller does not start a load.
+
+        ``attempts`` holds the attempts that the caller already wrote as 'executing'. This method
+        marks them, because the shutdown snapshot in ``_close`` can come before the caller tracks
+        them. Without the marker, the recovery sweep would count those attempts as retries.
+        """
+        if not self._shutdown.is_set():
+            return False
+        logger.info(
+            self._event("shutdown_before_load"),
+            batch_ids=[batch.id for batch in batches],
+            executing=len(attempts),
+        )
+        executing = [
+            ExecutingAttempt(batch_id=batch.id, batch_created_at=batch.created_at, attempt=attempts[batch.id])
+            for batch in batches
+            if batch.id in attempts
+        ]
+        if executing:
+            await self._write_shutdown_markers(conn, executing)
+        return True
+
+    async def _write_shutdown_markers(
+        self, conn: psycopg.AsyncConnection[Any], attempts: list[ExecutingAttempt]
+    ) -> None:
+        """Best-effort: an attempt that is not marked uses a retry, as before."""
+        try:
+            async with asyncio.timeout(SHUTDOWN_MARK_TIMEOUT_SECONDS):
+                marked = await self._adapter.mark_shutdown_interruptions(conn, attempts=attempts)
+        except Exception as e:
+            self._log_mark_failure(attempts, e)
             return
         self._metrics.batch_interruptions_total.labels(outcome="marked_on_shutdown").inc(marked)
         logger.info(self._event("shutdown_interruptions_marked"), count=marked, executing=len(attempts))
+
+    def _log_mark_failure(self, attempts: list[ExecutingAttempt], error: Exception) -> None:
+        logger.warning(
+            self._event("shutdown_interruptions_mark_failed"),
+            count=len(attempts),
+            error=str(error) or type(error).__name__,
+        )
 
     async def _release_queue_gauges_slot(self) -> None:
         """Best-effort: a slow or failing queue DB must never delay or fail the shutdown."""

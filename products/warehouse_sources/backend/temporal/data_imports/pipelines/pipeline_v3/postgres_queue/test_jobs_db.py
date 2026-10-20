@@ -2811,6 +2811,22 @@ class TestShutdownInterruptions:
         assert history.shutdown_marked is (expected_marked == 1)
 
     @pytest.mark.asyncio
+    async def test_marker_keeps_the_attempt_start_as_its_time(self, conn):
+        # A marker dated now() would sort above an owner write that committed after it, and it
+        # would also restart the recovery grace clock of a batch that nothing runs any more.
+        bid = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+        await _backdate_batch_log(conn, batch_id=bid, age_seconds=120)
+
+        marked = await BatchQueue.mark_shutdown_interruptions(
+            conn, attempts=[ExecutingAttempt(batch_id=bid, batch_created_at=None, attempt=1)]
+        )
+
+        assert marked == 1
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60)
+        assert [str(batch.id) for batch in stale] == [bid]
+
+    @pytest.mark.asyncio
     async def test_history_counts_recovered_interruptions_of_one_batch_only(self, conn):
         bid = await _insert_batch(conn)
         other = await _insert_batch(conn, batch_index=1)

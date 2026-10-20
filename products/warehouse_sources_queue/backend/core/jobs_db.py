@@ -969,6 +969,9 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
 # same row. A batch that wrote 'succeeded' or 'waiting_retry' first fails the state check
 # when the lock is released, so the marker can never make a finished batch 'executing' again.
 # The marker keeps the batch's state and attempt, so the denormalized columns stay as they are.
+# The marker row is dated at the start of the attempt, not now(). An owner write that started
+# before the marker but committed after it would otherwise sort below the marker, and the latest
+# status would read 'executing' for a batch whose state column says 'succeeded'.
 MARK_SHUTDOWN_INTERRUPTIONS_SQL = f"""
     WITH marks AS (
         SELECT *
@@ -976,7 +979,7 @@ MARK_SHUTDOWN_INTERRUPTIONS_SQL = f"""
             AS m(batch_id, batch_created_at, attempt)
     ),
     target AS (
-        SELECT b.id, m.attempt
+        SELECT b.id, m.attempt, COALESCE(b.state_changed_at, now()) AS attempt_started_at
         FROM marks m
         JOIN {BATCH_TABLE} b ON b.id = m.batch_id
         WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
@@ -988,7 +991,7 @@ MARK_SHUTDOWN_INTERRUPTIONS_SQL = f"""
     ),
     ins AS (
         INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-        SELECT t.id, 'executing', t.attempt, now(), %(error_response)s, now()
+        SELECT t.id, 'executing', t.attempt, now(), %(error_response)s, t.attempt_started_at
         FROM target t
         RETURNING batch_id
     )
