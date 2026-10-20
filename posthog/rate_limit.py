@@ -1724,6 +1724,16 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
+class ContextSelectionBurstThrottle(_TeamBucketRateThrottle):
+    scope = "context_selection_burst"
+    rate = "30/minute"
+
+
+class ContextSelectionSustainedThrottle(_TeamBucketRateThrottle):
+    scope = "context_selection_sustained"
+    rate = "300/hour"
+
+
 class TaskRunChartRenderThrottle(PersonalApiKeyOrUserRateThrottle):
     # A chart render holds a worker for up to 90s, so it needs a far lower ceiling than the
     # ClickHouse throttles. Keyed per team so rotating API keys doesn't split the bucket.

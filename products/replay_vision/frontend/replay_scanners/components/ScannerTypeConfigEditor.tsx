@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useCallback } from 'react'
 
 import { IconAI, IconPlus, IconX } from '@posthog/icons'
@@ -13,10 +12,8 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -29,15 +26,12 @@ import { ExperimentScannerConfigFields } from './ExperimentScannerConfigFields'
 
 /** Whether this form should offer no AI help at all.
  *
- * In the goal-based flow the AI path is the flow itself, so someone who turned it down to build by
- * hand gets one path or the other rather than a half-AI middle. Only while creating: editing a
- * saved scanner is not that choice, and someone who did use the flow keeps the entry points so they
- * can rework what it drafted. Multivariate flag, so a truthy check would strip the control arm too
- * and change what the experiment compares. */
+ * The goal step is the AI path, so someone who turned it down to build by hand gets one path or the
+ * other rather than a half-AI middle. Only while creating: editing a saved scanner is not that
+ * choice, and someone who did draft with AI keeps the entry points so they can rework the draft. */
 function useManualWithoutAi(scannerId: string): boolean {
     const { isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
-    const { featureFlags } = useValues(featureFlagLogic)
-    return isNew && !goalDraft && featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V3] === 'test'
+    return isNew && !goalDraft
 }
 
 export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
@@ -193,7 +187,6 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
     const logic = replayScannerLogic({ id: scannerId })
     const { scanner, isNew, goalDraft, tagSuggestionsLoading } = useValues(logic)
     const { loadTagSuggestions, clearClassifierTags } = useActions(logic)
-    const { searchParams } = useValues(router)
 
     const config = scanner?.scanner_config as ClassifierScannerConfig | undefined
     const hasPrompt = !!config?.prompt?.trim()
@@ -201,10 +194,6 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
     // The draft already filled these in, so the offer is more of them, not a first set.
     const categoriesWereDrafted = isNew && !!goalDraft && !!config?.tags?.length
     const manualWithoutAi = useManualWithoutAi(scannerId)
-    // The param only survives on a new scanner whose config a valid template prefilled: the picker
-    // drops it when the blank card is chosen, and loadScanner strips it on load when a goal draft
-    // outranks the template or the key is unknown.
-    const startedFromTemplate = isNew && typeof searchParams.template === 'string'
 
     return (
         <div className="space-y-2">
@@ -255,11 +244,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                     />
                 )}
             </LemonField>
-            <div className="text-xs text-muted">
-                The classifier sorts each session it scans into these categories.
-                {startedFromTemplate &&
-                    " The template's categories are examples. Edit or clear them to fit your product."}
-            </div>
+            <div className="text-xs text-muted">The classifier sorts each session it scans into these categories.</div>
             <ClassifierTagSuggestions scannerId={scannerId} />
         </div>
     )

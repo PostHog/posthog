@@ -22,12 +22,6 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
-from products.exports.backend.models.subscription import (
-    AIQueryPlanStatus,
-    Subscription,
-    SubscriptionDelivery,
-    get_unsubscribe_token,
-)
 from products.slack_app.backend.facade.api import slack_followup_invite
 from products.subscriptions.backend.facade.contracts import PromptRejectedError, SubscriptionTriggerType
 from products.subscriptions.backend.logic.slack_subscriptions import (
@@ -44,6 +38,12 @@ from products.subscriptions.backend.logic.teams_subscriptions import (
     teams_card_message,
     teams_open_url_action,
     teams_text_block,
+)
+from products.subscriptions.backend.models.subscription import (
+    AIQueryPlanStatus,
+    Subscription,
+    SubscriptionDelivery,
+    get_unsubscribe_token,
 )
 from products.subscriptions.backend.temporal.ai_subscription.report_pipeline import AiReportResult, generate_ai_report
 from products.subscriptions.backend.temporal.ai_subscription.spec_generator import ReportWindow, compute_report_window

@@ -508,6 +508,16 @@ pub(crate) async fn load_or_init_state(
             .keys()
             .await
             .with_context(|| "Failed to get source keys".to_string())?;
+        // An empty listing would leave nothing to process, and the job would complete
+        // at once with nothing imported. Pause instead, so the user can fix the source.
+        if keys.is_empty() {
+            return Err(
+                Error::msg("source listed no keys to import").context(UserError::new(
+                    "No files were found to import. Check the source settings (for example the \
+                 bucket, the prefix and the file extension), then resume the import.",
+                )),
+            );
+        }
         for key in keys {
             let size = source
                 .size(&key)
@@ -759,7 +769,8 @@ impl Job {
         // confirms whether the sink commit landed via the last event written or the logs.
         self.shutdown_guard()?;
         info!(job_id = %self.job_id, "Beginning PG part commit");
-        self.begin_part_commit(&key, parsed.consumed).await?;
+        self.begin_part_commit(&key, parsed.consumed, parsed.data.len())
+            .await?;
         info!(job_id = %self.job_id, "Beginning emitter part commit");
 
         // A *returned* error (as opposed to a crash) means the sink definitively rejected the
@@ -768,7 +779,8 @@ impl Job {
         let to_sleep = match txn.commit_write().await {
             Ok(to_sleep) => to_sleep,
             Err(e) => {
-                self.rollback_part_commit(&key, parsed.consumed, &e).await?;
+                self.rollback_part_commit(&key, parsed.consumed, parsed.data.len(), &e)
+                    .await?;
                 return Err(e);
             }
         };
@@ -800,16 +812,48 @@ impl Job {
 
     async fn successfully_complete(self) -> Result<(), Error> {
         let mut model = self.model.lock().await;
+        let stored = model.state.clone().unwrap_or_default();
+
+        if let Some(blocker) = stored.completion_blocker() {
+            error!(job_id = %self.job_id, "Refusing to complete job: {blocker}");
+            metric_emit::job_completion("blocked");
+            return model
+                .pause(
+                    self.context.clone(),
+                    format!("Refused to complete job: {blocker}"),
+                    Some(
+                        "The import stopped before all files were processed. Resume the import \
+                         to continue."
+                            .to_string(),
+                    ),
+                )
+                .await;
+        }
+
         let result = model.complete(&self.context.db).await;
         if result.is_ok() {
-            info!(job_id = %self.job_id, "Batch import job complete");
+            let parts = stored.parts.len();
+            let events = stored.events_emitted;
+            metric_emit::completed_job_size(parts, events);
+            if events == 0 {
+                metric_emit::job_completion("completed_empty");
+                warn!(job_id = %self.job_id, parts, "Batch import job complete, but it emitted no events");
+            } else {
+                metric_emit::job_completion("completed");
+                info!(job_id = %self.job_id, parts, events, "Batch import job complete");
+            }
         }
         result
     }
 
     // Writes the new partstate to the DB, and sets the job status to paused, such that if there's an issue with the sink commit, the job
     // will be paused, and manual intervention will be required to resume it
-    async fn begin_part_commit(&self, key: &str, consumed: usize) -> Result<(), Error> {
+    async fn begin_part_commit(
+        &self,
+        key: &str,
+        consumed: usize,
+        events: usize,
+    ) -> Result<(), Error> {
         let mut model = self.model.lock().await;
         let Some(model_state) = &mut model.state else {
             return Err(Error::msg("No model state found"));
@@ -818,6 +862,7 @@ impl Job {
         let Some(new_offset) = model_state.advance_part_offset(key, consumed as u64) else {
             return Err(Error::msg(format!("No part found with key {key}")));
         };
+        model_state.events_emitted = model_state.events_emitted.saturating_add(events as u64);
 
         let status_message = format!(
             "Starting commit of part {key} to offset {new_offset}, consumed {consumed} additional bytes"
@@ -839,6 +884,7 @@ impl Job {
         &self,
         key: &str,
         consumed: usize,
+        events: usize,
         err: &Error,
     ) -> Result<(), Error> {
         let mut model = self.model.lock().await;
@@ -849,6 +895,7 @@ impl Job {
         let Some(new_offset) = model_state.revert_part_offset(key, consumed as u64) else {
             return Err(Error::msg(format!("No part found with key {key}")));
         };
+        model_state.events_emitted = model_state.events_emitted.saturating_sub(events as u64);
 
         let status_message =
             format!("Commit of part {key} failed, rolled back to offset {new_offset}: {err:#}");
@@ -1190,6 +1237,7 @@ mod tests {
             state: Some(JobState {
                 parts: vec![],
                 trial: None,
+                events_emitted: 0,
             }),
             import_config: super::config::JobConfig {
                 // Construct a trivially valid config that won't be used by this test
@@ -1667,6 +1715,7 @@ mod tests {
                     })
                     .collect(),
                 trial: None,
+                events_emitted: 0,
             }
         }
 
@@ -1878,6 +1927,7 @@ mod tests {
                     },
                 ],
                 trial: None,
+                events_emitted: 0,
             };
             let state = Mutex::new(poisoned.clone());
             let model = Mutex::new(dummy_model(poisoned));
@@ -2523,6 +2573,19 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_empty_source_listing_fails_init_with_user_message() {
+        let source = MockDataSourceWithoutDateRange { keys: vec![] };
+        let mut model = staging_cleanup_invariant_tests::dummy_model(JobState::default());
+
+        let err = load_or_init_state(&source, &mut model)
+            .await
+            .expect_err("an empty listing must not start a job that completes at once");
+
+        assert!(get_user_message(&err).contains("No files were found to import"));
+        assert!(model.state.unwrap().parts.is_empty());
+    }
+
     /// Streaming sources discover a part's decompressed size only on the read
     /// that observes end-of-stream. When that stream turns out to be empty (or
     /// already fully consumed at the resume offset), the first read returns an
@@ -2657,6 +2720,7 @@ mod tests {
                         total_size: None,
                     }],
                     trial: None,
+                    events_emitted: 0,
                 };
                 let state = Mutex::new(resumed.clone());
                 let model = Mutex::new(dummy_model(resumed));
@@ -2737,6 +2801,7 @@ mod tests {
                         total_size: part_total,
                     }],
                     trial: None,
+                    events_emitted: 0,
                 };
                 let state = Mutex::new(part_state.clone());
                 let model = Mutex::new(dummy_model(part_state));
@@ -2938,6 +3003,7 @@ mod tests {
                     },
                 ],
                 trial: None,
+                events_emitted: 0,
             };
             let state = Mutex::new(poisoned.clone());
             let model = Mutex::new(dummy_model(poisoned));

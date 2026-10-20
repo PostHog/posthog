@@ -90,12 +90,16 @@ The text in `instructions` and `probe_hints` reaches the run as evidence, not as
   - `unmeasurable`, `needs_manual_verification`, and `no_fix_to_measure` end the check as `inconclusive` at once, because waiting does not help.
 - **`cancelled`** comes from `scout-report-check-cancel`, for a check no longer worth running. The coordinator also cancels an `agent` check on a project with no scout configs, because no run can ever answer it. Verdicts already recorded stay on the report, and a finished check cannot be cancelled.
 
-A **failed `metric_threshold` check on a resolved report re-surfaces**: the breach is emitted as a signal and the pipeline files a fresh report linked back to the resolved one.
-A resolved report is no longer in the inbox, so a verdict left only on its artefact log would reach nobody, and this lane has no scout in it to author anything.
-An `agent` check has no such path, because the run that answers it can file the follow-up itself.
-The fallback lane, `signals-scout-inbox-validation`, does: when it records `failed` on a resolved report, it first authors a fresh report linked `follow_up_of` the original, the same link the pipeline writes for a metric breach.
-A named lane gets only the shared check brief, which asks for the verdict and nothing more.
-If its failures must reach the inbox, its own skill has to say to file the linked follow-up, and the lane needs `emit_report`.
+A **failed check on a resolved report always reaches the inbox** as a fresh report linked `follow_up_of` the resolved one.
+A resolved report is no longer in the inbox, so a verdict left only on its artefact log would reach nobody.
+Which path files the fresh report depends on the check:
+
+- **`metric_threshold`**: the breach is emitted as a signal, and the pipeline files the report. This lane has no scout in it to author anything.
+- **`agent`, on a lane that holds `emit_report`**: the shared check brief tells the run to author the report itself before it records `failed`, and to name the new report in the verdict's explanation. This covers every lane, the fallback lane and named lanes alike. The run skips the new report only when the relapse is already in the inbox: an open report it authored about the same fix, which it edits when it holds `edit_report`, or an open report filed after the fix that already describes the recurrence, which it cites.
+- **`agent`, on a lane without `emit_report`**: the run cannot author, so the verdict is emitted as a signal, the same path a metric breach takes.
+
+A lane's own skill does not need to repeat this rule. It can add to it: the fallback lane, `signals-scout-inbox-validation`, also sets the report's priority and adds a `recurrence_of` link when the same problem is still happening.
+`passed`, `inconclusive`, and `errored` verdicts file nothing new.
 
 ## Reading a report's checks
 

@@ -77,6 +77,10 @@ impl Warning {
         }
     }
 
+    pub fn warning_type(&self) -> WarningType {
+        self.warning
+    }
+
     pub fn with_detail(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
         self.details.insert(key.into(), value.into());
         self

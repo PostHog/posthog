@@ -1,5 +1,6 @@
 import re
 import dataclasses
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -10,12 +11,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 CLAY_BASE_URL = "https://api.clay.com/public/v0"
 PAGE_SIZE = 100  # API maximum
 REQUEST_TIMEOUT_SECONDS = 60
+
+CREDIT_BALANCES_SCHEMA = "credit_balances"
+# The balance endpoint returns only the current balance, so each sync stamps the row with the time it
+# was read. That timestamp is the append cursor, which builds a balance history across syncs.
+CREDIT_BALANCES_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "retrieved_at",
+        "type": IncrementalFieldType.DateTime,
+        "field": "retrieved_at",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
 
 # Clay table IDs look like `t_0te9i4tZEHwc9hihBXu`, and appear after `/tables/` in table URLs.
 _TABLE_ID_RE = re.compile(r"(?<![A-Za-z0-9_])t_[A-Za-z0-9]+")
@@ -55,6 +70,19 @@ def _query_body(table_id: str, limit: int = PAGE_SIZE) -> dict[str, Any]:
     return {"query": {"tables": [{"id": table_id}], "field_mode": "names"}, "limit": limit}
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": CLAY_BASE_URL,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+        "auth": {
+            "type": "api_key",
+            "name": "clay-api-key",
+            "api_key": api_key,
+            "location": "header",
+        },
+    }
+
+
 def clay_source(
     api_key: str,
     table_id: str,
@@ -63,16 +91,7 @@ def clay_source(
     resumable_source_manager: ResumableSourceManager[ClayResumeConfig],
 ) -> SourceResponse:
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": CLAY_BASE_URL,
-            "request_timeout": REQUEST_TIMEOUT_SECONDS,
-            "auth": {
-                "type": "api_key",
-                "name": "clay-api-key",
-                "api_key": api_key,
-                "location": "header",
-            },
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
         "resources": [
             {
@@ -116,6 +135,50 @@ def clay_source(
     # Rows carry no documented record id or timestamps, so every sync is a full replace. A row
     # updated while the scan runs can appear twice in that sync.
     return SourceResponse(name=table_id, items=lambda: resource, primary_keys=None)
+
+
+def credit_balance_row(balance: dict[str, Any], retrieved_at: datetime) -> dict[str, Any]:
+    # Clay sends whole balances as JSON integers. Cast to float so the first snapshot does not
+    # create an int64 column that a later fractional balance cannot be written to.
+    row: dict[str, Any] = {**balance, "retrieved_at": retrieved_at}
+    for field in ("balance", "action_execution_balance"):
+        if row.get(field) is not None:
+            row[field] = float(row[field])
+    return row
+
+
+def clay_credit_balances_source(api_key: str, team_id: int, job_id: str) -> SourceResponse:
+    retrieved_at = datetime.now(UTC)
+    config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": CREDIT_BALANCES_SCHEMA,
+                "table_name": CREDIT_BALANCES_SCHEMA,
+                "write_disposition": "replace",
+                "endpoint": {
+                    "path": "/credits/balance",
+                    "data_selector": "$",
+                    "paginator": "single_page",
+                },
+                "data_map": lambda balance: credit_balance_row(balance, retrieved_at),
+                "table_format": "delta",
+            }
+        ],
+    }
+    resource = rest_api_resource(config, team_id, job_id, None)
+
+    return SourceResponse(
+        name=CREDIT_BALANCES_SCHEMA,
+        items=lambda: resource,
+        primary_keys=["retrieved_at"],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=["retrieved_at"],
+    )
 
 
 _CLAY_REJECTED_KEY_MESSAGE = (
