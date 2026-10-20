@@ -1908,6 +1908,14 @@ snapshots:
         hash: v1.k794b7964.7adaad1e91b71d0b933afe541a20fd43112e39d56d6638abadfae6a830bb0c15.TxnbKwXIG1XbB5e4KpRJa4-PA-wl-kKOWbtX1ERVqLU
     components-message-tool-calls-editor--editable-tool-calls--light:
         hash: v1.k794b7964.4a10839159f5b3f989112539bb2a720f04460890fae5914a3516457e7cba92f3.Snir6e_iAMVVl1tdItfy70BRcAHw5Zem9Kk0ujjMQIo
+    components-navpanelmcpad--not-connected--dark:
+        hash: v1.k794b7964.704819a375969f766b8dec0d21588c27aaab2bc811b94b191727b95df8748c09.Ej5UHe0Fu_Nb_S0DDqZOw37Lc1qDALEN1Oo_PHQB_Oc
+    components-navpanelmcpad--not-connected--light:
+        hash: v1.k794b7964.6b7bcdcbd722e9a91f36207e3f74a7fcc6bcc12839c37edd38170c9c448df872._bRFkSRl0DNIZ8z0MdlZGIZbLvlwAV55XLr4W3wbn60
+    components-navpanelmcpad--not-connected-narrow-sidebar--dark:
+        hash: v1.k794b7964.ba80c959f1550045d79414b44d74c32f73409ee72b47c784d8b7c162d761a5f5.ByHZ3_-05n_pwZXB1wOAMunF7Wkw6Y7G-l2GtuYFnHY
+    components-navpanelmcpad--not-connected-narrow-sidebar--light:
+        hash: v1.k794b7964.ef30728718218a74fc89dc3fb2f77cac633c9801df3ba459f468b1b8e7cdd51e.GUMmYHl2A9KpkmV3yDJfircUAJlr6RSFPGSRmV1ATXY
     components-navpanelproductpush--all-products--dark:
         hash: v1.k794b7964.d6cc4da0e30950f4e3bf7338d86856529e48c45785bae5a85ccf4fd3ed7c3ad0.8n61Z9x6l3I3qfdAzk46yr7fAFHoYNdo3tjEKyJlcIo
     components-navpanelproductpush--all-products--light:
