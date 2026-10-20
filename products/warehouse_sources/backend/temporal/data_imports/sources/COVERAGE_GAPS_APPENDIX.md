@@ -1737,8 +1737,8 @@ Diffed against: <https://bloomerang-api-documentation.s3.us-west-2.amazonaws.com
 - [x] `Addresses (GET /v2/addresses)` — resolve AddressIds beyond the primary address for geographic and household analysis (high)
 - [x] `Email addresses (GET /v2/emails)` — resolve EmailIds beyond the primary email for contact coverage and donor matching (high)
 - [x] `Phones (GET /v2/phones)` — resolve PhoneIds beyond the primary phone for contact coverage and outreach analysis (high)
-- [ ] `Relationships (GET /v2/constituent/{id}/relationships)` — analyze donor relationships, employers, and connections that affect fundraising (medium)
-- [ ] `Pledge payment failures (GET /v2/pledge/{id}/paymentFailures)` — measure failed pledge payments and identify donations at risk (medium)
+- [x] `Relationships (GET /v2/constituent/{id}/relationships)` — analyze donor relationships, employers, and connections that affect fundraising (medium)
+- [x] `Pledge payment failures (GET /v2/pledge/{id}/paymentFailures)` — measure failed pledge payments and identify donations at risk (medium)
 - [x] `Notes (GET /v2/notes)` — analyze donor notes alongside transactions and interactions (medium)
 - [x] `Tasks (GET /v2/tasks)` — measure fundraising follow-up activity, completion, and outstanding work (medium)
 
@@ -2975,7 +2975,7 @@ Note: The whole public REST API is four doc pages (applications, artifacts, buil
 
 ## Codescene — **thin**
 
-Today (7): `Analyses`, `AuthorStatistics`, `Components`, `Files`, `Issues`, `Projects`, `TechnicalDebt`
+Today (11): `Analyses`, `AuthorStatistics`, `BranchStatistics`, `CommitActivity`, `Commits`, `Components`, `DeltaAnalyses`, `Files`, `Issues`, `Projects`, `TechnicalDebt`
 
 Diffed against: <https://docs.enterprise.codescene.io/latest/integrations/rest-api.html>
 
@@ -2983,16 +2983,16 @@ Diffed against: <https://docs.enterprise.codescene.io/latest/integrations/rest-a
 - [x] `projects/{project-id}/analyses/latest/issues` — issues from the project management integration, with status, cycle time and the commits and files changed while each was open (high)
 - [x] `projects/{project-id}/analyses/latest/technical-debt` — technical debt and refactoring targets, CodeScene's headline metric (high)
 - [x] `projects/{project-id}/analyses/latest/author-statistics` — per-author contribution stats; the only way to join code health to people (high)
-- [ ] `projects/{project-id}/analyses/latest/commits` — commit-level rows underpinning every aggregate CodeScene reports (medium)
-- [ ] `projects/{project-id}/analyses/latest/commit-activity` — commit activity time series for delivery-rate dashboards (medium)
-- [ ] `projects/{project-id}/analyses/latest/branch-statistics` — per-branch stats for branching-strategy and lead-time analysis (medium)
-- [ ] `projects/{project-id}/delta-analyses` — per-PR delta analyses - the state/transition history of quality per change (medium)
+- [x] `projects/{project-id}/analyses/latest/commits` — commit-level rows underpinning every aggregate CodeScene reports (medium)
+- [x] `projects/{project-id}/analyses/latest/commit-activity` — commit activity time series for delivery-rate dashboards (medium)
+- [x] `projects/{project-id}/analyses/latest/branch-statistics` — per-branch stats for branching-strategy and lead-time analysis (medium)
+- [x] `projects/{project-id}/delta-analyses` — per-PR delta analyses - the state/transition history of quality per change (medium)
 - [ ] `code-coverage/projects/{project-id}/gate-results/outcomes` — coverage quality-gate pass/fail outcomes over a date range (medium)
 - [ ] `code-health/projects/{project-id}/safeguards/pr/outcomes` — PR safeguard outcomes, the enforcement signal teams report on (medium)
 - [ ] `active-authors` — authoritative author roster; a lookup table for the author ids appearing in analyses (medium)
 - [ ] `projects/{project-id}/analyses/latest/experience/languages` — author language experience, used for knowledge-risk and bus-factor reporting (low)
 
-Note: Static endpoint list; no dynamic table discovery in products/warehouse_sources/backend/temporal/data_imports/sources/codescene/settings.py (hardcoded CODESCENE_ENDPOINTS). The v2 API exposes ~100 paths; PostHog covers 7. The per-analysis tables still read the 'latest' analysis only, but `Analyses` now carries the run history so an analysis id can be pinned.
+Note: Static endpoint list; no dynamic table discovery in products/warehouse_sources/backend/temporal/data_imports/sources/codescene/settings.py (hardcoded CODESCENE_ENDPOINTS). The v2 API exposes ~100 paths; PostHog covers 11. The per-analysis tables still read the 'latest' analysis only, but `Analyses` now carries the run history so an analysis id can be pinned.
 
 ## Cody — adequate
 
@@ -5524,10 +5524,10 @@ Diffed against: <https://raw.githubusercontent.com/grafana/grafana/main/public/o
 - [x] `org/users (and orgs/{org_id}/users)` — org membership plus role, the other half of the identity model we already sync (high) — already synced as `users` (`/api/org/users`); `orgs/{org_id}/users` only repeats it per org for server admins
 - [x] `orgs` — lookup resolving the org_id carried on dashboards, users, teams and datasources (high)
 - [x] `dashboards/uid/{uid}/versions` — dashboard change history - who changed what and when, the main governance question (medium)
-- [ ] `library-elements` — reusable panels referenced by dashboards; needed to resolve panel definitions that are not inline (medium)
+- [x] `library-elements` — reusable panels referenced by dashboards; needed to resolve panel definitions that are not inline (medium)
 - [ ] `query-history` — records of explored queries, the usage-analytics table for Explore adoption (medium)
-- [ ] `access-control/roles and access-control/{resource}/{resourceID}` — RBAC role definitions and resource permissions, resolving who can see which dashboards/folders (medium)
-- [ ] `folders/{folder_uid}/permissions and dashboards/uid/{uid}/permissions` — per-object permission grants for access auditing (low)
+- [x] `access-control/roles and access-control/{resource}/{resourceID}` — RBAC role definitions and resource permissions, resolving who can see which dashboards/folders (medium) — synced as `roles`, plus `dashboard_permissions` and `folder_permissions` for the dashboards and folders resources
+- [x] `folders/{folder_uid}/permissions and dashboards/uid/{uid}/permissions` — per-object permission grants for access auditing (low) — both are deprecated; synced as `dashboard_permissions` and `folder_permissions` from their `access-control/{resource}/{resourceID}` replacement
 - [ ] `annotations/tags` — lookup of annotation tags for grouping the annotations we already sync (low)
 - [ ] `playlists and playlists/{uid}/items` — playlist definitions and the dashboards inside them (low)
 - [ ] `datasources/correlations` — correlation definitions linking datasources, useful for lineage (low)
@@ -8721,8 +8721,8 @@ Diffed against: <https://raw.githubusercontent.com/openai/openai-openapi/master/
 
 - [ ] `/models` — lookup resolving the model IDs that appear in every usage\_\* and costs row (high)
 - [ ] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high)
-- [ ] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
-- [ ] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
+- [x] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
+- [x] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
 - [ ] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium)
 - [ ] `/batches` — batch job records with request counts and completion status (medium)
 - [ ] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium)
@@ -12037,10 +12037,10 @@ Today (5): `course_enrollments`, `courses`, `pricing_plans`, `transactions`, `us
 
 Diffed against: <https://docs.teachable.com/reference/listcourses>
 
-- [ ] `courses/{course_id}/progress` — per-student completion percentage — the headline learning metric, and the only way to measure course engagement (high)
-- [ ] `courses/{course_id}/lectures/{lecture_id}` — lecture lookup table resolving the lecture IDs referenced by progress and quiz data (high)
-- [ ] `courses/{course_id}/lectures/{lecture_id}/quizzes/{quiz_id}/responses` — individual learner answers and scores — the assessment fact table (medium)
-- [ ] `courses/{course_id}/lectures/{lecture_id}/quizzes` — quiz lookup needed to interpret quiz responses (medium)
+- [x] `courses/{course_id}/progress` — per-student completion percentage — the headline learning metric, and the only way to measure course engagement (high)
+- [x] `courses/{course_id}/lectures/{lecture_id}` — lecture lookup table resolving the lecture IDs referenced by progress and quiz data (high)
+- [x] `courses/{course_id}/lectures/{lecture_id}/quizzes/{quiz_id}/responses` — individual learner answers and scores — the assessment fact table (medium)
+- [x] `courses/{course_id}/lectures/{lecture_id}/quizzes` — quiz lookup needed to interpret quiz responses (medium)
 
 Note: Full v1 path list read out of the embedded ReadMe OAS on the reference page: courses, enrollments, lectures, quizzes, quiz responses, progress, pricing_plans, transactions, users, webhooks. Lectures/quizzes/progress are per-course sub-resources that must be fanned out over the courses we already sync.
 
@@ -13250,9 +13250,9 @@ Today (5): `candidates`, `jobs`, `members`, `recruiters`, `stages`
 
 Diffed against: <https://workable.readme.io/reference/jobs>
 
-- [ ] `candidate activities (GET /candidates/{id}/activities)` — the stage-transition and action history behind every candidate; without it stages is a static snapshot (high)
-- [ ] `employees (GET /employees)` — the entire Workable HR side is absent, and it is what links hires back to headcount (high)
-- [ ] `departments (GET /departments)` — lookup resolving the department carried on jobs, requisitions and employees (high)
+- [x] `candidate activities (GET /candidates/{id}/activities)` — the stage-transition and action history behind every candidate; without it stages is a static snapshot (high)
+- [x] `employees (GET /employees)` — the entire Workable HR side is absent, and it is what links hires back to headcount (high)
+- [x] `departments (GET /departments)` — lookup resolving the department carried on jobs, requisitions and employees (high)
 - [ ] `locations (GET /accounts/{subdomain}/locations)` — lookup resolving the location id on jobs and candidates (high)
 - [ ] `time entries (GET /time-tracking/time-entries)` — time tracking fact table for employees (high)
 - [ ] `job activities (GET /jobs/{shortcode}/activities)` — per-job event stream for pipeline throughput analysis (medium)
