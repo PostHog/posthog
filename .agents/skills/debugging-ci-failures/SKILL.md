@@ -255,18 +255,20 @@ The required check is `Backend CI on Depot / Django Tests Pass on Depot`, and th
 
 GitHub's Re-run button does nothing on a Depot check.
 A `/depot retry` comment on the PR from an organization member or collaborator retries the failed and cancelled jobs of the newest run, also while the rest of the run still goes.
-Do not post that comment yourself.
-With the user's permission, retry from the CLI instead: `depot ci retry <run-id> --failed --workflow <workflow-id>`.
+With the user's permission, post that comment.
+With a Depot login, `depot ci retry <run-id> --failed --workflow <workflow-id>` does the same without a comment.
+The flox environment installs the `depot` CLI. Outside an activated flox shell, run it as `flox activate -- depot ...`.
 A run that Depot still shows as running past its job timeouts is stuck. Cancel the stuck job with `depot ci cancel` before you retry.
 
-Read more of the failure from Depot with the `depot` CLI, which the flox environment installs.
+Read more of the failure from Depot with the `depot` CLI.
 Run `depot ci diagnose --org <org> --workflow <workflow>` with the two ids from the details link of a Depot check.
 For logs, artifacts, and test results, load the `depot-ci` skill.
 Its `references/posthog-check-run-semantics.md` gets Depot ids from a commit's check runs.
 If a `depot` command fails to authenticate, check `DEPOT_TOKEN` first: it overrides the saved login, so a wrong one fails every command.
 Without it, ask the user to run `! depot login --clear`.
 Do not run it yourself: it waits on a browser sign-in.
-If the user has no access to the Depot org, point them at the `/depot retry` comment instead.
+Every PostHog engineer gets an invite to the Depot org. A user without access checks their email for it, or requests one in #team-devex.
+Until then, retry with the `/depot retry` comment.
 
 ## Classification
 
