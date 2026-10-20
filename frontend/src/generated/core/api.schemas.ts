@@ -27,6 +27,8 @@ export interface ConnectedAppApi {
     is_first_party: boolean
     /** Whether the user must choose to keep or disconnect this application, because it set up one of the user's organizations and PostHog has not verified it */
     requires_access_confirmation: boolean
+    /** Whether the application registered itself, through dynamic client registration or a client ID metadata document. MCP clients connect this way; applications PostHog registers do not. */
+    is_self_registered: boolean
 }
 
 /**
@@ -2464,7 +2466,6 @@ export interface ProjectCreateRequestApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -3461,7 +3462,6 @@ export interface ProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -4350,7 +4350,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -6587,6 +6586,18 @@ export const OnboardingSkipRequestReasonEnumApi = {
 } as const
 
 /**
+ * * `legacy` - Default onboarding
+ * * `simple` - Simple onboarding
+ */
+export type OnboardingFlowVariantEnumApi =
+    (typeof OnboardingFlowVariantEnumApi)[keyof typeof OnboardingFlowVariantEnumApi]
+
+export const OnboardingFlowVariantEnumApi = {
+    Legacy: 'legacy',
+    Simple: 'simple',
+} as const
+
+/**
  * Request body for POST /api/users/{id}/onboarding/skip/.
  *
  * Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
@@ -6604,6 +6615,11 @@ export interface OnboardingSkipRequestApi {
      * @maxLength 64
      */
     step_at_skip?: string
+    /** Which onboarding flow the user skipped from, for analytics only.
+     *
+     * * `legacy` - Default onboarding
+     * * `simple` - Simple onboarding */
+    flow_variant?: OnboardingFlowVariantEnumApi
 }
 
 /**

@@ -109,7 +109,7 @@ export const ToolConfigSchema = z
                          * Mutually exclusive with `input_schema` and `schema_ref` (those
                          * fully replace the schema; cast composes with the existing one).
                          */
-                        cast: z.enum(['string-int', 'boolean-string']).optional(),
+                        cast: z.enum(['string-int', 'boolean-string', 'object-json-string']).optional(),
                         /**
                          * Alternate key names accepted for this param and normalized to it
                          * before validation — for identifier params agents guess different
@@ -477,6 +477,8 @@ const CustomUiAppSchema = z
                 view_prop: z.string(),
                 /** TypeScript type for the tool result. Omit when the component accepts unknown. */
                 data_type: z.string().optional(),
+                /** Prop name that receives the host's link opener, for a view that opens links. */
+                link_prop: z.string().optional(),
             })
             .strict()
             .optional(),
@@ -526,6 +528,7 @@ export interface ResolvedCustomUiApp {
         view_component: string
         view_prop: string
         data_type?: string
+        link_prop?: string
     }
 }
 

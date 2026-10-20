@@ -20,12 +20,14 @@ from products.alerts.backend.platform_source_cycle import is_evaluated_on_the_pl
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertUpsert, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationRecurrenceUnit as RecurrenceUnit
+from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 
 logger = structlog.get_logger(__name__)
 
-# Minutes for the 15-minute and hourly cadences, a calendar unit for the rest. A calendar unit reads its cadence
+# Minutes for the real-time, 15-minute and hourly cadences, a calendar unit for the rest. A calendar unit reads its cadence
 # from the unit, so its minutes only feed the shard offset, which an anchored unit ignores.
 _RECURRENCE: dict[str, tuple[int, str | None]] = {
+    AlertCalculationInterval.REAL_TIME: (REAL_TIME_CADENCE_MINUTES, None),
     AlertCalculationInterval.EVERY_15_MINUTES: (15, None),
     AlertCalculationInterval.HOURLY: (60, None),
     AlertCalculationInterval.DAILY: (60 * 24, RecurrenceUnit.DAY),
@@ -59,6 +61,7 @@ def _upsert(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
             SOURCE_CONDITION_KEY: {
                 "threshold": alert.threshold.configuration if alert.threshold else None,
                 "comparison": alert.condition,
+                "detector": alert.detector_config,
             },
         },
         check_interval_minutes=check_interval_minutes,
