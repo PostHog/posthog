@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 from django.db import transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from posthog.models.user import User
@@ -53,6 +53,13 @@ class TestHogFlow(TestCase):
             "origin_product": "broadcasts",
             "actions_count": 1,
         }
+
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    @patch(SCOPED_CAPTURE)
+    def test_creation_reports_from_the_instance_region(self, scoped_capture: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            HogFlow.objects.create(name="Welcome", team=self.team)
+        scoped_capture.assert_called_once_with(event_region="EU")
 
     @patch(SCOPED_CAPTURE, side_effect=RuntimeError("Analytics unavailable"))
     def test_analytics_failure_does_not_fail_creation(self, scoped_capture: MagicMock) -> None:
