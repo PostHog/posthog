@@ -39,6 +39,31 @@ def new_events_cluster_host_scope() -> Iterator[None]:
         _query_host.reset(token)
 
 
+_query_route: ContextVar["HogQLQueryModifiers | None"] = ContextVar("new_events_query_route", default=None)
+
+
+def get_events_route() -> "HogQLQueryModifiers | None":
+    """The events cluster and table of the query run in progress, or None outside a query run."""
+    return _query_route.get()
+
+
+@contextmanager
+def events_route_scope(modifiers: "HogQLQueryModifiers") -> Iterator[None]:
+    # Lookups inside a query run, such as the earliest event of an all-time range, must read the same
+    # events cluster and table as the query. A nested run pins its own route and restores the outer one.
+    from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
+
+    token = _query_route.set(
+        HogQLQueryModifiers(
+            useNewEventsCluster=modifiers.useNewEventsCluster, useNewEventsSchema=modifiers.useNewEventsSchema
+        )
+    )
+    try:
+        yield
+    finally:
+        _query_route.reset(token)
+
+
 def use_new_events_cluster(team_id: int | None, modifiers: "HogQLQueryModifiers | None") -> bool:
     from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
 
