@@ -1,4 +1,6 @@
 import uuid
+import asyncio
+import threading
 from collections.abc import AsyncIterator
 
 import pytest
@@ -10,15 +12,17 @@ import pytest_asyncio
 from temporalio import activity, converter
 from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import WorkflowEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_CHECKS
 from products.alerts.backend.temporal.platform_evaluate import (
     EVALUATION_BUDGET,
     AdmittedInsightCheck,
     InsightAlertPlatformEvaluateWorkflow,
     InsightBatchPlanInputs,
     InsightCheckInputs,
+    evaluate_platform_insight_llm_check_activity,
 )
 from products.alerts_platform.backend.facade.contracts import (
     RECORD_OUTCOMES_ACTIVITY,
@@ -291,3 +295,51 @@ async def test_a_batch_refills_the_slots_its_finished_checks_free(
 
 def test_the_binding_holds_the_whole_batch() -> None:
     assert source_evaluation_timeout(SourceKind.INSIGHT) > EVALUATION_BUDGET
+
+
+async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_its_thread_ends() -> None:
+    release = threading.Event()
+    started: list[str] = []
+
+    def blocking(inputs: InsightCheckInputs, *_args: object, **_kwargs: object) -> None:
+        started.append(inputs.configuration_id)
+        release.wait(timeout=30)
+
+    def check(configuration_id: str) -> InsightCheckInputs:
+        return InsightCheckInputs(
+            evaluation=SourceEvaluationInputs(
+                source=SourceKind.INSIGHT,
+                cutoff="2026-09-16T10:00:00+00:00",
+                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+            ),
+            configuration_id=configuration_id,
+            held_until=0.0,
+            uses_llm_detector=True,
+        )
+
+    first, second = ActivityEnvironment(), ActivityEnvironment()
+    try:
+        with patch("products.alerts.backend.temporal.platform_evaluate._evaluate_check", blocking):
+            cancelled = asyncio.ensure_future(
+                first.run(evaluate_platform_insight_llm_check_activity, check(ADMITTED[0]))
+            )
+            running = asyncio.ensure_future(
+                second.run(evaluate_platform_insight_llm_check_activity, check(ADMITTED[1]))
+            )
+            async with asyncio.timeout(10):
+                while len(started) < 2:
+                    await asyncio.sleep(0.01)
+
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await cancelled
+            # Its thread still runs, so the parallel run still holds both of its places.
+            assert PLATFORM_LLM_CHECKS.locked()
+
+            release.set()
+            await running
+            async with asyncio.timeout(10):
+                while PLATFORM_LLM_CHECKS.locked():
+                    await asyncio.sleep(0.01)
+    finally:
+        release.set()
