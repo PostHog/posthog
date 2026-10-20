@@ -1060,6 +1060,10 @@ snapshots:
         hash: v1.k794b7964.16c554b0bd1f8528c6e1d08289c6ec9fa2000f8b9af0dfc374852c88ecb98445.xJ2MACgsrbGtNe1FHLCl5uYcLY9454d1lk6I1lu33wI
     components-hogcharts-barlist--share-of-total--light:
         hash: v1.k794b7964.9dc5c7e4c3578e6b4170df55b54bb3028e7dfda478b4e7d7197dc40953139647.7yjEOpNKFJZaLt6XuiGJiSKZOhxemH1lVCDmQndgyEI
+    components-hogcharts-barlist--wide-with-one-long-label--dark:
+        hash: v1.k794b7964.da827e3a071b7de4e432a4b15af6c6e452d42ac7fd45f535f39c51b8aa06b746.6SDobIKa4IbJuipFFjjieWj1DMtgVcWBmwh7Xan1EQ4
+    components-hogcharts-barlist--wide-with-one-long-label--light:
+        hash: v1.k794b7964.163c8a1058bf5f2bf1d5cf8a1bde53ad2cc1f23a31b04ba44d149d346f950e92.B-juvp5CdUQ8hpm9Ryg-PYqcKww9Rrrl7pcJhLlswLM
     components-hogcharts-boxplot--horizontal--dark:
         hash: v1.k794b7964.30cbeacc1f375b50732dd7c20765bbedfc0dc626d4896c8fa9687aa5f9bfc001.FTUzztXbfM9Du-zf-HPWGeBiY0cPJRqb3Ybj7dYNln8
     components-hogcharts-boxplot--horizontal--light:
