@@ -259,6 +259,20 @@ describe('tileCanvasLogic', () => {
                 })
             }
         )
+
+        it('forgets a copied step when a click on the canvas stops the copy', async () => {
+            const editorLogic = hogFlowEditorLogic()
+            editorLogic.actions.startCopyingNode({
+                id: 'exit_node',
+                data: logic.values.workflow.actions[1],
+            } as HogFlowActionNode)
+
+            await expectLogic(logic, () => logic.actions.handlePaneClick()).toMatchValues({
+                isCopyingNode: false,
+                nodeToBeAdded: null,
+                isPlacing: false,
+            })
+        })
     })
 
     describe('paths', () => {
@@ -366,6 +380,25 @@ describe('tileCanvasLogic', () => {
             await expectLogic(logic, () =>
                 logic.actions.setMeasuredSizes({ trigger_node: size, split: size })
             ).toFinishAllListeners()
+            expect(logic.values.layoutError).toBeNull()
+            layout.mockRestore()
+        })
+
+        it('keeps a valid canvas when an older layout fails after the sizes went back to it', async () => {
+            const size = { width: 300, height: 80 }
+            const valid = { trigger_node: size }
+            const layout = jest.spyOn(tileCanvasLayout, 'layoutTileCanvas')
+            await expectLogic(logic, () => logic.actions.setMeasuredSizes(valid)).toFinishAllListeners()
+            let failOlder: (error: Error) => void = () => {}
+            layout.mockReturnValueOnce(new Promise((_, reject) => (failOlder = reject)))
+
+            logic.actions.setMeasuredSizes({ trigger_node: size, split: size })
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            logic.actions.setMeasuredSizes(valid)
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            failOlder(new RangeError('Maximum call stack size exceeded'))
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
             expect(logic.values.layoutError).toBeNull()
             layout.mockRestore()
         })

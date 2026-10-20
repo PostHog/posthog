@@ -139,11 +139,19 @@ function delayWait(action: ActionOf<'delay'>): WaitPresentation {
 export const waitConditionName = (action: ActionOf<'wait_until_condition'>): string | undefined =>
     action.config.condition.name?.trim() || undefined
 
+/** The runner continues when any of the events fires or the person matches the condition. */
+function waitConditionText(action: ActionOf<'wait_until_condition'>): string {
+    const parts = [...(action.config.events ?? []).map((event) => event.filters), action.config.condition.filters]
+        .map(conditionText)
+        .filter((text) => text !== 'everyone')
+    return parts.length ? parts.join(' or ') : 'everyone'
+}
+
 function conditionWait(action: ActionOf<'wait_until_condition'>): WaitPresentation {
     return {
         kind: 'condition',
         name: waitConditionName(action),
-        condition: conditionText(action.config.condition.filters),
+        condition: waitConditionText(action),
         maxWait: action.config.max_wait_duration,
     }
 }

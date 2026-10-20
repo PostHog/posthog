@@ -25,11 +25,14 @@ export function TileFace({
     tile,
     count,
     showEmail,
+    emailPlaceholder = false,
 }: {
     action: HogFlowAction
     tile: TileStep
     count: number | undefined
     showEmail: boolean
+    /** Holds the thumbnail's size without loading the email, for copies that are only measured. */
+    emailPlaceholder?: boolean
 }): JSX.Element {
     const html = showEmail ? emailContent(action)?.html : undefined
     return (
@@ -39,7 +42,12 @@ export function TileFace({
                     className="overflow-hidden rounded-xl border-2 bg-surface-primary shadow-sm"
                     style={{ borderColor: tile.color }}
                 >
-                    <EmailPreviewThumbnail html={html} title={`${action.name} preview`} size="card" />
+                    {emailPlaceholder ? (
+                        // Same box as the thumbnail's card size.
+                        <span className="block h-28 w-40" />
+                    ) : (
+                        <EmailPreviewThumbnail html={html} title={`${action.name} preview`} size="card" />
+                    )}
                 </div>
             ) : (
                 <div

@@ -254,13 +254,19 @@ function encloses(outer: PathGroup, inner: PathGroup): boolean {
 
 /** A path's parent is the smallest other path that holds its split and all of its steps. */
 function parentsOf(groups: PathGroup[]): Map<string, string> {
+    // Smallest first, so the search stops at the first path that encloses: deep nesting would otherwise check every ancestor.
     const holding = new Map<string, PathGroup[]>()
-    groups.forEach((group) => group.memberIds.forEach((id) => holding.set(id, [...(holding.get(id) ?? []), group])))
+    ;[...groups]
+        .sort((a, b) => a.memberIds.length - b.memberIds.length)
+        .forEach((group) =>
+            group.memberIds.forEach((id) => {
+                const holders = holding.get(id)
+                holders ? holders.push(group) : holding.set(id, [group])
+            })
+        )
     const parents = new Map<string, string>()
     groups.forEach((group) => {
-        const parent = (holding.get(group.branchActionId) ?? [])
-            .filter((other) => encloses(other, group))
-            .sort((a, b) => a.memberIds.length - b.memberIds.length)[0]
+        const parent = holding.get(group.branchActionId)?.find((other) => encloses(other, group))
         if (parent) {
             parents.set(group.id, parent.id)
         }

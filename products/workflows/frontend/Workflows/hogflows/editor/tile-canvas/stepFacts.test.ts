@@ -220,8 +220,29 @@ describe('stepFacts', () => {
     it.each([
         ['a split', step('draft_split', 'conditional_branch', {}), 'Split by condition', 'No conditions yet'],
         ['a random split', step('draft_random', 'random_cohort_branch', {}), 'Random split', undefined],
+        [
+            'an event trigger',
+            step('trigger', 'trigger', { type: 'event' }),
+            'Any event',
+            'Starts when someone does this',
+        ],
     ])('reads a draft %s that has no paths set up yet', (_, action, headline, detail) => {
         expect(stepFacts(workflow([action]), action)).toMatchObject({ headline, detail })
+    })
+
+    it.each([
+        ['only events', [{ filters: { events: [{ id: 'Upgraded', name: 'Upgraded' }] } }], {}, 'did Upgraded'],
+        [
+            'events or a property condition',
+            [{ filters: { events: [{ id: 'Upgraded', name: 'Upgraded' }] } }],
+            { properties: [{ key: 'plan', type: 'person', value: ['paid'], operator: 'exact' }] },
+            'did Upgraded or plan is paid',
+        ],
+        ['nothing yet', undefined, {}, 'everyone'],
+    ])('says what a wait waits for when it has %s', (_, events, filters, waitsFor) => {
+        const action = step('wait', 'wait_until_condition', { condition: { filters }, events, max_wait_duration: '4d' })
+
+        expect(stepFacts(workflow([action]), action).fields).toContainEqual(['Waits for', waitsFor])
     })
 
     it.each([

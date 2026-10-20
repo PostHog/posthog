@@ -46,7 +46,6 @@ import {
 import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
-import { WorkflowHeaderPlacement } from './WorkflowHeaderPlacement'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
@@ -275,10 +274,6 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         )
     }
 
-    // Only the tile canvas can carry the header, so other scenes never mount the editor logic for it.
-    return tileCanvasEnabled ? (
-        <WorkflowHeaderPlacement logicProps={workflowProps}>{renderScene}</WorkflowHeaderPlacement>
-    ) : (
-        renderScene(false)
-    )
+    // The tile canvas carries the header in its own bar. Reading the flag here keeps the editor logic off the other tabs.
+    return renderScene(tileCanvasEnabled)
 }

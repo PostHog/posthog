@@ -831,6 +831,8 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
             },
             handlePaneClick: () => {
                 actions.closePanel()
+                // The editor stops copying on a pane click but keeps the copied step, which would make the next + place it.
+                actions.setNodeToBeAdded(null)
             },
             cancel: () => {
                 actions.setSelectedNodeId(null)
@@ -854,6 +856,7 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                     if (isBreakpoint(error as Error)) {
                         throw error
                     }
+                    breakpoint()
                     cache.layoutInput = input
                     actions.setLayoutError(error instanceof Error ? error.message : String(error))
                 }

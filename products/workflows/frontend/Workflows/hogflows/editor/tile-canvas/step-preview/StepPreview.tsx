@@ -12,7 +12,13 @@ import { TimeWindowPreview } from './TimeWindowPreview'
 import { WaitPreview } from './WaitPreview'
 import { WebhookPreview } from './WebhookPreview'
 
+// Previews show prompts, messages and payloads, which can hold customer content and credentials.
 export function StepPreview({ action, tile }: { action: HogFlowAction; tile: TileStep }): JSX.Element | null {
+    const preview = previewOf(action, tile)
+    return preview && <div className="ph-no-capture contents">{preview}</div>
+}
+
+function previewOf(action: HogFlowAction, tile: TileStep): JSX.Element | null {
     const { presentation, color } = tile
     switch (presentation.kind) {
         case 'email':

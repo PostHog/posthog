@@ -240,8 +240,10 @@ function presentationFacts(
 type TriggerConfig = ActionOf<'trigger'>['config']
 
 function eventTriggerFacts(filters: Extract<TriggerConfig, { type: 'event' }>['filters']): StepFacts {
-    const events = [...eventNames(filters.events), ...eventNames(asRecord(filters).actions)]
-    const properties = filters.properties ?? []
+    // A saved draft can hold no filters at all.
+    const { events: triggerEvents, actions, properties: triggerProperties } = asRecord(filters)
+    const events = [...eventNames(triggerEvents), ...eventNames(actions)]
+    const properties = Array.isArray(triggerProperties) ? triggerProperties : []
     const who = properties.length ? conditionText({ properties }) : 'Anyone'
     return {
         headline: events.join(' or ') || 'Any event',
@@ -254,10 +256,10 @@ function eventTriggerFacts(filters: Extract<TriggerConfig, { type: 'event' }>['f
 }
 
 function audienceTriggerFacts(filters: Extract<TriggerConfig, { type: 'batch' }>['filters']): StepFacts {
-    const audience = conditionText({ properties: filters.properties })
+    const audience = conditionText({ properties: filters?.properties })
     return {
         headline: audience === 'everyone' ? 'Everyone' : audience.charAt(0).toUpperCase() + audience.slice(1),
-        detail: `Audience, starts once for every ${filters.audience_type === 'accounts' ? 'account' : 'person'}`,
+        detail: `Audience, starts once for every ${filters?.audience_type === 'accounts' ? 'account' : 'person'}`,
         fields: [['Who', audience]],
     }
 }

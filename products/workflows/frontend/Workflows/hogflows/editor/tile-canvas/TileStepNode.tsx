@@ -45,7 +45,7 @@ export function TileStepNode({
                 (selected || menuOpen) && 'ring-2 ring-[var(--color-accent)] ring-offset-4'
             )}
         >
-            <TileFace action={action} tile={tile} count={count} showEmail={showEmail} />
+            <TileFace action={action} tile={tile} count={count} showEmail={showEmail} emailPlaceholder={!interactive} />
             {hover.mounted && (
                 <TileHoverCard open={hover.open} action={action} tile={tile} count={count} showEmail={showEmail} />
             )}
