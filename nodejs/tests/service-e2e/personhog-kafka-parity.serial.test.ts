@@ -69,6 +69,17 @@ const STACK_STOP_GRACE_MS = 60_000
 const SETTLE_TIMEOUT_MS = 30_000
 const FEED_CONVERGENCE_TIMEOUT_MS = 30_000
 const TOPIC_READ_TIMEOUT_MS = 30_000
+// The harness runs the monitor with a 15 s grace; the rest is margin.
+const MONITOR_SETTLE_TIMEOUT_MS = 60_000
+/** Outcomes that are not a disagreement: a stub is one feed's own path to the result. */
+const MONITOR_AGREEMENTS = new Set(['agree', 'node_stub', 'personhog_stub', 'same', 'expected'])
+const MONITOR_FAULTS = new Set([
+    'personhog_parity_version_ties_total',
+    'personhog_parity_merge_conflicts_total',
+    'personhog_parity_decode_failures_total',
+    'personhog_parity_overflow_evictions_total',
+    'personhog_parity_warmup_evictions_total',
+])
 
 /** The ready line the harness's `stack` subcommand writes. */
 interface StackReady {
@@ -77,7 +88,14 @@ interface StackReady {
     changelog_topic: string
     distinct_ids_topic: string
     merge_events_topic: string
+    monitor_addr: string
     log_dir: string
+}
+
+interface MetricSample {
+    name: string
+    labels: Record<string, string>
+    value: number
 }
 
 interface DistinctIdRow {
@@ -121,6 +139,7 @@ describe('personhog kafka parity (e2e)', () => {
     let stack: ServiceProcess | undefined
     let workers: ServiceProcess[] = []
     let workerUrl: string
+    let monitorUrl: string
     let readyDir: string
     let inputTopic: string
     /** Every topic this run created, the stack's included, deleted at the end. */
@@ -257,11 +276,12 @@ describe('personhog kafka parity (e2e)', () => {
         // Each service registers as soon as it is spawned, so one that never
         // becomes ready is still stopped in afterAll.
         readyDir = mkdtempSync(path.join(tmpdir(), 'personhog-kafka-parity-'))
-        const ready = await startPersonhogStack(hub, path.join(readyDir, 'ready.json'), (service) => {
+        const ready = await startPersonhogStack(hub, path.join(readyDir, 'ready.json'), nodeTopics, (service) => {
             stack = service
         })
         ownTopics.push(ready.changelog_topic, ready.distinct_ids_topic, ready.merge_events_topic)
         personhogTopics = { distinctIds: ready.distinct_ids_topic, mergeEvents: ready.merge_events_topic }
+        monitorUrl = `http://${ready.monitor_addr}`
 
         workerUrl = await startNodeIngestionApiWorker(
             hub,
@@ -467,7 +487,68 @@ describe('personhog kafka parity (e2e)', () => {
             .reduce((sum, value) => sum + value, 0)
         expect(errors).toBe(0)
     })
+
+    it('the parity monitor settled every entry of both feeds as agreement', async () => {
+        // A key settles at least once, so agreement below the fold's size
+        // means the monitor read a different topic than the fold did. The
+        // counts are polled with the pending gauges: a reader still behind
+        // the last rows reports nothing pending before they arrive.
+        const node = await feedState(nodeTopics)
+        const personhog = await feedState(personhogTopics)
+        const sharedMerges = Object.entries(node.survivors).filter(
+            ([person, survivor]) => survivor !== person && person in personhog.survivors
+        ).length
+        let samples!: MetricSample[]
+        await pollUntil(async () => {
+            const response = await stack!.request(`${monitorUrl}/metrics`, { method: 'GET' })
+            expect(response.statusCode).toBe(200)
+            samples = parsePrometheus(response.body)
+            expect(metric(samples, 'personhog_parity_pending_entries', { kind: 'mappings' })).toBe(0)
+            expect(metric(samples, 'personhog_parity_pending_entries', { kind: 'merges' })).toBe(0)
+            expect(
+                metric(samples, 'personhog_parity_settled_mappings_total', { outcome: 'agree' })
+            ).toBeGreaterThanOrEqual(Object.keys(node.mappings).length)
+            expect(
+                metric(samples, 'personhog_parity_settled_merges_total', { outcome: 'agree' })
+            ).toBeGreaterThanOrEqual(sharedMerges)
+        }, MONITOR_SETTLE_TIMEOUT_MS)
+
+        expect(monitorDisagreements(samples)).toEqual([])
+    })
 })
+
+function parsePrometheus(body: string): MetricSample[] {
+    const samples: MetricSample[] = []
+    for (const line of body.split('\n')) {
+        const match = /^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{([^}]*)\})?\s+(\S+)/.exec(line)
+        if (!match) {
+            continue
+        }
+        const labels: Record<string, string> = {}
+        for (const pair of (match[2] ?? '').matchAll(/([a-zA-Z_][a-zA-Z0-9_]*)="([^"]*)"/g)) {
+            labels[pair[1]] = pair[2]
+        }
+        samples.push({ name: match[1], labels, value: Number(match[3]) })
+    }
+    return samples
+}
+
+function metric(samples: MetricSample[], name: string, labels: Record<string, string>): number | undefined {
+    return samples.find(
+        (sample) => sample.name === name && Object.entries(labels).every(([key, value]) => sample.labels[key] === value)
+    )?.value
+}
+
+function monitorDisagreements(samples: MetricSample[]): string[] {
+    return samples
+        .filter(
+            ({ name, labels, value }) =>
+                value > 0 &&
+                name.startsWith('personhog_parity_') &&
+                (MONITOR_FAULTS.has(name) || ('outcome' in labels && !MONITOR_AGREEMENTS.has(labels.outcome)))
+        )
+        .map(({ name, labels, value }) => `${name}${JSON.stringify(labels)} ${value}`)
+}
 
 /**
  * The same end state on both feeds. A person only one feed ever named is
@@ -504,7 +585,12 @@ function expectEveryPersonAccountedFor(feed: FeedState): void {
     expect(stale).toEqual([])
 }
 
-async function startPersonhogStack(hub: Hub, readyFile: string, register: Register): Promise<StackReady> {
+async function startPersonhogStack(
+    hub: Hub,
+    readyFile: string,
+    nodeTopics: FeedTopics,
+    register: Register
+): Promise<StackReady> {
     if (!existsSync(HARNESS_BINARY)) {
         throw new Error(`${HARNESS_BINARY} is missing; build the personhog stack and harness first`)
     }
@@ -514,6 +600,13 @@ async function startPersonhogStack(hub: Hub, readyFile: string, register: Regist
         [
             'stack',
             '--publish',
+            // The stack assigns the Node topics (created above) before it
+            // writes the ready file, so no event of this run predates them.
+            '--monitor',
+            '--monitor-node-distinct-ids-topic',
+            nodeTopics.distinctIds,
+            '--monitor-node-merge-events-topic',
+            nodeTopics.mergeEvents,
             '--bin-dir',
             RUST_BIN_DIR,
             '--pg-target-table',
@@ -542,7 +635,11 @@ async function startPersonhogStack(hub: Hub, readyFile: string, register: Regist
             throw new Error(`personhog stack not ready within ${STACK_READY_TIMEOUT_MS}ms:\n${service.getOutput()}`)
         }
     }
-    return parseJSON(readFileSync(readyFile, 'utf8')) as StackReady
+    const ready = parseJSON(readFileSync(readyFile, 'utf8')) as StackReady
+    if (!ready.monitor_addr) {
+        throw new Error(`the stack reported no monitor address; is ${HARNESS_BINARY} built from this branch?`)
+    }
+    return ready
 }
 
 async function startNodeIngestionApiWorker(
