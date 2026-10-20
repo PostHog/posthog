@@ -1131,7 +1131,8 @@ describe('Tool Filtering - Feature Flags', () => {
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(38)
+        expect(allFlags).not.toContain('dashboard-widgets')
+        expect(flags).toHaveLength(37)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
