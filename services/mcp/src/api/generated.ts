@@ -64108,6 +64108,36 @@ export namespace Schemas {
       project_name: string;
     }
 
+    /**
+     * Prefilled `query` object for that tool. Pass it as is or adjust it.
+     */
+    export type LogsAgentNextCallQuery = { [key: string]: unknown };
+
+    export interface LogsAgentNextCall {
+      /** MCP tool to call next, e.g. query-logs or logs-context. */
+      tool: string;
+      /** One line on what the follow-up call answers. */
+      why: string;
+      /** Prefilled `query` object for that tool. Pass it as is or adjust it. */
+      query: LogsAgentNextCallQuery;
+    }
+
+    export interface LogsAgentWindowBounds {
+      /** Window start, ISO 8601 UTC with a Z suffix (inclusive). */
+      from: string;
+      /** Window end, ISO 8601 UTC with a Z suffix (exclusive). */
+      to: string;
+    }
+
+    export interface LogsAgentWindow {
+      /** Absolute bounds the server used for the current window. */
+      current: LogsAgentWindowBounds;
+      /** Absolute bounds the server used for the baseline window, when there is one. */
+      baseline?: LogsAgentWindowBounds;
+      /** Always "UTC". */
+      timezone: string;
+    }
+
     export interface LogsAlertFilters {
       filterGroup?: PropertyGroupFilter | null;
       serviceNames?: string[] | null;
@@ -64854,6 +64884,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `none` - No baseline
+     * * `previous_period` - Previous period
+     * * `previous_day` - Same window a day earlier
+     * * `previous_week` - Same window a week earlier
+     */
+    export type LogsCompareModeEnum = typeof LogsCompareModeEnum[keyof typeof LogsCompareModeEnum];
+
+
+    export const LogsCompareModeEnum = {
+      None: 'none',
+      PreviousPeriod: 'previous_period',
+      PreviousDay: 'previous_day',
+      PreviousWeek: 'previous_week',
+    } as const;
+
+    /**
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit
@@ -65535,6 +65581,42 @@ export namespace Schemas {
       /** One entry per (namespace, environment, severity) series, ordered by observed volume descending. */
       series: LogsSeriesBandSeries[];
     }
+
+    /**
+     * * `ok` - OK
+     * * `degraded` - Error rate 5% or more
+     * * `regressed` - Error rate worse than the baseline
+     * * `improved` - Error rate better than the baseline
+     * * `recovered` - No longer degraded
+     * * `new` - No logs in the baseline
+     * * `silent` - Logs stopped
+     */
+    export type LogsServiceStatusEnum = typeof LogsServiceStatusEnum[keyof typeof LogsServiceStatusEnum];
+
+
+    export const LogsServiceStatusEnum = {
+      Ok: 'ok',
+      Degraded: 'degraded',
+      Regressed: 'regressed',
+      Improved: 'improved',
+      Recovered: 'recovered',
+      New: 'new',
+      Silent: 'silent',
+    } as const;
+
+    /**
+     * * `rollup` - Rollup
+     * * `rollup+raw` - Rollup Raw
+     * * `raw` - Raw
+     */
+    export type LogsServicesSourceEnum = typeof LogsServicesSourceEnum[keyof typeof LogsServicesSourceEnum];
+
+
+    export const LogsServicesSourceEnum = {
+      Rollup: 'rollup',
+      RollupRaw: 'rollup+raw',
+      Raw: 'raw',
+    } as const;
 
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
@@ -78220,7 +78302,7 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
-      /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review: boolean;
     }
 
@@ -88612,7 +88694,7 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
-      /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review?: boolean;
     }
 
@@ -88992,6 +89074,18 @@ export namespace Schemas {
       /** The FunnelsQuery (JSON object with kind `FunnelsQuery`) that reproduces the segment's displayed unique-actor count exactly. Wrap it in an InsightVizNode to open it as a funnel insight. */
       funnels_query: unknown;
     }
+
+    /**
+     * * `stored_patterns` - Stored Patterns
+     * * `body_mining` - Body Mining
+     */
+    export type PatternsDiffSourceEnum = typeof PatternsDiffSourceEnum[keyof typeof PatternsDiffSourceEnum];
+
+
+    export const PatternsDiffSourceEnum = {
+      StoredPatterns: 'stored_patterns',
+      BodyMining: 'body_mining',
+    } as const;
 
     export interface PauseResponse {
       /** Always 'paused'. */
@@ -102889,6 +102983,264 @@ export namespace Schemas {
          * @maxItems 1000
          */
       policies?: ToolPolicyEntry[];
+    }
+
+    /**
+     * * `none` - None
+     * * `previous_period` - Previous Period
+     * * `previous_day` - Previous Day
+     * * `previous_week` - Previous Week
+     */
+    export type ServiceHealthBaselineEnum = typeof ServiceHealthBaselineEnum[keyof typeof ServiceHealthBaselineEnum];
+
+
+    export const ServiceHealthBaselineEnum = {
+      None: 'none',
+      PreviousPeriod: 'previous_period',
+      PreviousDay: 'previous_day',
+      PreviousWeek: 'previous_week',
+    } as const;
+
+    /**
+     * * `status` - Status
+     * * `error_rate` - Error Rate
+     * * `p95` - P95
+     * * `throughput` - Throughput
+     * * `error_count` - Error Count
+     */
+    export type ServiceHealthOrderByEnum = typeof ServiceHealthOrderByEnum[keyof typeof ServiceHealthOrderByEnum];
+
+
+    export const ServiceHealthOrderByEnum = {
+      Status: 'status',
+      ErrorRate: 'error_rate',
+      P95: 'p95',
+      Throughput: 'throughput',
+      ErrorCount: 'error_count',
+    } as const;
+
+    export interface _ServiceHealthDateRange {
+      /**
+         * Relative (-30m, -6h, -7d) or ISO 8601.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * Same format. Omit or null for "now".
+         * @nullable
+         */
+      date_to?: string | null;
+    }
+
+    /**
+     * * `entry` - Entry
+     * * `all` - All
+     */
+    export type ServiceHealthSpanScopeEnum = typeof ServiceHealthSpanScopeEnum[keyof typeof ServiceHealthSpanScopeEnum];
+
+
+    export const ServiceHealthSpanScopeEnum = {
+      Entry: 'entry',
+      All: 'all',
+    } as const;
+
+    export interface _ServiceHealthQuery {
+      /** The window to score. Defaults to the last hour. */
+      dateRange?: _ServiceHealthDateRange;
+      /** The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.
+       *
+       * * `none` - None
+       * * `previous_period` - Previous Period
+       * * `previous_day` - Previous Day
+       * * `previous_week` - Previous Week */
+      compare?: ServiceHealthBaselineEnum;
+      /**
+         * Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.
+         * @nullable
+         */
+      environment?: string | null;
+      /**
+         * Only these services.
+         * @maxItems 100
+         */
+      serviceNames?: string[];
+      /** entry (default) counts root, server and consumer spans, one per request. all counts every span.
+       *
+       * * `entry` - Entry
+       * * `all` - All */
+      spanScope?: ServiceHealthSpanScopeEnum;
+      /** status (default) puts silent, regressed and degraded first. The others sort high to low.
+       *
+       * * `status` - Status
+       * * `error_rate` - Error Rate
+       * * `p95` - P95
+       * * `throughput` - Throughput
+       * * `error_count` - Error Count */
+      orderBy?: ServiceHealthOrderByEnum;
+      /**
+         * Max service rows, 1-200.
+         * @minimum 1
+         * @maximum 200
+         */
+      limit?: number;
+    }
+
+    export interface ServiceHealthRequest {
+      /** The service health query. Every field is optional. */
+      query: _ServiceHealthQuery;
+      /** An explicit baseline window. Overrides query.compare. */
+      baselineDateRange?: _ServiceHealthDateRange;
+    }
+
+    export interface _ServiceHealthTimeRange {
+      /** Start, ISO 8601 UTC, inclusive. */
+      date_from: string;
+      /** End, ISO 8601 UTC, exclusive. */
+      date_to: string;
+    }
+
+    export interface _ServiceHealthWindow {
+      /** The scored window. Reuse it as dateRange in follow-up calls. */
+      current: _ServiceHealthTimeRange;
+      /** The baseline window. Null when compare is none. */
+      baseline: _ServiceHealthTimeRange | null;
+      /** Always UTC. */
+      timezone: string;
+    }
+
+    export interface _ServiceHealthSummary {
+      /** Services scored, before the limit. */
+      services: number;
+      /** Requests over all scored services. */
+      requests: number;
+      /** Services per status. */
+      ok: number;
+      /** Services per status. */
+      degraded: number;
+      /** Services per status. */
+      regressed: number;
+      /** Services per status. */
+      silent: number;
+      /** Services per status. */
+      new: number;
+      /** Services per status. */
+      recovered: number;
+      /** Services per status. */
+      improved: number;
+    }
+
+    /**
+     * * `silent` - Silent
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
+     * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok
+     */
+    export type ServiceHealthStatusEnum = typeof ServiceHealthStatusEnum[keyof typeof ServiceHealthStatusEnum];
+
+
+    export const ServiceHealthStatusEnum = {
+      Silent: 'silent',
+      Regressed: 'regressed',
+      Degraded: 'degraded',
+      New: 'new',
+      Recovered: 'recovered',
+      Improved: 'improved',
+      Ok: 'ok',
+    } as const;
+
+    export interface _ServiceHealthRow {
+      /** Service name. */
+      service: string;
+      /** silent: spans stopped. regressed: error rate or p95 worse than the baseline. degraded: error rate 5% or more. new: no spans in the baseline. recovered, improved: the reverse of regressed.
+       *
+       * * `silent` - Silent
+       * * `regressed` - Regressed
+       * * `degraded` - Degraded
+       * * `new` - New
+       * * `recovered` - Recovered
+       * * `improved` - Improved
+       * * `ok` - Ok */
+      status: ServiceHealthStatusEnum;
+      /** Why the service has this status. Empty for ok. */
+      reason: string;
+      /** Spans in the window, in the chosen spanScope. */
+      requests: number;
+      /** Requests per minute. */
+      throughput_per_min: number;
+      /** Requests with OTel status Error. */
+      error_count: number;
+      /**
+         * Error share of requests, percent.
+         * @nullable
+         */
+      error_rate_pct: number | null;
+      /**
+         * Change from the baseline, points.
+         * @nullable
+         */
+      error_rate_delta_pp: number | null;
+      /**
+         * Median duration, ms.
+         * @nullable
+         */
+      p50_ms: number | null;
+      /**
+         * 95th percentile duration, ms.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /**
+         * p95 change from the baseline, percent.
+         * @nullable
+         */
+      p95_change_pct: number | null;
+      /**
+         * 99th percentile duration, ms.
+         * @nullable
+         */
+      p99_ms: number | null;
+      /**
+         * Baseline requests. Null without one.
+         * @nullable
+         */
+      baseline_requests: number | null;
+      /**
+         * Last span, ISO 8601 UTC.
+         * @nullable
+         */
+      last_seen: string | null;
+    }
+
+    /**
+     * The prefilled query argument.
+     */
+    export type _ServiceHealthNextCallQuery = { [key: string]: unknown };
+
+    export interface _ServiceHealthNextCall {
+      /** The tool to call next. */
+      tool: string;
+      /** What the call answers. */
+      why: string;
+      /** The prefilled query argument. */
+      query: _ServiceHealthNextCallQuery;
+    }
+
+    export interface ServiceHealthResponse {
+      /** The absolute UTC windows the server used. */
+      window: _ServiceHealthWindow;
+      /** Counts over all scored services. */
+      summary: _ServiceHealthSummary;
+      /** One row per service, in orderBy order. */
+      services: _ServiceHealthRow[];
+      /** Prefilled follow-up calls. */
+      next: _ServiceHealthNextCall[];
+      /** True when more services matched than limit. */
+      truncated: boolean;
+      /** Caveats about this result. */
+      notes: string[];
     }
 
     export interface SessionRecordingBulkDeleteRequest {
@@ -117543,6 +117895,15 @@ export namespace Schemas {
     } as const;
 
     export interface _LogPatternDiffEntry {
+      /** The template with variable parts masked. */
+      masked_example: string;
+      /** Up to 4 services with this pattern. */
+      services: string[];
+      /**
+         * Earliest 5-minute bucket (UTC) with this pattern, up to 14 days back. Null on body mining.
+         * @nullable
+         */
+      first_seen_ever: string | null;
       /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
        *
        * * `new` - new
@@ -117684,7 +118045,7 @@ export namespace Schemas {
     }
 
     export interface _LogsGroupByDimension {
-      /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
+      /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template). */
       key: string;
       /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
        *
@@ -117705,7 +118066,7 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters applied before grouping. Same shape as the query-logs endpoint. */
       filterGroup?: _LogPropertyFilter[];
-      /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". Ignored when groupBys is provided. */
+      /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern". Ignored when groupBys is provided. */
       groupBy?: string;
       /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.
        *
@@ -117746,6 +118107,8 @@ export namespace Schemas {
       log_count: number;
       /** Number of matching logs in this group at severity "error" or "fatal". */
       error_count: number;
+      /** ISO 8601 timestamp of the earliest matching log in this group. */
+      first_seen?: string;
       /** ISO 8601 timestamp of the most recent matching log in this group. */
       last_seen: string;
     }
@@ -117815,6 +118178,27 @@ export namespace Schemas {
       error: string;
     }
 
+    /**
+     * Prefilled `query` for that tool.
+     */
+    export type _LogsNextStepQuery = { [key: string]: unknown };
+
+    /**
+     * Prefilled sibling `baselineDateRange` argument, for tools that take one.
+     */
+    export type _LogsNextStepBaselineDateRange = { [key: string]: unknown };
+
+    export interface _LogsNextStep {
+      /** MCP tool to call next. */
+      tool: string;
+      /** What the call answers. */
+      why: string;
+      /** Prefilled `query` for that tool. */
+      query: _LogsNextStepQuery;
+      /** Prefilled sibling `baselineDateRange` argument, for tools that take one. */
+      baselineDateRange?: _LogsNextStepBaselineDateRange;
+    }
+
     export interface _LogsPatternsBody {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
@@ -117832,9 +118216,33 @@ export namespace Schemas {
       sessionId?: string;
     }
 
+    export interface _LogsPatternsDiffBody {
+      /** Date range to mine patterns from. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels before mining. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Restrict mining to these service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies before mining. */
+      searchTerm?: string;
+      /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
+      /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+      sessionId?: string;
+      /**
+         * Return at most this many entries, most interesting first. Omit for all. Sets `truncated`.
+         * @minimum 1
+         * @maximum 500
+         * @nullable
+         */
+      limit?: number | null;
+    }
+
     export interface _LogsPatternsDiffRequest {
       /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
-      query: _LogsPatternsBody;
+      query: _LogsPatternsDiffBody;
       /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
       baselineDateRange?: _DateRange;
     }
@@ -117887,6 +118295,26 @@ export namespace Schemas {
     }
 
     export interface _LogsPatternsDiffResponse {
+      /** Absolute UTC bounds of the current and baseline windows. */
+      window: LogsAgentWindow;
+      /** stored_patterns when both windows have ≥99% of rows on the same stored version, else body_mining.
+       *
+       * * `stored_patterns` - Stored Patterns
+       * * `body_mining` - Body Mining */
+      source: PatternsDiffSourceEnum;
+      /**
+         * Stored pattern version, null for mining.
+         * @nullable
+         */
+      pattern_version: number | null;
+      /** True on the body-mining fallback: counts are sample estimates. */
+      sampled: boolean;
+      /** True when `limit` cut the entry list. */
+      truncated: boolean;
+      /** Caveats that limit what the diff shows. */
+      notes: string[];
+      /** Prefilled query-logs calls for the top new or shifted patterns. */
+      next: LogsAgentNextCall[];
       /** Classified diff entries, most interesting first: "new" (by estimated count), then "rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the baseline is matched to the current window by literal-content fingerprint, so a placeholder widening between runs does not read as one pattern vanishing and another appearing. */
       entries: _LogPatternDiffEntry[];
       /** Mining metadata for the current window. */
@@ -118031,6 +118459,40 @@ export namespace Schemas {
     export interface _LogsServiceAggregate {
       /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
       service_name: string;
+      /** ok, degraded (error rate of 5% or more), regressed or improved (error rate up or down by 1 pp and 2x), recovered (back under 5%), new (no baseline logs) or silent (baseline logs, none in the window).
+       *
+       * * `ok` - OK
+       * * `degraded` - Error rate 5% or more
+       * * `regressed` - Error rate worse than the baseline
+       * * `improved` - Error rate better than the baseline
+       * * `recovered` - No longer degraded
+       * * `new` - No logs in the baseline
+       * * `silent` - Logs stopped */
+      status?: LogsServiceStatusEnum;
+      /** Short reason for the status, e.g. "error rate 0.4% → 3.1%". */
+      reason?: string;
+      /** Error rate in percent, rounded to 1 decimal. */
+      error_rate_pct?: number;
+      /**
+         * Logs in the baseline. Null without one.
+         * @nullable
+         */
+      baseline_log_count?: number | null;
+      /**
+         * Error rate change against the baseline, in percentage points.
+         * @nullable
+         */
+      error_rate_delta_pp?: number | null;
+      /**
+         * Log volume change against the baseline, in percent.
+         * @nullable
+         */
+      log_count_change_pct?: number | null;
+      /**
+         * Latest log time (UTC). From the rollup, and for silent services, the start of the last 5-minute bucket.
+         * @nullable
+         */
+      last_seen?: string | null;
       /** Total log entries from this service in the window. */
       log_count: number;
       /** Count of logs at severity "error" or "fatal". */
@@ -118061,11 +118523,25 @@ export namespace Schemas {
       serviceNameSearch?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
+      /**
+         * Deployment environment, matched without case against the first set resource attribute of deployment.environment.name, deployment.environment and env. "(none)" matches logs without one.
+         * @maxLength 200
+         */
+      environment?: string;
+      /** Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.
+       *
+       * * `none` - No baseline
+       * * `previous_period` - Previous period
+       * * `previous_day` - Same window a day earlier
+       * * `previous_week` - Same window a week earlier */
+      compare?: LogsCompareModeEnum;
     }
 
     export interface _LogsServicesRequest {
       /** The services aggregation query to execute. */
       query: _LogsServicesBody;
+      /** Explicit baseline window. Takes precedence over `query.compare`. */
+      baselineDateRange?: _DateRange;
     }
 
     export interface _LogsServicesSparklineBucket {
@@ -118075,11 +118551,39 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * Service rows per status.
+     */
+    export type _LogsServicesSummaryStatusCounts = {[key: string]: number};
+
     export interface _LogsServicesSummary {
       /** Number of top services included in the volume_share aggregate (up to 5). */
       top_services_count: number;
       /** Combined volume share (percent) of the top services by log_count. */
       top_services_volume_share_pct: number;
+      /** Service rows per status. */
+      status_counts?: _LogsServicesSummaryStatusCounts;
+      /** True when more services matched than `services` holds. */
+      truncated?: boolean;
+    }
+
+    /**
+     * `from` and `to` of the queried window, ISO 8601 UTC.
+     */
+    export type _LogsWindowCurrent = {[key: string]: string};
+
+    /**
+     * `from` and `to` of the baseline. Absent without one.
+     */
+    export type _LogsWindowBaseline = {[key: string]: string};
+
+    export interface _LogsWindow {
+      /** `from` and `to` of the queried window, ISO 8601 UTC. */
+      current: _LogsWindowCurrent;
+      /** `from` and `to` of the baseline. Absent without one. */
+      baseline?: _LogsWindowBaseline;
+      /** Always UTC. */
+      timezone: string;
     }
 
     export interface _LogsServicesResponse {
@@ -118091,6 +118595,16 @@ export namespace Schemas {
       total_services: number;
       /** Roll-up stats for the Services tab header. */
       summary?: _LogsServicesSummary;
+      /** Absolute UTC bounds of the window and the baseline. */
+      window?: _LogsWindow;
+      /** rollup: 5-minute rollup only. rollup+raw: rollup plus raw logs at unaligned window edges.
+       *
+       * * `rollup` - Rollup
+       * * `rollup+raw` - Rollup Raw
+       * * `raw` - Raw */
+      source?: LogsServicesSourceEnum;
+      /** Prefilled follow-up calls for problem services. */
+      next?: _LogsNextStep[];
     }
 
     export interface _LogsSparklineBody {
@@ -129739,8 +130253,7 @@ export namespace Schemas {
      */
     serviceNames?: string[];
     /**
-     * Search filter for attribute values
-     * @minLength 1
+     * Search filter for attribute values. Omit it or pass an empty string to list all values.
      */
     value?: string;
     };
@@ -133225,6 +133738,21 @@ export namespace Schemas {
      */
     attribute_type?: TracingSpansAttributesRetrieveAttributeType;
     /**
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
+     * @minLength 1
+     */
+    dateRange?: string;
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
      * Max results (default: 100).
      * @minimum 1
      * @maximum 100
@@ -133256,10 +133784,20 @@ export namespace Schemas {
 
     export type TracingSpansServiceNamesRetrieveParams = {
     /**
-     * JSON-encoded date range, e.g. '{"date_from": "-1h"}'.
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
      * @minLength 1
      */
     dateRange?: string;
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string;
     /**
      * Search filter for service names.
      * @minLength 1
@@ -133277,6 +133815,21 @@ export namespace Schemas {
      * @minLength 1
      */
     attribute_type?: TracingSpansValuesRetrieveAttributeType;
+    /**
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
+     * @minLength 1
+     */
+    dateRange?: string;
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string;
     /**
      * The attribute key to get values for.
      * @minLength 1
