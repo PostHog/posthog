@@ -123,10 +123,10 @@ describe('InsightSelector', () => {
             onChange,
         })
 
-        expect(screen.getAllByText('Insight no longer on this dashboard')[0]).toBeInTheDocument()
+        expect(screen.getByText(/still selected in this subscription/)).toBeInTheDocument()
         expect(onChange).not.toHaveBeenCalled()
         const labels = screen.getAllByRole('checkbox').map((input) => input.nextElementSibling?.textContent)
-        expect(labels.slice(0, 3)).toEqual(['Pageviews', 'Sessions', 'Users'])
+        expect(labels).toEqual(['Pageviews', 'Sessions', 'Users'])
         expect(screen.queryByText(/ID:/)).not.toBeInTheDocument()
     })
 
@@ -138,7 +138,8 @@ describe('InsightSelector', () => {
             onChange,
         })
 
-        expect(screen.getAllByLabelText('Insight no longer on this dashboard')[0]).toBeDisabled()
+        expect(screen.getAllByRole('checkbox')).toHaveLength(3)
+        expect(screen.getByText(new RegExp(`^${ids.length - 1} insights? `))).toBeInTheDocument()
         expect(screen.queryByText('Remove from subscription')).not.toBeInTheDocument()
         await userEvent.click(screen.getByText('Remove all missing insights'))
         expect(onChange).toHaveBeenLastCalledWith([101])
@@ -176,9 +177,9 @@ describe('InsightSelector', () => {
 
     it('shows unavailable selections even when the dashboard is empty', () => {
         renderInsightSelector({ tiles: [], selectedInsightIds: [999], onChange: jest.fn() })
-        expect(screen.getAllByText('Insight no longer on this dashboard')[0]).toBeInTheDocument()
+        expect(screen.getByText(/still selected in this subscription/)).toBeInTheDocument()
         expect(
-            screen.getByText('These insights are no longer on this dashboard. Remove them before saving.')
+            screen.getByText('1 insight is no longer on this dashboard but is still selected in this subscription.')
         ).toBeInTheDocument()
     })
 

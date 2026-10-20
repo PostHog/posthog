@@ -101,19 +101,13 @@ export function InsightSelector({
                         )
                     })
                 )}
-                {unavailableSelectedIds.map((id) => (
-                    <LemonCheckbox
-                        key={`unavailable-${id}`}
-                        checked
-                        label={<span className="text-secondary line-through">Insight no longer on this dashboard</span>}
-                        disabledReason="Use Remove all missing insights to remove these entries from the subscription."
-                    />
-                ))}
             </div>
             {unavailableSelectedIds.length > 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span className="text-secondary">
-                        These insights are no longer on this dashboard. Remove them before saving.
+                        {unavailableSelectedIds.length === 1
+                            ? '1 insight is no longer on this dashboard but is still selected in this subscription.'
+                            : `${unavailableSelectedIds.length} insights are no longer on this dashboard but are still selected in this subscription.`}
                     </span>
                     <LemonButton
                         size="small"
