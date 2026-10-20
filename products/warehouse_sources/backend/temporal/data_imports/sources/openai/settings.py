@@ -1,6 +1,8 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -24,7 +26,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@frozen
 class OpenAIEndpointConfig:
     name: str
     path: str
@@ -53,8 +55,11 @@ class OpenAIEndpointConfig:
     # reaches the source, so each run re-pulls recently-restated buckets. Merge dedupes them on
     # the primary key.
     default_incremental_lookback_seconds: Optional[int] = None
-    # Project-scoped resources have no org-wide list endpoint; they fan out one request per project.
-    fan_out_over_projects: bool = False
+    # Parent-scoped resources have no org-wide list endpoint; they fan out one request per row of
+    # the named parent endpoint (e.g. "projects"). `fan_out_parent_key` names both the path
+    # placeholder the parent id fills and the column that carries it on each row.
+    fan_out_parent: Optional[str] = None
+    fan_out_parent_key: Optional[str] = None
     # Extra static query params merged into every request (e.g. include_archived on projects).
     extra_params: dict[str, str] = field(default_factory=dict)
     should_sync_default: bool = True
@@ -168,7 +173,8 @@ OPENAI_ENDPOINTS: dict[str, OpenAIEndpointConfig] = {
         pagination=PaginationType.CURSOR,
         primary_keys=["project_id", "id"],
         partition_key="added_at",
-        fan_out_over_projects=True,
+        fan_out_parent="projects",
+        fan_out_parent_key="project_id",
     ),
     "project_service_accounts": OpenAIEndpointConfig(
         name="project_service_accounts",
@@ -176,7 +182,8 @@ OPENAI_ENDPOINTS: dict[str, OpenAIEndpointConfig] = {
         pagination=PaginationType.CURSOR,
         primary_keys=["project_id", "id"],
         partition_key="created_at",
-        fan_out_over_projects=True,
+        fan_out_parent="projects",
+        fan_out_parent_key="project_id",
     ),
     "project_api_keys": OpenAIEndpointConfig(
         name="project_api_keys",
@@ -184,14 +191,46 @@ OPENAI_ENDPOINTS: dict[str, OpenAIEndpointConfig] = {
         pagination=PaginationType.CURSOR,
         primary_keys=["project_id", "id"],
         partition_key="created_at",
-        fan_out_over_projects=True,
+        fan_out_parent="projects",
+        fan_out_parent_key="project_id",
     ),
     "project_rate_limits": OpenAIEndpointConfig(
         name="project_rate_limits",
         path="/v1/organization/projects/{project_id}/rate_limits",
         pagination=PaginationType.CURSOR,
         primary_keys=["project_id", "id"],
-        fan_out_over_projects=True,
+        fan_out_parent="projects",
+        fan_out_parent_key="project_id",
+    ),
+    "groups": OpenAIEndpointConfig(
+        name="groups",
+        path="/v1/organization/groups",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["id"],
+        partition_key="created_at",
+    ),
+    "group_users": OpenAIEndpointConfig(
+        name="group_users",
+        path="/v1/organization/groups/{group_id}/users",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["group_id", "id"],
+        fan_out_parent="groups",
+        fan_out_parent_key="group_id",
+    ),
+    "roles": OpenAIEndpointConfig(
+        name="roles",
+        path="/v1/organization/roles",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["id"],
+    ),
+    # Role assignments carry a nullable `created_at`, so there is no stable partition key.
+    "user_roles": OpenAIEndpointConfig(
+        name="user_roles",
+        path="/v1/organization/users/{user_id}/roles",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["user_id", "id"],
+        fan_out_parent="users",
+        fan_out_parent_key="user_id",
     ),
     "audit_logs": OpenAIEndpointConfig(
         name="audit_logs",
