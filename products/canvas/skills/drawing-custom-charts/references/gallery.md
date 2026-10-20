@@ -664,7 +664,7 @@ export function Beeswarm() {
 
 ## chart-kit.tsx
 
-The sizing hook and themed tooltip the raw-d3 examples share. `TooltipSwatch` is context-free; `TooltipSurface` is not, so this draws its own box from `theme.tooltipBackground` and `theme.tooltipColor`.
+The sizing hook and themed tooltip the raw-d3 examples share. `TooltipSwatch` is context-free; `TooltipSurface` is not, so `TipBox` draws its own box from `theme.tooltipBackground` and `theme.tooltipColor`. Its radius, border, shadow, padding, line height and row padding copy `TooltipSurface` and `DefaultTooltip`, so it matches the stock tooltip. Copy it unchanged.
 
 ```tsx
 import { TooltipSwatch, type ChartTheme } from '@posthog/quill-charts'
@@ -691,11 +691,11 @@ export function TipBox({ tip, theme }: { tip: Tip | null; theme: ChartTheme }) {
   if (!tip) return null
   return (
     <div
-      className="pointer-events-none absolute z-10 max-w-80 rounded-md border border-white/10 px-2 py-1.5 text-xs shadow-lg"
+      className="pointer-events-none absolute z-10 w-fit max-w-80 rounded-[var(--radius-sm,0.375rem)] border border-white/10 px-2 py-1.5 text-xs leading-[1.4] shadow-[0_4px_16px_rgb(0_0_0/40%)]"
       style={{ left: tip.x + 12, top: tip.y + 12, backgroundColor: theme.tooltipBackground, color: theme.tooltipColor }}
     >
       <div className="mb-1 font-semibold opacity-60">{tip.title}</div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 px-1.5 py-0.5">
         <TooltipSwatch color={tip.color} />
         <strong className="tabular-nums">{tip.value}</strong>
       </div>
