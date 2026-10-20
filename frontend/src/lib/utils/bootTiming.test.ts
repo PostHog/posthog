@@ -1,6 +1,9 @@
 import type posthogType from 'posthog-js'
 
-import type { markBootPhase as markBootPhaseType } from './bootTiming'
+import type {
+    createSceneRenderedMark as createSceneRenderedMarkType,
+    markBootPhase as markBootPhaseType,
+} from './bootTiming'
 
 describe('bootTiming', () => {
     // Hash buckets 0 and 26 of 100, so one sits inside the 5% sample and one sits outside it.
@@ -8,6 +11,7 @@ describe('bootTiming', () => {
     const OUT_OF_SAMPLE_ID = 'user-0'
 
     let markBootPhase: typeof markBootPhaseType
+    let createSceneRenderedMark: typeof createSceneRenderedMarkType
     let capture: jest.SpyInstance
     let getDistinctId: jest.SpyInstance
     let now: number
@@ -18,7 +22,7 @@ describe('bootTiming', () => {
         jest.resetModules()
         now = 0
         nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => now)
-        markBootPhase = require('./bootTiming').markBootPhase
+        ;({ markBootPhase, createSceneRenderedMark } = require('./bootTiming'))
         const posthog: typeof posthogType = require('posthog-js').default
         capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         getDistinctId = jest.spyOn(posthog, 'get_distinct_id').mockReturnValue(IN_SAMPLE_ID)
@@ -64,6 +68,33 @@ describe('bootTiming', () => {
             })
         )
     })
+
+    it.each([
+        { name: 'marks when the scene commits', fallbackGoneAt: [], expected: 900 },
+        { name: 'waits for a lazy content fallback to go', fallbackGoneAt: [1150], expected: 1150 },
+        { name: 'waits for the last of two fallbacks', fallbackGoneAt: [1100, 1300], expected: 1300 },
+    ])(
+        'scene rendered mark $name',
+        async ({ fallbackGoneAt, expected }: { fallbackGoneAt: number[]; expected: number }) => {
+            markAt(50, 'entry')
+            const sceneRendered = createSceneRenderedMark()
+            // A child's layout effect runs before its parent's, so a fallback holds the mark before the scene commits.
+            const releases = fallbackGoneAt.map(() => sceneRendered.holdUntilContent())
+            now = 900
+            sceneRendered.sceneCommitted()
+            fallbackGoneAt.forEach((time, index) => {
+                now = time
+                releases[index]()
+            })
+            await flushSend()
+
+            expect(capture).toHaveBeenCalledTimes(1)
+            expect(capture).toHaveBeenCalledWith(
+                'app boot timing',
+                expect.objectContaining({ scene_rendered_ms: expected })
+            )
+        }
+    )
 
     it.each([
         { distinctId: IN_SAMPLE_ID, sends: true },

@@ -95,3 +95,40 @@ export function markBootPhase(phase: BootPhase, phaseContext?: BootContext): voi
         void sendBootTiming().catch(() => {})
     }
 }
+
+export interface SceneRenderedMark {
+    /** Holds the mark while a Suspense fallback stands in for the scene's lazy content. Returns the release. */
+    holdUntilContent: () => () => void
+    sceneCommitted: () => void
+}
+
+/**
+ * Marks `scene_rendered` when the scene has committed and no fallback for its lazy content is on screen.
+ * Without this, a scene that wraps its content in its own Suspense marks the commit of its spinner.
+ */
+export function createSceneRenderedMark(): SceneRenderedMark {
+    let committed = false
+    let holds = 0
+    const markIfReady = (): void => {
+        if (committed && holds === 0) {
+            markBootPhase('scene_rendered')
+        }
+    }
+    return {
+        holdUntilContent: () => {
+            holds++
+            let released = false
+            return () => {
+                if (!released) {
+                    released = true
+                    holds--
+                    markIfReady()
+                }
+            }
+        },
+        sceneCommitted: () => {
+            committed = true
+            markIfReady()
+        },
+    }
+}
