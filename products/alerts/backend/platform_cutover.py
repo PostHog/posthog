@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertState
 from posthog.tasks.alerts.utils import due_insight_alerts_q
 
+from products.alerts.backend.insight_alert_state_machine import apply_handback
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
@@ -70,10 +71,10 @@ def _team_alert_ids(team_id: int) -> list[UUID]:
     )
 
 
-def _insight_check_owed(alert_id: UUID, at: datetime) -> bool:
+def _insight_check_owed(team_id: int, alert_id: UUID, at: datetime) -> bool:
     # A check advances `next_check_at` when it saves, so an alert the scheduler does not owe a check
     # under the caller's lock has no check between reading it and notifying for it.
-    return AlertConfiguration.objects.filter(id=alert_id).filter(due_insight_alerts_q(at)).exists()
+    return AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).filter(due_insight_alerts_q(at)).exists()
 
 
 def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
@@ -82,13 +83,18 @@ def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCu
     No destination holds an alert back: delivery sends a customized one through its HogFunction.
     """
     return tuple(
-        AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(alert_id, now)) for alert_id in _team_alert_ids(team_id)
+        AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(team_id, alert_id, now))
+        for alert_id in _team_alert_ids(team_id)
     )
 
 
-def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
+def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
     with transaction.atomic():
-        alert = AlertConfiguration.objects.select_for_update(no_key=True).select_related("threshold").get(id=alert_id)
+        alert = (
+            AlertConfiguration.objects.select_for_update(no_key=True)
+            .select_related("threshold")
+            .get(team_id=team_id, id=alert_id)
+        )
         # Read after the lock, so a check that became due while earlier alerts moved is seen as due.
         at = now or timezone.now()
         if alert.platform_owned:
@@ -100,7 +106,7 @@ def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
             return CutoverSkip.INVESTIGATION
         if alert.state == AlertState.FIRING:
             return CutoverSkip.FIRING
-        if _insight_check_owed(alert.id, at):
+        if _insight_check_owed(team_id, alert.id, at):
             return CutoverSkip.CHECK_DUE
 
         savepoint = transaction.savepoint()
@@ -154,19 +160,19 @@ class AlertRollback:
 def roll_back_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertRollback, ...]:
     """Hands every insight alert of one team back from the platform, or says why one stays."""
     return tuple(
-        AlertRollback(alert_id=alert_id, skipped=_roll_back_alert(alert_id, now))
+        AlertRollback(alert_id=alert_id, skipped=_roll_back_alert(team_id, alert_id, now))
         for alert_id in _team_alert_ids(team_id)
     )
 
 
-def _roll_back_alert(alert_id: UUID, now: datetime | None) -> RollbackSkip | None:
+def _roll_back_alert(team_id: int, alert_id: UUID, now: datetime | None) -> RollbackSkip | None:
     with transaction.atomic():
-        alert = AlertConfiguration.objects.select_for_update(no_key=True).get(id=alert_id)
+        alert = AlertConfiguration.objects.select_for_update(no_key=True).get(team_id=team_id, id=alert_id)
         # Read after the lock, for the same reason as the cutover.
         at = now or timezone.now()
         if not alert.platform_owned:
             return RollbackSkip.NOT_MOVED
-        if _insight_check_owed(alert.id, at):
+        if _insight_check_owed(team_id, alert.id, at):
             return RollbackSkip.INSIGHT_CHECK_DUE
 
         handback = give_back_ownership(team_id=alert.team_id, legacy_configuration_id=alert.id, at=at)
@@ -175,10 +181,12 @@ def _roll_back_alert(alert_id: UUID, now: datetime | None) -> RollbackSkip | Non
 
         # A snooze lives on this alert, so an active one stays its state.
         snoozed = alert.snoozed_until is not None and alert.snoozed_until > at
-        alert.state = AlertState.SNOOZED if snoozed else _INSIGHT_STATE_OF_PLATFORM[handback.state]
+        update_fields = apply_handback(
+            alert, AlertState.SNOOZED if snoozed else _INSIGHT_STATE_OF_PLATFORM[handback.state]
+        )
         alert.owner = PlatformAlertOwner.SOURCE
         alert.owner_changed_at = at
         alert.last_notified_at = handback.last_notified_at
         alert.next_check_at = handback.next_check_at
-        alert.save(update_fields=["state", "owner", "owner_changed_at", "last_notified_at", "next_check_at"])
+        alert.save(update_fields=[*update_fields, "owner", "owner_changed_at", "last_notified_at", "next_check_at"])
     return None
