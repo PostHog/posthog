@@ -288,6 +288,19 @@ describe('RecipientPreferencesService', () => {
                 )
             })
 
+            it('should report an address that resolves to a non-string as a missing recipient', async () => {
+                const action = createEmailAction(42 as unknown as string, '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createFunctionStepInvocation(action)
+
+                await service.shouldSkipAction(invocation, action).catch(() => null)
+
+                expect(workflowsActivationReporter.report).toHaveBeenCalledWith(
+                    invocation.teamId,
+                    'workflows send failed',
+                    { reason: 'missing_recipient', channel: 'email', workflow_id: invocation.functionId }
+                )
+            })
+
             it('should return true if recipient is opted out of all marketing messaging', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)

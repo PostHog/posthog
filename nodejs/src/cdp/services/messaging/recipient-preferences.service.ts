@@ -165,7 +165,7 @@ export class RecipientPreferencesService {
     }
 
     private reportMissingEmailRecipient(invocation: CyclotronJobInvocationHogFunction, action: MessageAction): void {
-        if (action.type !== 'function_email' || this.recipientIdentifier(invocation, action)?.trim()) {
+        if (action.type !== 'function_email' || this.hasUsableAddress(this.recipientIdentifier(invocation, action))) {
             return
         }
         void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
@@ -173,6 +173,10 @@ export class RecipientPreferencesService {
             channel: 'email',
             workflow_id: invocation.functionId,
         })
+    }
+
+    private hasUsableAddress(address: unknown): boolean {
+        return typeof address === 'string' && address.trim() !== ''
     }
 
     private recipientIdentifier(
