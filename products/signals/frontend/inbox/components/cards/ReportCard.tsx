@@ -34,6 +34,7 @@ import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
+import { ReportTagList } from '../badges/ReportTagList'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
     knownSourceProductEntries,
@@ -126,6 +127,7 @@ function ReportCardRaw({
     selectable = false,
     rankingSortField = null,
     timestampField = 'updated_at',
+    onTagClick,
 }: {
     report: SignalReport
     sectionKey?: InboxReportSectionKey
@@ -144,6 +146,8 @@ function ReportCardRaw({
     rankingSortField?: InboxRankingSortField | null
     /** The time the card shows. Match it to the active time sort, so the list reads in order. */
     timestampField?: 'created_at' | 'updated_at'
+    /** Filter the inbox by a tag the row shows. Without it the tags are plain labels. */
+    onTagClick?: (tag: string) => void
 }): JSX.Element {
     // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
     // through one section key, and the two need different affordances.
@@ -277,6 +281,7 @@ function ReportCardRaw({
                 >
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
+                    <ReportTagList tags={report.tags} onTagClick={preview ? undefined : onTagClick} />
                     {!hasPr &&
                         !redesign &&
                         !isStatusRedundantWithActionability(report.status, report.actionability) && (

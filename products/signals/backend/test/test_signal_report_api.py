@@ -1073,6 +1073,31 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(self._list_url(channel_id="not-a-uuid"))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    # --- tags filter ---
+
+    @parameterized.expand(
+        [
+            ("single", "billing", {"billing"}),
+            ("any_of", "api,web", {"api", "both"}),
+            ("normalized", " Cost Spike ", {"cost_spike"}),
+            ("unknown_tag_matches_nothing", "nope", set()),
+            ("blank_is_noop", " , ", {"billing", "api", "both", "cost_spike", "untagged"}),
+        ]
+    )
+    def test_filter_by_tags(self, _name, query_value, expected_titles):
+        for title, tags in [
+            ("billing", ["billing"]),
+            ("api", ["api"]),
+            ("both", ["web", "api"]),
+            ("cost_spike", ["cost-spike"]),
+            ("untagged", []),
+        ]:
+            self._create_report(title=title, tags=tags)
+
+        response = self.client.get(self._list_url(tags=query_value))
+        assert response.status_code == status.HTTP_200_OK
+        assert {r["title"] for r in response.json()["results"]} == expected_titles
+
     # --- priority filter ---
 
     @parameterized.expand(

@@ -219,6 +219,7 @@ from products.signals.backend.report_task_actions import (
 )
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
@@ -1338,6 +1339,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_source_id_filter(qs)
         qs = self._apply_signal_report_scout_filter(qs)
         qs = self._apply_signal_report_scout_prefix_filter(qs)
+        qs = self._apply_signal_report_tags_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_unclaimed_filter(qs)
         qs = self._apply_signal_report_assignee_filter(qs)
@@ -1606,6 +1608,17 @@ class SignalReportViewSet(
 
         report_ids_with_prefix = fetch_report_ids_for_scout_prefix(self.team, scout_prefix)
         return queryset.filter(id__in=report_ids_with_prefix)
+
+    def _apply_signal_report_tags_filter(self, queryset):
+        tags_filter = self.request.query_params.get("tags")
+        if not tags_filter:
+            return queryset
+
+        # Normalize the same way writers do, so `Cost Spike` finds reports tagged `cost-spike`.
+        tags = [slug for raw in tags_filter.split(",") if (slug := slugify_tag(raw))]
+        if not tags:
+            return queryset
+        return queryset.filter(tags__overlap=tags)
 
     def _implementation_pr_report_filter(self):
         return implementation_pr_report_filter(team_id=self.team.id)
@@ -2433,6 +2446,17 @@ class SignalReportViewSet(
                     "least one of their contributing signals was authored by a scout whose skill_name starts "
                     "with this prefix — new scouts in the family match without callers listing every name. "
                     "Combines with the other filters as an AND."
+                ),
+            ),
+            OpenApiParameter(
+                name="tags",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of report tags (lowercase kebab-case slugs, e.g. billing,cost-spike). "
+                    "Reports are kept if they carry at least one of these tags. Each value is normalized to a "
+                    "slug first. Combines with the other filters as an AND."
                 ),
             ),
             OpenApiParameter(

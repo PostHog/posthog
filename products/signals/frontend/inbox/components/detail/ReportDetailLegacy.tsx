@@ -15,6 +15,7 @@ import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
@@ -28,6 +29,7 @@ import {
 import { reportPullRequests } from '../../utils/reportPullRequests'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
+import { ReportTagList } from '../badges/ReportTagList'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
@@ -297,6 +299,7 @@ function InboxDetailFrameLegacy({
         trailingCharts,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
+    const { showReportsWithTag } = useActions(inboxFiltersLogic)
     // GitHub-style PR view: when the report has a PR, the overview and the diff live behind two tabs.
     const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
     const hasDiff = !!showFilesTab
@@ -467,6 +470,7 @@ function InboxDetailFrameLegacy({
                                 actionabilityExplanation={actionabilityExplanation}
                                 scoutSkillName={report.scout_name}
                             />
+                            <ReportTagList tags={report.tags} onTagClick={showReportsWithTag} />
                         </div>
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">

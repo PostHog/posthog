@@ -183,6 +183,7 @@ const ReportRow = memo(function ReportRow({
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
+                onTagClick={inboxFiltersLogic.actions.toggleTag}
             />
         </ReportContextMenu>
     )

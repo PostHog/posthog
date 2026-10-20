@@ -245,6 +245,7 @@ describe('inboxAnalytics', () => {
             sortDirection: 'desc',
             sourceProductFilter: ['error_tracking'],
             scoutFilter: [],
+            tagFilter: ['billing'],
             priorityFilter: ['P0'],
             stateFilter: ['monitoring'],
             searchQuery: '  acme checkout crash  ',
@@ -258,6 +259,7 @@ describe('inboxAnalytics', () => {
             scope: 'entire-project',
             sort_field: 'created_at',
             source_product_filter: ['error_tracking'],
+            tag_filter: ['billing'],
             has_search: true,
             search_length: 'acme checkout crash'.length,
         })

@@ -253,6 +253,7 @@ describe('ReportsTab', () => {
             scope: INBOX_SCOPE_ENTIRE_PROJECT,
             sourceProductFilter: [],
             scoutFilter: [],
+            tagFilter: [],
             priorityFilter: [],
             stateFilter: ['not-actionable'],
             sortField: 'priority',

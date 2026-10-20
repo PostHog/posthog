@@ -132,6 +132,7 @@ function requestContextFromValues(values: {
     searchQuery: string
     sourceProductFilter: string[]
     scoutFilter: string[]
+    tagFilter: string[]
     priorityFilter: SignalReportPriority[]
     activeSortField: InboxSortField
     activeSortDirection: InboxSortDirection
@@ -143,6 +144,7 @@ function requestContextFromValues(values: {
             values.searchQuery.trim().length > 0 ||
             values.sourceProductFilter.length > 0 ||
             values.scoutFilter.length > 0 ||
+            values.tagFilter.length > 0 ||
             values.priorityFilter.length > 0 ||
             values.activeCreatedWindow !== null,
         sortField: values.activeSortField,
@@ -188,6 +190,7 @@ export interface reportListLogicValues {
     scoutFilter: string[] // inboxFiltersLogic
     searchQuery: string // inboxFiltersLogic
     sourceProductFilter: string[] // inboxFiltersLogic
+    tagFilter: string[] // inboxFiltersLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     count: number | null
@@ -253,6 +256,15 @@ export interface reportListLogicActions {
     } // inboxFiltersLogic
     toggleScout: (scout: string) => {
         scout: string
+    } // inboxFiltersLogic
+    toggleTag: (tag: string) => {
+        tag: string
+    } // inboxFiltersLogic
+    setTagFilter: (tags: string[]) => {
+        tags: string[]
+    } // inboxFiltersLogic
+    showReportsWithTag: (tag: string) => {
+        tag: string
     } // inboxFiltersLogic
     toggleSourceProduct: (source: string) => {
         source: string
@@ -387,6 +399,7 @@ export interface reportListLogicMeta {
             activeSortDirection: InboxSortDirection,
             sourceProductFilter: string[],
             scoutFilter: string[],
+            tagFilter: string[],
             priorityFilter: SignalReportPriority[],
             scopeReviewerUuid: string | undefined,
             activeCreatedWindow: InboxCreatedWindow | null,
@@ -442,6 +455,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 'activeSortDirection',
                 'sourceProductFilter',
                 'scoutFilter',
+                'tagFilter',
                 'priorityFilter',
                 'activeCreatedWindow',
             ],
@@ -460,6 +474,9 @@ export const reportListLogic = kea<reportListLogicType>([
                 'resetUnavailableSort',
                 'toggleSourceProduct',
                 'toggleScout',
+                'toggleTag',
+                'setTagFilter',
+                'showReportsWithTag',
                 'togglePriority',
                 'setPriorityFilter',
                 'setScope',
@@ -656,6 +673,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.activeSortDirection,
                 s.sourceProductFilter,
                 s.scoutFilter,
+                s.tagFilter,
                 s.priorityFilter,
                 s.scopeReviewerUuid,
                 s.activeCreatedWindow,
@@ -667,6 +685,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 sortDirection: import('./inboxFiltersLogic').InboxSortDirection,
                 sourceProductFilter: string[],
                 scoutFilter: string[],
+                tagFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 suggestedReviewer: string | undefined,
                 activeCreatedWindow: InboxCreatedWindow | null,
@@ -678,6 +697,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     ...buildSignalReportListSortParams(sortField, sortDirection),
                     source_product: sourceProductFilter.length > 0 ? sourceProductFilter.join(',') : undefined,
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
+                    tags: tagFilter.length > 0 ? tagFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
                     created_window: activeCreatedWindow ?? undefined,
@@ -875,6 +895,9 @@ export const reportListLogic = kea<reportListLogicType>([
         applyDefaultCreatedWindow: () => actions.refresh(),
         toggleSourceProduct: () => actions.refresh(),
         toggleScout: () => actions.refresh(),
+        toggleTag: () => actions.refresh(),
+        setTagFilter: () => actions.refresh(),
+        showReportsWithTag: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
         setPriorityFilter: () => actions.refresh(),
         setScope: () => actions.refresh(),

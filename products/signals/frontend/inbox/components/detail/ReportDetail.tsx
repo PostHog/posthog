@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
@@ -36,6 +37,7 @@ import { reportPullRequests } from '../../utils/reportPullRequests'
 import { parseReportSummary } from '../../utils/reportSummary'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
+import { ReportTagList } from '../badges/ReportTagList'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
@@ -243,6 +245,7 @@ export function InboxDetailFrame({
         inboxReportDetailLogic(logicProps)
     )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
+    const { showReportsWithTag } = useActions(inboxFiltersLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
     // the rail rather than after a scroll.
@@ -349,7 +352,10 @@ export function InboxDetailFrame({
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
-            {titleHeading}
+            <div className="flex flex-col gap-2">
+                {titleHeading}
+                <ReportTagList tags={report.tags} onTagClick={showReportsWithTag} />
+            </div>
 
             <ReportChartsContext.Provider value={chartsById}>
                 <div>
