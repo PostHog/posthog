@@ -1540,7 +1540,9 @@
         },
 
         render(data) {
-          const samples = data.samples.slice().reverse();
+          // One sweep pushes its verdicts in hash map order, so the ring alone is not time ordered.
+          const at = (s) => (typeof s.last_update_ms === "number" ? s.last_update_ms : Number.MIN_SAFE_INTEGER);
+          const samples = data.samples.slice().reverse().sort((a, b) => at(b) - at(a));
           const counts = new Map();
           for (const s of samples) {
             const label = s.kind === "merge" ? `merge ${s.outcome}` : s.outcome;
