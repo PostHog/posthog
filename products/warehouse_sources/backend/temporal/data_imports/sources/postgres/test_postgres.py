@@ -1716,6 +1716,27 @@ class TestPostgresSourceNonRetryableErrors:
         "error_msg",
         [
             # Raw psycopg message (what the activity-level check sees via str(e)).
+            "division by zero",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "DivisionByZero: division by zero",
+        ],
+    )
+    def test_division_by_zero_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Division-by-zero error should be non-retryable: {error_msg}"
+
+    def test_division_by_zero_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "division by zero"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Division-by-zero error should surface an actionable message"
+        assert "divides by" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
             'user mapping not found for user "svc_role", server "remote_server"',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             'UndefinedObject: user mapping not found for user "svc_role", server "remote_server"',
