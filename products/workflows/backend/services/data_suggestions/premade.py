@@ -17,7 +17,7 @@ from posthog.models import Team, User
 
 from products.workflows.backend.facade.contracts import BuiltSuggestion, DataSuggestion, WorkflowIdeaAlreadyResolved
 from products.workflows.backend.facade.enums import WorkflowIdeaStatus
-from products.workflows.backend.models import WorkflowIdea
+from products.workflows.backend.models import HogFlow, WorkflowIdea
 from products.workflows.backend.services.data_suggestions.builder import EmailSender
 
 
@@ -82,9 +82,10 @@ def waiting_premade_idea(team_id: int, idea_id: str) -> WorkflowIdea | None:
     return _waiting(team_id).filter(id=idea_id).first()
 
 
-def mark_accepted(row: WorkflowIdea, *, hog_flow_id: str, user: User) -> None:
+def mark_accepted(row: WorkflowIdea, *, team_id: int, hog_flow_id: str, user: User) -> None:
     row.status = WorkflowIdeaStatus.ACCEPTED
-    row.hog_flow_id = hog_flow_id
+    # The draft is not committed yet, so a replica read would not find it.
+    row.hog_flow = HogFlow.objects.using("default").get(team_id=team_id, id=hog_flow_id)
     row.resolved_at = timezone.now()
     row.resolved_by = user
     row.save(update_fields=["status", "hog_flow", "resolved_at", "resolved_by"])
@@ -121,7 +122,9 @@ def with_sender(workflow: dict[str, Any], sender: EmailSender | None) -> dict[st
 
 
 def _premade(team_id: int) -> QuerySet[WorkflowIdea]:
-    return WorkflowIdea.objects.for_team(team_id).exclude(definition={})
+    # for_team() also matches the parent project's ideas from a child environment, which an environment-scoped key
+    # must not read.
+    return WorkflowIdea.objects.for_team(team_id).filter(team_id=team_id).exclude(definition={})
 
 
 def _waiting(team_id: int) -> QuerySet[WorkflowIdea]:

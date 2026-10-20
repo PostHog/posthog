@@ -892,6 +892,10 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         foreign = self.client.post(
             f"/api/projects/{other_team.id}/workflow_data_suggestions/build/", save, format="json"
         )
+        child = Team.objects.create(organization=self.organization, parent_team=self.team)
+        from_child = self.client.post(
+            f"/api/environments/{child.id}/workflow_data_suggestions/build/", save, format="json"
+        )
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="agent", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write", "query:read"]
@@ -903,7 +907,12 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert (unsaved.status_code, unsaved.json()["status"], unsaved.json()["workflow_id"]) == (200, "ready", None)
         assert withdrawn == ("ai_not_approved", 404)
-        assert (foreign.status_code, saved.status_code, repeated.status_code) == (404, 200, 409)
+        assert (foreign.status_code, from_child.status_code, saved.status_code, repeated.status_code) == (
+            404,
+            404,
+            200,
+            409,
+        )
         draft = HogFlow.objects.get(team=self.team)
         idea.refresh_from_db()
         assert (idea.status, idea.hog_flow_id) == ("accepted", draft.id)

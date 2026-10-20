@@ -274,7 +274,7 @@ def save_premade_draft(
         if validated is None:
             return _BUILD_FAILED
         workflow_id = save_draft(team, user, validated)
-        mark_accepted(row, hog_flow_id=workflow_id, user=user)
+        mark_accepted(row, team_id=team.id, hog_flow_id=workflow_id, user=user)
     result = dataclasses.replace(_premade_build(team, row, workflow), workflow_id=workflow_id)
     # The web page sends this event itself, with the surface the card was on.
     if not caller.startswith(f"{EventSource.WEB.value}:"):
