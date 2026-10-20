@@ -510,10 +510,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "degrees_of_freedom_spec",
             "effective_authorization_category",
         ],
-        # Meta can refuse these for one creative it can no longer render, and that creative then
-        # syncs with only its id, account, name and status instead of failing the table. Meta does
-        # not say which field triggers the refusal, so every field it derives from the creative's
-        # specs is refusable.
+        # Meta does not say which field triggers a refusal, so every spec-derived field is refusable.
         "refusable_fields": (
             "object_type",
             "object_story_id",

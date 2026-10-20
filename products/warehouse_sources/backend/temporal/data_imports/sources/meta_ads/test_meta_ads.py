@@ -2023,8 +2023,6 @@ class TestEndpointCatalog:
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_refusable_fields_are_requested_fields(self, endpoint: str) -> None:
-        # The fallback drops a refusable field by exact name, so a misspelt one stays in the reduced
-        # request and Meta refuses the page again.
         schema = get_meta_ads_schemas()[endpoint]
         assert set(schema.refusable_fields) <= set(schema.field_names)
 
