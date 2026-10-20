@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     get_canonical_descriptions_for_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
 
 # Write-only (no Kafka `log_entries` production): this is an internal background activity, not a
 # user-facing sync, and its workflow type isn't mapped in `resolve_log_source`. The temporal worker's
@@ -294,10 +295,14 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     """Generate and persist semantic annotations for one warehouse table. Safe to re-run."""
     log = logger.bind(team_id=team_id, schema_id=str(schema_id))
 
-    team = (
-        Team.objects.select_related("organization")
-        .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
-        .get(id=team_id)
+    # Retried individually, not via `with_internal_db_retries` on the whole function, because the
+    # LLM call further down is expensive and must not be repeated for a blip reaching our own database.
+    team = retry_internal_db_operation(
+        lambda: (
+            Team.objects.select_related("organization")
+            .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
+            .get(id=team_id)
+        )
     )
 
     # Context accumulated as we learn it; shared by the "started" and "completed" analytics events.
@@ -313,10 +318,12 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         emit_completed("skipped", reason="ai_data_processing_not_approved")
         return {"status": "skipped", "reason": "ai_data_processing_not_approved"}
 
-    schema = (
-        ExternalDataSchema.objects.select_related("source", "table")
-        .filter(team_id=team_id, deleted=False)
-        .get(id=schema_id)
+    schema = retry_internal_db_operation(
+        lambda: (
+            ExternalDataSchema.objects.select_related("source", "table")
+            .filter(team_id=team_id, deleted=False)
+            .get(id=schema_id)
+        )
     )
     table = schema.table
     event_props["source_type"] = schema.source.source_type

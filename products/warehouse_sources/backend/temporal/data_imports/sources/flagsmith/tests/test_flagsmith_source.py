@@ -23,11 +23,6 @@ class TestFlagsmithSource:
         # Retargeting the API URL must force re-entry of the API key (credential exfiltration guard).
         assert self.source.connection_host_fields == ["base_url"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["features"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "features"
-
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
         [

@@ -28,7 +28,10 @@ function ObservationShareDialogContent(props: ObservationShareLogicProps): JSX.E
                 center
                 sideIcon={<IconCopy />}
                 onClick={() => {
-                    posthog.capture('replay_vision_observation_link_copied', { with_timestamp: includeTime })
+                    posthog.capture('replay_vision_observation_link_copied', {
+                        observation_id: props.observationId,
+                        with_timestamp: includeTime,
+                    })
                     void copyToClipboard(shareUrl, 'observation link').catch((e) => posthog.captureException(e))
                 }}
                 title={shareUrl}

@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
     append_partition_key_to_table,
+    partition_key_from_add_path,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_stream import (
     PartitionedFileWriter,
@@ -266,26 +267,6 @@ class RepartitionTarget:
         return cls(**{k: v for k, v in data.items() if k in fields})
 
 
-# Delta's fixed marker for a Hive-style partition directory whose column value is null.
-_HIVE_NULL_PARTITION = "__HIVE_DEFAULT_PARTITION__"
-
-
-def _partition_key_from_add_path(path: str) -> str | None:
-    """Recover the `_ph_partition_key` value from a Hive-style partitioned add-action file path.
-
-    Every value this pipeline actually partitions by — an md5 bucket index, a numerical bucket or the
-    `null` sentinel, or a datetime tier like "2024-01" — is plain ASCII with nothing that needs
-    percent-encoding, so splitting the path recovers the same value `get_add_actions`'s
-    `partition.<key>` column would give.
-    """
-    prefix = f"{PARTITION_KEY}="
-    for segment in path.split("/"):
-        if segment.startswith(prefix):
-            value = segment[len(prefix) :]
-            return None if value == _HIVE_NULL_PARTITION else value
-    return None
-
-
 def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | None, int]:
     """At-rest bytes per partition, read from the Delta log (no S3 LIST, no data scan).
 
@@ -301,7 +282,7 @@ def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | Non
 
     totals: dict[str | None, int] = defaultdict(int)
     for path, size in delta_table._table.get_add_file_sizes().items():
-        key = _partition_key_from_add_path(path) if partitioned else None
+        key = partition_key_from_add_path(path) if partitioned else None
         totals[key] += size or 0
     return dict(totals)
 

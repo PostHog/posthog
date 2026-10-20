@@ -31,6 +31,8 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     EvaluationAnnouncement,
     PlatformAlertHistory,
+    PlatformCheckEvent,
+    PlatformCheckEventPage,
     PlatformStateChange,
     SourceKind,
 )
@@ -350,3 +352,58 @@ def history(
         )
         for configuration_id, (last_checked_at, error_message) in latest.items()
     }
+
+
+# Deduplicated as `_HISTORY_SQL` is. The quiet checks are dropped before the deduplication, which
+# is safe because two copies of one check are identical rows. The total is a window over every
+# matching check, so one query answers both the page and the count a paginated list needs.
+_NOTABLE_CHECKS_SQL = f"""
+SELECT occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms,
+       error_message, count() OVER () AS total
+FROM (
+    SELECT alert_id, evaluation_key, occurred_at, previous_state, state, value, condition_snapshot,
+           query_duration_ms, error_message
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND grouping_key = ''
+      AND occurred_at >= %(since)s
+      AND (previous_state != state OR error_message != '')
+    ORDER BY alert_id, occurred_at, evaluation_key
+    LIMIT 1 BY alert_id, evaluation_key
+)
+ORDER BY occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s
+"""
+
+
+def notable_checks(team_id: int, configuration_id: UUID, *, since: datetime, limit: int) -> PlatformCheckEventPage:
+    """The newest `limit` checks since `since` that moved the configuration's state or failed.
+
+    A check that confirmed the state it found is left out, because a source that lists events
+    shows what changed. Only the ungrouped instance is read, as in `history`.
+
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = sync_execute(
+        _NOTABLE_CHECKS_SQL,
+        {"team_id": team_id, "configuration_id": configuration_id, "since": since, "limit": limit},
+        team_id=team_id,
+    )
+    return PlatformCheckEventPage(
+        events=tuple(
+            PlatformCheckEvent(
+                occurred_at=occurred_at,
+                evaluation_key=evaluation_key,
+                previous_state=PlatformAlertState(previous_state),
+                state=PlatformAlertState(state),
+                value=value,
+                condition=_snapshot(condition_snapshot),
+                query_duration_ms=query_duration_ms,
+                error_message=error_message or None,
+            )
+            for occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms, error_message, _ in rows
+        ),
+        total=rows[0][-1] if rows else 0,
+    )
