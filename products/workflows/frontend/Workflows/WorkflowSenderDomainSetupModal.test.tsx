@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { FakeEmailDomainBackend } from '../Channels/EmailDomain/__mocks__/fakeEmailDomainBackend'
 import { HogFlow } from './hogflows/types'
@@ -198,6 +199,18 @@ describe('the email domain setup opened from a workflow', () => {
             name: 'says why a workflow without a sender cannot be enabled',
             workflow: () => workflowWith({}, {}),
             text: "Choose a sender in the workflow's email step first.",
+        },
+        {
+            name: 'says why a viewer cannot enable the workflow',
+            workflow: () =>
+                workflowWith(
+                    {
+                        user_access_level: AccessControlLevel.Viewer,
+                        unverified_email_senders: [{ id: SENDER_ID, domain: DOMAIN }],
+                    },
+                    { integrationId: SENDER_ID }
+                ),
+            text: 'You need editor access to enable this workflow.',
         },
         {
             name: 'skips the enable action for a workflow already waiting',
