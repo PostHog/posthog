@@ -269,6 +269,23 @@ class TestCanvasCloudBuilder(SimpleTestCase):
                 {},
                 [],
             ),
+            (
+                "a library option the type does not accept, with rows left unknown",
+                'import { getCoreRowModel, useReactTable } from "@tanstack/react-table"\n'
+                "const rows: unknown[] = []\n"
+                "export default function Canvas() {\n"
+                "  useReactTable({ data: rows, columns: [], getCoreRowModel: getCoreRowModel(), notAnOption: true })\n"
+                "  return <p />\n"
+                "}\n",
+                {},
+                [("warning", "type_error", "src/canvas.tsx", 4, "notAnOption")],
+            ),
+            (
+                "a JSON data file the canvas imports",
+                'import data from "./data.json"\nexport default function Canvas() { return <p>{data.title}</p> }\n',
+                {"src/data.json": '{"title": "Board"}\n'},
+                [],
+            ),
         ]
     )
     def test_ready_build_reports_type_errors_in_the_canvas_files(

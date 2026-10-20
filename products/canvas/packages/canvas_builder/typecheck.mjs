@@ -3,6 +3,9 @@ import ts from 'typescript'
 
 const MAX_DIAGNOSTICS = 50
 const MAX_MESSAGE_LENGTH = 1000
+// Messages about a value that is itself `unknown`, not about an expected type that mentions `unknown`.
+const UNKNOWN_VALUE =
+    /^(?:Object is of type 'unknown'|'[^']+' is of type 'unknown'|Property '[^']+' does not exist on type 'unknown'|(?:Argument of type|Type) 'unknown(?:\[\])?' is not assignable)/
 
 // The canvas SDK and asset imports have no published types; leaving them `any` keeps the check on the libraries.
 const PLATFORM_DECLARATIONS = `
@@ -42,7 +45,7 @@ function typeCheck(files, resolveDir) {
     const root = path.join(resolveDir, '.canvas-typecheck')
     const sources = new Map()
     for (const [file, content] of Object.entries(files)) {
-        if (typeof content === 'string' && /\.(tsx?|jsx?)$/.test(file)) {
+        if (typeof content === 'string' && /\.(tsx?|jsx?|json)$/.test(file)) {
             sources.set(path.join(root, file), content)
         }
     }
@@ -82,7 +85,7 @@ function typeCheck(files, resolveDir) {
             }
             const message = ts.flattenDiagnosticMessageText(entry.messageText, '\n')
             // A value the canvas's own code left as `unknown` is not a library misuse, and dozens of them would bury the ones that are.
-            if (/\bunknown\b/.test(message)) {
+            if (UNKNOWN_VALUE.test(message)) {
                 continue
             }
             const line =
