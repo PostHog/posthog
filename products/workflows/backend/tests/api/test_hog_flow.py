@@ -459,7 +459,7 @@ class TestHogFlowAPI(APIBaseTest):
         tag_changes = [
             change
             for entry in ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id, activity="updated")
-            for change in entry.detail["changes"] or []
+            for change in (entry.detail or {}).get("changes") or []
             if change["field"] == "tag"
         ]
         assert {(change["action"], change["before"], change["after"]) for change in tag_changes} == {

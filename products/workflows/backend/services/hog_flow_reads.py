@@ -301,7 +301,7 @@ def _list_queryset(
     if query.tags:
         queryset = queryset.filter(
             id__in=TaggedItem.objects.for_model(HogFlow)
-            .filter(team_id=team_id, tag__name__in=query.tags)
+            .filter(tag__team_id=team_id, tag__name__in=query.tags)
             .values("object_uuid")
         )
 
@@ -342,7 +342,7 @@ def _list_queryset(
         | Q(description__iregex=regex_pattern)
         | Q(
             id__in=TaggedItem.objects.for_model(HogFlow)
-            .filter(team_id=team_id, tag__name__iregex=regex_pattern)
+            .filter(tag__team_id=team_id, tag__name__iregex=regex_pattern)
             .values("object_uuid")
         )
     )

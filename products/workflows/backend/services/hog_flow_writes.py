@@ -319,6 +319,8 @@ def update_workflow(
             raise WorkflowStale()
         # The write target is a second read, so `before_update` keeps the pre-write state.
         instance = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
+        # The editor sends the tags with every save, so only write them when they change.
+        tags_changed = tags is not None and {tagify(tag) for tag in tags} != current_tag_names(before_update)
 
         # Draft edits race against other draft edits, not against the live row (which they don't
         # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
@@ -353,7 +355,8 @@ def update_workflow(
                 for k, v in validated_data.items()
                 if k not in DRAFT_CONTENT_FIELDS and k != "billable_action_types"
             }
-            if remaining:
+            # A tag change is a live metadata write too, so it takes the same fence and advances the live stamp.
+            if remaining or tags_changed:
                 # The draft-stamp guard above doesn't protect this live write: a concurrent
                 # live-metadata edit bumps updated_at but not draft_updated_at, so a staged save
                 # would silently overwrite it. Clients that write metadata alongside a staged
@@ -374,8 +377,7 @@ def update_workflow(
             if bump:
                 _append_revisions(team_id, user_id, instance, before_update)
 
-        # The editor sends the tags with every save, so only write them when they change.
-        if tags is not None and {tagify(tag) for tag in tags} != current_tag_names(instance):
+        if tags_changed:
             set_tags_on_object(tags, instance)
             cleanup_orphan_tags(team_id)
 
