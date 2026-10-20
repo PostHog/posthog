@@ -206,6 +206,8 @@ class ExposureTotals:
     # None when the exposure query had too little data for the sample ratio test.
     sample_ratio_mismatch_p_value: float | None
     hours_since_launch: float | None
+    # Whether the totals count groups rather than persons, by the rule the exposure query uses.
+    counts_groups: bool
 
 
 @frozen
