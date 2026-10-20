@@ -34,7 +34,6 @@ from products.batch_exports.backend.service import (
 )
 
 LOGGER = structlog.get_logger(__name__)
-ORDERING_FIELDS = frozenset({"created_at", "start_at"})
 _ACTIVE_STATUSES = (BatchExportBackfill.Status.STARTING, BatchExportBackfill.Status.RUNNING)
 
 
@@ -166,7 +165,11 @@ def _get_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> BatchExpo
 def list_backfills(
     team_id: int, export_id: UUID, page: contracts.ListPage
 ) -> list[contracts.BatchExportBackfillDetail]:
-    backfills = select_page(_query_export_backfills(team_id, export_id), page, ordering_fields=ORDERING_FIELDS)
+    backfills = select_page(
+        _query_export_backfills(team_id, export_id),
+        page,
+        ordering_fields=contracts.BATCH_EXPORT_BACKFILL_ORDERING_FIELDS,
+    )
     return [_to_backfill_detail(backfill) for backfill in backfills]
 
 

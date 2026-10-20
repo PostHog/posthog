@@ -235,6 +235,11 @@ class FileDownloadRun:
     records_completed: int | None
 
 
+# The fields a page of runs or backfills can be ordered by, as the API's `ordering` parameter names them.
+BATCH_EXPORT_RUN_ORDERING_FIELDS = ("created_at", "data_interval_start")
+BATCH_EXPORT_BACKFILL_ORDERING_FIELDS = ("created_at", "start_at")
+
+
 @dataclass(frozen=True)
 class ListPageBound:
     """Where a page of an ordered list starts.

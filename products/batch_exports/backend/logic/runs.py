@@ -18,7 +18,6 @@ from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import backfill_export, cancel_running_batch_export_run
 
 LOGGER = structlog.get_logger(__name__)
-ORDERING_FIELDS = frozenset({"created_at", "data_interval_start"})
 _CANCELLABLE_STATUSES = (BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING)
 
 
@@ -71,7 +70,10 @@ def list_runs(
     team_id: int, export_id: UUID, filters: contracts.BatchExportRunFilters, page: contracts.ListPage
 ) -> list[contracts.BatchExportRunDetail]:
     runs = _filter_runs(_query_export_runs(team_id, export_id), filters)
-    return [_to_run_detail(run) for run in select_page(runs, page, ordering_fields=ORDERING_FIELDS)]
+    return [
+        _to_run_detail(run)
+        for run in select_page(runs, page, ordering_fields=contracts.BATCH_EXPORT_RUN_ORDERING_FIELDS)
+    ]
 
 
 def get_run(

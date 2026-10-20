@@ -7,8 +7,8 @@ from typing import Any, cast
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from rest_framework import filters, request, response, serializers, status, viewsets
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -107,7 +107,8 @@ class TooManyConcurrentBackfills(APIException):
 
 
 @extend_schema(parameters=[BATCH_EXPORT_ID_PARAMETER])
-class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+@extend_schema_view(retrieve=extend_schema(parameters=[BACKFILL_ID_PARAMETER]))
+class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """ViewSet for BatchExportBackfill models.
 
     Allows creating and reading backfills, but not updating or deleting them.
@@ -118,7 +119,7 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     pagination_class = BackfillsCursorPagination
     # The paginator reads the ordering through this filter, and the facade applies it.
     filter_backends = [filters.OrderingFilter]
-    ordering_fields = ["created_at", "start_at"]
+    ordering_fields = list(contracts.BATCH_EXPORT_BACKFILL_ORDERING_FIELDS)
     ordering = "-created_at"
 
     def _get_export_id(self, detail: str | None = None) -> uuid.UUID:
@@ -138,17 +139,11 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         export_id = self._get_export_id()
-        paginator = cast(BackfillsCursorPagination, self.paginator)
-        backfills = paginator.paginate_facade(
+        return cast(FacadeCursorPagination, self.paginator).get_paginated_facade_response(
             request,
             self,
             lambda page: batch_exports_api.list_batch_export_backfills(self.team_id, export_id, page=page),
         )
-        return paginator.get_paginated_response(self.get_serializer(backfills, many=True).data)
-
-    @extend_schema(parameters=[BACKFILL_ID_PARAMETER])
-    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        return response.Response(self.get_serializer(self.get_object()).data)
 
     def create(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Create a new backfill for a BatchExport."""

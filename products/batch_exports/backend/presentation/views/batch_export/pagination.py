@@ -3,9 +3,10 @@
 from collections.abc import Callable
 from typing import Any, cast
 
+from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import CursorPagination
 from rest_framework.request import Request
-from rest_framework.views import APIView
+from rest_framework.response import Response
 
 from products.batch_exports.backend.facade import contracts
 
@@ -45,11 +46,11 @@ class _FacadePageSource[T]:
 
 
 class FacadeCursorPagination(CursorPagination):
-    def paginate_facade[T](
-        self, request: Request, view: APIView, fetch: Callable[[contracts.ListPage], list[T]]
-    ) -> list[T]:
-        """Return the page the request asks for. ``fetch`` reads a page through the facade."""
+    def get_paginated_facade_response[T](
+        self, request: Request, view: GenericAPIView, fetch: Callable[[contracts.ListPage], list[T]]
+    ) -> Response:
+        """Return the page the request asks for, serialized by the view. ``fetch`` reads a page through the facade."""
         page = self.paginate_queryset(cast(Any, _FacadePageSource(fetch)), request, view)
         # The page size is a class attribute, so the paginator always returns a page.
         assert page is not None
-        return page
+        return self.get_paginated_response(view.get_serializer(page, many=True).data)

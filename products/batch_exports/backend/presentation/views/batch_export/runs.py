@@ -7,7 +7,7 @@ from django.utils.timezone import now
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import filters, request, response, serializers, status, viewsets
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.api.log_entries import LogEntryMixin
@@ -172,15 +172,16 @@ class RunsCursorPagination(FacadeCursorPagination):
 @extend_schema(tags=["batch_exports"], parameters=[BATCH_EXPORT_ID_PARAMETER])
 @extend_schema_view(
     list=extend_schema(parameters=[BatchExportRunListQuerySerializer]),
+    retrieve=extend_schema(parameters=[RUN_ID_PARAMETER]),
     logs=extend_schema(parameters=[RUN_ID_PARAMETER]),
 )
-class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.GenericViewSet):
+class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     scope_object = "batch_export"
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
     # The paginator reads the ordering through this filter, and the facade applies it.
     filter_backends = [filters.OrderingFilter]
-    ordering_fields = ["created_at", "data_interval_start"]
+    ordering_fields = list(contracts.BATCH_EXPORT_RUN_ORDERING_FIELDS)
     ordering = "-created_at"
     log_source = "batch_exports"
 
@@ -217,16 +218,13 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Gene
             statuses=statuses, created=contracts.DatetimeRange(start=after_datetime, end=before_datetime)
         )
 
-    def _get_run_id(self) -> uuid.UUID:
-        return parse_path_uuid(self.kwargs["pk"])
-
     def dangerously_get_object(self) -> contracts.BatchExportRunDetail:
         # This replaces the queryset read only. The facade scopes the read to the team and the
         # export, and the object permissions run on the contract as they ran on the model.
         # Like the list, a lookup only finds a run that matches the list filters.
         try:
             run = batch_exports_api.get_batch_export_run(
-                self.team_id, self._get_export_id(), self._get_run_id(), filters=self._get_run_filters()
+                self.team_id, self._get_export_id(), parse_path_uuid(self.kwargs["pk"]), filters=self._get_run_filters()
             )
         except contracts.BatchExportRunNotFoundError as e:
             raise NotFound(*e.args) from e
@@ -236,17 +234,11 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Gene
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         export_id = self._get_export_id()
         filters = self._get_run_filters()
-        paginator = cast(RunsCursorPagination, self.paginator)
-        runs = paginator.paginate_facade(
+        return cast(FacadeCursorPagination, self.paginator).get_paginated_facade_response(
             request,
             self,
             lambda page: batch_exports_api.list_batch_export_runs(self.team_id, export_id, filters=filters, page=page),
         )
-        return paginator.get_paginated_response(self.get_serializer(runs, many=True).data)
-
-    @extend_schema(parameters=[RUN_ID_PARAMETER])
-    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        return response.Response(self.get_serializer(self.get_object()).data)
 
     @extend_schema(parameters=[RUN_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
