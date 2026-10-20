@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 66 enabled ops
+ * PostHog API - MCP 68 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -211,7 +211,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_\* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400."
+            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_\* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They need staff or the inbox model sort rollout: other users get a 400."
         ),
     priority: zod
         .string()
@@ -338,6 +338,48 @@ export const SignalsReportsPartialUpdateBody = () => zod
     .describe(
         'Editable human-facing fields on a signal report (PATCH).\n\nBoth fields are optional so a caller can change either independently, but at least one\nmust be supplied. Every other report field — status, weights, judgments — is owned by the\nsignals pipeline and is deliberately not writable here.'
     )
+
+/**
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * @summary List the report actions that start an agent run
+ */
+export const SignalsReportsActionsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * @summary Start a report action as a background agent run
+ */
+export const SignalsReportsActionsRunCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
+
+export const SignalsReportsActionsRunCreateBody = () => zod.object({
+    action: zod
+        .enum(['get_it_merged', 'suggested_prompt'])
+        .describe('\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt')
+        .describe(
+            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt'
+        ),
+    suggested_prompt_index: zod
+        .number()
+        .min(signalsReportsActionsRunCreateBodySuggestedPromptIndexMin)
+        .optional()
+        .describe('Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.'),
+})
 
 /**
  * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
@@ -2045,7 +2087,7 @@ export const SignalsScoutConfigTrialSetupQueryParams = () => zod.object({
 })
 
 /**
- * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately. With surface=onboarding, new configs stay disabled until explicitly activated.
  * @summary Sync scout configs
  */
 export const SignalsScoutConfigSyncParams = () => zod.object({
@@ -2058,10 +2100,10 @@ export const SignalsScoutConfigSyncParams = () => zod.object({
 
 export const SignalsScoutConfigSyncQueryParams = () => zod.object({
     surface: zod
-        .enum(['roster', 'desktop', 'wizard'])
+        .enum(['roster', 'desktop', 'wizard', 'onboarding'])
         .optional()
         .describe(
-            "Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.\n\n\* `roster` - roster\n\* `desktop` - desktop\n\* `wizard` - wizard"
+            "Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. The onboarding surface creates new configs disabled until the user activates them. Omitted means unknown.\n\n\* `roster` - roster\n\* `desktop` - desktop\n\* `wizard` - wizard\n\* `onboarding` - onboarding"
         ),
 })
 

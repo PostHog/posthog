@@ -58,7 +58,7 @@ function getByokModelNotice(
         return null
     }
     const failedKeys = providerKeys.filter(
-        (key) => failedByokProviderKeyIds.includes(key.id) && !allowsCustomModel(key.provider)
+        (key) => failedByokProviderKeyIds.includes(key.id) && !allowsCustomModel(key)
     )
     if (failedKeys.length > 0) {
         return { kind: 'models-failed', keys: failedKeys }
@@ -77,9 +77,9 @@ function getByokModelNotice(
     return providerKeys.length === 0 ? { kind: 'no-keys' } : { kind: 'no-usable-keys' }
 }
 
-// Azure chat completions need a deployment name, and Azure does not always list deployments.
-function allowsCustomModel(provider: LLMProvider): boolean {
-    return provider === 'azure_openai'
+// Azure OpenAI and Claude on Microsoft Foundry need a deployment name, and Azure does not always list deployments.
+function allowsCustomModel(key: LLMProviderKey): boolean {
+    return key.provider === 'azure_openai' || (key.provider === 'anthropic' && !!key.azure_endpoint_display)
 }
 
 function providerKeyGroupLabel(key: LLMProviderKey, keysPerProvider: Record<string, number>, suffix = ''): string {
@@ -414,7 +414,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 const groups: ProviderModelGroup[] = []
                 for (const key of providerKeys) {
                     const models = byKeyId[key.id] ?? []
-                    const customModelKey = allowsCustomModel(key.provider) && key.state === 'ok'
+                    const customModelKey = allowsCustomModel(key) && key.state === 'ok'
                     if (models.length > 0 || customModelKey) {
                         groups.push({
                             provider: key.provider,

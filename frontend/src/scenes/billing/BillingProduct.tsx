@@ -35,7 +35,6 @@ import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { DesktopUsageBreakdown } from './DesktopUsageBreakdown'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlatformAddonComparison } from './PlatformAddonComparison'
@@ -148,15 +147,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     {displayProductName}{' '}
                                     {isTemporaryFreeProduct && (
                                         <LemonTag type="highlight">included with your plan</LemonTag>
-                                    )}
-                                    {product.type === 'realtime_destinations' && (
-                                        <Tooltip
-                                            title={`Data pipelines have moved to new usage-based pricing on ${REALTIME_DESTINATIONS_BILLING_START_DATE}.`}
-                                        >
-                                            <LemonTag type="success" icon={<IconInfo />}>
-                                                Migrated
-                                            </LemonTag>
-                                        </Tooltip>
                                     )}
                                 </h3>
                                 <div>{product.description}</div>

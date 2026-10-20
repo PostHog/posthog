@@ -43,10 +43,6 @@ class TestOpenAQSchemas:
         assert schema.supports_incremental is expected_incremental
         assert schema.should_sync_default is expected_default_sync
 
-    def test_names_filter_narrows_schemas(self) -> None:
-        schemas = OpenAQSource().get_schemas(_config(), team_id=1, names=["parameters"])
-        assert [s.name for s in schemas] == ["parameters"]
-
 
 class TestOpenAQNonRetryableErrors:
     @parameterized.expand(

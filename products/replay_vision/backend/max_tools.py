@@ -1,4 +1,4 @@
-import uuid
+from collections import Counter
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.db import transaction
@@ -9,6 +9,8 @@ from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import Throttled
 
+from posthog.schema import MaxRecordingUniversalFilters
+
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import QuotaLimitExceeded
@@ -16,18 +18,20 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.scopes import APIScopeObject
+from posthog.session_recordings.playlist_filters import convert_filters_to_recordings_query
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
+from products.replay_vision.backend.api.scanners import SCANNER_QUERY_FILTER_KEYS, ReplayScannerSerializer
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.experiment_variants import experiment_variants_readout
 from products.replay_vision.backend.impact import compute_scanner_impact, create_affected_cohort
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.observation_formatting import format_line, read_output
+from products.replay_vision.backend.observation_formatting import format_line, plain_snippet, read_output
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_STALE_AFTER,
     PREVIEW_ESTIMATE_BUDGET,
@@ -138,9 +142,30 @@ the user states an exact result:
 Put only the meaning in `query` (e.g. "broken checkout button"), and the exact outcome in these filters.
 
 # What it returns
-The best-matching observations, ranked by semantic closeness, each with its session (recording) id, the
-scanner it came from, verdict/score/tags, and the reasoning snippet. Cite the matching recordings and
-synthesize the reasons rather than restating each row.
+The best-matching observations, ranked by semantic closeness, each with its `observation_id`, its
+`session_id` (the recording id), the scanner it came from, verdict/score/tags, and the reasoning snippet.
+Cite the matching recordings and synthesize the reasons rather than restating each row.
+
+Pass `observation_id` to label_replay_vision_observation and `session_id` to scan_replay_vision_sessions.
+The two ids are not interchangeable.
+
+The results are the closest matches by meaning, capped at `limit`. They are not every recording that
+matches, and they are not the results of a scan you started: a search can return recordings from other
+scans and leave out the ones you asked about. Don't count rates or totals from them. To read the
+recordings a scan_replay_vision_sessions call covered, use get_replay_vision_scan_results with its scan id.
+
+# Using the results
+- Each line's date is when the recording happened. A recording from before a change (a deploy, a
+  campaign, a redesign) shows the old flow. Say so, and don't use it to explain what happens now.
+- `[at m:ss]` is a playback position in that recording. Quote it when you describe a moment, so the user
+  can find it. If a line gives no time, say you don't have one rather than estimate it.
+- Check that each line is about what the user asked before you cite it. A close match by meaning can
+  describe a session that went fine.
+- A snippet is the scanner's summary, not the full recording. Don't rule a cause in or out from snippets
+  alone. Say what the observations show, and call anything beyond that a guess.
+- When you turn results into a recommendation or into instructions for someone else, such as a coding
+  agent, keep the same split. Write what the observations show as findings, and anything you inferred as
+  a hypothesis to check first.
 """
 
 VALID_SCANNER_TYPES = {t.value for t in ScannerType}
@@ -219,6 +244,21 @@ class ReplayVisionGatesMixin:
         ).exists():
             return None
         return observation
+
+    def _scanner_for_reading(self, scanner_id: str) -> "ReplayScanner | None":
+        """A scanner whose observations this user may read, inline scans included.
+
+        Observations inherit the scanner's RBAC, and an experiment scanner also needs access to its
+        targeted experiment, so either miss reads as not-found.
+        """
+        scanner = scanner_for_reading_observations(self._team.id, scanner_id)
+        if (
+            scanner is None
+            or not self.user_access_control.check_access_level_for_object(scanner, "viewer")
+            or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner)
+        ):
+            return None
+        return scanner
 
     @staticmethod
     def _no_ai_consent() -> tuple[str, dict[str, Any]]:
@@ -544,13 +584,17 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
             output = read_output(result.observation)
             if output is None:
                 continue
-            lines.append(format_line(result.observation, output, show_scanner=cross_scanner))
+            lines.append(format_line(result.observation, output, show_scanner=cross_scanner, show_ids=True))
             matched_ids.append(str(result.observation.id))
 
         if not lines:
             return empty
 
-        header = f'Recordings from {scope_label} most relevant to "{neutralize_markup(query)}" ({len(lines)} matches, best first).'
+        header = (
+            f'Recordings from {scope_label} most relevant to "{neutralize_markup(query)}" ({len(lines)} matches, '
+            "best first). This is a ranked sample, not every matching recording and not one scan's results, "
+            "so don't count rates or totals from it."
+        )
         content = header + "\n\n" + as_untrusted_data("observations", lines)
         return content, {"result_count": len(lines), "observation_ids": matched_ids}
 
@@ -558,19 +602,8 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         """Resolve the readable scanner ids for the search. Returns (scanner_ids, label, cross_scanner), or
         None when a specific scanner was requested but is missing/unreadable."""
         if scanner_id:
-            try:
-                scanner_uuid = uuid.UUID(scanner_id)
-            except (ValueError, TypeError):
-                # A model-supplied non-UUID would raise ValidationError deeper in the ORM (alert noise); treat as not-found.
-                return None
-            scanner = scanner_for_reading_observations(self._team.id, scanner_uuid)
-            # Observations inherit the scanner's RBAC, and an experiment scanner also needs access to
-            # its targeted experiment — treat either miss as not-found.
-            if (
-                scanner is None
-                or not self.user_access_control.check_access_level_for_object(scanner, "viewer")
-                or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner)
-            ):
+            scanner = self._scanner_for_reading(scanner_id)
+            if scanner is None:
                 return None
             # The scanner name is user-editable and the header sits outside the data fence, so keep it out of
             # tool output entirely (stored-injection guard); the searcher already knows which scanner they're on.
@@ -624,13 +657,68 @@ def _spend_sentence(team: Team, model: str, count: int) -> str:
     return _credit_sentence(team, observation_credits_for_model(model) * count)
 
 
-def _scan_summary(started: int, results: list[dict[str, str]]) -> str:
+def _missing_recordings(team: Team, session_ids: list[str]) -> frozenset[str]:
+    """Sessions with no recording inside retention. A scan of one can only end as `no_recording`.
+
+    Fails open: the scan workflow applies the same gate, so a lookup error only loses the early answer.
+    """
+    try:
+        found = SessionReplayEvents().batch_exists(session_ids, team)
+    except Exception:
+        logger.warning("replay_vision.scan_tool.recording_lookup_failed", team_id=team.id, exc_info=True)
+        return frozenset()
+    return frozenset(session_id for session_id in session_ids if not found.get(session_id))
+
+
+def _unanswered_line(observation: ReplayObservation) -> str:
+    """One line for an observation that settled without an answer. Fenced by the caller: the message part of
+    `error_reason` can carry provider text."""
+    kind, _, message = observation.error_reason.partition(":")
+    detail = f": {plain_snippet(message, limit=200)}" if message.strip() else ""
+    return (
+        f"- (session {observation.session_id}) {observation.status} ({kind or 'unknown'}){detail} "
+        f"[observation {observation.id}]"
+    )
+
+
+def _unanswered_reused(scanner: ReplayScanner, results: list[dict[str, str]]) -> list[ReplayObservation]:
+    """Reused observations that settled as failed or ineligible. They count as `already_scanned`, but they
+    hold no answer to reuse."""
+    reused = [result["session_id"] for result in results if result["scan_outcome"] == "already_scanned"]
+    if not reused:
+        return []
+    return list(
+        ReplayObservation.objects.filter(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            session_id__in=reused,
+            status__in=(ObservationStatus.FAILED, ObservationStatus.INELIGIBLE),
+        ).only("id", "session_id", "status", "error_reason")
+    )
+
+
+def _no_recording_sentence(count: int) -> str:
+    return (
+        f"{count} recording(s) could not be found, so they were not scanned and cost nothing. A recording can "
+        "be missing because it expired, was deleted, or has not finished ingesting. Check the session ids."
+    )
+
+
+def _scan_summary(started: int, results: list[dict[str, str]], unanswered: list[ReplayObservation]) -> str:
     counts: dict[str, int] = {}
     for result in results:
         counts[result["scan_outcome"]] = counts.get(result["scan_outcome"], 0) + 1
     parts = [f"Started {started} scan(s)."]
-    if counts.get("already_scanned"):
-        parts.append(f"{counts['already_scanned']} already had an answer, reused at no charge.")
+    if counts.get("no_recording"):
+        parts.append(_no_recording_sentence(counts["no_recording"]))
+    answered = counts.get("already_scanned", 0) - len(unanswered)
+    if answered:
+        parts.append(f"{answered} already had an answer, reused at no charge.")
+    if unanswered:
+        parts.append(
+            f"{len(unanswered)} were scanned before and got no answer, so they were not scanned again. "
+            "Tell the user why. retry_replay_vision_observation can scan a failed or ineligible one again."
+        )
     if counts.get("already_running"):
         parts.append(f"{counts['already_running']} were already being scanned.")
     if counts.get("skipped_quota"):
@@ -645,8 +733,14 @@ def _scan_summary(started: int, results: list[dict[str, str]]) -> str:
     if counts.get("failed"):
         parts.append(f"{counts['failed']} failed to start.")
     if started:
-        parts.append("Each recording takes a few minutes. Results appear on the recordings when they finish.")
-    return " ".join(parts)
+        parts.append(
+            "Each recording takes a few minutes. Results appear on the recordings when they finish. "
+            "Read them, failures included, with get_replay_vision_scan_results."
+        )
+    summary = " ".join(parts)
+    if unanswered:
+        summary += "\n\n" + as_untrusted_data("observations", [_unanswered_line(o) for o in unanswered])
+    return summary
 
 
 SCAN_SESSIONS_TOOL_DESCRIPTION = """
@@ -668,13 +762,18 @@ already has rather than charging again.
 # What it returns
 Confirmation that scans started, and the scan id to read results through. Results are NOT immediate:
 each recording takes minutes. Tell the user results will appear on the recordings, and use
-search_replay_vision_observations afterwards to read them.
+get_replay_vision_scan_results with the scan id afterwards to read each recording's outcome, failures
+included. Recordings that can't be found are reported up front and are not scanned.
 """
 
 
 class ScanSessionsArgs(BaseModel):
     session_ids: list[str] = Field(
-        description="Session recording ids to scan. Ask the user rather than guessing if you don't have them."
+        description=(
+            "Session recording ids to scan: the `session_id` values that filter_session_recordings or "
+            "search_replay_vision_observations return. Ask the user rather than guessing if you don't have them. "
+            "Don't substitute the recording open in the player for one the user asked about."
+        )
     )
     prompt: str | None = Field(
         default=None,
@@ -724,7 +823,19 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             # The scanner name is user-editable, so it stays out of model-visible tool output; this
             # preview is rendered to the user who owns it, not fed back to the model.
             what = f"the saved scanner '{scanner.name}'" if scanner else f"the saved scanner (id {scanner_id})"
-        return f"**Scan {len(sessions)} session(s)** with {what}. This spends {_spend_sentence(self._team, model, len(sessions))}"
+        # The scan refuses this many anyway, so the preview skips the unbounded recordings lookup.
+        if len(sessions) > MAX_SESSIONS_PER_SCAN:
+            return f"**Scan {len(sessions)} session(s)**: {MAX_SESSIONS_PER_SCAN} is the most one scan can take, so nothing will be scanned or charged."
+        missing = len(_missing_recordings(self._team, sessions))
+        to_scan = len(sessions) - missing
+        if not to_scan:
+            return f"**Scan {len(sessions)} session(s)**: none of these recordings can be found, so nothing will be scanned or charged."
+        preview = (
+            f"**Scan {to_scan} session(s)** with {what}. This spends {_spend_sentence(self._team, model, to_scan)}"
+        )
+        if missing:
+            preview += f" {missing} more recording(s) can't be found and will be skipped."
+        return preview
 
     async def _arun_impl(
         self,
@@ -750,41 +861,134 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
     def _start_scan(
         self, sessions: list[str], prompt: str | None, scanner_id: str | None, scanner_type: str
     ) -> tuple[str, dict[str, Any]]:
+        scanner: ReplayScanner | None = None
+        inline_config: dict[str, str] = {}
+        inline_type = ScannerType.MONITOR
         if scanner_id:
             scanner = self._scanner_for(scanner_id)
             if scanner is None:
                 return f"Scanner {scanner_id} not found.", {"error": "not_found"}
-            started, results = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
-            if any(result["scan_outcome"] == "skipped_scanner_limit" for result in results):
-                record_scanner_limit_reached("max_tool")
-            return _scan_summary(started, results), {"scan_id": str(scanner.id), "results": results}
+        else:
+            if not prompt or not prompt.strip():
+                return "Pass either a prompt or a scanner_id.", {"error": "no_prompt"}
+            # Only the two types whose whole config is a prompt. A classifier or scorer would need tags or
+            # a scale, which this tool's schema deliberately doesn't take, and would fail validation with a
+            # message about a field the model was never offered.
+            inline_type = ScannerType(scanner_type) if scanner_type in _INLINE_SCAN_TYPES else ScannerType.MONITOR
+            inline_config = {"prompt": prompt.strip()}
+            # Length and shape, through the validator the API uses. This config persists on the scanner and
+            # is copied into every observation snapshot, so an unbounded prompt would live on both.
+            message = scanner_config_error(inline_type, inline_config)
+            if message is not None:
+                return message, {"error": "invalid_config"}
 
-        if not prompt or not prompt.strip():
-            return "Pass either a prompt or a scanner_id.", {"error": "no_prompt"}
-        # Only the two types whose whole config is a prompt. A classifier or scorer would need tags or
-        # a scale, which this tool's schema deliberately doesn't take, and would fail validation with a
-        # message about a field the model was never offered.
-        resolved_type = scanner_type if scanner_type in _INLINE_SCAN_TYPES else ScannerType.MONITOR
-        config = {"prompt": prompt.strip()}
-        # Length and shape, through the validator the API uses. This config persists on the scanner and
-        # is copied into every observation snapshot, so an unbounded prompt would live on both.
-        message = scanner_config_error(ScannerType(resolved_type), config)
-        if message is not None:
-            return message, {"error": "invalid_config"}
-        scan = run_inline_scan(
-            team=self._team,
-            user=self._user,
-            session_ids=sessions,
-            scanner_type=ScannerType(resolved_type),
-            scanner_config=config,
-            model=DEFAULT_SCAN_MODEL,
-        )
-        if scan.scanner is None:
-            return (
-                "Nothing started: this project's monthly Replay Vision credits are used up.",
-                {"error": "quota_exhausted"},
+        # Checked here, not left to the workflow: it marks a missing recording ineligible only after this
+        # reply says the scan started.
+        missing = _missing_recordings(self._team, sessions)
+        missing_results = [{"session_id": s, "scan_outcome": "no_recording"} for s in sessions if s in missing]
+        sessions = [s for s in sessions if s not in missing]
+        if not sessions:
+            return f"Nothing started. {_no_recording_sentence(len(missing_results))}", {
+                "error": "no_recordings",
+                "results": missing_results,
+            }
+
+        if scanner is not None:
+            started, scanned = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
+            if any(result["scan_outcome"] == "skipped_scanner_limit" for result in scanned):
+                record_scanner_limit_reached("max_tool")
+        else:
+            scan = run_inline_scan(
+                team=self._team,
+                user=self._user,
+                session_ids=sessions,
+                scanner_type=inline_type,
+                scanner_config=inline_config,
+                model=DEFAULT_SCAN_MODEL,
             )
-        return _scan_summary(scan.started, scan.results), {"scan_id": str(scan.scanner.id), "results": scan.results}
+            if scan.scanner is None:
+                return (
+                    "Nothing started: this project's monthly Replay Vision credits are used up.",
+                    {"error": "quota_exhausted"},
+                )
+            scanner, started, scanned = scan.scanner, scan.started, scan.results
+        results = scanned + missing_results
+        summary = _scan_summary(started, results, _unanswered_reused(scanner, scanned))
+        return f"scan_id={scanner.id}\n{summary}", {
+            "scan_id": str(scanner.id),
+            "results": results,
+        }
+
+
+SCAN_RESULTS_TOOL_DESCRIPTION = """
+Use this tool to read what a Replay Vision scan found, one line per recording, failures included.
+
+# When to use
+- After scan_replay_vision_sessions, to read the answers once the recordings finish
+- The user asks why a scan failed, why a recording shows an error, or whether a scan is done
+
+# What it returns
+Each recording's outcome for the scan: its answer, "still running", or why it could not be watched
+(for example, no recording found or too short). Failed and ineligible lines carry an observation id
+that retry_replay_vision_observation accepts. Reading this costs nothing.
+"""
+
+
+class ScanResultsArgs(BaseModel):
+    scan_id: str = Field(description="The scan id that scan_replay_vision_sessions returned.")
+    session_ids: list[str] | None = Field(
+        default=None,
+        description="Only report these recordings. Leave unset to report every recording in the scan.",
+    )
+
+
+class GetReplayVisionScanResultsTool(ReplayVisionGatesMixin, MaxTool):
+    # Reads only; nothing here starts a scan.
+    needs_confirmation: ClassVar[bool] = False
+    name: str = "get_replay_vision_scan_results"
+    description: str = SCAN_RESULTS_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = ScanResultsArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("session_recording", "viewer")]
+
+    async def _arun_impl(self, scan_id: str, session_ids: list[str] | None = None) -> tuple[str, dict[str, Any]]:
+        return await self._read(scan_id, _dedup(session_ids)[:MAX_SESSIONS_PER_SCAN] if session_ids else None)
+
+    @database_sync_to_async
+    def _read(self, scan_id: str, session_ids: list[str] | None) -> tuple[str, dict[str, Any]]:
+        scanner = self._scanner_for_reading(scan_id)
+        if scanner is None:
+            return f"Scan {scan_id} not found.", {"error": "not_found"}
+        observations = ReplayObservation.objects.filter(team_id=self._team.id, scanner_id=scanner.id)
+        if session_ids is not None:
+            observations = observations.filter(session_id__in=session_ids)
+        rows = list(
+            accessible_observations(self.user_access_control, self._team.id, observations)
+            .only("id", "session_id", "status", "error_reason", "scanner_result", "created_at", "session_started_at")
+            .order_by("-created_at")[:MAX_SESSIONS_PER_SCAN]
+        )
+
+        lines: list[str] = []
+        for observation in rows:
+            if observation.status in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+                lines.append(_unanswered_line(observation))
+            elif observation.status == ObservationStatus.SUCCEEDED and (output := read_output(observation)):
+                lines.append(format_line(observation, output, show_scanner=False))
+            else:
+                lines.append(f"- (session {observation.session_id}) {observation.status}")
+        seen = {observation.session_id for observation in rows}
+        not_scanned = [s for s in session_ids or [] if s not in seen]
+        lines.extend(f"- (session {s}) no scan on record" for s in not_scanned)
+        if not lines:
+            return "This scan has no recordings yet.", {"result_count": 0}
+
+        counts = Counter(str(observation.status) for observation in rows)
+        header = [f"{count} {status}" for status, count in sorted(counts.items())]
+        if not_scanned:
+            header.append(f"{len(not_scanned)} not scanned")
+        content = f"Scan results ({', '.join(header)}).\n\n" + as_untrusted_data("observations", lines)
+        return content, {"result_count": len(rows), "status_counts": dict(counts)}
 
 
 QUOTA_TOOL_DESCRIPTION = """
@@ -846,7 +1050,6 @@ Use this tool to scan a recording again after its observation failed or came bac
 
 # When to use
 - The user asks to retry, re-run, or try again on an observation that failed
-- A search result shows a failed observation and the user wants another attempt
 
 # What it does
 Deletes the failed result and starts a fresh scan of the same recording with the same scanner. This
@@ -855,8 +1058,19 @@ observations can be retried; a succeeded one already has its answer.
 """
 
 
+def _observation_not_found(observation_id: str) -> tuple[str, dict[str, Any]]:
+    return (
+        f"Observation {observation_id} not found. Pass an `observation_id`, not a recording's `session_id`.",
+        {"error": "not_found"},
+    )
+
+
 class RetryObservationArgs(BaseModel):
-    observation_id: str = Field(description="The failed or ineligible observation to scan again.")
+    observation_id: str = Field(
+        description=(
+            "The `observation_id` of the failed or ineligible observation. A recording's `session_id` does not work here."
+        )
+    )
 
 
 class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
@@ -890,7 +1104,7 @@ class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
     def _retry(self, observation_id: str) -> tuple[str, dict[str, Any]]:
         observation = self._observation_for(observation_id)
         if observation is None:
-            return f"Observation {observation_id} not found.", {"error": "not_found"}
+            return _observation_not_found(observation_id)
         try:
             outcome, _ = retry_observation(observation=observation, user=self._user)
         except QuotaLimitExceeded:
@@ -969,6 +1183,48 @@ def _scanner_config_for(
     return config
 
 
+def _estimate_is_fresh(scanner: ReplayScanner) -> bool:
+    return scanner.estimated_at is not None and timezone.now() - scanner.estimated_at < ESTIMATE_STALE_AFTER
+
+
+def _scanner_facts(scanner: ReplayScanner) -> str:
+    """The scanner fields the model needs to act on a scanner, without the user-editable name or prompt."""
+    observations = scanner.estimated_monthly_observations
+    if observations is None:
+        estimate = "unknown (not estimated yet, call estimate_replay_vision_scanner)"
+    elif not _estimate_is_fresh(scanner):
+        estimate = f"{observations} (stale, call estimate_replay_vision_scanner)"
+    else:
+        estimate = str(observations)
+    return (
+        f"scanner_id={scanner.id} | type={scanner.scanner_type} | enabled={str(scanner.enabled).lower()} | "
+        f"recordings={'filtered' if _has_recording_filter(scanner) else 'all'} | "
+        f"sampling_rate={scanner.sampling_rate} | estimated_monthly_observations={estimate}"
+    )
+
+
+# The schedule owns time, and pinned session ids would turn a standing watch into a one-off scan.
+_SCANNER_QUERY_IGNORED_KEYS = ("date_from", "date_to", "limit", "order", "order_direction", "session_ids")
+
+
+def _scanner_query_for(recordings_filters: MaxRecordingUniversalFilters | None) -> dict[str, Any]:
+    """The scanner `query` a recording filter stands for, in the shape the scanner form saves."""
+    if recordings_filters is None:
+        # Same default as the scanner form: real users only, unless the filter says otherwise.
+        return {"kind": "RecordingsQuery", "filter_test_accounts": True}
+    query = convert_filters_to_recordings_query(recordings_filters.model_dump(exclude_none=True)).model_dump(
+        mode="json", exclude_none=True
+    )
+    query = {key: value for key, value in query.items() if key not in _SCANNER_QUERY_IGNORED_KEYS}
+    query.setdefault("filter_test_accounts", True)
+    return query
+
+
+def _has_recording_filter(scanner: ReplayScanner) -> bool:
+    query = scanner.query if isinstance(scanner.query, dict) else {}
+    return any(query.get(key) for key in SCANNER_QUERY_FILTER_KEYS) or bool(scanner.experiment_scope())
+
+
 CREATE_SCANNER_TOOL_DESCRIPTION = """
 Use this tool to create a Replay Vision scanner: a standing watch that scans every future recording
 matching a filter.
@@ -989,6 +1245,22 @@ spend. Create it disabled (`enabled: false`) to set it up without spending anyth
 Call get_replay_vision_quota first when proposing anything broad, and prefer a `sampling_rate` below 1.0
 over an unfiltered scanner.
 
+# Which recordings it scans
+`recordings_filters` is the scanner's selection. Without it, the scanner scans every new recording in the
+project at its `sampling_rate`. A recording search you ran earlier does not narrow the scanner: pass the
+same filter here. Run filter_session_recordings with the filter first when you need to check that it
+matches what the user means.
+
+Put every exclusion in `recordings_filters`, for example `$device_type` to keep only mobile sessions. An
+instruction in `prompt` to skip or label some recordings still scans them, and each one costs credits.
+
+The estimate this tool returns covers the scanner's own selection. Quote that number, or call
+estimate_replay_vision_scanner. Never extrapolate monthly cost from a sample of recordings you looked at.
+
+# What it returns
+The new scanner's id, whether it's running, its sampling rate, and its estimated monthly volume when one
+is known. Use the id with update_replay_vision_scanner and estimate_replay_vision_scanner.
+
 # Experiments
 To watch an A/B test, create an `experiment` scanner with the experiment's `experiment_id`. It scans only
 the experiment's exposed sessions, records each session's variant from the exposure data, and samples the
@@ -1003,7 +1275,8 @@ class CreateScannerArgs(BaseModel):
         description=(
             "The instruction the model follows while watching one recording. Write it as a direct, "
             "specific question grounded in observable behavior, e.g. 'Did the user fail to complete "
-            "checkout?'. Avoid vague adjectives and anything the model can't see in a recording."
+            "checkout?'. Avoid vague adjectives and anything the model can't see in a recording. "
+            "Don't use it to skip recordings: put exclusions in `recordings_filters`."
         )
     )
     scanner_type: str = Field(
@@ -1046,6 +1319,14 @@ class CreateScannerArgs(BaseModel):
             "variant, which is what a comparison needs."
         ),
     )
+    recordings_filters: MaxRecordingUniversalFilters | None = Field(
+        default=None,
+        description=(
+            "Which recordings the scanner picks up, in the same shape as filter_session_recordings takes. "
+            "Leave unset to scan every recording. Dates, ordering and session ids don't apply: the schedule "
+            "controls time, so leave them out."
+        ),
+    )
     sampling_rate: float = Field(
         default=1.0,
         description="Fraction of matching recordings to scan, 0 to 1. Lower this to control spend.",
@@ -1072,15 +1353,22 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         # no schedule and spends nothing, and only an enabled one needs a decision.
         return enabled is True
 
-    async def format_dangerous_operation_preview(self, name: str = "", sampling_rate: float = 1.0, **kwargs) -> str:
-        return await self._preview(name, sampling_rate)
+    async def format_dangerous_operation_preview(
+        self,
+        name: str = "",
+        sampling_rate: float = 1.0,
+        recordings_filters: MaxRecordingUniversalFilters | None = None,
+        **kwargs,
+    ) -> str:
+        return await self._preview(name, sampling_rate, recordings_filters is not None)
 
     @database_sync_to_async
-    def _preview(self, name: str, sampling_rate: float) -> str:
+    def _preview(self, name: str, sampling_rate: float, filtered: bool) -> str:
         spend = _spend_sentence(self._team, DEFAULT_SCAN_MODEL, 1)
         sampled = "" if sampling_rate >= 1.0 else f" It samples {sampling_rate:.0%} of them."
+        scope = "every new recording that matches its filter" if filtered else "every new recording"
         return (
-            f"**Create and enable** scanner '{name}'. It scans every new recording from now on, "
+            f"**Create and enable** scanner '{name}'. It scans {scope} from now on, "
             f"sweeping every 5 minutes.{sampled} Each recording costs {spend} "
             "Create it disabled instead if you want to size it first."
         )
@@ -1098,6 +1386,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         length: str | None = None,
         experiment_id: int | None = None,
         variants: list[str] | None = None,
+        recordings_filters: MaxRecordingUniversalFilters | None = None,
     ) -> tuple[str, dict[str, Any]]:
         # Not gated on `enabled`: the serializer refuses to create either kind without consent, so
         # checking only for enabled ones turned the disabled path into an unhandled exception.
@@ -1115,6 +1404,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             length,
             experiment_id,
             variants,
+            recordings_filters,
         )
 
     @database_sync_to_async
@@ -1131,6 +1421,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         length: str | None,
         experiment_id: int | None,
         variants: list[str] | None,
+        recordings_filters: MaxRecordingUniversalFilters | None,
     ) -> tuple[str, dict[str, Any]]:
         resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
         # Through the serializer, not ReplayScanner.objects.create: it owns the sampling-rate floor below
@@ -1151,6 +1442,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                     variants=variants,
                 ),
                 "model": DEFAULT_SCAN_MODEL,
+                "query": _scanner_query_for(recordings_filters),
                 "sampling_rate": sampling_rate,
                 "enabled": enabled,
             },
@@ -1173,11 +1465,15 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         )
         # The name stays out of `content`, which the model reads: it's user-editable from here on, and
         # the file's own rule keeps it outside the data fence. The artifact goes to the frontend.
-        return f"Created the {resolved_type} scanner. {state}", {
-            "scanner_name": scanner.name,
-            "scanner_id": str(scanner.id),
-            "enabled": enabled,
-        }
+        return (
+            f"Created the {resolved_type} scanner. {state}\n{_scanner_facts(scanner)}\n"
+            "Use this scanner_id with the other Replay Vision tools.",
+            {
+                "scanner_name": scanner.name,
+                "scanner_id": str(scanner.id),
+                "enabled": enabled,
+            },
+        )
 
 
 def _monthly_spend_sentence(team: Team, scanner: ReplayScanner, sampling_rate: float) -> str:
@@ -1187,8 +1483,7 @@ def _monthly_spend_sentence(team: Team, scanner: ReplayScanner, sampling_rate: f
     saving; when it hasn't been computed yet, say so rather than imply a small one-off charge.
     """
     observations = scanner.estimated_monthly_observations
-    stale = scanner.estimated_at is None or timezone.now() - scanner.estimated_at >= ESTIMATE_STALE_AFTER
-    if observations is None or stale:
+    if observations is None or not _estimate_is_fresh(scanner):
         return "Its monthly volume hasn't been estimated recently, so the cost isn't known up front."
     # The stored estimate is for the scanner's saved rate; rescale when the rate is changing.
     if scanner.sampling_rate:
@@ -1200,16 +1495,19 @@ def _monthly_spend_sentence(team: Team, scanner: ReplayScanner, sampling_rate: f
 
 UPDATE_SCANNER_TOOL_DESCRIPTION = """
 Use this tool to change a saved Replay Vision scanner: turn it on or off, rename it, reword its prompt,
-or change how much of the matching traffic it samples.
+change which recordings it picks up, or change how much of the matching traffic it samples.
 
 # When to use
 - The user wants to enable a scanner they created earlier, or pause one that's running
 - The user wants to reword what a scanner looks for, or dial its sampling up or down
+- The user wants a scanner to skip some recordings, or to cover more of them. Change `recordings_filters`,
+  not the prompt: a recording the prompt tells the scanner to skip is still scanned and still costs credits.
 
 # Cost
 Enabling a scanner starts a sweep that runs every 5 minutes and spends credits on each matching
 recording, so enabling asks the user to confirm and shows the projected monthly spend. Raising the
-sampling rate on a scanner that is already running does the same, because it widens what gets scanned.
+sampling rate or changing the filter on a scanner that is already running does the same, because either
+can widen what gets scanned.
 Turning a scanner off, renaming it, or rewording its prompt spends nothing and doesn't ask.
 
 Rewording the prompt does not rescan anything already observed; it applies to recordings scanned from
@@ -1232,6 +1530,13 @@ class UpdateScannerArgs(BaseModel):
         default=None,
         description="New fraction of matching recordings to scan, 0 to 1. Leave unset to keep the current one.",
     )
+    recordings_filters: MaxRecordingUniversalFilters | None = Field(
+        default=None,
+        description=(
+            "Replaces which recordings the scanner picks up, in the same shape as filter_session_recordings "
+            "takes. Leave unset to keep the current selection."
+        ),
+    )
 
 
 class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
@@ -1243,38 +1548,60 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         return [("replay_scanner", "editor"), ("session_recording", "viewer")]
 
     async def is_dangerous_operation(
-        self, scanner_id: str = "", enabled: bool | None = None, sampling_rate: float | None = None, **kwargs
+        self,
+        scanner_id: str = "",
+        enabled: bool | None = None,
+        sampling_rate: float | None = None,
+        recordings_filters: MaxRecordingUniversalFilters | None = None,
+        **kwargs,
     ) -> bool:
         # Argument-dependent, so the mixin's `needs_confirmation` doesn't decide it. Only two edits commit
         # the project to spend: starting the schedule, and widening what a running schedule scans.
         # Pausing, renaming and rewording all cost nothing.
-        return await self._starts_or_widens_spending(scanner_id, enabled, sampling_rate)
+        return await self._starts_or_widens_spending(scanner_id, enabled, sampling_rate, recordings_filters is not None)
 
     @database_sync_to_async
-    def _starts_or_widens_spending(self, scanner_id: str, enabled: bool | None, sampling_rate: float | None) -> bool:
+    def _starts_or_widens_spending(
+        self, scanner_id: str, enabled: bool | None, sampling_rate: float | None, refilters: bool
+    ) -> bool:
         if enabled is True:
             return True
         scanner = self._scanner_for(scanner_id)
-        if scanner is None or enabled is False:
+        if scanner is None or enabled is False or not scanner.enabled:
             return False
-        return sampling_rate is not None and scanner.enabled and sampling_rate > scanner.sampling_rate
+        # Whether a new filter matches more recordings isn't known until it's estimated, so it always asks.
+        return refilters or (sampling_rate is not None and sampling_rate > scanner.sampling_rate)
 
     async def format_dangerous_operation_preview(
-        self, scanner_id: str = "", enabled: bool | None = None, sampling_rate: float | None = None, **kwargs
+        self,
+        scanner_id: str = "",
+        enabled: bool | None = None,
+        sampling_rate: float | None = None,
+        recordings_filters: MaxRecordingUniversalFilters | None = None,
+        **kwargs,
     ) -> str:
-        return await self._preview(scanner_id, enabled, sampling_rate)
+        return await self._preview(scanner_id, enabled, sampling_rate, recordings_filters is not None)
 
     @database_sync_to_async
-    def _preview(self, scanner_id: str, enabled: bool | None, sampling_rate: float | None) -> str:
+    def _preview(self, scanner_id: str, enabled: bool | None, sampling_rate: float | None, refilters: bool) -> str:
         scanner = self._scanner_for(scanner_id)
         if scanner is None:
             return f"Update scanner {scanner_id}"
         rate = sampling_rate if sampling_rate is not None else scanner.sampling_rate
-        action = "**Turn on**" if enabled is True else "**Widen**"
+        if enabled is True:
+            action = "**Turn on**"
+        elif refilters:
+            action = "**Change the filter on**"
+        else:
+            action = "**Widen**"
+        spend = (
+            "The new filter's monthly volume is estimated after saving, so its cost isn't known up front."
+            if refilters
+            else _monthly_spend_sentence(self._team, scanner, rate)
+        )
         return (
             f"{action} scanner '{scanner.name}'. It sweeps every 5 minutes, scanning "
-            f"{rate:.0%} of matching recordings, and keeps spending until it's turned off. "
-            f"{_monthly_spend_sentence(self._team, scanner, rate)}"
+            f"{rate:.0%} of matching recordings, and keeps spending until it's turned off. {spend}"
         )
 
     async def _arun_impl(
@@ -1284,11 +1611,12 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         name: str | None = None,
         prompt: str | None = None,
         sampling_rate: float | None = None,
+        recordings_filters: MaxRecordingUniversalFilters | None = None,
     ) -> tuple[str, dict[str, Any]]:
         # The serializer refuses to enable without consent, so answer rather than raise.
         if enabled is True and not await self._consent_given():
             return self._no_ai_consent()
-        return await self._update(scanner_id, enabled, name, prompt, sampling_rate)
+        return await self._update(scanner_id, enabled, name, prompt, sampling_rate, recordings_filters)
 
     @database_sync_to_async
     def _update(
@@ -1298,11 +1626,14 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         name: str | None,
         prompt: str | None,
         sampling_rate: float | None,
+        recordings_filters: MaxRecordingUniversalFilters | None,
     ) -> tuple[str, dict[str, Any]]:
         scanner = self._scanner_for(scanner_id)
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         data: dict[str, Any] = {}
+        if recordings_filters is not None:
+            data["query"] = _scanner_query_for(recordings_filters)
         if enabled is not None:
             data["enabled"] = enabled
         if name is not None:
@@ -1333,7 +1664,7 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             return _first_error(serializer.errors), {"error": "invalid_config"}
         updated = serializer.save()
         state = "It's running now." if updated.enabled else "It's turned off, so it isn't scanning or spending."
-        return f"Updated the scanner. {state}", {
+        return f"Updated the scanner. {state}\n{_scanner_facts(updated)}", {
             "scanner_id": str(updated.id),
             "enabled": updated.enabled,
             "changed": sorted(data),
@@ -1383,6 +1714,7 @@ class ListReplayVisionScannersTool(ReplayVisionGatesMixin, MaxTool):
         if enabled_only:
             queryset = queryset.filter(enabled=True)
         readable = self.user_access_control.filter_queryset_by_access_level(queryset).order_by("name", "id")
+        listed = list(readable[:_MAX_LISTED])
         scanners = [
             {
                 "scanner_id": str(s.id),
@@ -1394,16 +1726,18 @@ class ListReplayVisionScannersTool(ReplayVisionGatesMixin, MaxTool):
                 "sampling_rate": s.sampling_rate,
                 "estimated_monthly_observations": s.estimated_monthly_observations,
             }
-            for s in readable[:_MAX_LISTED]
+            for s in listed
         ]
         if not scanners:
             return "This project has no Replay Vision scanners yet.", {"scanners": []}
         total = readable.count()
         running = sum(1 for s in scanners if s["enabled"])
         shown = f"{len(scanners)} of {total} scanner(s)" if total > len(scanners) else f"{len(scanners)} scanner(s)"
+        # The name goes last and on one line, so an edited name can't forge another field or row.
+        lines = [f"{_scanner_facts(s)} | name={' '.join(s.name.split())}" for s in listed]
         return (
-            f"{shown}, {running} of those running. Their ids are in the result, for use with the "
-            "other Replay Vision tools.",
+            f"{shown}, {running} of those running. Use a scanner_id with the other Replay Vision tools.\n"
+            + as_untrusted_data("scanners", lines, source="scanner settings that project members can edit"),
             {"scanners": scanners, "total": total},
         )
 
@@ -1467,19 +1801,23 @@ class DeleteReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
 
 ESTIMATE_SCANNER_TOOL_DESCRIPTION = """
 Use this tool to find out how many recordings a scanner would scan each month, and what that would
-cost, before creating or enabling one.
+cost, before enabling it.
 
 # When to use
-- Before creating a scanner, especially a broad one, so the user can see the monthly spend first
+- After creating a scanner disabled, so the user sees its monthly spend before it starts
 - Before enabling a scanner the user created earlier
 - The user asks how expensive a scanner would be, or how much traffic it would cover
 
 # What it returns
-Projected recordings a month, the credits that costs, and what's left in the monthly budget. Estimating
-costs nothing and scans nothing.
+Projected recordings a month, what that costs in credits, and what's left in the monthly budget. The
+projection counts every recording the scanner's own filter matches. Estimating costs nothing and scans
+nothing.
 
-Pass `scanner_id` to size a scanner that already exists. Pass `sampling_rate` on its own to see what a
-different rate would cost.
+This is the only source for a scanner's monthly cost. Never work one out from a recording search or a
+sample of observations: neither covers the scanner's full selection.
+
+Pass `scanner_id` to size a scanner that already exists. A scanner that doesn't exist yet can't be
+sized, so create it disabled first. Pass `sampling_rate` on its own to see what a different rate would cost.
 """
 
 
@@ -1512,9 +1850,7 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         means the number still matches the config. Rescaling by rate keeps a model iterating on sampling
         off ClickHouse entirely, which is the common case for this tool.
         """
-        if scanner.estimated_at is None or scanner.estimated_monthly_observations is None:
-            return None
-        if timezone.now() - scanner.estimated_at >= ESTIMATE_STALE_AFTER:
+        if scanner.estimated_monthly_observations is None or not _estimate_is_fresh(scanner):
             return None
         if not scanner.sampling_rate:
             return None
@@ -1572,7 +1908,12 @@ accuracy gets tracked, and it feeds prompt improvements later. It costs nothing 
 
 
 class LabelObservationArgs(BaseModel):
-    observation_id: str = Field(description="The observation the user is judging.")
+    observation_id: str = Field(
+        description=(
+            "The `observation_id` of the observation the user is judging, from search_replay_vision_observations. "
+            "A recording's `session_id` does not work here."
+        )
+    )
     is_correct: bool = Field(description="True if the scanner got this recording right, false if it didn't.")
     feedback: str | None = Field(
         max_length=MAX_FEEDBACK_LENGTH,
@@ -1600,7 +1941,7 @@ class LabelReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
     def _label(self, observation_id: str, is_correct: bool, feedback: str | None) -> tuple[str, dict[str, Any]]:
         observation = self._observation_for(observation_id)
         if observation is None:
-            return f"Observation {observation_id} not found.", {"error": "not_found"}
+            return _observation_not_found(observation_id)
         cleaned_feedback = (feedback or "").strip()[:MAX_FEEDBACK_LENGTH]
         # One shared label per observation, like the API: a second rating replaces the first. Atomic
         # because the one-to-one turns two concurrent labels into an IntegrityError rather than a retry.
