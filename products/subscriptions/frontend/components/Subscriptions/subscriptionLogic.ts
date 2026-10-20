@@ -197,7 +197,7 @@ function validateDashboardExportInsights(
                 .map((tile) => tile.insight!.id)
         )
         if (selectedIds.some((id) => !availableIds.has(id))) {
-            return 'Remove unavailable insights before saving'
+            return 'Remove missing insights before saving'
         }
     }
     return undefined

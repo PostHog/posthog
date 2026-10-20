@@ -123,8 +123,11 @@ describe('InsightSelector', () => {
             onChange,
         })
 
-        expect(screen.getByText('Unavailable insight (ID: 999)')).toBeInTheDocument()
+        expect(screen.getAllByText('Insight no longer on this dashboard')[0]).toBeInTheDocument()
         expect(onChange).not.toHaveBeenCalled()
+        const labels = screen.getAllByRole('checkbox').map((input) => input.nextElementSibling?.textContent)
+        expect(labels.slice(0, 3)).toEqual(['Pageviews', 'Sessions', 'Users'])
+        expect(screen.queryByText(/ID:/)).not.toBeInTheDocument()
     })
 
     it.each([[[101, 998, 999]], [[101, 999]]])('removes all unavailable insights with one action: %j', async (ids) => {
@@ -135,9 +138,9 @@ describe('InsightSelector', () => {
             onChange,
         })
 
-        expect(screen.getByLabelText('Unavailable insight (ID: 999)')).toBeDisabled()
+        expect(screen.getAllByLabelText('Insight no longer on this dashboard')[0]).toBeDisabled()
         expect(screen.queryByText('Remove from subscription')).not.toBeInTheDocument()
-        await userEvent.click(screen.getByText('Remove all unavailable'))
+        await userEvent.click(screen.getByText('Remove all missing insights'))
         expect(onChange).toHaveBeenLastCalledWith([101])
     })
 
@@ -158,7 +161,7 @@ describe('InsightSelector', () => {
         const tiles = createMockTiles() as DashboardTile[]
         const { rerender } = renderInsightSelector({ tiles, selectedInsightIds: [998, 999], onChange })
 
-        await userEvent.click(screen.getByText('Remove all unavailable'))
+        await userEvent.click(screen.getByText('Remove all missing insights'))
         expect(onChange).toHaveBeenLastCalledWith([])
         onChange.mockClear()
         rerender(
@@ -173,8 +176,10 @@ describe('InsightSelector', () => {
 
     it('shows unavailable selections even when the dashboard is empty', () => {
         renderInsightSelector({ tiles: [], selectedInsightIds: [999], onChange: jest.fn() })
-        expect(screen.getByText('Unavailable insight (ID: 999)')).toBeInTheDocument()
-        expect(screen.getByText('Unavailable insights cannot be sent. Remove them before saving.')).toBeInTheDocument()
+        expect(screen.getAllByText('Insight no longer on this dashboard')[0]).toBeInTheDocument()
+        expect(
+            screen.getByText('These insights are no longer on this dashboard. Remove them before saving.')
+        ).toBeInTheDocument()
     })
 
     it('shows max limit message when at capacity', () => {

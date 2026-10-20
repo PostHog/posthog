@@ -81,14 +81,6 @@ export function InsightSelector({
                 />
             )}
             <div className="border-t pt-2 space-y-1 max-h-[200px] overflow-y-auto">
-                {unavailableSelectedIds.map((id) => (
-                    <LemonCheckbox
-                        key={`unavailable-${id}`}
-                        checked
-                        label={<span className="text-secondary line-through">Unavailable insight (ID: {id})</span>}
-                        disabledReason="Use Remove all unavailable to remove these insights from the subscription."
-                    />
-                ))}
                 {filteredTiles.length === 0 && insightTiles.length > 0 ? (
                     <div className="text-secondary text-sm py-2">No insights match your search.</div>
                 ) : (
@@ -109,11 +101,19 @@ export function InsightSelector({
                         )
                     })
                 )}
+                {unavailableSelectedIds.map((id) => (
+                    <LemonCheckbox
+                        key={`unavailable-${id}`}
+                        checked
+                        label={<span className="text-secondary line-through">Insight no longer on this dashboard</span>}
+                        disabledReason="Use Remove all missing insights to remove these entries from the subscription."
+                    />
+                ))}
             </div>
             {unavailableSelectedIds.length > 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span className="text-secondary">
-                        Unavailable insights cannot be sent. Remove them before saving.
+                        These insights are no longer on this dashboard. Remove them before saving.
                     </span>
                     <LemonButton
                         size="small"
@@ -123,7 +123,7 @@ export function InsightSelector({
                             onChange(validSelectedIds)
                         }}
                     >
-                        Remove all unavailable
+                        Remove all missing insights
                     </LemonButton>
                 </div>
             )}

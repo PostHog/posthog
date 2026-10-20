@@ -149,27 +149,27 @@ describe('EditSubscription unsaved changes', () => {
                 </Provider>
             )
 
-            await screen.findByText('Unavailable insight (ID: 999)', {}, { timeout: 10000 })
+            await screen.findAllByText('Insight no longer on this dashboard', {}, { timeout: 10000 })
             expect(isClean()).toBe(true)
             const name = screen.getByPlaceholderText('e.g. Weekly team report')
             await userEvent.type(name, ' corrected')
             await userEvent.click(saveButton())
-            expect(await screen.findByText('Remove unavailable insights before saving')).toBeInTheDocument()
+            expect(await screen.findByText('Remove missing insights before saving')).toBeInTheDocument()
             expect(patch).not.toHaveBeenCalled()
 
             if (selectedIds.includes(998)) {
-                await userEvent.click(screen.getByText('Remove all unavailable'))
+                await userEvent.click(screen.getByText('Remove all missing insights'))
                 await userEvent.click(saveButton())
                 expect(patch).not.toHaveBeenCalled()
                 await userEvent.click(screen.getByText('Pageviews'))
             } else {
-                await userEvent.click(screen.getByText('Remove all unavailable'))
+                await userEvent.click(screen.getByText('Remove all missing insights'))
             }
             await userEvent.click(saveButton())
             await waitFor(() => expect(patch).toHaveBeenCalledTimes(1))
             expect(savedIds).toEqual([11])
             await waitFor(() => expect(isClean()).toBe(true))
-            expect(screen.queryByText('Unavailable insight (ID: 999)')).not.toBeInTheDocument()
+            expect(screen.queryByText('Insight no longer on this dashboard')).not.toBeInTheDocument()
         },
         30000
     )
