@@ -2555,7 +2555,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Not saveEditModeChangesSuccess: a failed save also fires it, and the moves must stay unsaved.
                 tileGroupKeysSaved: (_, { dashboard }) => tileGroupKeysFromDashboard(dashboard),
                 receiveTileFromStream: (state, { tile }) => ({ ...state, [tile.id]: tile.group_key ?? null }),
-                // Adds only the new tile, so unsaved group moves of other tiles still count as changes.
+                // Adds only the new tile's key, so the duplicate itself does not count as an unsaved change.
                 duplicateTileSuccess: (state, { dashboard }) => ({
                     ...tileGroupKeysFromDashboard(dashboard),
                     ...state,
