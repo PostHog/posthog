@@ -893,9 +893,9 @@ def test_scalar_cte_chains_preserve_results(depth: int) -> None:
 
 
 def test_rejects_excessive_scalar_cte_expansion() -> None:
-    ctes = ["1 AS c0", *[f"c{i - 1} + c{i - 1} AS c{i}" for i in range(1, 15)]]
+    ctes = ["1 AS c0", *[f"c{i - 1} + c{i - 1} AS c{i}" for i in range(1, 18)]]
     with pytest.raises(TrinoLoweringError, match="TRINO_AST_EXPANSION_LIMIT"):
-        prepare_and_print_ast(parse_select(f"WITH {', '.join(ctes)} SELECT c14"), _context_with_trino_table(), "trino")
+        prepare_and_print_ast(parse_select(f"WITH {', '.join(ctes)} SELECT c17"), _context_with_trino_table(), "trino")
 
 
 @pytest.mark.parametrize("length", ["", ", -1"])
@@ -916,8 +916,16 @@ def test_scalar_ctes_do_not_replace_real_columns(projection: str) -> None:
     assert sql.startswith('SELECT "users"."id" FROM ')
 
 
+def test_accepts_large_queries_without_expansion() -> None:
+    projections = ", ".join(f"id + {i} AS c{i}" for i in range(1_500))
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {projections} FROM users"), _context_with_trino_table(), "trino"
+    )
+    assert '"c1499"' in sql
+
+
 def test_rejects_excessive_select_alias_expansion() -> None:
-    projections = ["1 AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 15)]]
+    projections = ["1 AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 18)]]
     with pytest.raises(TrinoLoweringError, match="TRINO_AST_EXPANSION_LIMIT"):
         prepare_and_print_ast(parse_select(f"SELECT {', '.join(projections)}"), _context_with_trino_table(), "trino")
 
