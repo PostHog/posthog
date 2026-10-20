@@ -16,6 +16,7 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -95,6 +96,7 @@ from products.logs.backend.facade.api import (
 )
 from products.logs.backend.facade.platform_ownership import before_delete, on_created, on_deleted, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.platform_alert_event_history import platform_event_history
 
 MAX_ALERTS_PER_TEAM = 20
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
@@ -1370,7 +1372,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "errored checks, and user-initiated control-plane rows (reset, enable/disable, "
             "snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't "
             "change and there was no error) are filtered out since only the last 10 are kept "
-            "and they carry no forensic value. Optional `?kind=...` narrows to a single kind."
+            "and they carry no forensic value. Optional `?kind=...` narrows to a single kind. "
+            "For an alert the alerts platform evaluates, checks since it took the alert over come "
+            "from the platform's check history."
         ),
     )
     @action(detail=True, methods=["GET"], url_path="events", required_scopes=["logs:read"])
@@ -1391,12 +1395,19 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise ValidationError({"kind": f"Must be one of {sorted(valid_kinds)}."})
             queryset = queryset.filter(kind=kind)
 
-        page = self.paginate_queryset(queryset)
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        history = platform_event_history(
+            alert,
+            queryset,
+            kind=kind,
+            rows_needed=paginator.get_offset(request) + (paginator.get_limit(request) or 0),
+        )
+        page = self.paginate_queryset(history)
         if page is not None:
             serializer = LogsAlertEventSerializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        serializer = LogsAlertEventSerializer(queryset, many=True)
+        serializer = LogsAlertEventSerializer(history, many=True)
         return Response(serializer.data)
 
     @extend_schema(
