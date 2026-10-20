@@ -13449,9 +13449,9 @@ Today (9): `accounts`, `categories`, `category_groups`, `months`, `payee_locatio
 
 Diffed against: <https://api.ynab.com/papi/open_api_spec.yaml>
 
-- [ ] `Plan month category details (GET /v1/plans/{plan_id}/months/{month})` — compare historical category budgets, spending, and available balances; month summaries lack category details (high)
-- [ ] `Money movements (GET /v1/plans/{plan_id}/money_movements)` — track when money moved between budget categories, including amounts, notes, and the responsible user (high)
-- [ ] `Money movement groups (GET /v1/plans/{plan_id}/money_movement_groups)` — group related budget adjustments by action, month, author, and note (medium)
+- [x] `Plan month category details (GET /v1/plans/{plan_id}/months/{month})` — compare historical category budgets, spending, and available balances; month summaries lack category details (high)
+- [x] `Money movements (GET /v1/plans/{plan_id}/money_movements)` — track when money moved between budget categories, including amounts, notes, and the responsible user (high)
+- [x] `Money movement groups (GET /v1/plans/{plan_id}/money_movement_groups)` — group related budget adjustments by action, month, author, and note (medium)
 
 Note: Parsed every GET operation and the month and money movement schemas in the official OpenAPI specification. The existing months table contains summaries; month detail returns a category collection for each plan and month. Money movement collections need reads for each plan, while monthly variants repeat the same records. Excluded settings, user identity, transaction subsets, and write operations.
 
