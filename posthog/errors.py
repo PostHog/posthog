@@ -1219,6 +1219,16 @@ def error_code_from_type(error: BaseException) -> str:
     return f"unhandled_{class_name.lower()}"
 
 
+def unwrap_exposed_hogql_error(error: ExposedHogQLError) -> BaseException:
+    """Return the first cause that is not a plain `ExposedHogQLError` wrapper, such as a database adapter's error."""
+    cause: BaseException = error
+    seen: set[int] = set()
+    while type(cause) is ExposedHogQLError and cause.__cause__ is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        cause = cause.__cause__
+    return cause
+
+
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.

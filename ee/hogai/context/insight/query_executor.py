@@ -45,7 +45,6 @@ from posthog.hogql.errors import (
     ResolutionError,
     SyntaxError as HogQLSyntaxError,
     TableAccessDeniedError,
-    unwrap_exposed_hogql_error,
 )
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
@@ -62,6 +61,7 @@ from posthog.errors import (
     classify_query_error,
     error_code_from_type,
     internal_ch_error_user_message,
+    unwrap_exposed_hogql_error,
 )
 from posthog.event_usage import EventSource
 from posthog.exceptions import (

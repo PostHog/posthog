@@ -12,7 +12,7 @@ from rest_framework.exceptions import APIException, NotFound
 from posthog.schema import ClickhouseQueryProgress, QueryScanSummary, QueryStatus
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError, unwrap_exposed_hogql_error
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
 from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
@@ -21,7 +21,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError, error_code_from_type
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError, error_code_from_type, unwrap_exposed_hogql_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
