@@ -426,6 +426,28 @@ class PlatformAlertHistory:
     last_error_message: str | None
 
 
+@frozen
+class PlatformCheckEvent:
+    """One check of an alert the platform owns that moved its state or failed."""
+
+    occurred_at: datetime
+    evaluation_key: str
+    previous_state: PlatformAlertState
+    state: PlatformAlertState
+    value: float | None
+    condition: dict[str, Any]
+    query_duration_ms: int | None
+    error_message: str | None
+
+
+@frozen
+class PlatformCheckEventPage:
+    """The newest checks of an alert that moved its state or failed, and how many there are in all."""
+
+    events: tuple[PlatformCheckEvent, ...]
+    total: int
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 
