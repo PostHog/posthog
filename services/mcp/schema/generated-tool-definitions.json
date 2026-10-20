@@ -14920,7 +14920,7 @@
         "title": "Convert workflow to broadcast",
         "required_scopes": ["hog_flow:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false

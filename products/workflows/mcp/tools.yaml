@@ -605,7 +605,7 @@ tools:
             - hog_flow:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: false
         url_prefix: /broadcasts
         enrich_url: '{id}'
