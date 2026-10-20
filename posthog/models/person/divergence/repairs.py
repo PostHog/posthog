@@ -67,6 +67,8 @@ _TRANSIENT_RPC_CODES = frozenset(
     }
 )
 
+_DB_TIMEOUT_METADATA_KEY = "x-db-timeout"
+
 _FLUSH_TIMEOUT_SECONDS = 5 * 60
 
 # Confirmed produce results are dropped this often, so a long repair does not hold one per published row.
@@ -215,8 +217,27 @@ def _is_transient(exc: BaseException) -> bool:
 
 
 def is_retryable(exc: BaseException) -> bool:
-    """Whether a repair failed on a race that a later attempt can win, such as a merge holding the person."""
+    """Whether a repair failed on a transient error that a later attempt can get past: a busy person, or
+    personhog or ClickHouse briefly unavailable."""
     return _is_transient(exc)
+
+
+def is_person_busy(exc: BaseException) -> bool:
+    """Whether another operation, such as a merge or delete, held the person: its lifecycle mark was claimed, or
+    a wait for its row lock timed out. Other transient errors mean a service was unavailable."""
+    if is_transient_rpc_error(exc, codes=frozenset({grpc.StatusCode.FAILED_PRECONDITION})):
+        return True
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, grpc.RpcError):
+            code = getattr(current, "code", None)
+            trailing = getattr(current, "trailing_metadata", None)
+            if not callable(code) or code() != grpc.StatusCode.DEADLINE_EXCEEDED or not callable(trailing):
+                return False
+            # personhog-replica names the timeout that ended the call; only a lock wait means the person was busy.
+            return any(key == _DB_TIMEOUT_METADATA_KEY and value == "lock_timeout" for key, value in trailing() or ())
+        current = current.__cause__
+    return False
 
 
 def _retry_transient(fn: Callable[[], _T], *, what: str, log: Callable[[str], None]) -> _T:

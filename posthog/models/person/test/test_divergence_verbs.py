@@ -1,5 +1,7 @@
+import os
 import json
 import shutil
+import signal
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -234,6 +236,45 @@ class TestRepairVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         verbs.run_verb(scan_dir, verb, apply=True, actions_path=actions_path, resume=True)
 
         assert self._scan()[1] == {}
+
+    def test_a_run_stopped_by_sigterm_records_its_undelivered_keys_for_resume(self):
+        key = self._hidden_person_with_stale_mapping()
+        scan_dir, _ = self._scan()
+        failed = ProduceResult(topic=KAFKA_PERSON)
+        failed.set_result(KafkaError(-192, "Local: Message timed out"), None)
+        actions_path = scan_dir / "republish.jsonl"
+        republish = verbs.VERBS["republish"]
+
+        def republish_then_sigterm(rows: list[dict], context: verbs.VerbContext) -> None:
+            republish(rows, context)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+        with (
+            patch.object(ClickhouseProducer, "produce", return_value=failed),
+            patch.dict(verbs.VERBS, {"republish": republish_then_sigterm}),
+            pytest.raises(SystemExit),
+        ):
+            verbs.run_verb(scan_dir, "republish", apply=True, actions_path=actions_path)
+
+        last = {a["key"]: a["outcome"] for a in map(json.loads, actions_path.read_text().splitlines())}
+        assert last[key] == "undelivered"
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+
+    def test_bury_paces_each_tombstone_call(self):
+        for version in (2, 3):
+            deleted = self._pg_person(version=version)
+            tombstone_persons_in_postgres(self.team.pk, [deleted.uuid])
+            self._ch_person(str(deleted.uuid), 7, {"email": "old@example.com"})
+        scan_dir, _ = self._scan()
+
+        with (
+            patch.object(repairs, "_WRITE_BATCH_SIZE", 1),
+            patch.object(repairs._WritePacer, "before_write", autospec=True) as before_write,
+        ):
+            outcomes = self._run(scan_dir, "bury", apply=True)
+
+        assert [a["outcome"] for a in outcomes] == ["republished", "republished"]
+        assert before_write.call_count == 2
 
     def test_merge_stale_sends_clickhouse_only_properties_then_republishes_once_ingestion_applied_them(self):
         stale = self._pg_person(version=1, distinct_ids=["s-1"])
