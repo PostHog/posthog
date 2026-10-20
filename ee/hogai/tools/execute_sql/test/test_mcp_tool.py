@@ -127,7 +127,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(ctx.exception.error_type, "validation")
         self.assertEqual(ctx.exception.error_code, "unknown_type")
         self.assertIn("type `AggregateFunction(argMin, String", str(ctx.exception))
-        self.assertIn("`argMinMerge(column)`", str(ctx.exception))
+        self.assertIn("the matching -Merge function", str(ctx.exception))
 
     @parameterized.expand(
         [

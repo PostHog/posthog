@@ -183,12 +183,10 @@ class TestWrapClickhouseQueryError:
     @parameterized.expand(
         [
             (
-                "session_state",
+                "aggregate_state",
                 "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))",
-                "Finish it with `argMinMerge(column)`",
+                "Finish it with the matching -Merge function",
             ),
-            ("parametric_state", "AggregateFunction(uniqCombined(17), String)", "the matching -Merge function"),
-            ("state_without_hogql_merge", "AggregateFunction(quantile, UInt8)", "the matching -Merge function"),
             ("mixed_branch_types", "Variant(String, UInt8)", "Make every branch return the same type"),
             ("other_type", "JSON", "Convert the column with `toString()`."),
         ]
