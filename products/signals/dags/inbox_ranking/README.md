@@ -18,9 +18,10 @@ inbox_ranking/
 │   └── promotion.py  # the candidate grading rule
 ├── multihead/        # the multi-head network, its ONNX export, and the offline prototype
 ├── nn/               # the `nn` family: examples → candidate → champion assets, on the `signals_ml` location
-├── activity_summary/ # per-person activity summaries: inputs, cost projection, LLM summaries and their vectors
 └── tests/
 ```
+
+Per-person activity summaries are not a dag. They live in `products/signals/backend/activity_summary/`.
 
 Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally through `.dagster_home/workspace.yaml`. The `nn` family is registered via `posthog/dags/locations/signals_ml.py` instead, because it needs torch (see [The nn family](#the-nn-family)).
 
@@ -373,47 +374,6 @@ To run it locally, install the group (`uv sync --group inbox-ranking`), sync the
 dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locations.signals_ml \
     -j inbox_ranking_nn_training_job --tags '{"dagster/partition": "2026-08-25"}'
 ```
-
-## The activity summary dag
-
-`activity_summary/` builds per-person activity summaries and their vectors for inbox ranking.
-`activity_summary_job` runs four assets on the shared daily partition, over the 28 days that end with D.
-Its weekly schedule ships stopped, so run the job by hand.
-
-- `activity_summary_inputs/v1/dt=D/` holds one row per (project, member) for active members of the dogfood organization with an `@posthog.com` email, in that organization's own projects only.
-  `rendered_input` has up to three sections, built by `render.py`:
-  - tasks the member started in PostHog AI, Slack or by hand, as `[tags] goal` from the latest run's `task_summary` and `task_tags`, read through the tasks facade;
-  - the member's own MCP sessions (`source` `mcp` with the `user` preset or none) from the dogfood project's events, as `first step → last step`;
-  - the member's activity log, one line per changed object.
-- The sampling seed comes from (partition, team, user), so a re-run writes the same object.
-- `activity_summary_cost_projection/v1/dt=D/` covers every MCP (project, distinct id) pair in the events and holds counts only, never free text.
-  It has one row per `MIN_UNITS` and `MIN_DAYS` option, with eligible pairs, input token percentiles and monthly volume.
-  The task and activity sections go in at their capped maximum (`capped_sections_tokens`), so the projection errs high.
-  Set `input_price_per_million_tokens` and `output_price_per_million_tokens` in the run config to fill `projected_monthly_cost_usd`.
-- `activity_summaries/v1/dt=D/` holds one LLM summary per inputs row, made through `build_openai_client` with the prompt in `prompt.py`.
-  The model gets the rendered input and the pair's previous summary: its successful row in the newest earlier partition, within `PREVIOUS_SUMMARY_MAX_AGE_DAYS`.
-  A malformed answer is retried once, then the row is written with `status = failed`. When every row fails, the asset fails and leaves the partition as it was.
-  `summary_text` is the text that gets embedded, so bump `PROMPT_VERSION` with any change to the prompt, the normalization or `summary_text`.
-  Run config: `model`, `use_previous_summary` (off compares the stateless summaries), the two token prices for `cost_usd`, and `max_concurrency`.
-  Each row also captures an `activity summary generated` event into the dogfood project, with counts only unless `capture_summary_text` is set.
-- `activity_summary_embeddings/v1/dt=D/` holds the `text-embedding-3-small` vector of each successful summary.
-  The asset sends a summary to the embedding worker only when `document_embeddings` has no vector of its current text, waits up to `wait_seconds`, and copies out what landed.
-  A vector that lands later is picked up by the next materialization; `missing_vectors` in the metadata counts them.
-  The source table drops a row three months after the partition day, so this Parquet is the durable copy, and a re-run that would write fewer rows is refused.
-
-Most activity recorded under a person is not theirs: scouts, agents and scheduled jobs act with the person's identity.
-Every filter in `render.py` is a named rule in `Drop`, and each inputs row records in `drops` how many units or calls each rule removed.
-When a rule drops everything for a person, or stops dropping anything, start there.
-
-The input size is bounded for every person, in this order:
-
-1. Rows read per person, newest first: `MAX_TASKS_PER_PERSON`, `MAX_MCP_SESSIONS_PER_PERSON`, `MAX_ACTIVITY_ROWS_PER_PERSON`.
-2. The named filters.
-3. At most `MAX_UNITS_PER_DAY` tasks and sessions per UTC day (activity lines are already one per object and skip this).
-4. A recency-weighted sample: `TASK_LINES`, `MCP_LINES` and `ACTIVITY_LINES`.
-5. A character cap on every line, and `SECTIONS_MAX_CHARS` as a hard stop on all sections.
-
-Bump `RENDER_VERSION` with any change to a filter, a cap or the layout.
 
 ## Configuration
 
