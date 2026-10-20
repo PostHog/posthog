@@ -115,8 +115,9 @@ _COUNTED_EVENTS_QUERY = """
     FROM events
 """
 
-# `$host` has its own column, so the host match in PREWHERE reads little. The chart's filters can read every
-# property of an event, so they run only on the few events from a local host.
+# The host match goes in WHERE, and ClickHouse moves it to PREWHERE itself when `$host` has its own column.
+# An explicit PREWHERE fails when a hidden property wraps `properties` in the JSONDropKeys UDF, because ClickHouse
+# does not resolve executable UDFs in PREWHERE.
 _LOCAL_EVENTS_QUERY = """
     SELECT
         count() AS events,
@@ -558,9 +559,8 @@ def _count_local_events_the_filter_keeps(
     )
     query = events.select(
         _LOCAL_EVENTS_QUERY,
-        where=ast.And(exprs=[where, passes_filter]),
+        where=ast.And(exprs=[clone_expr(is_local_host), where, passes_filter]),
     )
-    query.prewhere = is_local_host
     if person_fields is not None:
         local_events = ast.And(exprs=[clone_expr(where), clone_expr(is_local_host)])
         cast(ast.JoinExpr, query.select_from).next_join = _current_person_join(events, local_events, person_fields)
