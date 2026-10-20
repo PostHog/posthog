@@ -1068,7 +1068,7 @@ export function buildSurveyRespondentsQuery(
     const merged = buildMergedSubmissionsSubquery(survey, filters, getAnswerableQuestions(survey), {
         propertyReads: [{ alias: 'respondent_email', expression: 'person.properties.email' }],
     })
-    return `SELECT uniqExact(person_id), uniqExactIf(person_id, notEmpty(coalesce(respondent_email, ''))) FROM (${merged})`
+    return `SELECT count(), countIf(notEmpty(coalesce(respondent_email, ''))) FROM (${merged})`
 }
 
 export function buildSurveyResponsesExportQuery(
