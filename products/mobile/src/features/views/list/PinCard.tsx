@@ -9,8 +9,8 @@ import Animated, {
     withRepeat,
     withTiming,
 } from 'react-native-reanimated'
-
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
+import { useNow } from '@/lib/useNow'
 import type { InsightSnapshot, PinView } from '@/model/views'
 import { MetricChart } from '@/ui/chart/MetricChart'
 import { Sparkline } from '@/ui/chart/Sparkline'
@@ -20,8 +20,8 @@ import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, type } from '@/ui/tokens'
-
 import { DeltaPill, deltaSpoken } from '../DeltaPill'
+import { statusLine } from '../freshness'
 import { type DashboardSnapshot, dashboardQueryKey } from '../items'
 import { type PinData, usePinData } from '../pinHooks'
 import { deltaBasisText, snapshotFormatter, valueAtText } from '../snapshotChart'
@@ -37,9 +37,10 @@ const HEAD_HEIGHT = 62
 const NUMBER_BODY_HEIGHT = 50
 const VALUE_ROW_HEIGHT = 33
 const CHART_BOTTOM = 14
+const FOOTER_HEIGHT = 42
 export const PIN_ROW_HEIGHT = HEAD_HEIGHT + 2
-export const PIN_NUMBER_HEIGHT = HEAD_HEIGHT + NUMBER_BODY_HEIGHT + 2
-export const PIN_CHART_HEIGHT = HEAD_HEIGHT + VALUE_ROW_HEIGHT + COMPACT_CHART_HEIGHT + CHART_BOTTOM + 2
+export const PIN_NUMBER_HEIGHT = HEAD_HEIGHT + NUMBER_BODY_HEIGHT + FOOTER_HEIGHT + 2
+export const PIN_CHART_HEIGHT = HEAD_HEIGHT + VALUE_ROW_HEIGHT + COMPACT_CHART_HEIGHT + CHART_BOTTOM + FOOTER_HEIGHT + 2
 
 const SPARKLINE_BUCKETS = 14
 /** The sparkline draws the last 7 buckets in blue and the ones before them in gray. */
@@ -162,7 +163,7 @@ function dataSecondLine(pin: PinView, data: PinData): string {
     if (pin.kind === 'dashboard') {
         return data.snapshot ? data.snapshot.name : 'Dashboard'
     }
-    return data.rangeLabel ?? viewTypeLabel(pin.kind) ?? ''
+    return viewTypeLabel(pin.kind) ?? ''
 }
 
 function RemovedTilePin({ pin, onMenu, onChooseTile }: PinCardProps): ReactElement {
@@ -241,6 +242,7 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
                         ) : null}
                     </DataState>
                 </View>
+                <PinDataFooter data={data} />
             </Pressable44>
             <ProgressLine active={data.updating} />
         </View>
@@ -316,7 +318,27 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
                     ) : null}
                 </DataState>
             </View>
+            <PinDataFooter data={data} />
             <ProgressLine active={data.updating} />
+        </View>
+    )
+}
+
+function PinDataFooter({ data }: { data: PinData }): ReactElement {
+    useNow()
+    const freshness = statusLine([data.snapshot], data.updating).text
+    return (
+        <View style={styles.footer}>
+            {data.rangeLabel ? (
+                <Text style={styles.meta} numberOfLines={1}>
+                    {data.rangeLabel}
+                </Text>
+            ) : null}
+            {freshness ? (
+                <Text style={styles.meta} numberOfLines={1}>
+                    {freshness}
+                </Text>
+            ) : null}
         </View>
     )
 }
@@ -494,6 +516,12 @@ const styles = StyleSheet.create({
         height: COMPACT_CHART_HEIGHT + CHART_BOTTOM,
         paddingHorizontal: 14,
         paddingBottom: CHART_BOTTOM,
+    },
+    footer: {
+        height: FOOTER_HEIGHT,
+        paddingHorizontal: 14,
+        paddingBottom: 8,
+        justifyContent: 'flex-end',
     },
     stale: {
         opacity: 0.45,

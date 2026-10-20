@@ -37,7 +37,7 @@ import {
     trackViewPinned,
     trackViewUnpinned,
 } from './analytics'
-import { READ_FLOOR_MS } from './freshness'
+import { cacheTargetPassed, hasGoodValue, isDue, READ_FLOOR_MS } from './freshness'
 import { type InsightTarget, insightItem, insightItemKey, insightQueryKey, pinTarget } from './items'
 import { listRead, retryListRead } from './listReads'
 import { movedOrder, usePinPrefs, useProjectPinPrefs } from './pinPrefsStore'
@@ -45,6 +45,8 @@ import { rangeLabel } from './rangePresets'
 import { useDeviceRecent } from './recentStore'
 import { viewsQueue } from './refreshQueue'
 import { type PinTarget, pinTargetKey, shortcutInputFor } from './shortcutInput'
+import { type PinDisplayPrefs, resolvePinDisplays } from './smartPinDisplay'
+import { useSmartPinDisplays } from './useSmartPinDisplays'
 import { type RefreshList, useViewRefresh, type ViewRefresh } from './useViewRefresh'
 import { reportScopeError } from './useViewsAccess'
 import { useViewsContext } from './useViewsContext'
@@ -73,6 +75,7 @@ export function pinModes(pin: Pick<PinView, 'kind' | 'native'>): PinDisplayMode[
 
 export interface PinsState {
     pins: QueryState<PinView[]>
+    displayPrefs: PinDisplayPrefs
     /** The server holds more pins than one page: show "Showing 100 pins". */
     truncated: boolean
     /** For the refresh rules: the last read of the pin list, and a re-read. */
@@ -140,7 +143,12 @@ export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean }
     } else {
         state = { ...loadingQuery<PinView[]>(), refetch }
     }
-    return { pins: state, truncated: Boolean(page && (page.next || page.count > SHORTCUT_PAGE_SIZE)), list }
+    return {
+        pins: state,
+        displayPrefs: prefs.display,
+        truncated: Boolean(page && (page.next || page.count > SHORTCUT_PAGE_SIZE)),
+        list,
+    }
 }
 
 /** Match keys of every pinned view, for a pin button's state. */
@@ -315,7 +323,7 @@ export function usePinActions(): PinActions {
     const context = useViewsContext()
     const demo = context.mode === 'demo'
     const { client, scope } = context.item
-    const { pins } = usePins()
+    const { pins, displayPrefs } = usePins()
     const pinnedKeys = usePinnedKeys()
     const listKey = viewsKeys.shortcuts(scope)
     const prefsKey = scope ? projectKey(scope) : null
@@ -375,7 +383,7 @@ export function usePinActions(): PinActions {
         pin,
         unpin,
         setDisplayMode: (pin, mode) => {
-            if (mode === pin.display.mode) {
+            if (mode === pin.display.mode && displayPrefs[pin.shortcutId] !== undefined) {
                 return 'done'
             }
             if (pin.kind === 'dashboard' && mode !== 'row' && typeof pin.display.insightId !== 'number') {
@@ -534,21 +542,19 @@ export interface Visibility {
 
 /** Tracks which list rows are on screen. `keyOf` maps a row's item to its freshness key, or null. */
 export function useVisibility(keyOf: (item: unknown) => string | null): Visibility {
-    const [visibleKeys, setVisibleKeys] = useState<ReadonlySet<string> | undefined>(undefined)
-    const keyOfRef = useRef(keyOf)
-    keyOfRef.current = keyOf
+    const [visibleItems, setVisibleItems] = useState<readonly unknown[] | undefined>(undefined)
     const onViewableItemsChanged = useRef((info: { viewableItems: ViewToken[] }) => {
-        const keys = new Set<string>()
-        for (const token of info.viewableItems) {
-            const key = keyOfRef.current(token.item)
-            if (key) {
-                keys.add(key)
-            }
-        }
-        setVisibleKeys((previous) =>
-            previous && previous.size === keys.size && [...keys].every((key) => previous.has(key)) ? previous : keys
-        )
+        setVisibleItems(info.viewableItems.map((token) => token.item))
     }).current
+    // A resolved display can give a visible Row pin a freshness key without another viewability callback.
+    const visibleKeys = visibleItems
+        ? new Set(
+              visibleItems.flatMap((item) => {
+                  const key = keyOf(item)
+                  return key ? [key] : []
+              })
+          )
+        : undefined
     return { visibleKeys, onViewableItemsChanged, viewabilityConfig: VIEWABILITY_CONFIG }
 }
 
@@ -566,18 +572,43 @@ export interface ViewsListState {
 /** Everything the Views list needs: pins, Recent, and the list's refresh rules over the visible Number and Chart pins. */
 export function useViewsList(): ViewsListState {
     const context = useViewsContext()
-    const { pins, truncated, list: pinList } = usePins({ refetchOnMount: true })
+    const { pins: originalPins, displayPrefs, truncated, list: pinList } = usePins({ refetchOnMount: true })
     const pinnedKeys = usePinnedKeys()
     const { recent, list: recentList } = useRecentViews(pinnedKeys)
-    const pinData = pins.data
-    const items = useMemo(
-        () =>
-            (pinData ?? []).flatMap((pin) => {
-                const target = pinTarget(pin)
-                return target ? [insightItem(context.item, target)] : []
-            }),
-        [pinData, context.item]
+    const { displays, list: displaysList } = useSmartPinDisplays(originalPins.data, displayPrefs)
+    const pinData = useMemo(
+        () => (originalPins.data ? resolvePinDisplays(originalPins.data, displayPrefs, displays) : undefined),
+        [originalPins.data, displayPrefs, displays]
     )
+    const pins = pinData ? { ...originalPins, data: pinData } : originalPins
+    const items = useMemo(() => {
+        const result = (pinData ?? []).flatMap((pin) => {
+            const target = pinTarget(pin)
+            if (!target) {
+                return []
+            }
+            const item = insightItem(context.item, target)
+            return [
+                target.dashboardRef
+                    ? {
+                          ...item,
+                          openDue: () =>
+                              isDue(item.snapshot()) ||
+                              !hasGoodValue(item.snapshot()) ||
+                              cacheTargetPassed(item.snapshot()),
+                      }
+                    : item,
+            ]
+        })
+        const seen = new Set<string>()
+        return result.filter((item) => {
+            if (seen.has(item.key)) {
+                return false
+            }
+            seen.add(item.key)
+            return true
+        })
+    }, [pinData, context.item])
     const keyByPin = useMemo(() => {
         const keys = new Map<string, string>()
         for (const pin of pinData ?? []) {
@@ -592,7 +623,7 @@ export function useViewsList(): ViewsListState {
         const shortcutId = (item as Partial<PinView> | null)?.shortcutId
         return shortcutId ? (keyByPin.get(shortcutId) ?? null) : null
     })
-    const lists = useMemo(() => [pinList, recentList], [pinList, recentList])
+    const lists = useMemo(() => [pinList, recentList, displaysList], [pinList, recentList, displaysList])
     const refresh = useViewRefresh({
         screen: 'list',
         dataScope: context.dataScope,

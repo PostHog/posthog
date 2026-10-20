@@ -141,6 +141,17 @@ export async function getInsightSummary(shortId: string, signal?: AbortSignal): 
 export const INSIGHT_PAGE_SIZE = 30
 export const INSIGHT_SEARCH_LIMIT = 10
 
+export async function fetchInsightMetadata(
+    shortId: string,
+    signal?: AbortSignal
+): Promise<InsightBasicApi | undefined> {
+    const page = await apiJson<PaginatedApi<InsightBasicApi>>(projectPath('insights/'), {
+        query: { basic: true, short_id: shortId, refresh: 'force_cache' },
+        signal,
+    })
+    return page.results.find((insight) => insight.short_id === shortId)
+}
+
 /** Browse, Insights. `basic` drops the results, so a page is small. */
 export function fetchInsightPage(offset: number, signal?: AbortSignal): Promise<PaginatedApi<InsightBasicApi>> {
     return apiJson<PaginatedApi<InsightBasicApi>>(projectPath('insights/'), {

@@ -57,6 +57,8 @@ export interface RefreshItem {
      * computes it. Before the first read the kind is unknown, so it is drawable. Missing means drawable.
      */
     drawable?: () => boolean
+    /** Pinned dashboard cache reads seed snapshots before a tile's first compute, so those items can be due at once. */
+    openDue?: () => boolean
 }
 
 /** The dashboard read that carries every tile. A dashboard read counts as a read of each tile it carries. */
@@ -351,7 +353,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 // only when it has no result or its `cache_target_age` has passed.
                 const wanted = current.container
                     ? drawable(item) && (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot))
-                    : drawable(item) && isDue(snapshot)
+                    : drawable(item) && (item.openDue?.() ?? isDue(snapshot))
                 if (wanted) {
                     send(counters, item.key, item.family, 'blocking', item.read)
                 }
@@ -393,7 +395,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 }
             } else {
                 for (const item of visible) {
-                    if (drawable(item) && isDue(item.snapshot())) {
+                    if (drawable(item) && (item.openDue?.() ?? isDue(item.snapshot()))) {
                         send(counters, item.key, item.family, 'blocking', item.read)
                     }
                 }

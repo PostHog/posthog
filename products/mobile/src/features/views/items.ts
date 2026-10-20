@@ -71,7 +71,7 @@ export function pinTarget(pin: PinView): InsightTarget | null {
         return null
     }
     if (pin.kind === 'insight') {
-        return { shortId: pin.ref, dashboardRef: null, override: null }
+        return { shortId: pin.ref, id: pin.display.insightId, dashboardRef: null, override: null }
     }
     const { insightId, insightShortId } = pin.display
     if (pin.kind === 'dashboard' && typeof insightId === 'number') {
@@ -342,6 +342,18 @@ function writeTiles(
         const queryKey = insightQueryKey(context.scope, target)
         const itemKey = freshnessKey(queryKey)
         const previous = getSnapshot<InsightSnapshot>(context.client, queryKey)
+        const previousRefresh = Date.parse(previous?.lastRefreshAt ?? '')
+        const incomingRefresh = Date.parse(tile.insight.last_refresh ?? '')
+        // A cache-only dashboard read can finish after a newer tile compute from the Views list.
+        if (
+            previous &&
+            Number.isFinite(previousRefresh) &&
+            Number.isFinite(incomingRefresh) &&
+            previousRefresh > incomingRefresh &&
+            stableStringify(previous.query) === stableStringify(tile.insight.query)
+        ) {
+            continue
+        }
         setSnapshot(
             context.client,
             queryKey,

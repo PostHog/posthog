@@ -13,6 +13,7 @@ Screens render the view models in `src/model/views.ts` and never call the API th
 | Dashboard | `GET dashboards/{id}/?refresh=force_cache[&filters_override=]` | `dashboard:read` | `src/api/dashboards.ts` |
 | Browse and Recent dashboards | `GET dashboards/?ordering=-last_viewed_at&limit=30&offset=`, `limit=10` for Recent, `search=` | `dashboard:read` | `src/api/dashboards.ts` |
 | Insight | `GET insights/{id}/?refresh=blocking\|force_blocking\|force_cache[&from_dashboard=][&filters_override=]` | `insight:read` | `src/api/insights.ts` |
+| Insight metadata for previews | `GET insights/?short_id={short_id}&basic=true&refresh=force_cache` | `insight:read` | `src/api/insights.ts` |
 | Browse insights | `GET insights/?basic=true&saved=true&order=-last_modified_at&limit=30&offset=`, `search=` | `insight:read` | `src/api/insights.ts` |
 | Insight opened | `POST insights/viewed/ {insight_ids}` once per open | `insight:read` | `src/api/insights.ts` |
 | Web analytics, compare, people at a point | `POST query/` with `refresh: blocking` or `force_blocking`, never polled | `query:read` | `src/api/webAnalytics.ts`, `src/api/actors.ts`, `src/api/query.ts` |
@@ -34,6 +35,20 @@ A complete pin list read forgets the prefs of that project's pins that are gone.
 
 Recent merges the last 20 views opened on this phone (`views-recent:v1`, per project) with the dashboards this user viewed on the web.
 Insights viewed on the web do not appear: no per-user source is open to OAuth without a new scope.
+
+## Automatic pin previews
+
+The Pinned section shows each real pin once. For up to three pins without a display choice on this phone,
+the app selects a supported Number or Chart display. A dashboard pin shows one useful tile, with the dashboard
+name and tile name together. Other pins stay as rows. An explicit Row, Number or Chart choice always wins.
+The app does not create pins or add previews from unpinned dashboards, recent views or saved insights.
+
+Automatic choices stay on the device and do not write preferences or server shortcuts. The same card keeps its
+normal menu, Edit pins, reorder and unpin actions. Unpinning removes the actual web star as usual.
+Metadata discovery reads only bounded pinned dashboards and pinned insights; only visible preview cards request
+fresh results. Previews share the existing refresh queue and canvas budget. A cache-only dashboard result can
+populate a preview before it computes; like a dashboard tile, a visible pin can then request its first result.
+The queue still enforces the minute floor between direct reads of that insight.
 
 ## Refresh
 
@@ -79,8 +94,8 @@ A pin shows in one of three modes, chosen on this phone:
 | Mode | Shows | Height | Reads data |
 | --- | --- | --- | --- |
 | Row | Icon, name, the view type ("Dashboard", "Built-in view" for web analytics, "Notebook · Opens on the web") | 64 pt | No |
-| Number | The value, a neutral change pill, the saved range or the tile name, a 14-bucket sparkline | At least 114 pt, sized to its content | Yes |
-| Chart | The value, the change pill, a compact `MetricChart` | 207 pt | Yes |
+| Number | The value, a neutral change pill, the tile name, a 14-bucket sparkline, saved range and freshness | At least 156 pt, sized to its content | Yes |
+| Chart | The value, the change pill, a compact `MetricChart`, saved range and freshness | 249 pt | Yes |
 
 Row and Chart modes have fixed heights, so a chart's canvas can replace its sparkline placeholder without moving the list.
 Number cards fit their content and only include the comparison and date row when either is present.
@@ -108,7 +123,7 @@ A pin whose tile is gone (its insight answers 404, or the cached dashboard no lo
 
 Order and modes go to the device-local prefs through `usePinActions` (`move`, `reorder`, `setDisplayMode`, `chooseTile`). The app never writes the server's `order`.
 Pin and unpin show a toast with Undo, from the list, Browse and a view's pin button alike (`ViewsToast` and `useToasts`). The toast draws through the nearest `OverlayHost`, so it sits above the tab bar and any open sheet.
-Undo pins the view again as a new row, so it comes back as a Row at the end of the list. An undo sends `mobile_view_pinned` or `mobile_view_unpinned` with `from: undo`.
+Undo pins the view again as a new row at the end of the list. Without a saved display choice, it may receive an automatic preview. An undo sends `mobile_view_pinned` or `mobile_view_unpinned` with `from: undo`.
 Pin and unpin stay with the session and project that started them; changing either ends pending work before it can send another request or update the cache. Pin and unpin of one view run one after another from every screen (`pinView`, `unpinView`): a second tap waits for the first instead of being dropped, the toast shows once the change is saved, and an unpin made while a pin saves deletes the row that pin created.
 
 ### Search and Browse
