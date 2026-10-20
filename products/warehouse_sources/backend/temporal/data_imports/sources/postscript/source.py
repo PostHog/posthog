@@ -132,5 +132,5 @@ class PostscriptSource(ResumableSource[PostscriptSourceConfig, PostscriptResumeC
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

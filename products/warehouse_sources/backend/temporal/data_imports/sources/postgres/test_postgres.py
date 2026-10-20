@@ -1623,6 +1623,49 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — no class
+            # name. Unlike InsufficientPrivilege's SQLSTATE 42501 text, this wording is
+            # customer-authored RAISE text, but "access denied"/"unauthorized" is common enough
+            # phrasing for a hand-rolled access check to match directly, without a class name.
+            "Access denied: No user ID provided",
+            "unauthorized: missing tenant claim",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class
+            # name, matched the same way regardless.
+            "RaiseException: Access denied: No user ID provided",
+        ],
+    )
+    def test_custom_access_denial_raise_is_non_retryable(self, source, error_msg):
+        # Matching is case-insensitive in production (`error_message_matches`), unlike the
+        # customer-authored sentence-case wording a hand-rolled RAISE typically uses.
+        non_retryable = source.get_non_retryable_errors()
+        assert error_message_matches(error_msg, non_retryable.keys()), (
+            f"Custom access-denial RAISE EXCEPTION should be non-retryable: {error_msg}"
+        )
+
+    def test_custom_access_denial_raise_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "RaiseException: Access denied: No user ID provided"
+        friendly = [
+            reason
+            for pattern, reason in non_retryable.items()
+            if error_message_matches(error_msg, [pattern]) and reason
+        ]
+        assert friendly, "Custom access-denial RAISE EXCEPTION should surface an actionable message"
+        assert "row-level security" in friendly[0]
+
+    def test_unrelated_custom_raise_exception_stays_retryable(self, source):
+        # A custom RAISE EXCEPTION that doesn't name an access denial (e.g. a lock wait or a
+        # maintenance-window check) must stay retryable — classifying every RaiseException would
+        # wrongly auto-disable a sync over a transient condition instead of a permanent one.
+        error_msg = "RaiseException: table is temporarily locked for maintenance, try again later"
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Unrelated custom RAISE EXCEPTION should stay retryable: {error_msg}"
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)).
             'materialized view "mv_dayplan_blocks" has not been populated\nHINT:  Use the REFRESH MATERIALIZED VIEW command.',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
@@ -1753,6 +1796,28 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Division-by-zero error should surface an actionable message"
         assert "divides by" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — a view/column's
+            # own PL/pgSQL function raising a custom access-check error during our read.
+            "Access denied: No user ID provided\nCONTEXT:  PL/pgSQL function reject_anonymous_reads(uuid) line 9 at RAISE",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "RaiseException: Access denied: No user ID provided",
+        ],
+    )
+    def test_custom_function_access_denied_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Custom function access-denied error should be non-retryable: {error_msg}"
+
+    def test_custom_function_access_denied_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "Access denied: No user ID provided"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Custom function access-denied error should surface an actionable message"
+        assert "auth.uid()" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -8757,6 +8822,14 @@ class TestHasDuplicatePrimaryKeys:
                 "permission_denied",
                 psycopg.errors.InsufficientPrivilege("permission denied for table orders"),
                 psycopg.errors.InsufficientPrivilege,
+            ),
+            # A row-level security policy (or other PL/pgSQL function) blocked the read with a
+            # custom RAISE (SQLSTATE P0001). Already non-retryable via get_non_retryable_errors,
+            # so the probe must propagate it rather than capture it.
+            (
+                "raise_exception",
+                psycopg.errors.RaiseException("Access denied: No user ID provided"),
+                psycopg.errors.RaiseException,
             ),
         ]
     )

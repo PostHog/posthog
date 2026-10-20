@@ -1020,6 +1020,34 @@ class TestSnowflakeSourceNonRetryableErrors:
         assert is_non_retryable, f"No-active-warehouse error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
+        "error_msg,expected_non_retryable",
+        [
+            (
+                "090073 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed "
+                "because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+                True,
+            ),
+            (
+                "Warehouse 'EXAMPLE_WH' cannot be resumed because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+                True,
+            ),
+            ("090001 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed.", False),
+            (
+                "000606 (57P03): 01c00000-0000-0000-0000-000000000000: Statement reached its statement or warehouse timeout.",
+                False,
+            ),
+        ],
+    )
+    def test_resource_monitor_quota_is_non_retryable_only_for_that_error(
+        self, source, error_msg, expected_non_retryable
+    ):
+        non_retryable = source.get_non_retryable_errors()
+        matches = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert bool(matches) is expected_non_retryable
+        if expected_non_retryable:
+            assert all(message is not None and "resource monitor" in message for message in matches)
+
+    @pytest.mark.parametrize(
         "error_msg",
         [
             "This session does not have a current database",

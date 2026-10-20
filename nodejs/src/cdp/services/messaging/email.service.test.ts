@@ -1456,21 +1456,27 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
             const htmlData = sentCommand.input.Content.Simple.Body.Html.Data
-            expect(htmlData).not.toContain('<tbody><span')
+            expect(htmlData).not.toContain('mso-hide:all')
         })
 
-        it('should include preheader at top of HTML if in params', async () => {
+        it.each([
+            [
+                'a document',
+                '<html><body class="email"><table><tbody><tr><td>Hi</td></tr></tbody></table></body></html>',
+                /^<html><body class="email"><span style=".*">This is a preview text<\/span><table>/,
+            ],
+            ['a fragment without tbody', '<p>Hi</p>', /^<span style=".*">This is a preview text<\/span><p>Hi<\/p>$/],
+        ])('should include preheader at the start of the body of %s', async (_name, html, expected) => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
-                html: '<tbody>Test email content</tbody>',
+                html,
                 preheader: 'This is a preview text',
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            const htmlData = sentCommand.input.Content.Simple.Body.Html.Data
-            expect(htmlData).toMatch(/<tbody><span style=".*">This is a preview text<\/span>/)
+            expect(sentCommand.input.Content.Simple.Body.Html.Data).toMatch(expected)
         })
 
         it('should include unsubscribe headers for non-transactional emails', async () => {
