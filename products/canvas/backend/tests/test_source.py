@@ -51,6 +51,21 @@ class TestCanvasSourceAdapter(SimpleTestCase):
     def test_valid_minimal_project_has_no_diagnostics(self):
         self.assertEqual(validate_source_project(project()), [])
 
+    def test_declared_data_dependencies_validate(self):
+        candidate = project(
+            capabilities={
+                "posthog": {
+                    "data": {
+                        "events": ["$pageview", "signup completed"],
+                        "properties": [{"name": "plan", "type": "person"}, {"name": "$current_url", "type": "event"}],
+                        "tables": ["stripe_charges"],
+                    }
+                },
+                "network": {"origins": []},
+            }
+        )
+        self.assertEqual(validate_source_project(candidate), [])
+
     def test_declared_operations_with_declared_verbs_validate(self):
         candidate = project(
             capabilities={
@@ -191,6 +206,23 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                     }
                 ),
                 "operation_invalid",
+            ),
+            (
+                "data_events_not_strings",
+                project(capabilities={"posthog": {"data": {"events": [1]}}, "network": {"origins": []}}),
+                "data_declaration_invalid",
+            ),
+            (
+                "data_property_without_type",
+                project(
+                    capabilities={"posthog": {"data": {"properties": [{"name": "plan"}]}}, "network": {"origins": []}}
+                ),
+                "data_declaration_invalid",
+            ),
+            (
+                "data_unknown_section",
+                project(capabilities={"posthog": {"data": {"cohorts": ["x"]}}, "network": {"origins": []}}),
+                "data_declaration_invalid",
             ),
             (
                 "operation_input_outside_payload_schema",

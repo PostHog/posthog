@@ -739,6 +739,77 @@ def validate_component_meta(project: dict[str, Any], kind: str) -> list[dict[str
     return diagnostics
 
 
+_DATA_SECTIONS = ("events", "properties", "tables")
+_DATA_PROPERTY_TYPES = ("event", "person", "group", "session")
+MAX_DATA_ITEMS = 100
+
+
+def _validate_data_declaration(posthog_capabilities: dict[str, Any]) -> list[dict[str, Any]]:
+    """Check capabilities.posthog.data: the events, properties, and tables the canvas says it reads."""
+    data = posthog_capabilities.get("data")
+    if data is None:
+        return []
+    if not isinstance(data, dict):
+        return [diagnostic("error", "data_declaration_invalid", "capabilities.posthog.data must be an object")]
+    diagnostics: list[dict[str, Any]] = []
+    unknown_sections = sorted(set(data) - set(_DATA_SECTIONS))
+    if unknown_sections:
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "data_declaration_invalid",
+                "capabilities.posthog.data accepts only events, properties, and tables; got "
+                + ", ".join(unknown_sections),
+            )
+        )
+    for section in ("events", "tables"):
+        names = data.get(section, [])
+        if not isinstance(names, list) or not all(isinstance(name, str) and name.strip() for name in names):
+            diagnostics.append(
+                diagnostic(
+                    "error", "data_declaration_invalid", f"capabilities.posthog.data.{section} must be a list of names"
+                )
+            )
+        elif len(names) > MAX_DATA_ITEMS:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "data_declaration_invalid",
+                    f"capabilities.posthog.data.{section} may list at most {MAX_DATA_ITEMS} names",
+                )
+            )
+    properties = data.get("properties", [])
+    if not isinstance(properties, list):
+        diagnostics.append(
+            diagnostic("error", "data_declaration_invalid", "capabilities.posthog.data.properties must be a list")
+        )
+        return diagnostics
+    if len(properties) > MAX_DATA_ITEMS:
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "data_declaration_invalid",
+                f"capabilities.posthog.data.properties may list at most {MAX_DATA_ITEMS} entries",
+            )
+        )
+    for index, entry in enumerate(properties):
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("name"), str)
+            or not entry["name"].strip()
+            or entry.get("type") not in _DATA_PROPERTY_TYPES
+        ):
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "data_declaration_invalid",
+                    f"capabilities.posthog.data.properties[{index}] must be {{name, type}} with type one of "
+                    + ", ".join(_DATA_PROPERTY_TYPES),
+                )
+            )
+    return diagnostics
+
+
 def _validate_operation_declarations(posthog_capabilities: dict[str, Any]) -> list[dict[str, Any]]:
     """Check capabilities.posthog.operations: well-formed names, declared verbs, payload keys the verb accepts."""
     operations = posthog_capabilities.get("operations") or []
@@ -939,6 +1010,7 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
             )
         )
     diagnostics.extend(_validate_operation_declarations(capabilities.get("posthog") or {}))
+    diagnostics.extend(_validate_data_declaration(capabilities.get("posthog") or {}))
     diagnostics.extend(_validate_connector_declarations(capabilities.get("connectors") or []))
     if capabilities.get("connectors") and "shared" in (capabilities.get("posthog") or {}).get("state", []):
         diagnostics.append(
