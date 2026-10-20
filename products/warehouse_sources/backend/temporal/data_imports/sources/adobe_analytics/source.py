@@ -160,7 +160,7 @@ Create an **OAuth Server-to-Server** credential in the [Adobe Developer Console]
 The report table runs one query per day, so pick the dimension and metrics to break it down by. Adobe allows one dimension per report.""",
             iconPath="/static/services/adobe_analytics.png",
             docsUrl="https://posthog.com/docs/cdp/sources/adobe-analytics",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["adobe", "omniture", "sitecatalyst"],
             fields=cast(
                 list[FieldType],

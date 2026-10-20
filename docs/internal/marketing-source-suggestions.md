@@ -296,3 +296,18 @@ The panel includes the source validation details shown by the status banner.
 When the panel displays a connection, its duplicate status banner entry is hidden.
 Configuration validation failures and issues for sources outside the panel remain in the banner.
 With source onboarding disabled, the existing banner remains available.
+
+## Ad performance metric cards
+
+The Ad performance summary uses the same metric cards as Web analytics.
+Cards preserve period comparisons, currency formatting, and missing-value labels, and wrap to the available scene width.
+
+Ad performance cards include time-series sparklines for advertising metrics, including platform-reported conversions.
+Select an advertising metric card to update the existing trend chart while keeping the date range, interval, and source filters.
+CPC, CTR, reported ROAS, and cost per reported conversion use ratios of bucket totals in both sparklines and the main trend, with monetary values converted to the project currency; undefined ratios leave gaps rather than zeroes.
+Attributed PostHog conversion goals retain their summary cards without sparklines or selection.
+
+Advertising metrics appear first, followed by attributed conversion goals and their cost per conversion.
+The goal cards use a separate grid so cards without sparklines keep a compact height.
+
+The overview loads on demand so other query surfaces do not load marketing-specific validation eagerly.

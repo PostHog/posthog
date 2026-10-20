@@ -124,7 +124,7 @@ class XsollaSource(ResumableSource[XsollaSourceConfig, XsollaResumeConfig]):
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/xsolla",
             iconPath="/static/services/xsolla.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -6,14 +6,16 @@ use anyhow::Context;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
+use personhog_coordination::types::ChangelogConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
 use k8s_awareness::DiscoveredPod;
 
+use crate::changelog;
 use crate::etcd;
 use crate::jobs::{AnalysisRequest, JobView};
 use crate::kafka::browse::{self, BrowseParams, BrowseStop, MessageFilter, MessageRecord};
@@ -431,6 +433,44 @@ async fn personhog_topology(
     Ok(Json(view))
 }
 
+async fn personhog_changelog(
+    State(state): State<AppState>,
+) -> Result<Json<changelog::ChangelogView>, ApiError> {
+    let client = etcd_client(&state).await?;
+    let view = changelog::view(&state.config, &client, &state.config.personhog_etcd_prefix)
+        .await
+        .map_err(|e| ApiError::upstream(format!("changelog view failed: {e:#}")))?;
+    Ok(Json(view))
+}
+
+#[derive(Deserialize)]
+struct SeedChangelogRequest {
+    topic: String,
+    /// The writer's consumer group, as its `KAFKA_CONSUMER_GROUP` names it.
+    writer_group: String,
+}
+
+async fn personhog_seed_changelog(
+    State(state): State<AppState>,
+    Json(request): Json<SeedChangelogRequest>,
+) -> Result<Json<ChangelogConfig>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let topic = request.topic.trim();
+    if topic.is_empty() {
+        return Err(ApiError::bad_request("topic must not be empty"));
+    }
+    let writer_group = request.writer_group.trim();
+    if writer_group.is_empty() {
+        return Err(ApiError::bad_request("writer_group must not be empty"));
+    }
+    let client = etcd_client(&state).await?;
+    let seeded = changelog::seed(&state.config, &client, &prefix, topic, writer_group)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("seed failed: {e:#}")))?;
+    Ok(Json(seeded))
+}
+
 #[derive(Serialize)]
 struct PodsResponse {
     pods: Vec<DiscoveredPod>,
@@ -464,6 +504,11 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/personhog/topology", get(personhog_topology))
         .route("/api/personhog/parity/mismatches", get(parity::mismatches))
+        .route("/api/personhog/changelog", get(personhog_changelog))
+        .route(
+            "/api/personhog/changelog/seed",
+            post(personhog_seed_changelog),
+        )
         // The consumer debug UI is served per pod; its relative `debug/...`
         // fetches resolve to the proxy route below. Pods are addressed by
         // namespace + name so identical names across lanes cannot collide.
