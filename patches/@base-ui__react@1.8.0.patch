@@ -1,0 +1,48 @@
+diff --git a/floating-ui-react/hooks/useFloating.js b/floating-ui-react/hooks/useFloating.js
+index b44e763507a9a1fc0d7b65bf7c236ea5d804b7a7..25c32f1c5211aeedc3910d29506de5fa752ae128 100644
+--- a/floating-ui-react/hooks/useFloating.js
++++ b/floating-ui-react/hooks/useFloating.js
+@@ -124,11 +124,18 @@ function useFloatingWithStore(options, store) {
+     }
+   }, [domReferenceElement]);
+   (0, _useIsoLayoutEffect.useIsoLayoutEffect)(() => {
+-    store.context.dataRef.current.floatingContext = context;
++    const dataRef = store.context.dataRef;
++    dataRef.current.floatingContext = context;
+     const node = tree?.nodesRef.current.find(n => n.id === nodeId);
+     if (node) {
+       node.context = context;
+     }
++    return () => {
++      // The root store outlives the floating element, so a stale context retains the detached popup.
++      if (dataRef.current.floatingContext === context) {
++        dataRef.current.floatingContext = undefined;
++      }
++    };
+   });
+   return React.useMemo(() => ({
+     ...position,
+diff --git a/floating-ui-react/hooks/useFloating.mjs b/floating-ui-react/hooks/useFloating.mjs
+index fbba6d9e2c3c32112b95dc6c5243d37377bbe209..148881602a776d84d72ef890b90b06da634f0072 100644
+--- a/floating-ui-react/hooks/useFloating.mjs
++++ b/floating-ui-react/hooks/useFloating.mjs
+@@ -118,11 +118,18 @@ function useFloatingWithStore(options, store) {
+     }
+   }, [domReferenceElement]);
+   useIsoLayoutEffect(() => {
+-    store.context.dataRef.current.floatingContext = context;
++    const dataRef = store.context.dataRef;
++    dataRef.current.floatingContext = context;
+     const node = tree?.nodesRef.current.find(n => n.id === nodeId);
+     if (node) {
+       node.context = context;
+     }
++    return () => {
++      // The root store outlives the floating element, so a stale context retains the detached popup.
++      if (dataRef.current.floatingContext === context) {
++        dataRef.current.floatingContext = undefined;
++      }
++    };
+   });
+   return React.useMemo(() => ({
+     ...position,

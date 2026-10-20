@@ -189,6 +189,9 @@ overrides:
   '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+  '@base-ui/react@1.8.0':
+    hash: 98f68dc6f8256c5a22a6aa2691fb9526956f6657e03189d3a16ad97a2a699525
+    path: patches/@base-ui__react@1.8.0.patch
   '@connectrpc/connect-node@2.1.1':
     hash: a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4
     path: patches/@connectrpc__connect-node@2.1.1.patch
@@ -583,7 +586,7 @@ importers:
     dependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.8.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.8.0(patch_hash=98f68dc6f8256c5a22a6aa2691fb9526956f6657e03189d3a16ad97a2a699525)(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@dagrejs/dagre':
         specifier: ^1.1.5
         version: 1.1.5
@@ -2206,7 +2209,7 @@ importers:
     dependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.8.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.8.0(patch_hash=98f68dc6f8256c5a22a6aa2691fb9526956f6657e03189d3a16ad97a2a699525)(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-tokens':
         specifier: workspace:^
         version: link:../tokens
@@ -2286,7 +2289,7 @@ importers:
     devDependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.8.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.8.0(patch_hash=98f68dc6f8256c5a22a6aa2691fb9526956f6657e03189d3a16ad97a2a699525)(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-blocks':
         specifier: workspace:*
         version: link:../blocks
@@ -3701,7 +3704,7 @@ importers:
     dependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.8.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.8.0(patch_hash=98f68dc6f8256c5a22a6aa2691fb9526956f6657e03189d3a16ad97a2a699525)(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@dnd-kit/core':
         specifier: '*'
         version: 6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -26270,7 +26273,7 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
 
-  '@base-ui/react@1.8.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@base-ui/react@1.8.0(patch_hash=98f68dc6f8256c5a22a6aa2691fb9526956f6657e03189d3a16ad97a2a699525)(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@babel/runtime': 7.29.7
       '@base-ui/utils': 0.4.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
