@@ -12,7 +12,7 @@ import functools
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import yaml
 from hogli.manifest import REPO_ROOT
@@ -460,6 +460,32 @@ def check_merge_queue_lane(scope: Scope) -> Outcome:
 
 
 CROSS_LANE_LABEL = "cross-lane-change"
+
+
+def check_stack_depth() -> Outcome:
+    # gh-stack publishes one branch at a time; a stack-wide block here prevents repair pushes too.
+    if os.environ.get("HOGLI_GIT_HOOK") == "pre-push":
+        return "skipped", "run `hogli ci:preflight --strict` before publishing the stack"
+    if shutil.which("node") is None:
+        return "skipped", "node not found"
+    try:
+        result = subprocess.run(
+            ["node", ".github/scripts/check-stack-depth.mjs", "--local"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            cwd=REPO_ROOT,
+        )
+        verdict: object = json.loads(result.stdout)
+        if isinstance(verdict, dict):
+            status = verdict.get("status")
+            detail = verdict.get("detail")
+            if isinstance(status, str) and status in ("pass", "fail", "skipped") and isinstance(detail, str):
+                return cast(Status, status), detail
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return "skipped", "could not run the stack-depth check"
 
 
 def _first(files: list[str], total: int) -> str:

@@ -56,6 +56,7 @@ gh stack add -Am "add UI" my-feature-ui   # stage all + commit in one step
 - Slice by reviewable unit: migration / backend / frontend, or mechanical-rename / behavior-change. Each PR must make sense to review and merge alone.
 - Keep stacks shallow (2–4 layers). Every layer multiplies CI cost and rebase churn, and deep-stack pushes can trip GitHub's dispatch cap (see AGENTS.md, "Stacked PRs").
   The `Stack depth` check fails layers above the fifth open one (merged layers don't count).
+  Before adding a layer, count the open layers with `gh stack view --json` and keep the result at five or fewer.
   For more work on top, run `gh stack init --base <top branch> <new branch>` from `master`, because gh-stack refuses to start a stack from a layer of another one. Rebase the new stack onto `master` once the lower stack lands.
 - Place a CI-heavy layer by how CI diffs it:
   - Most jobs pick their work from the layer's own diff against its parent, so such a layer does not make the layers above it heavy. A push to any layer below it starts its jobs again (see the duplicate-run note under "Iterate and keep in sync"). Put it low, unless it is the layer that still changes most.
@@ -65,6 +66,16 @@ gh stack add -Am "add UI" my-feature-ui   # stage all + commit in one step
   If several layers need it, finalize bottom-up and restack after each one.
 
 ## Publish
+
+Run `hogli ci:preflight --strict` before `gh stack submit`, `push`, or `sync`.
+Its stack-depth check uses the same policy as CI, including the exemption for existing pull requests.
+It skips inside the per-branch pre-push hook so a stack-wide failure does not prevent repair pushes or splitting an existing stack.
+If it fails, merge lower layers or split the stack before publishing.
+
+To split a published stack, drop the upper layers with `gh stack modify`, then run `gh stack submit` from a retained lower branch first.
+This publishes the smaller lower stack and releases the dropped pull requests from the original GitHub stack.
+Check out a dropped branch, adopt the dropped branches bottom to top with `gh stack init --base <top retained branch> <dropped branches>`, then run `gh stack submit`.
+Once the lower stack merges, rebase the upper stack onto `master`.
 
 ```bash
 gh stack submit --auto

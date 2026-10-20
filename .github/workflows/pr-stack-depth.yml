@@ -2,10 +2,6 @@ name: PR stack depth
 
 on:
     workflow_call:
-        inputs:
-            max-open-depth:
-                type: number
-                default: 5
 
 permissions:
     contents: read
@@ -14,7 +10,7 @@ permissions:
 jobs:
     stack-depth:
         name: Stack depth
-        if: ${{ github.event.pull_request.number > 120291 && github.event.pull_request.stack != null }}
+        if: ${{ github.event.pull_request.stack != null }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
 
@@ -29,6 +25,5 @@ jobs:
             - name: Check open layers below this pull request
               env:
                   GITHUB_TOKEN: ${{ github.token }}
-                  MAX_OPEN_DEPTH: ${{ inputs.max-open-depth }}
                   STACK_NUMBER: ${{ github.event.pull_request.stack.number }}
               run: node .github/scripts/check-stack-depth.mjs
