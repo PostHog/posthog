@@ -755,12 +755,16 @@ That is a scout with a book of one experiment, and it lives as long as the exper
   Results recompute on a schedule, so record `query_to` and treat results older than about a day and a half as stale, not as quiet.
   Do not use `experiment-results-get` for the routine read: when no cached result is younger than 24 hours it runs the metric queries itself, which hides the stale state and counts as a recalculation.
   Schedule the cron just after the daily metric recalculation, so each run reads fresh results.
+  Confirm first that the experiment is on that schedule: the daily recalculation skips a paused experiment (flag inactive), one that started more than 60 days ago, and a team that does not have it turned on, so check for a `completed_at` from the last day before you rely on it.
+  When it is off the schedule, agree a fallback with the owner and write it into the body: a run cannot start a recalculation (`experiment:write` is not a grantable scope), so either the owner recalculates on a set cadence and the scout reads after it, or the scout reports the results as stale.
   The recalculation hour is in UTC (02:00 by default) and the cron runs in the project's timezone, so convert it and allow for daylight saving time, or anchor on the `completed_at` of an observed recalculation.
 - **Hand the decisions to the owner.** The scout never ends, pauses, ships, or edits the experiment, its flag, or its metrics, and never triggers a recalculation; it proposes, with evidence.
   Before the planned read, only a validity break justifies a proposal to stop early, unless the pre-registered rule uses sequential testing or another stopping boundary that stays valid under repeated reads.
   On a fixed-horizon test, a daily read that crosses the threshold is peeking: record the movement and wait for the read date, because a scout that calls a winner on day three teaches people to ignore it.
   On or after the read date it writes the readout against the rule (ship, no ship, or extend), and the owner decides.
-- **Quick close-out on end.** When the experiment stops, write a final tracker edit with the scoreboard and the reason from the activity log, save `addressed:<exp>:ended`, and close out empty on later runs.
+- **Quick close-out on end.** When the experiment stops, check that the latest `query_to` is at or after its `end_date`: the daily recalculation selects only running experiments, so the last stored results can stop short of the end.
+  If they do, the tracker asks the owner for one final recalculation, and the scout keeps running until complete results exist.
+  Then write a final tracker edit with the scoreboard and the reason from the activity log, save `addressed:<exp>:ended`, and close out empty on later runs.
   A run cannot pause its own scout (`signal_scout:write` is not a grantable scope), so the final tracker edit asks the owner to set `enabled=false` once the readout is done.
 - **Dedupe + memory:** `dedupe:<exp>:tracker` holds the tracker report id; `pattern:<exp>:config` (flag version, variants, metric ids) catches drift; `pattern:<exp>:last-read` (per-metric n plus chance to win or p-value, per the method) is the baseline for threshold crossings; `pattern:<exp>:timeline` lists mid-run changes with annotation ids; `pattern:<exp>:last-dive:<name>` drives the rotation; `noise:<exp>:<topic>` records what was ruled out.
 - **Seams:** the canonical experiments scout keeps fleet-wide validity across every experiment, so edit or reference its open report on this experiment rather than filing a duplicate.
