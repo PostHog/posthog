@@ -100,7 +100,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
-        dashboardWidgetsEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -256,7 +255,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [gridGap, spacingFactor]
     )
 
-    const widgetTilesShown = dashboardWidgetsEnabled && isWidgetTileVisibleOnPlacement(placement)
+    const widgetTilesShown = isWidgetTileVisibleOnPlacement(placement)
     const activeBreakpoint = sizeKey ?? 'sm'
     const groupTitlesByTileId = useMemo(
         () =>
