@@ -7,6 +7,7 @@ is what decides which destinations there are and which transport each one takes.
 import json
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 from functools import cache
 from typing import Any, Final
 
@@ -27,7 +28,7 @@ from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
-from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
+from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy, ThreadKey
 from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
@@ -44,6 +45,11 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
 
 logger = structlog.get_logger(__name__)
+
+# Emitted events have no conversation, so each delivery part keeps one row in the thread store
+# under this provider and a fixed episode. The row only records which evaluations already emitted.
+_EMISSION_PROVIDER: Final = "legacy_events"
+_EMISSION_EPISODE: Final = datetime(1970, 1, 1, tzinfo=UTC)
 
 # Whether the platform may contact a team's destinations for an alert its source still owns. Only
 # the platform reads it: the source keeps delivering regardless, so a team with this on receives
@@ -253,18 +259,37 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
             else:
                 sent += 1
     # Emitted last and only without a held thread, because the workflow runs a held delivery again
-    # in full, and a second emission sends every HogFunction message a second time.
+    # in full. A native send that fails also reruns the whole delivery, so the store records the
+    # emission, and a rerun does not send every HogFunction message a second time.
     if emitter is not None and not busy:
         try:
-            emitter(request=request, announcement=announced, emissions=emissions)
-        except Exception as error:
-            logger.warning(
-                "alerts_platform_legacy_event_emission_failed",
-                team_id=request.team_id,
-                configuration_id=request.configuration_id,
-                exc_info=True,
+            emission = thread_store.claim(
+                ThreadKey(
+                    configuration_id=request.configuration_id,
+                    grouping_key="",
+                    provider=_EMISSION_PROVIDER,
+                    channel_target=str(request.part),
+                    episode_started_at=_EMISSION_EPISODE,
+                ),
+                request.evaluation_key,
             )
-            failures.append(f"legacy events: {type(error).__name__}")
+        except ThreadBusy as error:
+            busy.append(str(error))
+            emission = None
+        if emission is not None:
+            try:
+                emitter(request=request, announcement=announced, emissions=emissions)
+            except Exception as error:
+                thread_store.release(emission)
+                logger.warning(
+                    "alerts_platform_legacy_event_emission_failed",
+                    team_id=request.team_id,
+                    configuration_id=request.configuration_id,
+                    exc_info=True,
+                )
+                failures.append(f"legacy events: {type(error).__name__}")
+            else:
+                thread_store.delivered(emission, None)
     # A held thread wins over a failure. The workflow waits a held thread out and then runs the
     # whole delivery again, which retries the failed destinations too. A failure raised instead
     # spends the activity's retries inside the claim's TTL, and the held message is lost.

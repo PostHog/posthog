@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -519,19 +520,24 @@ class TestDeliveryPath(APIBaseTest):
         emitter: Any = None,
         groups: list[AlertDestinationGroup] | None = None,
         transport: type = RecordingTransport,
+        real_thread_store: bool = False,
     ) -> Any:
-        with (
-            patch(
-                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
-                return_value=True,
-            ),
-            patch(f"{_MODULE}.announcement", return_value=announced),
-            patch(f"{_MODULE}.list_alert_destination_groups", return_value=groups or [HOG_FUNCTION_SLACK]),
-            patch(f"{_MODULE}.DatabaseThreadStore"),
-            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: transport}),
-            patch.dict(delivery_paths._emitters, {SourceKind.LOGS: emitter or self._emit}),
-            patch.object(delivery_paths, "_chooser", chooser),
-        ):
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                    return_value=True,
+                )
+            )
+            stack.enter_context(patch(f"{_MODULE}.announcement", return_value=announced))
+            stack.enter_context(
+                patch(f"{_MODULE}.list_alert_destination_groups", return_value=groups or [HOG_FUNCTION_SLACK])
+            )
+            if not real_thread_store:
+                stack.enter_context(patch(f"{_MODULE}.DatabaseThreadStore"))
+            stack.enter_context(patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: transport}))
+            stack.enter_context(patch.dict(delivery_paths._emitters, {SourceKind.LOGS: emitter or self._emit}))
+            stack.enter_context(patch.object(delivery_paths, "_chooser", chooser))
             return deliver_evaluation(
                 _request(
                     self.team.id,
@@ -612,6 +618,19 @@ class TestDeliveryPath(APIBaseTest):
                 self._chooses(DeliveryPath.HOG_FUNCTION),
                 emitter=refuse,
             )
+
+    def test_a_rerun_after_a_refused_subscriber_send_emits_once(self) -> None:
+        for _ in range(2):
+            with pytest.raises(DeliveryError):
+                self._run(
+                    _announcement(_transition(AlertEventKind.FIRING)),
+                    self._chooses(DeliveryPath.HOG_FUNCTION),
+                    groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
+                    transport=RefusingTransport,
+                    real_thread_store=True,
+                )
+
+        assert len(self.emitted) == 1
 
     def test_a_held_subscriber_thread_holds_the_emission_for_the_rerun(self) -> None:
         with pytest.raises(ThreadBusy):
