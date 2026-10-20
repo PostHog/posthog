@@ -172,9 +172,9 @@ pub enum PositionsError {
     },
 }
 
-/// Every input's resume positions on partitions of a claimed split, none of them committed by
+/// Every input's resume positions on partitions of a claimed split, none of them stamped by
 /// another split. Only [`InputGroups::owned_positions`] builds one, so a manifest never records a
-/// position another pod committed.
+/// position another split stamped. An unstamped commit, such as an offset reset, passes.
 #[derive(Debug)]
 pub struct OwnedPositions {
     split: PartitionOwnership,
@@ -280,7 +280,7 @@ impl GroupReader {
         Ok(positions)
     }
 
-    /// Refuses a position another split committed.
+    /// Refuses a position another split stamped.
     fn owned_positions(
         &self,
         owner: &PartitionOwnership,
@@ -436,7 +436,7 @@ impl InputGroups {
             })
     }
 
-    /// Every input's resume positions on `partitions`, as long as no other split committed them.
+    /// Every input's resume positions on `partitions`, as long as no other split stamped them.
     pub fn owned_positions(
         &self,
         claimed: &ClaimedSplit,

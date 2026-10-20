@@ -360,7 +360,6 @@ async fn prepare_store(
         ownership,
         events_topic: InputTopic::new(&config.cohort_stream_events_topic),
         window,
-        partition_count: config.partition_count(),
         wipe_on_schema_mismatch: config.cohort_wipe_on_schema_mismatch,
         rejected,
     };
@@ -436,7 +435,6 @@ struct Restore<'a, W> {
     ownership: PartitionOwnership,
     events_topic: InputTopic,
     window: &'a W,
-    partition_count: u16,
     wipe_on_schema_mismatch: bool,
     rejected: &'a mut HashSet<Rejected>,
 }
@@ -568,17 +566,19 @@ impl<W: ReplayWindow> Restore<'_, W> {
         store_schema: u32,
         manifest: &OffsetManifest,
     ) -> Result<Option<Verdict>, RestoreBlocked> {
+        // Before the schema check: a candidate of another split never restores on this pod, so a
+        // schema mismatch must not fail it and block the boot.
+        if !manifest.split().covers(&self.ownership) {
+            return Ok(Some(Verdict::Unusable(Unusable::OtherSplit {
+                found: manifest.split(),
+            })));
+        }
         if store_schema != STORE_SCHEMA_VERSION {
             return Ok(Some(schema_mismatch(
                 checkpoint_id,
                 store_schema,
                 self.wipe_on_schema_mismatch,
             )));
-        }
-        if !manifest.split().covers(&self.ownership) {
-            return Ok(Some(Verdict::Unusable(Unusable::OtherSplit {
-                found: manifest.split(),
-            })));
         }
         // An input the manifest lacks resumes from its group's commit. For the events group that
         // commit lies past the checkpoint, so the restore would skip the events between.
@@ -598,7 +598,7 @@ impl<W: ReplayWindow> Restore<'_, W> {
 
     /// The window check.
     fn replay_plan(&self, manifest: &OffsetManifest) -> Result<Admission, RestoreBlocked> {
-        let plan = RestorePlan::check(manifest, self.window, self.partition_count)
+        let plan = RestorePlan::check(manifest, self.window, self.ownership.partition_count())
             .map_err(RestoreBlocked::Positions)?;
         if !plan.resumes_any(&self.ownership) {
             // Older candidates hold older positions, which the broker deletes first, so retrying
@@ -1003,7 +1003,6 @@ mod tests {
                 ownership: self.ownership,
                 events_topic: InputTopic::new(EVENTS),
                 window,
-                partition_count: self.config.partition_count(),
                 wipe_on_schema_mismatch: false,
                 rejected,
             }

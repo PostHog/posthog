@@ -245,17 +245,16 @@ pub struct CheckpointSweeper {
 impl CheckpointSweeper {
     /// The first baseline is the lineage's `uploaded.json` when it went to the configured bucket.
     /// [`upload_kind`] uses it only for the same DB.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: CohortStore,
         dispatcher: Arc<EventDispatcher>,
         groups: Arc<InputGroups>,
         claimed: ClaimedSplit,
-        lineage: CheckpointLineage,
         config: DurabilityConfig,
         upload_every_n: u64,
         stop: CancellationToken,
     ) -> Self {
+        let lineage = CheckpointLineage::new(claimed.ownership().ordinal());
         let baseline = UploadBaseline::load(
             &lineage
                 .local_dir(Path::new(&config.local_checkpoint_dir))
@@ -335,7 +334,7 @@ impl CheckpointSweeper {
         }
 
         // 3. Every input's resume positions, from its consumer group on the broker. A position
-        //    another split committed lies past what this store holds, so the tick skips.
+        //    another split stamped lies past what this store holds, so the tick skips.
         let groups = self.groups.clone();
         let claimed = self.claimed.clone();
         let partitions = owned.clone();

@@ -116,7 +116,7 @@ pub const CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS: &str =
 pub const CHECKPOINT_LAST_FULL_UPLOAD_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_full_upload_timestamp_seconds";
 /// Checkpoint ticks skipped before the checkpoint, labelled by `reason`
-/// (`positions`|`foreign`|`incomplete`) (counter). `foreign` is a position another split committed.
+/// (`positions`|`foreign`|`incomplete`) (counter). `foreign` is a position another split stamped.
 pub const CHECKPOINT_CAPTURE_FAILURES_TOTAL: &str = "checkpoint_capture_failures_total";
 /// Wall-clock duration of one checkpoint S3 upload, labelled by `result` (histogram, seconds).
 pub const CHECKPOINT_UPLOAD_DURATION_SECONDS: &str = "checkpoint_upload_duration_seconds";

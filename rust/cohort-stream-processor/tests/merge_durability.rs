@@ -956,7 +956,6 @@ async fn checkpoint_to_s3(
         instance.dispatcher.clone(),
         groups.clone(),
         claimed,
-        config.checkpoint_lineage().expect("ordinal pod name"),
         config.durability_config(),
         1,
         tokio_util::sync::CancellationToken::new(),

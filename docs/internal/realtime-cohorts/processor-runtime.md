@@ -211,7 +211,7 @@ Builds from before stamps commit without one, so the fence cannot see them eithe
 Change `COHORT_POD_COUNT` only after every pod runs a build with stamps.
 
 So changing `COHORT_POD_COUNT` requires wiping every store, including the volume of an ordinal that a scale-down removed.
-That volume keeps its old record, so when a later change brings that split back, it opens with slices another pod has moved past.
+That volume keeps its old record, so when a later change brings back that split or one it covers, it opens with slices another pod has moved past.
 With checkpoints enabled, keep the checkpoints: a restore passes over one whose split does not cover the pod.
 The old split's stamps also hold every pod of the new split at boot.
 An offset reset of each input group to its current offsets clears them, because it commits without a stamp.

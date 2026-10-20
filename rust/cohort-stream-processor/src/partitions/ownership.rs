@@ -234,26 +234,29 @@ mod tests {
 
     #[test]
     fn a_split_covers_another_exactly_when_it_owns_every_partition_the_other_owns() {
-        const PARTITIONS: u16 = 64;
-        let splits: Vec<PartitionOwnership> = [1, 2, 4, 8, 16, 32, 64]
-            .into_iter()
-            .flat_map(|pods| {
-                let pods = NonZeroU16::new(pods).unwrap();
-                (0..pods.get()).map(move |ordinal| {
-                    PartitionOwnership::new(pods, PodOrdinal::from(ordinal), PARTITIONS).unwrap()
+        // Over 64 partitions every pod count is a power of two, so one count of a pair always
+        // divides the other. 12 has counts that do not, such as 2 and 3.
+        for partitions in [64u16, 12] {
+            let splits: Vec<PartitionOwnership> = (1..=partitions)
+                .filter(|pods| partitions.is_multiple_of(*pods))
+                .flat_map(|pods| {
+                    let pods = NonZeroU16::new(pods).unwrap();
+                    (0..pods.get()).map(move |ordinal| {
+                        PartitionOwnership::new(pods, PodOrdinal::from(ordinal), partitions)
+                            .unwrap()
+                    })
                 })
-            })
-            .collect();
-        assert_eq!(splits.len(), 127);
-        for a in &splits {
-            for b in &splits {
-                let inclusion = b.partitions().all(|partition| a.owns(partition));
-                assert_eq!(a.covers(b), inclusion, "{a} covers {b}");
+                .collect();
+            for a in &splits {
+                for b in &splits {
+                    let inclusion = b.partitions().all(|partition| a.owns(partition));
+                    assert_eq!(a.covers(b), inclusion, "{a} covers {b}");
+                }
             }
         }
 
         let over_32 = PartitionOwnership::single(32);
-        assert!(!PartitionOwnership::single(PARTITIONS).covers(&over_32));
+        assert!(!PartitionOwnership::single(64).covers(&over_32));
     }
 
     #[test]
