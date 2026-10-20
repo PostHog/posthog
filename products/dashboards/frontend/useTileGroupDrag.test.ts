@@ -163,6 +163,41 @@ describe('useTileGroupDrag', () => {
         expect(movedTile).toMatchObject({ x: 3, y: 2 })
     })
 
+    it('a tile dropped over another band via a touch event', async () => {
+        const sourceBand = band('tiles-start')
+        const opsBand = band('group-ops')
+        dashboardRoot(sourceBand, opsBand)
+        const tileElement = document.createElement('div')
+        sourceBand.append(tileElement)
+        Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [opsBand] })
+        const moveTileToGroup = jest.fn()
+        const updateLayout = jest.fn()
+        const { result } = renderHook(() =>
+            useTileGroupDrag({
+                sections,
+                sectionLayouts: [[box(1, 0)], [box(2, 0)]],
+                layout,
+                collapsedTileGroupKeys: [],
+                compactor: getDashboardGridCompactor(),
+                rowHeight: 80,
+                margin: [16, 16],
+                enabled: true,
+                toggleTileGroup: jest.fn(),
+                moveTileToGroup,
+                updateLayout,
+            })
+        )
+
+        const draggedItem = box(1, 40)
+        act(() => result.current.startTileDrag(draggedItem, tileElement))
+        // A touch drag's native event carries position in `changedTouches`, not `clientX`/`clientY`.
+        const touchEvent = { changedTouches: [{ clientX: 10, clientY: 10 }] } as unknown as Event
+        act(() => result.current.finishTileDrag(draggedItem, tileElement, touchEvent))
+        await Promise.resolve()
+
+        expect(moveTileToGroup).toHaveBeenCalledTimes(1)
+    })
+
     it('ignores a drop once edit mode turns off mid-drag', async () => {
         const sourceBand = band('tiles-start')
         const opsBand = band('group-ops')

@@ -36,12 +36,21 @@ interface TileGroupDrag {
 
 const DASHBOARD_ROOT_SELECTOR = '.dashboard-items-wrapper'
 
+// react-draggable forwards the browser's native drag event, which is a TouchEvent (no clientX/clientY
+// of its own) on a touchscreen.
+function pointerPosition(event: Event): { clientX: number; clientY: number } | undefined {
+    const touch = (event as TouchEvent).changedTouches?.[0] ?? (event as TouchEvent).touches?.[0]
+    const { clientX, clientY } = touch ?? (event as MouseEvent)
+    return Number.isFinite(clientX) && Number.isFinite(clientY) ? { clientX, clientY } : undefined
+}
+
 /** The band of `dashboardRoot` under the pointer, or undefined when the event has no pointer position. */
 function sectionKeyUnderPointer(event: Event, dashboardRoot: Element | null): string | null | undefined {
-    const { clientX, clientY } = event as MouseEvent
-    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) {
+    const position = pointerPosition(event)
+    if (!position) {
         return undefined
     }
+    const { clientX, clientY } = position
     for (const element of document.elementsFromPoint(clientX, clientY)) {
         if (element.closest('.react-draggable-dragging')) {
             continue
