@@ -115,6 +115,7 @@ export type EmailMetric =
     | 'email_link_clicked'
     | 'email_bounced'
     | 'email_bounce_prevented'
+    | 'email_missing_recipient'
     | 'email_blocked'
     | 'email_untracked'
     | 'email_suspended'
@@ -155,6 +156,7 @@ export type EmailMetricRow = {
     bouncedSoft: number
     bouncedUnknown: number
     bouncePrevented: number
+    missingRecipient: number
     frequencyCapped: number
     // Spam complaints. Stored under the email_blocked metric name for continuity with
     // historical data (see the SES webhook handler's Complaint mapping).
@@ -198,6 +200,7 @@ export const METRIC_COLORS: Record<string, string> = {
     'Link clicked': getColorVar('data-color-5'),
     Bounced: getColorVar('data-color-6'),
     'Bounce prevented': getColorVar('data-color-7'),
+    'No email address': getColorVar('data-color-13'),
     'Frequency capped': getColorVar('data-color-8'),
     'Marked as spam': getColorVar('data-color-9'),
     Untracked: getColorVar('data-color-10'),
@@ -305,6 +308,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         color: METRIC_COLORS['Bounce prevented'],
         metricNames: ['email_bounce_prevented'],
     },
+    email_missing_recipient: {
+        name: 'No email address',
+        description:
+            'Total number of emails that were not sent because the recipient had no email address, for example a person without an email property. Add a filter so only people with an email address reach the step. These sends are not billed.',
+        color: METRIC_COLORS['No email address'],
+        metricNames: ['email_missing_recipient'],
+    },
     message_frequency_capped: {
         name: 'Frequency capped',
         description:
@@ -394,10 +404,13 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     email_bounced_undetermined: { search: 'Undetermined bounce', levels: ['WARN'] },
     // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
     email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
+    // A missing recipient logs "Skipping send: the recipient has no email address. …" at WARN (EmailService).
+    email_missing_recipient: { search: 'has no email address', levels: ['WARN'] },
     message_frequency_capped: { search: 'reached the frequency cap', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
-    // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
-    email_suspended: { search: 'Skipping send', levels: ['WARN'] },
+    // Both suspension causes log "Skipping send: … for this project. …" at WARN (EmailService). The
+    // narrower term keeps other WARN skips, such as a missing recipient, out of this drill-down.
+    email_suspended: { search: 'for this project', levels: ['WARN'] },
     // A per-workflow pause logs "Skipping send: … paused …" at ERROR (EmailService). The search
     // term stays generic because the staff and automatic pauses word the line differently.
     email_paused: { search: 'Skipping send', levels: ['ERROR'] },
@@ -439,6 +452,7 @@ const EMAIL_METRICS: EmailMetricName[] = [
     'email_bounced_transient',
     'email_bounced_undetermined',
     'email_bounce_prevented',
+    'email_missing_recipient',
     'email_blocked',
     'email_untracked',
     'email_suspended',
@@ -1593,6 +1607,7 @@ export function buildEmailMetricRows(
             bouncedSoft: totals.email_bounced_transient ?? 0,
             bouncedUnknown: totals.email_bounced_undetermined ?? 0,
             bouncePrevented: totals.email_bounce_prevented ?? 0,
+            missingRecipient: totals.email_missing_recipient ?? 0,
             frequencyCapped: totals.message_frequency_capped ?? 0,
             markedAsSpam,
             untracked,
