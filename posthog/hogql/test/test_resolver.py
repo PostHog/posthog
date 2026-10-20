@@ -443,14 +443,28 @@ class TestResolver(BaseTest):
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
-    def test_resolve_subquery_no_field_access(self):
+    @parameterized.expand(
+        [
+            (
+                "table_alias",
+                "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'",
+                "e",
+            ),
+            (
+                "cte",
+                "WITH hrs AS (SELECT event FROM events) "
+                "SELECT hrs.event, (SELECT argMax(s2.timestamp, s2.timestamp) FROM events s2 WHERE s2.event = hrs.event) FROM hrs",
+                "hrs",
+            ),
+        ]
+    )
+    def test_resolve_subquery_no_field_access(self, _name: str, query: str, outer_table: str):
         # From ClickHouse's GitHub: "Aliases defined outside of subquery are not visible in subqueries (but see below)."
-        expr = self._select(
-            "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
-        )
         with self.assertRaises(QueryError) as e:
-            expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
-        self.assertEqual(str(e.exception), "Unable to resolve field: e")
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIn(
+            f"Unable to resolve field: {outer_table}. Correlated subqueries are not supported", str(e.exception)
+        )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_constant_type(self):
