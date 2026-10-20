@@ -26,10 +26,13 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { fullName } from 'lib/utils/strings'
@@ -726,6 +729,7 @@ export function AIObservabilityEvaluationsScene(): JSX.Element {
     // evaluationMetricsLogic connects to it, so attaching leaves the two holding each
     // other mounted, and the list never reloads on the next visit to this scene.
     useMountedLogic(evaluationMetricsLogic())
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <BindLogic logic={llmEvaluationsLogic} props={{}}>
@@ -738,14 +742,28 @@ export function AIObservabilityEvaluationsScene(): JSX.Element {
                             type: 'llm_evaluations',
                         }}
                         actions={
-                            <LemonButton
-                                to="https://posthog.com/docs/ai-evals/evaluations"
-                                type="secondary"
-                                targetBlank
-                                size="small"
-                            >
-                                Documentation
-                            </LemonButton>
+                            todayRailNav ? (
+                                <Button
+                                    variant="outline"
+                                    render={
+                                        <LinkPrimitive
+                                            to="https://posthog.com/docs/ai-evals/evaluations"
+                                            target="_blank"
+                                        />
+                                    }
+                                >
+                                    Documentation
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    to="https://posthog.com/docs/ai-evals/evaluations"
+                                    type="secondary"
+                                    targetBlank
+                                    size="small"
+                                >
+                                    Documentation
+                                </LemonButton>
+                            )
                         }
                     />
                     <EvaluationsTabs activeTab="online-evals">

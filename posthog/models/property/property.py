@@ -1,10 +1,10 @@
 import json
 import math
 from enum import StrEnum
+from functools import cached_property
 from typing import Any, Literal, Optional, Union, cast
 
 from posthog.constants import PropertyOperatorType
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 
 # Relocated to the Django-free posthog.property_columns module so the HogQL engine can use them

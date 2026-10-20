@@ -159,6 +159,7 @@ DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation-on-completion"
 _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
+_PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE = "tasks-fail-run-on-primary-clone-failure"
 _PATCH_ID_ASYNC_AGENT_SHADOW_RESULT = "tasks-async-agent-shadow-result"
 _PATCH_ID_AGENT_BOOT_INTERACTION_TELEMETRY = "tasks-agent-boot-interaction-telemetry"
 _PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
@@ -459,6 +460,8 @@ _PATCH_ID_PRESERVE_COMPLETION_DURING_DELIVERY = "tasks-preserve-completion-durin
 
 _PATCH_ID_ROTATION_ACTIVITY_GUARD = "tasks-rotation-activity-guard"
 
+_PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT = "tasks-rotation-activity-before-boot"
+
 
 def _turn_opens_on_dispatch() -> bool:
     if not workflow.in_workflow():
@@ -482,6 +485,12 @@ def _rotation_activity_guard() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_ROTATION_ACTIVITY_GUARD)
+
+
+def _check_rotation_activity_before_boot() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT)
 
 
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
@@ -2328,6 +2337,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup", wait=False)
             continue_after_clone_failure = workflow.patched(_PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE)
+            fail_on_primary_clone_failure = workflow.patched(_PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE)
 
             async def clone_repository(
                 repository: str,
@@ -2347,6 +2357,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     )
                 except Exception as error:
                     if _is_dead_sandbox_failure(error) or not continue_after_clone_failure:
+                        raise
+                    if fail_on_primary_clone_failure and repository == repositories_to_clone[0]:
                         raise
                     workflow.logger.warning(
                         "repository_clone_failed_continuing_without_repository",
@@ -3271,9 +3283,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._cancel_relay(credential_refresh_task)
             credential_refresh_task = None
 
+        check_activity_before_boot = _check_rotation_activity_before_boot()
         try:
             try:
                 sandbox_output = await self._get_sandbox_for_repository()
+                if check_activity_before_boot and guard_activity and self._sandbox_activity_count != activity_count:
+                    return await self._abandon_rotation(
+                        live_sandbox, reason="activity_during_handoff", snapshot_activity_count=activity_count
+                    )
                 await self._start_agent_server(sandbox_output)
             finally:
                 if relay_task is not None:
@@ -3315,7 +3332,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 snapshot_activity_count=activity_count if guard_activity else None,
             )
 
-        if guard_activity and self._sandbox_activity_count != activity_count:
+        if not check_activity_before_boot and guard_activity and self._sandbox_activity_count != activity_count:
             return await self._abandon_rotation(
                 live_sandbox, reason="activity_during_handoff", snapshot_activity_count=activity_count
             )

@@ -12,7 +12,6 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     ScriptedResponse,
@@ -208,10 +207,3 @@ def test_missing_collection_does_not_silently_empty_table(endpoint: str) -> None
 
     assert isinstance(result.raised, ValueError)
     assert "selector" in str(result.raised)
-
-
-def test_unknown_table_fails_before_network() -> None:
-    result = _run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

@@ -110,6 +110,7 @@ from posthog.hogql.database.schema.log_entries import (
 from posthog.hogql.database.schema.logs import (
     LogAttributesTable,
     LogsKafkaMetricsTable,
+    LogsPatternBucketsTable,
     LogsTable,
     LogsVolumeBucketsTable,
 )
@@ -585,6 +586,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     **clone_root_tables(),
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
+                    "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     # Pruned per org in _build_from_sources; see is_flag_evaluations_table_enabled.
                     # The flag check must stay out of this cached, process-global tree.
@@ -3252,6 +3254,16 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
                 flag_evaluations.fields[field_name] = events_table.fields[field_name].model_copy(
                     update={"hidden": True}
                 )
+
+    with timings.measure("mcp_harness_virtual_field"):
+        from products.mcp_analytics.backend.facade.api import mcp_harness_virtual_field_expr
+
+        events_table.fields["$virt_mcp_harness"] = ExpressionField(
+            name="$virt_mcp_harness",
+            expr=mcp_harness_virtual_field_expr(),
+            isolate_scope=True,
+            description="MCP client label computed from this event's client identity signals.",
+        )
 
     revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):

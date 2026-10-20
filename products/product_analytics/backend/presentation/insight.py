@@ -59,7 +59,7 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries, tags_context
 from posthog.constants import INSIGHT, AvailableFeature
-from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
+from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -167,7 +167,6 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.exports.backend.facade.api import delete_insight_subscriptions
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
@@ -196,6 +195,7 @@ from products.product_analytics.backend.presentation.insight_metadata import (
 )
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
+from products.subscriptions.backend.facade.api import delete_insight_subscriptions
 
 from common.hogvm.python.utils import HogVMException
 
@@ -1724,6 +1724,23 @@ class InsightDataChecksRequestSerializer(serializers.Serializer):
             "Pass the query of a saved insight, or one that is not saved yet."
         )
     )
+    client_query_id = serializers.CharField(
+        required=False,
+        max_length=128,
+        help_text=(
+            "An id for this run, chosen by the client. To stop the queries of the run, send a DELETE request to "
+            "`query/{client_query_id}/`."
+        ),
+    )
+
+
+class InsightDataCheckFilterSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The property the rule reads, such as `$host`.")
+    type = serializers.CharField(help_text="The kind of property, such as `event` or `person`.")
+    operator = serializers.CharField(help_text="How the rule compares the property, such as `not_regex`.")
+    value = serializers.ListField(
+        child=serializers.CharField(), help_text="The values the rule compares the property to."
+    )
 
 
 class InsightDataCheckSerializer(serializers.Serializer):
@@ -1732,7 +1749,8 @@ class InsightDataCheckSerializer(serializers.Serializer):
         choices=InsightDataCheckLevel.choices,
         help_text=(
             "`passed` when the check found nothing worth acting on, `warning` for a small share of the events, "
-            "`problem` for a fifth of the events or more, and `skipped` when the check could not run."
+            "`problem` for a fifth of the events or more, and `skipped` when the check could not run. The local "
+            "development check is never a `problem`, because some apps serve real users from a local host."
         ),
     )
     skip_reason = serializers.ChoiceField(
@@ -1767,8 +1785,8 @@ class InsightDataCheckSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's "
-            "query. `open_filter_settings`: change the project's internal and test users filter. Null when there is "
-            "no single change."
+            "query. `open_filter_settings`: change the project's internal and test users filter, for example by "
+            "adding `filter_to_add`. Null when there is no single change."
         ),
     )
     top_events = serializers.ListField(
@@ -1776,11 +1794,66 @@ class InsightDataCheckSerializer(serializers.Serializer):
     )
     top_hosts = serializers.ListField(
         child=serializers.CharField(),
-        help_text="For the local development check, the local hosts found most often, most affected first.",
+        help_text=(
+            "For the local development check, the local hosts whose events the project's internal and test users "
+            "filter keeps, most affected first."
+        ),
+    )
+    distinct_hosts = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "For the local development check, how many local hosts sent the events in `events`. Null for the other "
+            "checks and when the check did not run."
+        ),
     )
     top_bots = serializers.ListField(
         child=serializers.CharField(),
         help_text="For the bot traffic check, the bots and crawlers found most often, most affected first.",
+    )
+    distinct_bots = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "For the bot traffic check, how many named bots and crawlers sent the sampled events. Null for the other "
+            "checks and when the check did not run."
+        ),
+    )
+    removed_by_filter = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "For the internal users check, the part of `events` that the project's internal and test users filter "
+            "removes. It is 0 when the insight already applies the filter. Null for the other checks and when the "
+            "check did not run."
+        ),
+    )
+    missed_by_filter = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "For the internal users check, the part of `events` from team emails that the project's internal and "
+            "test users filter keeps. Null for the other checks and when the check did not run."
+        ),
+    )
+    top_emails = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "For the internal users check, the team emails whose events the project's internal and test users filter "
+            "keeps, most affected first. Only emails the caller may see as the team's are matched. Empty for a token "
+            "without the `person:read` scope."
+        ),
+    )
+    distinct_emails = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "For the internal users check, how many team emails sent events that the project's internal and test "
+            "users filter keeps. Null for the other checks and when the check did not run."
+        ),
+    )
+    filter_to_add = InsightDataCheckFilterSerializer(
+        allow_null=True,
+        help_text=(
+            "A rule for the project's internal and test users filter that removes what the check found: the local "
+            "hosts or team emails it found, up to 50 values, or bot and AI agent traffic. Null when the check found "
+            "none, and for the internal users check for a token without the `person:read` scope."
+        ),
     )
 
 
@@ -2574,8 +2647,8 @@ When set, the specified dashboard's filters and date range override will be appl
             "and lifecycle insights whose series are events. The checks apply the insight's own filters, and read "
             "the newest days of its date range, up to 7. The bot and duplicate checks read a sample of those days. "
             "For a token, the internal users check matches the emails of the organization's members only with the "
-            "`organization_member:read` scope, and its verified domains only with `organization:read`. Nothing is "
-            "stored. This route runs the query it is sent, so it needs query access as well as insight access. To "
+            "`organization_member:read` scope, and its verified domains only with `organization:read`. It names the "
+            "emails it finds only with `person:read`. Nothing is stored. This route runs the query it is sent, so it needs query access as well as insight access. To "
             "check a saved insight by its id, send a GET request to `insights/{id}/data_checks/`."
         ),
     )
@@ -2584,6 +2657,8 @@ When set, the specified dashboard's filters and date range override will be appl
         # The scope covers a token. A session has no scopes, and a token's scope does not prove its owner has access.
         if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
             raise PermissionDenied("You need query access to check a query that is not saved as an insight.")
+        if client_query_id := request.validated_data.get("client_query_id"):
+            tag_queries(client_query_id=client_query_id)
         return self._data_checks_response(request.validated_data["query"])
 
     @validated_request(
@@ -2616,6 +2691,9 @@ When set, the specified dashboard's filters and date range override will be appl
                     user=cast(User, self.request.user),
                     email_access=self._team_email_access(),
                 )
+        except CHQueryErrorQueryWasCancelled:
+            # The client cancelled the run, so nothing reads a body. 499 is Nginx's "Client Closed Request".
+            return Response(status=499)
         except (ExposedHogQLError, ExposedCHQueryError, ResolutionError) as error:
             raise ValidationError(str(error), getattr(error, "code_name", None))
         return Response(InsightDataChecksSerializer(checks).data)
@@ -2628,12 +2706,12 @@ When set, the specified dashboard's filters and date range override will be appl
         project_scoped = bool(get_authenticator_scoped_team_ids(authenticator))
 
         def holds(scope: str) -> bool:
-            if project_scoped:
-                return False
             return scopes is None or "*" in scopes or not scopes_not_covered(scopes, [scope])
 
         return TeamEmailAccess(
-            member_emails=holds("organization_member:read"), verified_domains=holds("organization:read")
+            member_emails=not project_scoped and holds("organization_member:read"),
+            verified_domains=not project_scoped and holds("organization:read"),
+            person_emails=holds("person:read"),
         )
 
     # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`

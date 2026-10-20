@@ -71,4 +71,28 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The name of the cost center.",
         },
     },
+    "recruiting_jobs": {
+        "description": "A recruiting job (open position) in Personio, with its category, department and hiring team.",
+        "docs_url": "https://developer.personio.de/reference/get_v2-recruiting-jobs",
+        "columns": {
+            "id": "Unique identifier for the job.",
+            "name": "The job title.",
+            "company": "The company the job belongs to, carrying a company id.",
+            "department": "The department the job belongs to, with its id and name.",
+            "category": "The recruiting category of the job, with its id and name.",
+            "hiring_team": "Hiring team members assigned to the job, each with a person reference and a role name.",
+            "created_at": "Creation time of the job, as a date-time with UTC offset and an IANA time zone.",
+            "updated_at": "Last modification time of the job, as a date-time with UTC offset and an IANA time zone.",
+        },
+    },
+    "recruiting_categories": {
+        "description": "A recruiting job category in Personio, with the ordered pipeline stages applications move through.",
+        "docs_url": "https://developer.personio.de/reference/get_v2-recruiting-categories",
+        "columns": {
+            "id": "Unique identifier for the category.",
+            "name": "The name of the category.",
+            "company": "The company the category belongs to, carrying a company id.",
+            "stages": "Ordered list of recruiting stages for this category, each with a kind (custom or system) and a type.",
+        },
+    },
 }

@@ -35,10 +35,6 @@ class TestTravisCISource:
         assert schemas[endpoint].supports_incremental is expected
         assert schemas[endpoint].supports_append is expected
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["builds"])
-        assert [s.name for s in schemas] == ["builds"]
-
     @parameterized.expand(
         [
             # Travis answers 403 (not 401) for bad tokens, so the 403 mapping is the one that

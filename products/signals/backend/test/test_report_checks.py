@@ -18,6 +18,7 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory, force_authenticate
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -1446,6 +1447,7 @@ class TestReportCheckAPI(APIBaseTest):
             _MEASURE, return_value=MetricMeasurement(value=0.0, measured_at=timezone.now(), series=None)
         ) as measure:
             run_due_report_checks()
+        assert measure.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
         measured_query = measure.call_args.args[0]
         assert {key: value for key, value in measured_query["source"].items() if key != "dateRange"} == {
             key: value for key, value in _PAGEVIEWS["source"].items() if key != "dateRange"
@@ -2043,6 +2045,34 @@ class TestCheckResultTool(APIBaseTest):
         assert check.dispatched_at is None
         assert check.runs_remaining == 1
         assert check.next_run_at > timezone.now() + timedelta(minutes=MIN_CHECK_INTERVAL_MINUTES - 5)
+
+    @parameterized.expand(
+        [
+            ("emit_only", "emit", 0),
+            ("emit_and_edit", "both", 0),
+            ("edit_only", "edit", 1),
+            ("no_report_tools", "none", 1),
+            ("unstamped", None, 0),
+        ]
+    )
+    def test_a_failure_resurfaces_only_when_the_lane_cannot_file_the_follow_up(
+        self, _name: str, report_channel: str | None, expected_signals: int
+    ) -> None:
+        check = self._check()
+        if report_channel is not None:
+            self.scout_run.metadata = {"report_channel": report_channel}
+            self.scout_run.save(update_fields=["metadata"])
+
+        with patch(_EMIT_SIGNAL, new=AsyncMock(return_value=None)) as emit:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._record(check)
+
+        assert emit.call_count == expected_signals
+        if expected_signals:
+            sent = emit.call_args.kwargs
+            assert sent["source_type"] == SignalSourceType.CHECK_FAILED
+            assert sent["extra"]["report_id"] == str(self.report.id)
+            assert "fired 30 times yesterday" in sent["description"]
 
     @parameterized.expand(
         [

@@ -3180,18 +3180,30 @@ class TestExperimentService(APIBaseTest):
         assert flag.archived is False
         assert experiment.feature_flag_auto_archived is False
 
-    def test_unarchive_experiment_skips_flag_without_feature_flag_write_scope(self):
-        # Unarchiving the flag is a feature_flag write — skipped (flag stays archived, bookkeeping
-        # intact) for an experiment-only token, recoverable on a later unarchive with the scope.
-        experiment = self._create_ended_experiment(name="Unarchive No Scope", feature_flag_key="unarchive-no-scope")
+    @parameterized.expand(
+        [
+            ("no_feature_flag_write_scope", False, False),
+            ("flag_targets_deleted_cohort", True, True),
+        ]
+    )
+    def test_unarchive_experiment_leaves_flag_archived_when_flag_cannot_be_unarchived(
+        self, _name: str, can_write_feature_flag: bool, targets_deleted_cohort: bool
+    ):
+        # The bookkeeping stays so that a later unarchive can bring the flag back.
+        experiment = self._create_ended_experiment(name="Unarchive Blocked", feature_flag_key="unarchive-blocked")
         experiment.feature_flag.active = False
         experiment.feature_flag.save()
         service = self._service()
         service.archive_experiment(experiment)
         experiment.refresh_from_db()
         assert experiment.feature_flag_auto_archived is True
+        if targets_deleted_cohort:
+            cohort = Cohort.objects.create(team=self.team, name="Retired cohort", deleted=True)
+            FeatureFlag.objects.filter(pk=experiment.feature_flag_id).update(
+                filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}]}
+            )
 
-        service.unarchive_experiment(experiment, can_write_feature_flag=False)
+        service.unarchive_experiment(experiment, can_write_feature_flag=can_write_feature_flag)
 
         experiment.refresh_from_db()
         assert experiment.archived is False
@@ -4004,6 +4016,38 @@ class TestExperimentService(APIBaseTest):
             )
             for event in launched
         ] == expected
+
+    @parameterized.expand(
+        [
+            ("current", timedelta(0), None, False, [False]),
+            ("backdated_running", timedelta(days=90), None, False, [True]),
+            ("backdated_future_end", timedelta(days=90), timedelta(days=10), False, [True]),
+            ("imported_concluded", timedelta(days=90), timedelta(days=-30), True, []),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_with_dates_reports_imports_and_backdated_launches(
+        self, _name, start_ago, end_from_now, expected_imported, expected_backdated, mock_report_user_action
+    ):
+        now = timezone.now()
+        with time_machine.travel(now, tick=False), self.captureOnCommitCallbacks(execute=True):
+            self._service().create_experiment(
+                name=f"Imported {_name}",
+                feature_flag_key=f"imported-{_name.replace('_', '-')}",
+                start_date=now - start_ago,
+                end_date=now + end_from_now if end_from_now is not None else None,
+                event_source=EventSource.API,
+            )
+
+        events = {call.args[1]: call.args[2] for call in mock_report_user_action.call_args_list}
+        launched = [
+            call.args[2]["is_backdated"]
+            for call in mock_report_user_action.call_args_list
+            if call.args[1] == "experiment launched"
+        ]
+        assert events["experiment created"]["is_imported"] is expected_imported
+        assert events["experiment created"]["start_date"] == (now - start_ago).isoformat()
+        assert launched == expected_backdated
 
     @parameterized.expand(
         [

@@ -20,6 +20,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.autoresearch.backend import query as autoresearch_query
 from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME, ROLLING_SCORE_LIMIT
@@ -1099,6 +1100,7 @@ class _Cadence:
     run: AutoresearchRun
     capture: MagicMock
     materialize: MagicMock
+    stored_persons: dict[str, list[str]]
 
 
 @time_machine.travel("2026-09-11T12:00:00Z", tick=False)
@@ -1131,7 +1133,12 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
         )
 
     def _run(
-        self, *, failing: dict[str, Exception] | None = None, shadow_rows=_SHADOW_ROWS, deferred: bool = False
+        self,
+        *,
+        failing: dict[str, Exception] | None = None,
+        shadow_rows=_SHADOW_ROWS,
+        deferred: bool = False,
+        store_fails: bool = False,
     ) -> _Cadence:
         failing = failing or {}
         materialize = MagicMock(return_value=InferenceRows(rows=shadow_rows, eligible=len(shadow_rows)))
@@ -1140,7 +1147,8 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
             model = kwargs["model"]
             if str(model.pk) in failing:
                 raise failing[str(model.pk)]
-            data = kwargs.get("score_data") or InferenceRows(rows=_SHADOW_ROWS, eligible=len(_SHADOW_ROWS))
+            # The champion scores a rolling part of a larger population, so its eligible count exceeds its rows.
+            data = kwargs.get("score_data") or InferenceRows(rows=_SHADOW_ROWS, eligible=50)
             features_sql = self.sql_by_prefix[model.artifact_prefix]
             return SandboxScoreResult(
                 scored_rows=[{**row, "p_y": 0.4} for row in data.rows],
@@ -1152,7 +1160,17 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
             )
 
         capture = _capture_accepting_everything()
+        stored_persons: dict[str, list[str]] = {}
+
+        def write_scored_persons(key: str, ids: list[str]) -> None:
+            if store_fails:
+                raise ObjectStorageError("storage unavailable")
+            stored_persons[key] = sorted(ids)
+
         with (
+            patch.object(scoring, "write_scored_persons", side_effect=write_scored_persons),
+            patch.object(scoring, "read_scored_persons", side_effect=stored_persons.get),
+            patch.object(scoring, "delete_scored_persons", side_effect=lambda key: stored_persons.pop(key, None)),
             patch.object(
                 scoring,
                 "read_bundle",
@@ -1170,7 +1188,7 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
                 assert capture.call_count == 1
                 score_shadow_set_for_run(AutoresearchRun.objects.get(pk=run.pk))
                 run.refresh_from_db()
-        return _Cadence(run=run, capture=capture, materialize=materialize)
+        return _Cadence(run=run, capture=capture, materialize=materialize, stored_persons=stored_persons)
 
     def _shadow_runs(self, model: AutoresearchModel) -> list[AutoresearchRun]:
         return list(AutoresearchRun.objects.filter(model=model, run_type=AutoresearchRun.RunType.INFERENCE))
@@ -1179,18 +1197,33 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
     # again. Either way the two models with the other SQL share one query, although the shadow set
     # scores same_sql between them.
     @parameterized.expand(
-        [("in_process", False, [_OTHER_FEATURE_SQL]), ("deferred", True, [_ANCHORS_FEATURE_SQL, _OTHER_FEATURE_SQL])]
+        [
+            ("in_process", False, False, [_OTHER_FEATURE_SQL]),
+            ("deferred", True, False, [_ANCHORS_FEATURE_SQL, _OTHER_FEATURE_SQL]),
+            ("deferred_without_stored_people", True, True, [_ANCHORS_FEATURE_SQL, _OTHER_FEATURE_SQL]),
+        ]
     )
-    def test_each_shadow_model_scores_the_champions_people_person_less(self, _name, deferred, expected_queries):
+    def test_each_shadow_model_scores_the_champions_people_person_less(
+        self, _name, deferred, store_fails, expected_queries
+    ):
         other_a = self._model("other_a", _OTHER_FEATURE_SQL)
         same_sql = self._model("same_sql", _ANCHORS_FEATURE_SQL)
         other_b = self._model("other_b", _OTHER_FEATURE_SQL)
 
-        cadence = self._run(deferred=deferred)
+        cadence = self._run(deferred=deferred, store_fails=store_fails)
         run, capture, materialize = cadence.run, cadence.capture, cadence.materialize
 
         assert run.status == AutoresearchRun.Status.COMPLETED
         assert sorted(c.kwargs["feature_sql"] for c in materialize.call_args_list) == sorted(expected_queries)
+        # A deferred phase anchors on the people the champion scored, not on a second population query.
+        # A failed store leaves the champion's run complete, and the phase selects the population again.
+        champion_people = (
+            sorted(str(row["distinct_id"]) for row in _SHADOW_ROWS) if deferred and not store_fails else None
+        )
+        assert [c.kwargs.get("anchor_person_ids") for c in materialize.call_args_list] == [champion_people] * len(
+            expected_queries
+        )
+        assert cadence.stored_persons == {}
         assert sorted(run.metrics["shadow_models"]["completed"]) == sorted(
             str(m.pk) for m in (same_sql, other_a, other_b)
         )
@@ -1201,6 +1234,7 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
             assert shadow_run.scheduled is False
             assert shadow_run.metrics["prediction_date"] == run.metrics["prediction_date"]
             assert shadow_run.metrics["horizon_days"] == run.metrics["horizon_days"]
+            assert shadow_run.metrics["rows_eligible"] == run.metrics["rows_eligible"] == 50
 
         champion_call, *shadow_calls = capture.call_args_list
         for event in champion_call.kwargs["events"]:
@@ -1229,7 +1263,14 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
                 "model_load_failed",
                 True,
             ),
-            ("deferred_unpaired_rows", None, _SHADOW_ROWS[:1], "other", True),
+            # With fixed anchors, rows that key someone the champion did not score cannot pair.
+            (
+                "deferred_unpaired_rows",
+                None,
+                [_SHADOW_ROWS[0], {"distinct_id": "stranger", "events_total": 1}],
+                "other",
+                True,
+            ),
         ]
     )
     def test_a_failing_shadow_model_never_touches_the_champion(self, _name, error, shadow_rows, failure_kind, deferred):
