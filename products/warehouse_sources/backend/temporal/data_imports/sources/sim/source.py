@@ -70,7 +70,7 @@ class SimSource(ResumableSource[SimSourceConfig, SimResumeConfig]):
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if schema_name is not None and schema_name not in ENDPOINTS:
-            return False, f"Unknown Sim table: {schema_name}. Select workflows or logs."
+            return False, f"Unknown Sim table: {schema_name}. Select one of: {', '.join(ENDPOINTS)}."
         return validate_sim_credentials(config, self.resolve_api_version(api_version), schema_name)
 
     def get_schemas(
@@ -82,7 +82,13 @@ class SimSource(ResumableSource[SimSourceConfig, SimResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # usage_window rereads the watermark's whole day, and append does not deduplicate primary keys.
+            merge_only=("usage_events",),
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SimResumeConfig]:
         return ResumableSourceManager(inputs, SimResumeConfig)
@@ -105,7 +111,8 @@ class SimSource(ResumableSource[SimSourceConfig, SimResumeConfig]):
             keywords=["ai agents", "workflow", "automation", "logs"],
             docsUrl="https://posthog.com/docs/cdp/sources/sim",
             caption="Create a personal or workspace API key in Sim settings with read access to the workspace. "
-            "Find the workspace ID in the URL: `https://www.sim.ai/workspace/{workspaceId}/w/{workflowId}`.",
+            "Find the workspace ID in the URL: `https://www.sim.ai/workspace/{workspaceId}/w/{workflowId}`. "
+            "The usage events table needs a personal API key from an organization admin.",
             fields=cast(
                 list[FieldType],
                 [
@@ -127,5 +134,5 @@ class SimSource(ResumableSource[SimSourceConfig, SimResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

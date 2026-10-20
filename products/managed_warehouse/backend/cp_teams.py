@@ -31,7 +31,6 @@ import time
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date
 from functools import partial
 
@@ -39,8 +38,13 @@ from django.conf import settings
 
 import requests as http_requests
 
+from posthog.dataclasses import frozen
 from posthog.security.outbound_proxy import internal_requests
 
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseTableNames,
+    ManagedWarehouseTeamMembership,
+)
 from products.managed_warehouse.backend.presentation import hogtower
 
 logger = logging.getLogger(__name__)
@@ -50,7 +54,7 @@ logger = logging.getLogger(__name__)
 CACHE_TTL_SECONDS: float = 60.0
 
 
-@dataclass
+@frozen
 class CPTeam:
     """One duckgres control-plane org-team row."""
 
@@ -76,9 +80,29 @@ class CPTeam:
         return self.persons_table_name or f"persons_{self.schema_name}"
 
     @property
+    def resolved_groups_table(self) -> str:
+        return f"groups_{self.schema_name}"
+
+    @property
     def resolved_data_imports_schema(self) -> str:
         """Data-imports schema: the grandfathered pin, else the transitional derivation."""
         return self.schema_data_imports_name or f"posthog_data_imports_{self.schema_name}"
+
+    def to_membership(self) -> ManagedWarehouseTeamMembership:
+        return ManagedWarehouseTeamMembership(
+            team_id=self.team_id,
+            organization_id=self.organization_id,
+            schema_name=self.schema_name,
+            enabled=self.enabled,
+            backfill_enabled=self.backfill_enabled,
+            table_names=ManagedWarehouseTableNames(
+                events_table=self.resolved_events_table,
+                persons_table=self.resolved_persons_table,
+                groups_table=self.resolved_groups_table,
+                data_imports_schema=self.resolved_data_imports_schema,
+            ),
+            earliest_event_date=self.earliest_event_date,
+        )
 
 
 def _parse_earliest_event_date(raw: object) -> date | None:

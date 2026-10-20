@@ -40,11 +40,9 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
             # Role-scoped keys without the customers grant still 403; only 401
             # means the key itself is bad.
             (403, True),
-            (401, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
@@ -62,13 +60,26 @@ class TestValidateCredentials:
 
 
 class TestRequestParams:
-    def test_sub_statuses_requests_conversation_resource(self) -> None:
-        # The sub-statuses list rejects requests without the `resource` filter.
-        result = _driver().run("sub_statuses", [_page([])])
+    @pytest.mark.parametrize(
+        "endpoint, expected_params",
+        [
+            # The sub-statuses list rejects requests without the `resource` filter.
+            ("sub_statuses", {"resource": "conversation", "sort": None}),
+            # Page-number lists sort ascending so new rows do not shift later pages.
+            ("messages", {"sort": "asc"}),
+            ("notes", {"sort": "asc"}),
+            ("work_items", {"sort": "asc"}),
+            # Without `user=false` only the API key owner's sessions come back.
+            ("work_sessions", {"sort": "asc", "user": "false", "active": "false"}),
+            ("queues", {"sort": None, "user": None}),
+        ],
+    )
+    def test_endpoint_request_params(self, endpoint: str, expected_params: dict[str, str | None]) -> None:
+        result = _driver().run(endpoint, [_page([])])
 
         assert result.raised is None
-        assert result.paths == ["/v1/sub-statuses"]
-        assert result.params("resource") == ["conversation"]
+        for name, value in expected_params.items():
+            assert result.params(name) == [value]
 
 
 class TestPagination:

@@ -29,12 +29,14 @@ class TriggerDevRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class TriggerDevResumeConfig:
-    # The page[after] cursor used to FETCH the page we last yielded. `None` means the first page.
-    # We checkpoint the current page's cursor (not the next one) so a crash re-fetches and re-yields
-    # the last page rather than skipping it; merge dedupes the re-pulled rows on the primary key.
+    # The page[after] cursor of the page to fetch on resume. `None` means the first page.
     after: str | None = None
+    # Only the run fan-out sets this: the runs of the page at `after` up to and including this one are done.
+    last_run_id: str | None = None
+    # That run's createdAt, the fallback boundary when the run no longer exists on the page.
+    last_run_created_at: str | None = None
 
 
 def resolve_base_url(base_url: str | None) -> str:
@@ -162,6 +164,34 @@ def validate_credentials(api_key: str, base_url: str) -> tuple[bool, str | None]
     return False, f"Trigger.dev returned an unexpected response: {response.status_code}"
 
 
+def _fetch_cursor_page(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: TriggerDevEndpointConfig,
+    logger: FilteringBoundLogger,
+    after: str | None,
+    formatted_cutoff: str | None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Fetch one page of a cursor endpoint, returning its rows and the cursor of the next page."""
+    params: dict[str, Any] = {"page[size]": config.page_size, **config.extra_params}
+    if after is None:
+        # The createdAt filter is only sent on the first (uncursored) request. Mixing a time
+        # filter with the cursor is unverified against the live API (no credentials at build
+        # time), so we scope it to page one and bound the rest client-side via _should_stop_desc.
+        if formatted_cutoff is not None and config.created_from_param:
+            params[config.created_from_param] = formatted_cutoff
+    else:
+        params["page[after]"] = after
+
+    data = _fetch_page(session, _build_url(base_url, config.path, params), headers, logger)
+
+    items = data.get("data", []) or []
+    if config.excluded_fields:
+        items = [{k: v for k, v in item.items() if k not in config.excluded_fields} for item in items]
+    return items, (data.get("pagination", {}) or {}).get("next")
+
+
 def _iter_cursor_pages(
     session: requests.Session,
     base_url: str,
@@ -172,32 +202,22 @@ def _iter_cursor_pages(
     incremental_field: str | None,
     cutoff: datetime | None,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Walk the runs endpoint newest-first via page[after], yielding one list of rows per page."""
+    """Walk a cursor endpoint newest-first via page[after], yielding one list of rows per page.
+
+    The resume state is the next unread page, staged before the yield it covers, so a resumed full
+    refresh never replays a page that was already written.
+    """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     after: str | None = resume.after if resume else None
     formatted_cutoff = _format_incremental_value(cutoff) if cutoff is not None else None
 
     while True:
-        params: dict[str, Any] = {"page[size]": config.page_size}
-        if after is None:
-            # The createdAt filter is only sent on the first (uncursored) request. Mixing a time
-            # filter with the cursor is unverified against the live API (no credentials at build
-            # time), so we scope it to page one and bound the rest client-side via _should_stop_desc.
-            if formatted_cutoff is not None:
-                params["filter[createdAt][from]"] = formatted_cutoff
-        else:
-            params["page[after]"] = after
-
-        url = _build_url(base_url, config.path, params)
-        data = _fetch_page(session, url, headers, logger)
-
-        items = data.get("data", []) or []
-        next_after = (data.get("pagination", {}) or {}).get("next")
+        items, next_after = _fetch_cursor_page(session, base_url, headers, config, logger, after, formatted_cutoff)
         stop = _should_stop_desc(items, incremental_field, cutoff)
 
+        if next_after and not stop:
+            resumable_source_manager.save_state(TriggerDevResumeConfig(after=next_after))
         yield items
-        # Checkpoint the CURRENT page's cursor after yielding, so a crash re-fetches this page.
-        resumable_source_manager.save_state(TriggerDevResumeConfig(after=after))
 
         if stop or not next_after:
             break
@@ -206,6 +226,82 @@ def _iter_cursor_pages(
     # The walk finished cleanly, so drop the checkpoint. Otherwise a later attempt (e.g. a retry that
     # re-runs extract after the previous one completed) would resume from the final page's cursor and
     # skip every run created since — runs arrive newest-first, so the new ones live on page one.
+    resumable_source_manager.clear_state()
+
+
+def _iter_run_events(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: TriggerDevEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[TriggerDevResumeConfig],
+    cutoff: datetime | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fetch the span events of each run, walking the runs endpoint as the parent.
+
+    The resume state is the runs page cursor plus the last run whose events were yielded, staged before
+    that yield. A resumed attempt re-reads the page and skips the runs up to that one, so a full refresh
+    never appends the events of a run twice.
+    """
+    runs_config = TRIGGER_DEV_ENDPOINTS["runs"]
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    after: str | None = resume.after if resume else None
+    skip_through: str | None = resume.last_run_id if resume else None
+    skip_created_at = resume.last_run_created_at if resume else None
+    formatted_cutoff = _format_incremental_value(cutoff) if cutoff is not None else None
+
+    while True:
+        runs, next_after = _fetch_cursor_page(session, base_url, headers, runs_config, logger, after, formatted_cutoff)
+        stop = _should_stop_desc(runs, runs_config.default_incremental_field, cutoff)
+        marker_on_page = skip_through is not None and skip_through in {run.get("id") for run in runs}
+        if not runs:
+            resumable_source_manager.safe_point()
+
+        for run in runs:
+            run_id = run.get("id")
+            if not run_id:
+                continue
+            if skip_through is not None:
+                if marker_on_page:
+                    if run_id == skip_through:
+                        skip_through = None
+                    continue
+                # The checkpointed run is gone, and the page is newest-first, so every run strictly newer
+                # than it was already done.
+                created_at = run.get("createdAt")
+                if (
+                    skip_created_at is not None
+                    and created_at
+                    and not _is_older_than_cutoff(created_at, dateutil_parser.parse(skip_created_at))
+                ):
+                    continue
+                skip_through = None
+            if cutoff is not None and _is_older_than_cutoff(run.get("createdAt"), cutoff):
+                # Runs from before the cutoff were synced already; the page only crosses it to end the walk.
+                continue
+            url = _build_url(base_url, config.path.format(run_id=run_id), {})
+            try:
+                events = _fetch_page(session, url, headers, logger).get("events", []) or []
+            except requests.HTTPError as e:
+                # A run deleted between the runs page and this request has no events left to sync.
+                if e.response is None or e.response.status_code != 404:
+                    raise
+                events = []
+
+            # Stage the run even when it has no events, so a resume does not repeat its request.
+            resumable_source_manager.save_state(
+                TriggerDevResumeConfig(after=after, last_run_id=run_id, last_run_created_at=run.get("createdAt"))
+            )
+            if not events:
+                resumable_source_manager.safe_point()
+                continue
+            yield [{**event, "_runs_id": run_id, "_runs_createdAt": run.get("createdAt")} for event in events]
+
+        if stop or not next_after:
+            break
+        after = next_after
+
     resumable_source_manager.clear_state()
 
 
@@ -257,9 +353,10 @@ def get_rows(
     config = TRIGGER_DEV_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # allow_redirects=False keeps the bearer token pinned to the validated host across every page.
-    session = make_tracked_session(allow_redirects=False)
+    # Capture off when rows carry a field that must not leave the source: samples are stored before excluded_fields is applied.
+    session = make_tracked_session(allow_redirects=False, capture=not config.excluded_fields)
 
-    if config.pagination == "cursor":
+    if config.pagination in ("cursor", "run_fanout"):
         cutoff: datetime | None = None
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             value = db_incremental_field_last_value
@@ -272,6 +369,9 @@ def get_rows(
                     value = None
             if isinstance(value, datetime):
                 cutoff = _as_utc(value) - (config.incremental_lookback or timedelta(0))
+        if config.pagination == "run_fanout":
+            yield from _iter_run_events(session, base_url, headers, config, logger, resumable_source_manager, cutoff)
+            return
         yield from _iter_cursor_pages(
             session,
             base_url,
@@ -312,8 +412,8 @@ def trigger_dev_source(
             incremental_field=incremental_field,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # Runs arrive newest-first; the pipeline must know so it defers the incremental watermark
-        # correctly. Classic full-refresh endpoints keep the default asc.
+        # Runs, deployments, waitpoint tokens and run events arrive newest-first; the pipeline must
+        # know so it defers the incremental watermark correctly. Full-refresh endpoints keep asc.
         sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,

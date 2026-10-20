@@ -149,6 +149,8 @@ class CustomerProduct(TypedDict):
     addons: list[CustomerProductAddon]
     # Billing refuses a customer billing limit for this product. Older billing omits the key.
     no_billing_limit: NotRequired[bool]
+    # Set on a companion product: the type of the product it is billed under. Older billing omits the key.
+    companion_of: NotRequired[Optional[str]]
 
 
 class LicenseInfo(TypedDict):

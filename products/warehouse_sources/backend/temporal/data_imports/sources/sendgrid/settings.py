@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # How a list endpoint is walked:
@@ -32,7 +35,7 @@ ResponseShape = Literal["array", "daily_stats"]
 STATS_DEFAULT_BACKFILL_DAYS = 365
 
 
-@dataclass
+@dataclass(frozen=False)
 class SendGridEndpointConfig:
     name: str
     path: str
@@ -70,6 +73,21 @@ class SendGridEndpointConfig:
     required_scope: str = ""
     # Appended to the missing-scope message where granting the scope may not be enough on its own.
     permission_note: Optional[str] = None
+    # Structural requirement of `FanoutEndpointLike` (see common/rest_source/fanout.py); no
+    # fan-out endpoint here syncs incrementally.
+    default_incremental_field: Optional[str] = None
+    # Set on a child endpoint whose path takes one id per row of a parent endpoint.
+    fanout: Optional[DependentEndpointConfig] = None
+    # Endpoint to probe for permissions instead of this one, when this response is too large to
+    # download on every schema-picker load. It must read with the same scope.
+    probe_endpoint: Optional[str] = None
+
+
+# Marketing Campaigns is provisioned per account, and legacy Marketing Campaigns serves a different
+# API entirely, so both deny the `/marketing` endpoints however the key is scoped.
+_MARKETING_CAMPAIGNS_NOTE = (
+    "Accounts without Marketing Campaigns, or on legacy Marketing Campaigns, cannot sync this table."
+)
 
 
 def _epoch_field(name: str) -> IncrementalField:
@@ -179,6 +197,18 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         pagination="single",
         required_scope="asm.groups.read",
     ),
+    # Membership rows of every unsubscribe group in one response. This is the same data as a
+    # per-group fan-out over /asm/groups/{group_id}/suppressions, which returns bare email strings
+    # with no creation time.
+    "unsubscribe_group_suppressions": SendGridEndpointConfig(
+        name="unsubscribe_group_suppressions",
+        path="/asm/suppressions",
+        primary_keys=["group_id", "email"],
+        pagination="single",
+        partition_key="created_at",
+        required_scope="asm.groups.read",
+        probe_endpoint="unsubscribe_groups",
+    ),
     "marketing_lists": SendGridEndpointConfig(
         name="marketing_lists",
         path="/marketing/lists",
@@ -187,9 +217,51 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         data_key="result",
         page_size=100,
         required_scope="marketing.read",
-        # Marketing Campaigns is provisioned per account, and legacy Marketing Campaigns serves a
-        # different API entirely, so both deny `/marketing/lists` however the key is scoped.
-        permission_note="Accounts without Marketing Campaigns, or on legacy Marketing Campaigns, cannot sync this table.",
+        permission_note=_MARKETING_CAMPAIGNS_NOTE,
+    ),
+    "singlesends": SendGridEndpointConfig(
+        name="singlesends",
+        path="/marketing/singlesends",
+        primary_keys=["id"],
+        pagination="metadata",
+        data_key="result",
+        page_size=100,
+        partition_key="created_at",
+        required_scope="marketing.read",
+        permission_note=_MARKETING_CAMPAIGNS_NOTE,
+    ),
+    "singlesend_stats": SendGridEndpointConfig(
+        name="singlesend_stats",
+        path="/marketing/stats/singlesends",
+        # Without `group_by`, ab_variation and ab_phase are "all", so each single send has one
+        # lifetime-total row. They stay in the key so an A/B breakdown row can never collide.
+        primary_keys=["id", "ab_variation", "ab_phase"],
+        pagination="metadata",
+        data_key="results",
+        # The stats endpoints cap `page_size` at 50.
+        page_size=50,
+        required_scope="marketing.read",
+        permission_note=_MARKETING_CAMPAIGNS_NOTE,
+    ),
+    "singlesend_link_stats": SendGridEndpointConfig(
+        name="singlesend_link_stats",
+        path="/marketing/stats/singlesends/{singlesend_id}/links",
+        primary_keys=["singlesend_id", "url", "url_location", "ab_variation", "ab_phase"],
+        pagination="metadata",
+        data_key="results",
+        page_size=50,
+        required_scope="marketing.read",
+        permission_note=_MARKETING_CAMPAIGNS_NOTE,
+        fanout=DependentEndpointConfig(
+            parent_name="singlesends",
+            resolve_param="singlesend_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "singlesend_id"},
+            # A single send deleted between the parent listing and its child fetch must not fail
+            # the whole table.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
     "templates": SendGridEndpointConfig(
         name="templates",

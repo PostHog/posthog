@@ -11,7 +11,9 @@ from __future__ import annotations
 from typing import Any
 
 from autoevals.llm import LLMClassifier
+from braintrust import Score as BraintrustScore
 
+from ..engines.types import ScorerResult
 from .contract import AsyncOnlyScorerMixin, Score
 
 # Re-exported for back-compat: AsyncOnlyScorerMixin now lives in the scorer contract.
@@ -53,14 +55,19 @@ class JudgedScorer(AsyncOnlyScorerMixin, LLMClassifier):
     from ``_prepare`` deliberately.
     """
 
-    async def _run_eval_async(self, output: Any, expected: Any = None, **kwargs: Any) -> Score:
+    async def _run_eval_async(self, output: Any, expected: Any = None, **kwargs: Any) -> BraintrustScore:
         prepared = self._prepare(output, expected)
-        if isinstance(prepared, Score):
+        if isinstance(prepared, BraintrustScore):
             return prepared
         try:
             return await super()._run_eval_async(prepared["output"], prepared.get("expected"), **kwargs)
         except Exception as exc:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": f"judge error: {exc}"},
+                result=ScorerResult(status="error", error_code="judge_error", error_message=str(exc)),
+            )
 
-    def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
+    def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | BraintrustScore:
         raise NotImplementedError

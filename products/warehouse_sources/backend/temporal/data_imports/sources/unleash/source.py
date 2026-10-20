@@ -112,7 +112,7 @@ class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
             "github.com/unleash/unleash-ios-sdk",
             "github.com/unleash/unleash-openfeature-swift-provider",
         ),
-        competes_with=(ProductKey.FEATURE_FLAGS,),
+        alternative_to=(ProductKey.FEATURE_FLAGS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -134,7 +134,7 @@ class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
             name=ExternalDataSourceType.UNLEASH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Unleash",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["feature flags", "feature toggles", "getunleash"],
             caption="""Enter your Unleash instance URL and an Admin API token to sync your feature flags, projects, environments, strategies, segments, and other configuration data into the PostHog Data warehouse.
 

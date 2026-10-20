@@ -5,8 +5,8 @@
 use simd_json::borrowed::{Object, Value};
 
 use crate::assets::{
-    apply_blur, blur_inline_image_attr, has_media_src_attr, is_image_ref_attr, is_media_src_attr,
-    is_media_tag, CSS_IMAGE_REFS_ATTR_PREFIX, INLINE_IMAGE_ATTR,
+    has_media_src_attr, is_image_ref_attr, is_media_src_attr, is_media_tag,
+    scrub_inline_image_attr, scrub_media_sources, CSS_IMAGE_REFS_ATTR_PREFIX, INLINE_IMAGE_ATTR,
 };
 use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
@@ -218,7 +218,7 @@ fn scrub_attrs(
 ) -> bool {
     let mut changed = false;
     // Plain string scrubs mutate values in place while iterating — no per-element key Vec. Only the
-    // helpers that need `&mut Object` (blur inserts sibling keys, css re-reads by key) defer their
+    // helpers that need `&mut Object` (media sources insert sibling keys, css re-reads by key) defer their
     // attr names, which most elements don't have. Each attr is scrubbed independently, so running
     // the deferred ones after the loop produces the same result as the original in-order pass.
     let mut deferred: Vec<String> = Vec::new();
@@ -241,7 +241,7 @@ fn scrub_attrs(
         if kind == TagKind::Media && is_media_src_attr(name) {
             continue;
         }
-        // Inlined rendered pixels (`rr_dataURL`): blur the image, on any tag.
+        // Inlined rendered pixels (`rr_dataURL`): scrub the image, on any tag.
         if name == INLINE_IMAGE_ATTR || name == "style" || name == INLINED_STYLESHEET_ATTR {
             deferred.push(name.to_string());
             continue;
@@ -276,7 +276,7 @@ fn scrub_attrs(
 
     for name in deferred {
         if name == INLINE_IMAGE_ATTR {
-            changed |= blur_inline_image_attr(ctx, attrs, &name);
+            changed |= scrub_inline_image_attr(ctx, attrs, &name);
         } else if name == "style" {
             changed |= scrub_css_images(ctx, attrs, &name, CssContext::DeclarationList);
         } else {
@@ -285,7 +285,7 @@ fn scrub_attrs(
     }
 
     if kind == TagKind::Media {
-        changed |= apply_blur(ctx, attrs, tag, parent_is_picture);
+        changed |= scrub_media_sources(ctx, attrs, tag, parent_is_picture);
     }
 
     changed
@@ -365,8 +365,11 @@ mod tests {
         let v = out["node"]["childNodes"][0]["attributes"]["rr_dataURL"]
             .as_str()
             .unwrap();
-        assert!(v.starts_with("data:image/"), "still an image: {v}");
-        assert_ne!(v, uri, "raw inline image must not pass through");
+        assert_eq!(
+            v,
+            crate::data_uri::blank_image_data_uri(),
+            "blanked without the scrub lane"
+        );
     }
 
     #[test]
@@ -394,7 +397,7 @@ mod tests {
 
     #[test]
     fn media_tag_without_source_attrs_is_not_marked_changed() {
-        // A bare <img> (media tag, but no src/href/etc. to blur) must report "unchanged" so the whole
+        // A bare <img> (media tag, but no src/href/etc. to scrub) must report "unchanged" so the whole
         // message isn't needlessly re-serialized just because a media element was present.
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::new(&allow);
@@ -402,7 +405,7 @@ mod tests {
         let mut data = simd_json::to_borrowed_value(&mut bytes).unwrap();
         assert!(
             !scrub_full_snapshot(&ctx, &mut data),
-            "a media tag with nothing to blur should not count as a change"
+            "a media tag with nothing to scrub should not count as a change"
         );
     }
 }

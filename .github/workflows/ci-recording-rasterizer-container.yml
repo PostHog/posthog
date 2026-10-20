@@ -55,7 +55,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -86,7 +86,7 @@ jobs:
         needs: changes
         name: Build and push recording-rasterizer image
         if: |
-            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.rasterizer_files == 'true') ||
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.rasterizer_files == 'true') ||
             (github.event_name == 'workflow_dispatch' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
             (github.event_name == 'schedule' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.rasterizer_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
@@ -266,7 +266,7 @@ jobs:
                         },
                         "release": "recording-rasterizer",
                         "commit": ${{ steps.commit.outputs.commit_json }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ steps.commit.outputs.timestamp }}"
                       }

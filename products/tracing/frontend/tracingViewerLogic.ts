@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { inApiCase } from 'lib/components/ViewTraceButton/traceUrl'
+
 import type { ErrorScope } from './errorCorrelation'
 import {
     EMPTY_TRACE_IDENTITY,
@@ -215,14 +217,14 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 errorsScope?: ErrorScope | null
             }
         ) => ({
-            traceId,
-            spanId: options?.spanId ?? null,
+            traceId: inApiCase(traceId),
+            spanId: options?.spanId ? inApiCase(options.spanId) : null,
             ts: options?.ts ?? null,
             tab: options?.tab ?? null,
             errorsScope: options?.errorsScope ?? null,
         }),
         selectInspectorTab: (tab: SpanInspectorTab) => ({ tab }),
-        selectSpan: (spanId: string | null) => ({ spanId }),
+        selectSpan: (spanId: string | null) => ({ spanId: spanId ? inApiCase(spanId) : null }),
         closeTrace: true,
         openCompareFlame: (spanName: string, serviceName: string) => ({ spanName, serviceName }),
         closeCompareFlame: true,

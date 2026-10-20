@@ -1219,6 +1219,92 @@ export interface _MetricCatalogValuesParamsApi {
     names: string[]
 }
 
+/**
+ * * `custom` - custom
+ * * `promql` - promql
+ * * `sql` - sql
+ * * `textbox` - textbox
+ */
+export type MetricVariableSourceEnumApi = (typeof MetricVariableSourceEnumApi)[keyof typeof MetricVariableSourceEnumApi]
+
+export const MetricVariableSourceEnumApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface _MetricVariableSelectionApi {
+    /**
+     * Variable name. Queries refer to it as `$name`.
+     * @maxLength 128
+     * @pattern ^[A-Za-z_][A-Za-z0-9_]*$
+     */
+    name: string
+    /**
+     * The selected values. When `all` is true, the options that All stands for.
+     * @maxItems 1000
+     * @items.maxLength 1024
+     */
+    values: string[]
+    /** True when the variable is set to All. */
+    all?: boolean
+    /**
+     * The text that All puts in a PromQL query. `.*` when it is empty.
+     * @maxLength 1024
+     * @nullable
+     */
+    allValue?: string | null
+}
+
+export interface _MetricVariableOptionsRequestApi {
+    /** Where the options come from: a static list, a PromQL query, a SQL query, or free text.
+     *
+     * * `custom` - custom
+     * * `promql` - promql
+     * * `sql` - sql
+     * * `textbox` - textbox */
+    source: MetricVariableSourceEnumApi
+    /**
+     * The options query when `source` is `promql` or `sql`. It can refer to other variables as `$name`. PromQL supports label_values(label), label_values(selector, label), label_names(), metrics(regex) and query_result(expr). SQL returns the options in its first column.
+     * @maxLength 10000
+     * @nullable
+     */
+    query?: string | null
+    /**
+     * The options when `source` is `custom`.
+     * @maxItems 1000
+     * @nullable
+     * @items.maxLength 1024
+     */
+    customValues?: string[] | null
+    /**
+     * A regex that filters the options of a query, as `pattern` or `/pattern/flags`. With a capture group, each option is its first group. An invalid regex is rejected before any query runs.
+     * @maxLength 1024
+     * @nullable
+     */
+    regex?: string | null
+    /** The current selection of the other dashboard variables that the query can refer to. */
+    variables?: _MetricVariableSelectionApi[]
+    /**
+     * Start of the window that options come from, as in a dashboard date filter: ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago.
+     * @maxLength 64
+     * @nullable
+     */
+    dateFrom?: string | null
+    /**
+     * End of the window that options come from, in the same format as dateFrom. Defaults to now.
+     * @maxLength 64
+     * @nullable
+     */
+    dateTo?: string | null
+}
+
+export interface _MetricVariableOptionsResponseApi {
+    /** The options of the variable, at most 1,000. */
+    results: string[]
+}
+
 export type MetricsAttributeValuesRetrieveParams = {
     /**
      * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago.
@@ -1242,6 +1328,11 @@ export type MetricsAttributeValuesRetrieveParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * Exact metric name to limit values to. Omit to list values across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string
     /**
      * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
      * @maxLength 1024

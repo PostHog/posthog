@@ -309,8 +309,8 @@ export type SubBatchAck = Message<'ingestion.worker.v1.SubBatchAck'> & {
     /**
      * Messages with work left when the budget ran out. Set only on PARTIAL,
      * never empty. Every other message is done, as on OK. The listed messages
-     * need not be the last of their routing key, because a worker may process
-     * one key's messages in independent groups.
+     * are the last of their distinct id, not of their routing key: a message
+     * is done only once every earlier message of its distinct id is done.
      *
      * @generated from field: repeated ingestion.worker.v1.MessageRef unfinished = 5;
      */

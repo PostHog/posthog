@@ -1,7 +1,6 @@
 import re
 import json
 import uuid
-from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, timedelta
 from functools import cached_property, partial
@@ -73,7 +72,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase, PullRe
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
-from posthog.oauth_provenance import is_sandbox_oauth_request
+from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
 from posthog.permissions import (
     APIScopePermission,
     TeamMemberStrictManagementPermission,
@@ -118,11 +117,16 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
-from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
+from products.signals.backend.briefing_reports import reports_for_person
 from products.signals.backend.dismissal_notes import forward_dismissal_note
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.enums import ReportPriority, ReportTaskActionKind
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
+from products.signals.backend.free_trial import (
+    FREE_TRIAL_PR_MESSAGE,
+    FreeTrialPullRequestRefused,
+    capture_signal_report_free_trial_paused,
+)
 from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
     implementation_pr_report_filter,
@@ -143,8 +147,11 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
+from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
+from products.signals.backend.ranking.access import can_view_inbox_ranking
 from products.signals.backend.ranking.inbox_sort import (
     PRIORITY_ORDERING,
     RANKER_ORDERINGS,
@@ -197,10 +204,22 @@ from products.signals.backend.report_read_state import (
     ReportReadStateResponseSerializer,
     report_read_states,
 )
+from products.signals.backend.report_task_actions import (
+    AI_CONSENT_DISABLED_REASON,
+    INBOX_REPORT_ACTION_EVENT,
+    PULL_REQUEST_RUN_ACTIVE_DETAIL,
+    ReportActionState,
+    ReportTaskActionContext,
+    ReportTaskActionStartError,
+    active_pull_request_run,
+    inbox_report_action_properties,
+    list_report_task_actions,
+    resolve_report_task_action,
+    start_report_task_action,
+)
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
-from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
@@ -229,11 +248,13 @@ from products.signals.backend.serializers import (
     SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
-    SignalReportsForYouQuerySerializer,
-    SignalReportsForYouResponseSerializer,
     SignalReportSourceMetadataRequestSerializer,
     SignalReportSourceMetadataResponseSerializer,
     SignalReportSuggestedReviewersArtefactSerializer,
+    SignalReportTaskActionErrorSerializer,
+    SignalReportTaskActionListResponseSerializer,
+    SignalReportTaskActionRunRequestSerializer,
+    SignalReportTaskActionRunResponseSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
@@ -253,6 +274,7 @@ from products.signals.backend.slack_notification_targets import (
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
+from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
@@ -271,8 +293,13 @@ from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
     SignalReportReingestionWorkflowInputs,
 )
-from products.signals.backend.throttles import ReportMetricRefreshThrottle
+from products.signals.backend.throttles import (
+    ReportMetricRefreshThrottle,
+    ReportTaskActionRunBurstThrottle,
+    ReportTaskActionRunSustainedThrottle,
+)
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -294,18 +321,9 @@ _PULL_REQUEST_ID_PARAMETER = OpenApiParameter(
     description="Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).",
 )
 
-# The pill in a report list needs a glyph, not a live build log, so its CI state is cached longer
-# than the detail view's checks. The detail view stays the authoritative, 15s-fresh read of the
-# same pull request.
-PR_CI_STATUS_CACHE_SECONDS = 60
-# How long a pull request GitHub cannot answer for is remembered as unreadable.
-PR_CI_STATUS_UNREADABLE_CACHE_SECONDS = 300
 # Reports one batch CI-status request may ask about. A report list page is 50 rows, so a full page
 # of pull requests fits, with room for a flat list that merges several sections.
 PR_CI_STATUS_MAX_REPORTS = 100
-# Cached in place of a CI status for a pull request GitHub cannot answer for. Not a member of the
-# status vocabulary, so it can never be served to a caller as one.
-_PR_CI_STATUS_UNREADABLE = "unreadable"
 # Report statuses whose pull request is no longer open, so its CI is not worth a GitHub call.
 _PR_CI_STATUS_TERMINAL_REPORT_STATUSES = frozenset(
     {SignalReport.Status.FAILED, SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED}
@@ -1131,15 +1149,33 @@ class SignalReportReingestionStatusSerializer(serializers.Serializer):
 
 
 class SignalReportListPagination(LimitOffsetPagination):
+    def paginate_queryset(self, queryset, request, view=None):
+        # Fetch the page before the count. A page that ends before the limit already gives the
+        # total, so the second scan is not needed. A `search` filter rechecks the text of every
+        # candidate report, and that scan costs seconds in a large team.
+        self.limit = self.get_limit(request)
+        if self.limit is None:
+            return None
+        self.offset = self.get_offset(request)
+        self.request = request
+        page = list(queryset[self.offset : self.offset + self.limit])
+        if len(page) < self.limit and (page or self.offset == 0):
+            self.count = self.offset + len(page)
+        else:
+            self.count = self.get_count(queryset)
+        if self.count > self.limit and self.template is not None:
+            self.display_page_controls = True
+        return page
+
     def get_paginated_response_schema(self, schema):
         paginated = super().get_paginated_response_schema(schema)
         paginated["properties"]["ranker"] = {
             "type": "string",
             "nullable": True,
             "description": (
-                "The ranker that ordered the page when sort=recommended: priority, or fixed for the served "
-                "ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs "
-                "to this ranker."
+                "The ranker that ordered the page when sort=recommended: priority, or open, action or fixed "
+                "for that head of the served ranking model. Null for every other sort. Each row's "
+                "inbox_merge_key belongs to this ranker."
             ),
         }
         return paginated
@@ -1183,6 +1219,7 @@ class SignalReportViewSet(
     _INBOX_VIEWS = frozenset(
         {
             "actionable",
+            "for_you",
             "needs_input",
             "needs_decision",
             "monitoring",
@@ -1246,7 +1283,7 @@ class SignalReportViewSet(
         return Response(ReportReadStateResponseSerializer({"states": states}).data)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
-        if self.action in {"list", "for_you"}:
+        if self.action == "list":
             return SignalReportListSerializer
         return SignalReportSerializer
 
@@ -1370,15 +1407,13 @@ class SignalReportViewSet(
 
     # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
     # actions) and is never a valid filter target either.
-    # Monitoring has no supported lifecycle yet, so it is excluded from reads too.
     _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {
         SignalReport.Status.DELETED,
         SignalReport.Status.MONITORING,
     }
-    _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
-    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "for_you"})
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -1418,17 +1453,13 @@ class SignalReportViewSet(
         SignalReportBulkStateOutcome.NOT_FOUND: "No report with this id is visible to you.",
     }
 
-    _MONITORING_FALLBACK_READ_ACTIONS = frozenset(
-        {"list", "retrieve", "signals", "viewed", "feedback_state", "feedback", "pr_checks", "pr_comments"}
-    )
-
     @cached_property
     def _report_monitoring_enabled(self) -> bool:
         return organization_report_monitoring_enabled(self.organization.id)
 
     def _resolved_read_statuses(self) -> frozenset[str]:
         statuses = frozenset({SignalReport.Status.RESOLVED})
-        if self.action in self._MONITORING_FALLBACK_READ_ACTIONS and not self._report_monitoring_enabled:
+        if not self._report_monitoring_enabled:
             return statuses | {SignalReport.Status.MONITORING}
         return statuses
 
@@ -1442,12 +1473,15 @@ class SignalReportViewSet(
         return queryset.filter(status__in=sorted(statuses))
 
     def _visible_statuses(self) -> frozenset[str]:
+        filterable_statuses = self._FILTERABLE_STATUSES
+        if self._report_monitoring_enabled:
+            filterable_statuses |= {SignalReport.Status.MONITORING}
         status_filter = self.request.query_params.get("status")
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
-            invalid = [s for s in statuses if s not in self._FILTERABLE_STATUSES]
+            invalid = [s for s in statuses if s not in filterable_statuses]
             if invalid:
-                accepted = ", ".join(sorted(self._FILTERABLE_STATUSES))
+                accepted = ", ".join(sorted(filterable_statuses))
                 raise serializers.ValidationError(
                     {
                         "status": f"Invalid status value(s): {', '.join(sorted(set(invalid)))}. Accepted values: {accepted}."
@@ -1467,8 +1501,8 @@ class SignalReportViewSet(
             or self._include_all_statuses_requested()
             or self.request.query_params.get("view") in {"dismissed", "held_back", "all"}
         ):
-            return self._FILTERABLE_STATUSES
-        return self._DEFAULT_STATUSES
+            return filterable_statuses
+        return filterable_statuses - {SignalReport.Status.SUPPRESSED}
 
     def _include_all_statuses_requested(self) -> bool:
         # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID
@@ -1594,7 +1628,7 @@ class SignalReportViewSet(
             return queryset
         has_review_pr = implementation_pr_report_filter(team_id=self.team.id, active_only=True)
         is_unclaimed = (
-            ~Q(status__in=self._resolved_read_statuses())
+            ~Q(status__in={SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING})
             & ~reports_with_active_claim(team_id=self.team_id)
             & ~has_review_pr
         )
@@ -1775,6 +1809,9 @@ class SignalReportViewSet(
                 latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
                 latest_already_addressed=False,
             ).exclude(self._implementation_pr_report_filter())
+        if inbox_view == "for_you":
+            for_person = reports_for_person(self.team_id, cast(User, self.request.user))
+            return queryset.filter(id__in=for_person.values("id"))
         if inbox_view == "needs_input":
             return queryset.filter(
                 status=SignalReport.Status.PENDING_INPUT,
@@ -1783,6 +1820,7 @@ class SignalReportViewSet(
         if inbox_view == "needs_decision":
             return queryset.filter(
                 Q(status=SignalReport.Status.FAILED)
+                | Q(status__in=[SignalReport.Status.MONITORING] if self._report_monitoring_enabled else [])
                 | (
                     Q(
                         status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
@@ -1826,6 +1864,7 @@ class SignalReportViewSet(
                 When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
                 When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
                 When(status=SignalReport.Status.FAILED, then=Value(6)),
+                When(status=SignalReport.Status.MONITORING, then=Value(6 if self._report_monitoring_enabled else 7)),
                 When(status__in=self._resolved_read_statuses(), then=Value(7)),
                 When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
                 When(status=SignalReport.Status.DELETED, then=Value(9)),
@@ -1977,9 +2016,13 @@ class SignalReportViewSet(
             ),
         )
 
+    @cached_property
+    def _can_view_inbox_ranking(self) -> bool:
+        return can_view_inbox_ranking(cast(User, self.request.user), self.team)
+
     def _prefetch_signal_report_ranking_score(self, queryset):
-        # Scores are internal model output, so only staff requests pay for the lookup.
-        if not self.request.user.is_staff:
+        # Only requests that may see the score pay for the lookup.
+        if not self._can_view_inbox_ranking:
             return queryset
         return queryset.prefetch_related(
             Prefetch(
@@ -2047,9 +2090,9 @@ class SignalReportViewSet(
             db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
             if db_field is None:
                 continue
-            if name in self._RANKING_ORDERING_HEADS and not allow_ranking and not self.request.user.is_staff:
-                # The serializer hides ranking scores from non-staff users, and the order would leak them.
-                raise serializers.ValidationError({"ordering": f"Ordering by {name} is only available to staff."})
+            if name in self._RANKING_ORDERING_HEADS and not allow_ranking and not self._can_view_inbox_ranking:
+                # The serializer hides ranking scores from these users, and the order would leak them.
+                raise serializers.ValidationError({"ordering": f"Ordering by {name} is not available to you."})
             clause = f"-{db_field}" if descending else db_field
             clauses.append(clause)
         return clauses
@@ -2114,11 +2157,9 @@ class SignalReportViewSet(
         return {
             **super().get_serializer_context(),
             "team": self.team,
-            **(
-                {"report_monitoring_enabled_by_team": {self.team_id: self._report_monitoring_enabled}}
-                if self.action in self._MONITORING_FALLBACK_READ_ACTIONS
-                else {}
-            ),
+            # Called only when a report renders its `ranking` field, so other requests skip the flag check.
+            "can_view_inbox_ranking": lambda: self._can_view_inbox_ranking,
+            "report_monitoring_enabled_by_team": {self.team_id: self._report_monitoring_enabled},
             # For the serializer's refund_ineligibility_reason field — computed once per request,
             # not per report (the bounds are org-level).
             "billing_period_bounds": current_billing_period_bounds(self.organization),
@@ -2430,9 +2471,11 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, "
-                    "held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and "
-                    "implementation-PR filters. needs_decision also includes failed reports without a judgment. "
+                    "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, "
+                    "dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
+                    "actionability, and implementation-PR filters. for_you holds the open, actionable reports that "
+                    "wait for the requesting user's input, that they claimed, or that name them as a suggested "
+                    "reviewer. needs_decision also includes failed reports without a judgment. "
                     "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
                     "dismissed, merged, or whose pull request closed without merging; held_back holds the ones the "
                     "safety or actionability judge suppressed before anyone saw them. Each row's suppression_source "
@@ -2480,9 +2523,9 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
-                    "ordering is supplied. recommended resolves per project to a ranker: the priority order, or "
-                    "the served ranking model's fixed head with unscored and stale reports in priority order "
-                    "after the scored ones. The response's ranker field names the one used."
+                    "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
+                    "the open, action or fixed head of the served ranking model with unscored and stale reports "
+                    "in priority order after the scored ones. The response's ranker field names the one used."
                 ),
             ),
             OpenApiParameter(
@@ -2497,7 +2540,7 @@ class SignalReportViewSet(
                     "ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, "
                     "ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
                     "sort by the served ranking model's probability for that outcome head, with unscored reports "
-                    "last in either direction. They are staff only: other users get a 400."
+                    "last in either direction. They need staff or the inbox model sort rollout: other users get a 400."
                 ),
             ),
             OpenApiParameter(
@@ -2549,6 +2592,7 @@ class SignalReportViewSet(
     def list(self, request: ValidatedRequest, *args, **kwargs):
         count_only: bool = request.validated_query_data["count_only"]
         include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
+        excluded = request.validated_query_data["exclude"]
         if count_only:
             # A count orders nothing, so it must not record a flag exposure for the ranker.
             self._inbox_ranker = None
@@ -2572,6 +2616,8 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
+            if excluded:
+                queryset = queryset.exclude(id__in=excluded)
             if count_only:
                 total_count = queryset.count()
             else:
@@ -2664,41 +2710,6 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.serialize"):
             return serializer.data
-
-    @validated_request(
-        query_serializer=SignalReportsForYouQuerySerializer,
-        responses={200: OpenApiResponse(response=SignalReportsForYouResponseSerializer)},
-        summary="List the reports that matter most to the current user",
-        description=(
-            "The open, actionable reports for the current user, best first, and how many there are in "
-            "total. Uses the same ranking and count as the Today briefing, so this is the short list to "
-            "show someone who asks what needs them. Pass `include_unowned=false` to leave out the P0 "
-            "reports nobody owns, which belong to the project rather than to this person."
-        ),
-    )
-    @action(detail=False, methods=["get"], url_path="for_you", required_scopes=["task:read"])
-    def for_you(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        user = cast(User, request.user)
-        include_unowned = request.validated_query_data["include_unowned"]
-        ranked_ids = [
-            report.report_id
-            for report in reports_for_briefing(
-                team_id=self.team_id,
-                user_id=user.id,
-                limit=request.validated_query_data["limit"],
-                include_unowned=include_unowned,
-            )
-        ]
-        by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ranked_ids)}
-        reports = [by_id[report_id] for report_id in ranked_ids if report_id in by_id]
-        more = open_report_counts(
-            team_id=self.team_id,
-            user=user,
-            exclude_report_ids=[str(report.id) for report in reports],
-            include_unowned=include_unowned,
-        )
-        rows = self._render_report_rows(reports, include_source_metadata=True)
-        return Response({"results": rows, "count": len(rows) + more.for_person})
 
     @extend_schema(
         summary="List the org members who can be suggested as reviewers",
@@ -3043,6 +3054,180 @@ class SignalReportViewSet(
                 {"report": survivor, "sources": result.sources},
                 context=self._enriched_report_context(survivor),
             ).data
+        )
+
+    @staticmethod
+    def _task_action_error(
+        code: str, detail: str, status_code: int, *, task_id: str | None = None, run_id: str | None = None
+    ) -> Response:
+        body: dict[str, str] = {"code": code, "detail": detail}
+        if task_id is not None and run_id is not None:
+            body |= {"task_id": task_id, "run_id": run_id}
+        return Response(SignalReportTaskActionErrorSerializer(body).data, status=status_code)
+
+    @extend_schema(
+        responses={200: SignalReportTaskActionListResponseSerializer},
+        summary="List the report actions that start an agent run",
+        description=(
+            "List the actions on this report that start an agent run, read from the report's current state. "
+            "`get_it_merged` is available only while the report has an open, approved pull request. "
+            "`make_it_green` is available only while CI fails on the report's open pull request. "
+            "`suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint."
+        ),
+        operation_id="signals_reports_actions_list",
+    )
+    @action(detail=True, methods=["get"], url_path="actions", required_scopes=["task:read"])
+    def task_actions(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        context = ReportTaskActionContext(team=self.team, user=cast(User, request.user))
+        actions = list_report_task_actions(context, report)
+        return Response(
+            SignalReportTaskActionListResponseSerializer(
+                {
+                    "results": [
+                        {
+                            "action": item.kind.value,
+                            "available": item.available,
+                            "disabled_reason": item.disabled_reason,
+                            "suggested_prompt_index": item.suggested_prompt_index,
+                            "text": item.question,
+                        }
+                        for item in actions
+                    ]
+                }
+            ).data
+        )
+
+    @validated_request(
+        request_serializer=SignalReportTaskActionRunRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=SignalReportTaskActionRunResponseSerializer, description="Task created"),
+            400: OpenApiResponse(
+                response=SignalReportTaskActionErrorSerializer,
+                description="The action is not available on this report now (code `report_action_unavailable`)",
+            ),
+            402: OpenApiResponse(
+                description="The organization is on a Self-driving free trial (code `self_driving_free_trial`)"
+            ),
+            403: OpenApiResponse(
+                response=SignalReportTaskActionErrorSerializer,
+                description="AI data processing is not approved, or the request came from a task sandbox",
+            ),
+            404: OpenApiResponse(description="The report has no suggested prompt at that index"),
+            409: OpenApiResponse(
+                response=SignalReportTaskActionErrorSerializer,
+                description=(
+                    "A run is already working on this report's pull request (code `report_action_run_active`). "
+                    "The body carries its `task_id` and `run_id`."
+                ),
+            ),
+            429: OpenApiResponse(
+                response=SignalReportTaskActionErrorSerializer,
+                description=(
+                    "The report reached its task limit (code `signal_report_task_cap`), the per-user creation "
+                    "limit fired (code `throttled`), or the organization reached its usage limit or is deactivated"
+                ),
+            ),
+        },
+        summary="Start a report action as a background agent run",
+        description=(
+            "Create a task linked to the report and start its first run in the background, with the "
+            "instructions the inbox uses for the same action. The run shows in the report's runs and counts "
+            "toward the report's task limit. Nobody can answer questions in a background run, so the agent "
+            "writes a note to the report's work log when it needs a decision."
+        ),
+        operation_id="signals_reports_actions_run_create",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="actions/run",
+        required_scopes=["task:write"],
+        throttle_classes=[ReportTaskActionRunBurstThrottle, ReportTaskActionRunSustainedThrottle],
+    )
+    def run_task_action(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        if is_sandbox_origin_request(request):
+            return self._task_action_error(
+                "report_action_sandbox_refused",
+                "A task sandbox cannot start report actions.",
+                status.HTTP_403_FORBIDDEN,
+            )
+        report = cast(SignalReport, self.get_object())
+        user = cast(User, request.user)
+        context = ReportTaskActionContext(team=self.team, user=user)
+        data = request.validated_data
+        kind = ReportTaskActionKind(data["action"])
+        state = ReportActionState.read(report)
+        report_action = resolve_report_task_action(
+            context, report, kind, data.get("suggested_prompt_index"), state=state
+        )
+        if report_action is None:
+            raise exceptions.NotFound("This report has no suggested prompt at that index.")
+
+        def capture(outcome: str, limit_code: str | None = None) -> None:
+            report_user_action(
+                user,
+                INBOX_REPORT_ACTION_EVENT,
+                inbox_report_action_properties(
+                    report, report_action, outcome=outcome, state=state, limit_code=limit_code
+                ),
+                team=self.team,
+                organization=self.organization,
+                request=request,
+            )
+
+        if report_action.disabled_reason is not None:
+            capture("blocked")
+            if report_action.disabled_reason == FREE_TRIAL_PR_MESSAGE:
+                capture_signal_report_free_trial_paused(self.team, report_id=str(report.id), stage="report_action")
+                raise FreeTrialPullRequestRefused()
+            error_status: int = (
+                status.HTTP_403_FORBIDDEN
+                if report_action.disabled_reason == AI_CONSENT_DISABLED_REASON
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return self._task_action_error("report_action_unavailable", report_action.disabled_reason, error_status)
+
+        if kind in (ReportTaskActionKind.GET_IT_MERGED, ReportTaskActionKind.MAKE_IT_GREEN) and (
+            active := active_pull_request_run(team_id=self.team.id, report_id=str(report.id))
+        ):
+            capture("limited", "report_action_run_active")
+            return self._task_action_error(
+                "report_action_run_active",
+                PULL_REQUEST_RUN_ACTIVE_DETAIL,
+                status.HTTP_409_CONFLICT,
+                task_id=active.task_id,
+                run_id=active.run_id,
+            )
+
+        if limit_response := usage_limit_response(user, self.team_id):
+            capture("limited", "usage_limit")
+            return self._task_action_error(
+                str(limit_response.data["code"]), str(limit_response.data["error"]), limit_response.status_code
+            )
+
+        # The run starts repo-less unless the caller passes the Desktop gate, the same rule the tasks
+        # create endpoint applies to an inbox discussion.
+        code_access_allowed = code_access_required_response(request, self.organization) is None
+        try:
+            started = start_report_task_action(context, report, report_action, code_access_allowed=code_access_allowed)
+        except ReportTaskCapExceeded as error:
+            capture("limited", "signal_report_task_cap")
+            return self._task_action_error("signal_report_task_cap", error.detail, status.HTTP_429_TOO_MANY_REQUESTS)
+        except ReportTaskActionStartError as error:
+            capture("failure")
+            return self._task_action_error("report_action_start_failed", error.detail, status.HTTP_400_BAD_REQUEST)
+        capture("failure" if started.run_error else "success")
+        return Response(
+            SignalReportTaskActionRunResponseSerializer(
+                {
+                    "task_id": started.task_id,
+                    "run_id": started.run_id,
+                    "task_url": started.task_url,
+                    "run_error": started.run_error,
+                }
+            ).data,
+            status=status.HTTP_201_CREATED,
         )
 
     @extend_schema(responses=SignalReportFeedbackStateSerializer)
@@ -3434,7 +3619,10 @@ class SignalReportViewSet(
             # suppression — and the PR close it triggers — from being undone.
             if is_refunded and (
                 target_status == SignalReport.Status.POTENTIAL
-                or (report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.RESOLVED)
+                or (
+                    report.status == SignalReport.Status.SUPPRESSED
+                    and target_status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
+                )
             ):
                 return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
 
@@ -3443,7 +3631,8 @@ class SignalReportViewSet(
             # and start it collecting again alongside the report it was folded into.
             if (
                 report.status == SignalReport.Status.SUPPRESSED
-                and target_status in {SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED}
+                and target_status
+                in {SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
                 and was_merged_away(report)
             ):
                 return (
@@ -3462,7 +3651,8 @@ class SignalReportViewSet(
             if (
                 report.status == SignalReport.Status.SUPPRESSED
                 and target_status == SignalReport.Status.RESOLVED
-                and report.status_before_suppression not in _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION
+                and report.status_before_suppression
+                not in _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION | {SignalReport.Status.MONITORING}
             ):
                 return (
                     SignalReportBulkStateOutcome.SKIPPED,
@@ -3488,9 +3678,10 @@ class SignalReportViewSet(
             # the server once GitHub closes the PR (webhook suppresses the report), and that click
             # still carries feedback for the agent. Skipping the save keeps every receiver quiet, so
             # no second PR close is queued. A repeat restore carries no feedback, so it stays a 409.
-            already_holds_verdict = target_status == report.status and target_status in (
+            already_holds_verdict = target_status == report.effective_status and target_status in (
                 SignalReport.Status.SUPPRESSED,
                 SignalReport.Status.RESOLVED,
+                SignalReport.Status.MONITORING,
             )
 
             writes_dismissal_feedback = target in ("suppressed", "potential", "resolved") and bool(
@@ -3646,7 +3837,9 @@ class SignalReportViewSet(
                     corrected_repository=corrected_repository,
                     snooze_for=snooze_for,
                 )
-                report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
+                report_status = (
+                    report.effective_status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
+                )
                 if outcome == SignalReportBulkStateOutcome.TRANSITIONED:
                     transitioned.append(report)
                     if getattr(report, "_newly_suppressed", False):
@@ -3819,7 +4012,7 @@ class SignalReportViewSet(
             # leaving it resolved would let the caller keep the implementation work after the refund.
             # Already-suppressed reports need no transition. The dismissal artefact records the
             # rationale; the structured truth lives on the refund row.
-            resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
+            resolved_via_merged_pr = report.effective_status == SignalReport.Status.RESOLVED and pr_merged
             if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
                 report._transition_actor = attribution  # type: ignore[attr-defined]
@@ -4051,7 +4244,7 @@ class SignalReportViewSet(
         report_ids = [
             str(report_id)
             for report_id, report_status in self.get_queryset().filter(id__in=requested_ids).values_list("id", "status")
-            if report_status not in _PR_CI_STATUS_TERMINAL_REPORT_STATUSES
+            if report_status not in _PR_CI_STATUS_TERMINAL_REPORT_STATUSES | self._resolved_read_statuses()
         ]
         if not report_ids:
             return self._pr_ci_statuses_response([])
@@ -4072,19 +4265,12 @@ class SignalReportViewSet(
                 if (parsed := GitHubIntegration.parse_pull_request_url(pr.url)) is not None
             ]
 
-        statuses = self._pr_ci_statuses_for_references(ref for refs in references.values() for ref in refs)
-        rollups = []
-        for report_id, refs in references.items():
-            known = {statuses[ref] for ref in refs if ref in statuses}
-            if "failing" in known:
-                rollup = "failing"
-            elif not refs or any(ref not in statuses for ref in refs):
-                continue
-            elif "pending" in known:
-                rollup = "pending"
-            else:
-                rollup = "passing" if known == {"passing"} else "none"
-            rollups.append({"report_id": report_id, "ci_status": rollup})
+        statuses = pr_ci_statuses_for_references(self.team.id, [ref for refs in references.values() for ref in refs])
+        rollups = [
+            {"report_id": report_id, "ci_status": rollup}
+            for report_id, refs in references.items()
+            if (rollup := rollup_ci_status(refs, statuses)) is not None
+        ]
         return self._pr_ci_statuses_response(rollups)
 
     @staticmethod
@@ -4093,89 +4279,6 @@ class SignalReportViewSet(
         """Render the batch CI-status payload through its declared response serializer, so the wire
         shape cannot drift from the OpenAPI schema the frontend types and MCP tools are built from."""
         return Response(PullRequestCiStatusesResponseSerializer({"statuses": statuses}).data)
-
-    def _pr_ci_statuses_for_references(self, references: Iterable[PullRequestRef]) -> dict[PullRequestRef, str]:
-        """CI rollup per pull request, from the shared cache where it is warm and one batched GitHub
-        call per integration for the rest. A pull request GitHub cannot answer for is absent from the
-        result: this paints a glyph onto a list, so it degrades to no glyph rather than to an error."""
-        resolved: dict[PullRequestRef, str] = {}
-        misses_by_repository: dict[str, list[PullRequestRef]] = defaultdict(list)
-        for reference in dict.fromkeys(references):
-            cached = cache.get(self._pr_ci_status_cache_key(reference))
-            if cached == _PR_CI_STATUS_UNREADABLE:
-                continue
-            if isinstance(cached, str):
-                resolved[reference] = cached
-            else:
-                misses_by_repository[reference.repository].append(reference)
-
-        # An installation is granted per repository, so one integration lookup per repository is what
-        # bounds the access probes. Repositories that share an installation collapse into one query.
-        batches: dict[int, tuple[GitHubIntegration, list[PullRequestRef]]] = {}
-        for repository, repository_references in misses_by_repository.items():
-            try:
-                github = GitHubIntegration.first_for_team_repository(
-                    self.team.id, repository, source="signals_pr_ci_status", priority=Priority.NORMAL
-                )
-            except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
-                # The probe never reached GitHub, so nothing was learned about the repository. Same
-                # policy as a throttled fetch below: remember nothing and let the next poll ask again.
-                logger.info("signals.reports.pr_ci_statuses.lookup_throttled", repository=repository)
-                continue
-            except Exception:
-                logger.warning(
-                    "signals.reports.pr_ci_statuses.integration_lookup_failed", repository=repository, exc_info=True
-                )
-                continue
-            if github is None:
-                # GitHub answered, and no installation reaches the repository. That is stable enough
-                # to remember, so the probe does not run again on every load and every poll.
-                self._remember_unreadable_pr_ci_statuses(repository_references)
-                continue
-            _, pending = batches.setdefault(github.integration.id, (github, []))
-            pending.extend(repository_references)
-
-        for github, pending in batches.values():
-            # One call per batch, cached as it lands, so a failure costs the batches it stopped and
-            # not the ones GitHub already answered for. Stop this integration at the first failure:
-            # another call would spend the same budget on the same condition.
-            batch_size = GitHubIntegration.PR_CI_STATUS_BATCH_SIZE
-            for start in range(0, len(pending), batch_size):
-                batch = pending[start : start + batch_size]
-                try:
-                    fetched = github.get_pull_request_ci_statuses(batch)
-                except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
-                    # Expected under load, and the reader loses nothing they had: skip the glyph and
-                    # let the next request (or the detail view) answer once the limit clears.
-                    logger.info("signals.reports.pr_ci_statuses.throttled", pr_count=len(batch))
-                    break
-                except Exception:
-                    logger.warning("signals.reports.pr_ci_statuses.fetch_failed", pr_count=len(batch), exc_info=True)
-                    break
-                for reference, ci_status in fetched.items():
-                    cache.set(self._pr_ci_status_cache_key(reference), ci_status, timeout=PR_CI_STATUS_CACHE_SECONDS)
-                    resolved[reference] = ci_status
-                # GitHub answered the batch but left this pull request out, so the installation cannot
-                # read it (deleted, transferred, or access revoked). That is stable enough to remember.
-                self._remember_unreadable_pr_ci_statuses([ref for ref in batch if ref not in fetched])
-        return resolved
-
-    def _remember_unreadable_pr_ci_statuses(self, references: Iterable[PullRequestRef]) -> None:
-        """Remember, briefly, that GitHub cannot answer for these pull requests.
-
-        Without this every list load and every poll re-runs the per-repository access probe, and then
-        the query, for a pull request that is never going to resolve. The window is short so access
-        granted a moment later still takes effect quickly.
-        """
-        for reference in references:
-            cache.set(
-                self._pr_ci_status_cache_key(reference),
-                _PR_CI_STATUS_UNREADABLE,
-                timeout=PR_CI_STATUS_UNREADABLE_CACHE_SECONDS,
-            )
-
-    def _pr_ci_status_cache_key(self, reference: PullRequestRef) -> str:
-        return f"signals:pr-ci-status:{self.team.id}:{reference.repository}:{reference.number}"
 
     @extend_schema(
         parameters=[_PULL_REQUEST_ID_PARAMETER],
@@ -5374,7 +5477,9 @@ class SignalReportCheckViewSet(
             "behind the report), status judgments (safety / actionability / priority, repo "
             "selection, suggested reviewers — the newest row of each status type is canonical), "
             "and log entries (code references, commits, task runs, notes). "
-            "`suggested_reviewers` content is enriched with PostHog user info at read time."
+            "`suggested_reviewers` content is enriched with PostHog user info at read time. "
+            "`ranking_score` content keeps only the head fields of each model's metadata; get the "
+            "artefact by id for the full metadata."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportArtefactSerializer(many=True)},
@@ -5382,7 +5487,10 @@ class SignalReportCheckViewSet(
     ),
     retrieve=extend_schema(
         summary="Get a single artefact",
-        description="Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.",
+        description=(
+            "Get one artefact by id, content parsed (and reviewers enriched) the same way as the list. "
+            "A `ranking_score` keeps its full model metadata."
+        ),
         parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportArtefactSerializer},
         operation_id="signals_report_artefacts_retrieve",
@@ -5512,6 +5620,7 @@ class SignalReportArtefactViewSet(
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
                 "signals_scout_display_names": scout_display_names,
+                "signals_compact_ranking_scores": True,
                 "signals_reviewer_history": [
                     artefact
                     for artefact in real_artefacts

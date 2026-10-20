@@ -3504,6 +3504,13 @@ export interface TaskRunArtifactsUploadResponseApi {
     artifacts: TaskRunArtifactResponseApi[]
 }
 
+export interface TaskRunArtifactPreviewResponseApi {
+    /** Short-lived URL for the isolated HTML preview */
+    url: string
+    /** Whether the caller can request a preview that runs scripts. False when whoever wrote this artifact version had limited network access, or when the version has no record of it. */
+    scripts_available: boolean
+}
+
 export interface TaskRunArtifactsDismissRequestApi {
     /**
      * Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.
@@ -3564,6 +3571,11 @@ export interface TaskRunArtifactFinalizeUploadApi {
     content_type?: string
     /** Skill bundle metadata, required when the artifact type is skill_bundle. */
     metadata?: TaskRunSkillBundleMetadataApi
+    /**
+     * ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when its base artifact can.
+     * @maxLength 255
+     */
+    base_artifact_id?: string
 }
 
 export interface TaskRunArtifactsFinalizeUploadRequestApi {
@@ -5012,7 +5024,7 @@ export interface SlackThreadContextRunApi {
      */
     task_processing_workflow_url: string | null
     /**
-     * Temporal workflow id of the Slack mention that dispatched this run (`posthog-code-mention-<workspace>:<event_id_or_channel:ts>`). Null for runs created before this field was persisted.
+     * Temporal workflow id of the Slack mention that dispatched this run (`slack-app-mention-processing-<workspace>:<event_id_or_channel:ts>`). Null for runs created before this field was persisted.
      * @nullable
      */
     mention_workflow_id: string | null
@@ -5044,6 +5056,68 @@ export interface SlackThreadContextResponseApi {
     task: SlackThreadContextTaskApi | null
     /** All runs on the task, oldest first. Empty when no mapping was found. */
     runs: SlackThreadContextRunApi[]
+}
+
+/**
+ * * `autoresearch` - autoresearch
+ * * `error_tracking` - error_tracking
+ * * `eval_clusters` - eval_clusters
+ * * `experiments` - experiments
+ * * `hogdesk` - hogdesk
+ * * `image_builder` - image_builder
+ * * `loop` - loop
+ * * `mcp_analytics` - mcp_analytics
+ * * `onboarding` - onboarding
+ * * `posthog_ai` - posthog_ai
+ * * `posthog_desktop` - posthog_desktop
+ * * `posthog_mobile` - posthog_mobile
+ * * `posthog_web` - posthog_web
+ * * `review_hog` - review_hog
+ * * `scout_suggestions` - scout_suggestions
+ * * `session_summaries` - session_summaries
+ * * `signal_report` - signal_report
+ * * `signals_chat` - signals_chat
+ * * `signals_scout` - signals_scout
+ * * `slack` - slack
+ * * `space_setup` - space_setup
+ * * `support_queue` - support_queue
+ * * `support_reply` - support_reply
+ * * `task_analysis` - task_analysis
+ * * `workflow` - workflow
+ */
+export type TaskListSourceEnumApi = (typeof TaskListSourceEnumApi)[keyof typeof TaskListSourceEnumApi]
+
+export const TaskListSourceEnumApi = {
+    Autoresearch: 'autoresearch',
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    Experiments: 'experiments',
+    Hogdesk: 'hogdesk',
+    ImageBuilder: 'image_builder',
+    Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
+    Onboarding: 'onboarding',
+    PosthogAi: 'posthog_ai',
+    PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
+    ReviewHog: 'review_hog',
+    ScoutSuggestions: 'scout_suggestions',
+    SessionSummaries: 'session_summaries',
+    SignalReport: 'signal_report',
+    SignalsChat: 'signals_chat',
+    SignalsScout: 'signals_scout',
+    Slack: 'slack',
+    SpaceSetup: 'space_setup',
+    SupportQueue: 'support_queue',
+    SupportReply: 'support_reply',
+    TaskAnalysis: 'task_analysis',
+    Workflow: 'workflow',
+} as const
+
+export interface TaskSourcesResponseApi {
+    /** Distinct sources of the requester's own non-archived tasks, sorted, in the words of the task list `sources` filter. Each value filters the task list back to at least one task. */
+    sources: TaskListSourceEnumApi[]
 }
 
 export interface TaskSummariesRequestApi {
@@ -5419,6 +5493,10 @@ export type TasksListParams = {
      */
     search?: string
     /**
+     * Only tasks from any of these sources. Repeat the parameter for each source, or send one comma-joined value or a JSON array. 'posthog_desktop', 'posthog_mobile' and 'posthog_web' match user-created tasks by the client that created them, and a user-created task from no other known client counts as desktop. 'posthog_web' also matches PostHog AI tasks. Any other value matches the task's origin product.
+     */
+    sources?: TasksListSourcesItem[]
+    /**
      * Filter by task run stage
      * @minLength 1
      */
@@ -5518,6 +5596,63 @@ export const TasksListPrState = {
     Closed: 'closed',
 } as const
 
+/**
+ * * `autoresearch` - autoresearch
+ * * `error_tracking` - error_tracking
+ * * `eval_clusters` - eval_clusters
+ * * `experiments` - experiments
+ * * `hogdesk` - hogdesk
+ * * `image_builder` - image_builder
+ * * `loop` - loop
+ * * `mcp_analytics` - mcp_analytics
+ * * `onboarding` - onboarding
+ * * `posthog_ai` - posthog_ai
+ * * `posthog_desktop` - posthog_desktop
+ * * `posthog_mobile` - posthog_mobile
+ * * `posthog_web` - posthog_web
+ * * `review_hog` - review_hog
+ * * `scout_suggestions` - scout_suggestions
+ * * `session_summaries` - session_summaries
+ * * `signal_report` - signal_report
+ * * `signals_chat` - signals_chat
+ * * `signals_scout` - signals_scout
+ * * `slack` - slack
+ * * `space_setup` - space_setup
+ * * `support_queue` - support_queue
+ * * `support_reply` - support_reply
+ * * `task_analysis` - task_analysis
+ * * `workflow` - workflow
+ */
+export type TasksListSourcesItem = (typeof TasksListSourcesItem)[keyof typeof TasksListSourcesItem]
+
+export const TasksListSourcesItem = {
+    Autoresearch: 'autoresearch',
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    Experiments: 'experiments',
+    Hogdesk: 'hogdesk',
+    ImageBuilder: 'image_builder',
+    Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
+    Onboarding: 'onboarding',
+    PosthogAi: 'posthog_ai',
+    PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
+    ReviewHog: 'review_hog',
+    ScoutSuggestions: 'scout_suggestions',
+    SessionSummaries: 'session_summaries',
+    SignalReport: 'signal_report',
+    SignalsChat: 'signals_chat',
+    SignalsScout: 'signals_scout',
+    Slack: 'slack',
+    SpaceSetup: 'space_setup',
+    SupportQueue: 'support_queue',
+    SupportReply: 'support_reply',
+    TaskAnalysis: 'task_analysis',
+    Workflow: 'workflow',
+} as const
+
 export type TasksListStatus = (typeof TasksListStatus)[keyof typeof TasksListStatus]
 
 export const TasksListStatus = {
@@ -5599,6 +5734,17 @@ export type TasksRunsListParams = {
      * @minimum 0
      */
     offset?: number
+}
+
+export type TasksRunsArtifactsPreviewRetrieveParams = {
+    /**
+     * Return a URL whose page runs its scripts. Without it the page renders with scripts off. Refused when scripts_available is false.
+     */
+    scripts?: boolean
+    /**
+     * Living artifact version
+     */
+    version?: number
 }
 
 export type TasksRunsSessionLogsRetrieveParams = {

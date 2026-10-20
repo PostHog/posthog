@@ -7,6 +7,7 @@ use std::borrow::Borrow;
 use std::fmt;
 use std::str::FromStr;
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::Type;
 use uuid::Uuid;
@@ -43,6 +44,22 @@ pub struct SChunkMs(pub i64);
 #[serde(transparent)]
 #[sqlx(transparent)]
 pub struct ScannedAtMs(pub i64);
+
+/// A run's boundary (epoch ms, Postgres clock).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RunBoundaryMs(pub i64);
+
+/// When a slice began (epoch ms, processor clock).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CoverageStartMs(pub i64);
+
+impl CoverageStartMs {
+    pub fn now() -> Self {
+        Self(Utc::now().timestamp_millis())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ConditionHash([u8; 16]);

@@ -45,7 +45,7 @@ Placeholder: `Search or ask PostHog AI… try is:dashboard`.
 
 Input controls, carried over from the current palette:
 
-- **Press Tab to ask AI** shows while Tab would ask AI: there is a query and the highlighted row is not a filter row. Clicking it does the same as Tab.
+- **Press Tab to ask AI** shows while Tab would ask AI: there is a question to ask (see **Ask PostHog AI**) and the highlighted row is not a filter row. Clicking it does the same as Tab.
 - **Clear (×)** shows whenever there is text or a chip, and clears both.
 - **Cancel** closes the palette. It shows only with the `today-rail-nav` UI at narrow widths, where the footer hides, as in the current palette.
 
@@ -97,6 +97,7 @@ The input is always in exactly one mode, decided from the token under the cursor
   3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number), **Persons**, **Groups**.
   4. **Ask PostHog AI**.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
+- With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
 
 ## Smart filters
 
@@ -142,7 +143,7 @@ These are the rules reviewers check. Breaking one is a bug.
 2. **Reserve space while loading.** The Results section renders skeleton rows at its last known height (or 3 on its first load) while it loads. It does not collapse to zero and then expand. Sections below Results that usually come back empty (Events, Properties, Workflows, Accounts, Support tickets, Persons, Groups) reserve nothing on their first load and appear only once they have rows, so skeletons never show up just to collapse.
 3. **Never blank on keystroke.** Keep the previous result set visible (dimmed slightly after 150 ms) until the new set arrives. Swap in one commit.
 4. **No mid-query re-rank.** Once rows for a query string are painted, later responses for the same query append to their own section. They never reorder rows above them.
-5. **Highlight follows identity, not index.** The highlighted row is tracked by item key (`section/type:ref`). Once the person moves the highlight (arrow keys or pointer), it stays on that item through result swaps while the item still exists. If it is gone, or the person never moved it, the first row is highlighted.
+5. **Highlight follows identity, not index.** The highlighted row is tracked by item key (`section/type:ref`). Once the person moves the highlight (arrow keys or pointer), it stays on that item through result swaps for the same query while the item still exists. If it is gone, or the person never moved it, the first row is highlighted. Any change to the query (typing, clearing, adding or removing a chip) starts again at the first row.
 6. **Fixed row height.** Every row is one line, same height. Long names truncate with an ellipsis; the type label and timestamp never wrap.
 7. **Instant local, deferred remote.** Local sources (recents, starred, products, filter keys, type values, cached members) filter synchronously on every keystroke. Remote search debounces at 150 ms.
 8. **Latest wins.** Each remote request is aborted when a newer one starts (`AbortController`). A late response for an older query is dropped, never painted.
@@ -179,7 +180,7 @@ These are the rules reviewers check. Breaking one is a bug.
 - **Pasted query** (`is:flag createdBy:me checkout`): parse into chips immediately.
 - **Same key twice** (`is:dashboard is:insight`): the later value replaces the earlier chip. While a value for a key that already has a chip is being typed, results preview the new value instead of the chip.
 - **Invalid value** (`is:banana`): keep it as plain text, no chip, and show "No type called banana" in the Suggestions section.
-- **Ask PostHog AI**: always the last section in Search mode, with the raw input text (chips included as text) as the question.
+- **Ask PostHog AI**: the last section in Search mode. Without filters, the question is the input text as typed. With filters and free text, the filters read as a sentence around the text (`Find notebooks created by me called "untitled"`). With filters and no free text, the section does not show and Tab does not ask AI.
 
 ## Out of scope for v1
 

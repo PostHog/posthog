@@ -195,7 +195,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
             ("ready", "positive", "negative", SignalReport.Status.READY, False, True),
             ("suppressed", "negative", "positive", SignalReport.Status.SUPPRESSED, False, True),
             ("monitoring_disabled", "positive", "negative", SignalReport.Status.MONITORING, False, True),
-            ("monitoring_enabled", "positive", "negative", SignalReport.Status.MONITORING, True, False),
+            ("monitoring_enabled", "positive", "negative", SignalReport.Status.MONITORING, True, True),
         ]
     )
     def test_feedback_can_be_read_changed_and_cleared(
