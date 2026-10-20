@@ -415,18 +415,21 @@ describe('dashboardLogic', () => {
         logic = dashboardLogic({ id: 5 })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        if (!beforeLoad) {
+        const refreshInsight = jest.spyOn(dashboardUtils, 'getInsightWithRetry')
+        try {
             await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
-            expect(logic.values.collapsedTileGroupKeys).toContain('target')
-            expect(logic.values.deferredTileRefresh.tileIds).toContain(dashboards[5].tiles[0].id)
-            const refreshInsight = jest.spyOn(dashboardUtils, 'getInsightWithRetry')
-            await expectLogic(logic, () => {
-                router.actions.push('/dashboard/5', { highlightInsightId: target })
-            }).toFinishAllListeners()
+            expect(logic.values.collapsedTileGroupKeys.includes('target')).toBe(!beforeLoad)
+            expect(logic.values.deferredTileRefresh.tileIds.includes(dashboards[5].tiles[0].id)).toBe(!beforeLoad)
+            if (!beforeLoad) {
+                await expectLogic(logic, () => {
+                    router.actions.push('/dashboard/5', { highlightInsightId: target })
+                }).toFinishAllListeners()
+            }
             expect(refreshInsight).toHaveBeenCalledTimes(1)
             expect(refreshInsight.mock.calls[0][1].short_id).toEqual(target)
             expect(logic.values.deferredTileRefresh.tileIds).not.toContain(dashboards[5].tiles[0].id)
             expect(logic.values.deferredTileRefresh.tileIds).toContain(dashboards[5].tiles[1].id)
+        } finally {
             refreshInsight.mockRestore()
         }
         expect(logic.values.collapsedTileGroupKeys).not.toContain('target')
@@ -3994,6 +3997,121 @@ describe('dashboardLogic', () => {
                 }
             })
 
+            it.each([
+                { allClosed: true, partialEvent: 'dashboard insight refreshed', partialDuration: 1000 },
+                { allClosed: false, partialEvent: 'dashboard refreshed', partialDuration: 0 },
+            ])(
+                'keeps filter change tracking through deferred groups with allClosed=$allClosed',
+                async ({ allClosed, partialEvent, partialDuration }) => {
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
+                        [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                    })
+                    const dashboard = dashboards[5]
+                    const insightTiles = dashboard.tiles.filter((tile) => !!tile.insight)
+                    const firstInsight = insightTiles[0].insight!
+                    const lastInsight = insightTiles[1].insight!
+                    dashboard.tiles = dashboard.tiles.map((tile) => ({
+                        ...tile,
+                        group_key: tile.id === insightTiles[0].id ? 'first' : 'second',
+                        insight: tile.insight ? { ...tile.insight, cache_target_age: null } : tile.insight,
+                    }))
+                    // oxlint-disable-next-line react-hooks/rules-of-hooks
+                    useMocks({
+                        get: {
+                            '/api/environments/:team_id/dashboards/5/': () => [
+                                200,
+                                {
+                                    ...dashboard,
+                                    customization: {
+                                        groups: { first: { collapsed: allClosed }, second: { collapsed: true } },
+                                    },
+                                },
+                            ],
+                        },
+                    })
+                    await expectLogic(logic, () => {
+                        logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    }).toFinishAllListeners()
+                    const capture = jest.spyOn(posthog, 'capture').mockClear()
+                    const clock = jest.spyOn(performance, 'now').mockReturnValue(1000)
+                    const refresh = jest
+                        .spyOn(dashboardUtils, 'getInsightWithRetry')
+                        .mockImplementation(async (_teamId, insight) => ({
+                            ...insight,
+                            result: ['current'],
+                            cache_target_age: dayjs().add(1, 'hour').toISOString(),
+                        }))
+                    try {
+                        await expectLogic(logic, () => logic.actions.setDates('-7d', null)).toFinishAllListeners()
+                        const change = capture.mock.calls.find(([event]) => event === 'dashboard filters changed')![1]!
+                        expect(refresh).toHaveBeenCalledTimes(Number(!allClosed))
+                        expect(logic.values.previewedDashboardSettings).toEqual(logic.values.currentDashboardSettings)
+                        expect(capture).toHaveBeenCalledWith(
+                            'dashboard refreshed',
+                            expect.objectContaining({
+                                filter_change_id: change.filter_change_id,
+                                all_insights_succeeded: false,
+                            })
+                        )
+                        clock.mockReturnValue(2000)
+                        if (allClosed) {
+                            await expectLogic(logic, () =>
+                                logic.actions.toggleTileGroup('first')
+                            ).toFinishAllListeners()
+                        }
+                        const partial = capture.mock.calls.find(([event]) => event === partialEvent)![1]!
+                        expect(refresh).toHaveBeenCalledTimes(1)
+                        clock.mockReturnValue(3000)
+                        await expectLogic(logic, () => {
+                            logic.actions.refreshDashboardItems({
+                                action: DashboardLoadAction.Update,
+                                forceRefresh: false,
+                            })
+                        }).toFinishAllListeners()
+                        expect(refresh).toHaveBeenCalledTimes(1)
+                        expect(logic.values.deferredTileRefresh.tileIds).toEqual([insightTiles[1].id])
+                        clock.mockReturnValue(4000)
+                        await expectLogic(logic, () => logic.actions.toggleTileGroup('second')).toFinishAllListeners()
+                        expect(refresh).toHaveBeenCalledTimes(2)
+                        expect(refresh.mock.calls.map((call) => call[1].short_id)).toEqual([
+                            firstInsight.short_id,
+                            lastInsight.short_id,
+                        ])
+                        expect(partial).toEqual(
+                            expect.objectContaining({
+                                filter_change_id: change.filter_change_id,
+                                filter_change_duration_ms: partialDuration,
+                                all_insights_succeeded: false,
+                            })
+                        )
+                        expect(capture).toHaveBeenCalledWith(
+                            'dashboard insight refreshed',
+                            expect.objectContaining({
+                                insight_short_id: lastInsight.short_id,
+                                filter_change_id: change.filter_change_id,
+                                filter_change_duration_ms: 3000,
+                                all_insights_succeeded: true,
+                            })
+                        )
+                        expect(logic.values.previewedDashboardSettings).toEqual(logic.values.currentDashboardSettings)
+                        capture.mockClear()
+                        await expectLogic(logic, () => {
+                            logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] })
+                        }).toFinishAllListeners()
+                        expect(capture).not.toHaveBeenCalledWith(
+                            'dashboard insight refreshed',
+                            expect.objectContaining({
+                                filter_change_id: change.filter_change_id,
+                            })
+                        )
+                    } finally {
+                        refresh.mockRestore()
+                        clock.mockRestore()
+                        capture.mockRestore()
+                    }
+                }
+            )
+
             it.each(['success', 'error', 'abort'] as const)(
                 'opens a group before its cancelled preload finishes with %s',
                 async (oldOutcome) => {
@@ -4043,6 +4161,8 @@ describe('dashboardLogic', () => {
                             await currentHeld
                             return { ...args[1], result: ['current'] }
                         })
+                    const capture = jest.spyOn(posthog, 'capture').mockClear()
+                    await expectLogic(logic, () => logic.actions.setDates('-14d', null)).toFinishAllListeners()
                     const oldLoad = logic.asyncActions.preloadTileGroup('growth')
                     try {
                         await expectLogic(logic).toDispatchActions(['setRefreshStatuses'])
@@ -4051,6 +4171,9 @@ describe('dashboardLogic', () => {
                             logic.actions.setDates('-7d', null)
                             logic.actions.previewDashboardChanges()
                         }).toDispatchActions(['setPreviewedDashboardSettings'])
+                        const change = capture.mock.calls
+                            .filter(([event]) => event === 'dashboard filters changed')
+                            .at(-1)![1]!
                         await expectLogic(logic, () => {
                             logic.actions.toggleTileGroup('growth')
                         }).toDispatchActions(['setRefreshStatuses'])
@@ -4063,8 +4186,22 @@ describe('dashboardLogic', () => {
                         expect(logic.values.insightTiles.every((tile) => tile.insight?.result?.[0] !== 'old')).toBe(
                             true
                         )
+                        expect(capture).not.toHaveBeenCalledWith(
+                            'dashboard insight refreshed',
+                            expect.objectContaining({
+                                filter_change_id: change.filter_change_id,
+                                all_insights_succeeded: true,
+                            })
+                        )
                         releaseCurrent()
                         await expectLogic(logic).toFinishAllListeners()
+                        expect(capture).toHaveBeenCalledWith(
+                            'dashboard insight refreshed',
+                            expect.objectContaining({
+                                filter_change_id: change.filter_change_id,
+                                all_insights_succeeded: true,
+                            })
+                        )
                         expect(logic.values.deferredTileRefresh.tileIds).toEqual([])
                         expect(logic.values.insightTiles.every((tile) => tile.insight?.result?.[0] === 'current')).toBe(
                             true
@@ -4075,6 +4212,7 @@ describe('dashboardLogic', () => {
                         await oldLoad
                         await expectLogic(logic).toFinishAllListeners()
                         spy.mockRestore()
+                        capture.mockRestore()
                     }
                 }
             )
