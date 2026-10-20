@@ -536,12 +536,14 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
         ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
     )
-    candidate_ids = (
+    # Load the ids first. As an `id__in` subquery, the planner can start from `posthog_task_run`,
+    # which holds every product's task runs, instead of from these few scout runs.
+    candidate_ids = list(
         SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
         .exclude(metadata__has_key="scout_trial")
         .filter(Q(emitted_count__gt=0) | touched_a_report)
         .order_by("-created_at", "-id")
-        .values("id")[:FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS]
+        .values_list("id", flat=True)[:FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS]
     )
     # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
     # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.

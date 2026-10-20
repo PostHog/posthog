@@ -80,6 +80,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
+from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
@@ -141,7 +142,7 @@ from products.dashboards.backend.constants import (
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
     RUN_INSIGHTS_MIN_TILE_CHARS,
 )
-from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
+from products.dashboards.backend.facade.api import DashboardTileBasicSerializer, tile_ids_prefetch
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import (
@@ -179,7 +180,6 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
-from products.exports.backend.facade.api import dashboard_ids_with_subscriptions
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -198,6 +198,7 @@ from products.product_analytics.backend.presentation.insight import (
     InsightViewSet,
     get_insight_type,
 )
+from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -460,6 +461,9 @@ def tile_insight_prefetches() -> list[Prefetch]:
     prefetch silently serializes `alerts: []` for every tile, hiding alert threshold lines on
     dashboards."""
     return [
+        # InsightSerializer builds `dashboard_tiles` and `dashboards` from each insight's tiles. Without
+        # this, every tile on the dashboard costs a query for each field that reads them.
+        tile_ids_prefetch("insight__dashboard_tiles"),
         Prefetch(
             "insight__tagged_items",
             queryset=TaggedItem.objects.select_related("tag"),
@@ -3137,8 +3141,8 @@ class DashboardsViewSet(
         if self.action == "bulk_delete":
             return queryset.exclude(deleted=True).select_related("team")
 
-        # subscribe_nudge only reads the dashboard's pk and name, so skip the detail prefetch
-        # cascade (tiles → insights → their dashboards) and the folder/last-viewed annotations.
+        # subscribe_nudge only reads the dashboard's pk and name, so skip the folder/last-viewed
+        # annotations, the sharing-configuration prefetch and the created_by join.
         # Team scoping is preserved by the filter above; the CanEditDashboard object permission
         # still gates the write.
         if self.action == "subscribe_nudge":
@@ -3188,34 +3192,6 @@ class DashboardsViewSet(
             queryset = queryset.exclude(deleted=True)
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")
-
-        if self.action != "list":
-            tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
-                DashboardTile.objects.prefetch_related(
-                    Prefetch(
-                        "insight__dashboards",
-                        # nosemgrep: idor-lookup-without-team (scoped via prefetch on team-scoped queryset)
-                        queryset=Dashboard.objects.filter(
-                            id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
-                        ),
-                    ),
-                    "insight__dashboard_tiles__dashboard",
-                )
-            )
-            try:
-                dashboard_id = self.kwargs["pk"]
-                tiles_prefetch_queryset = tiles_prefetch_queryset.filter(dashboard_id=dashboard_id)
-            except KeyError:
-                # in case there are endpoints that hit this branch but don't have a pk
-                pass
-
-            queryset = queryset.prefetch_related(
-                # prefetching tiles saves 25 queries per tile on the dashboard
-                Prefetch(
-                    "tiles",
-                    queryset=tiles_prefetch_queryset,
-                ),
-            )
 
         # Add access level filtering for list actions
         queryset = self._filter_queryset_by_access_level(queryset)
@@ -3327,6 +3303,11 @@ class DashboardsViewSet(
                 tile.layouts.get(layout_size, {}).get("x", 100),
             ),
         )
+
+        # Each tile's query cache key reads the team's analytics configs. Read them here with the other
+        # database reads, so that the tiles reuse the configs this Team instance loaded and the stream
+        # below runs no queries for them.
+        team_configs_for_cache_key(self.team)
 
         # Async generator that handles progressive tile serialization and streaming
         async def async_tile_stream_generator() -> AsyncGenerator[bytes]:

@@ -16,6 +16,8 @@ import {
     startDevServer,
 } from '@posthog/esbuilder'
 
+import { AUTHENTICATED_SHELL, ENTRY } from './bin/bootEntries.mjs'
+import { LOGGED_OUT_SCENES, moduleKey, sceneModules } from './bin/loggedOutScenes.mjs'
 import { writeStableChunks } from './bin/stableChunkNames.mjs'
 import { buildCssGroups } from './bin/stableCss.mjs'
 import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
@@ -150,6 +152,15 @@ await buildInParallel(
                             [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
                         ),
                         eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
+                        loggedOut: {
+                            ...loggedOutImportMapScope(),
+                            cssSpecifiersByOutput: new Map(
+                                [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                                    file,
+                                    groups.map((group) => `${CSS_SPECIFIER_PREFIX}${group}`),
+                                ])
+                            ),
+                        },
                     })
                     removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
                 }
@@ -180,6 +191,19 @@ await buildInParallel(
         },
     }
 )
+
+/** Which modules a logged-out page loads, for the logged-out import map. See loggedOutSpecifiers. */
+function loggedOutImportMapScope() {
+    const scenes = sceneModules(__dirname)
+    const missing = LOGGED_OUT_SCENES.filter((scene) => !scenes.has(scene))
+    if (missing.length > 0) {
+        throw new Error(`stable chunks: no scene loader for the logged-out scenes ${missing.join(', ')}`)
+    }
+    const loggedOutModules = new Set(LOGGED_OUT_SCENES.map((scene) => scenes.get(scene)))
+    const signedInModules = new Set([...scenes.values()].filter((module) => !loggedOutModules.has(module)))
+    signedInModules.add(moduleKey(AUTHENTICATED_SHELL))
+    return { entry: ENTRY, loggedOutModules, signedInModules }
+}
 
 /**
  * Write dist/preload-manifest.json, read by the Django backend (posthog/utils.py) to emit

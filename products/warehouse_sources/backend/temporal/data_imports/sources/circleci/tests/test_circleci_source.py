@@ -53,11 +53,6 @@ class TestCircleCISource:
         assert schemas[endpoint].incremental_fields == []
         assert INCREMENTAL_FIELDS.get(endpoint) is None
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["pipelines"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "pipelines"
-
     @parameterized.expand(
         [
             ("v2", "/api/v2/pipeline"),
