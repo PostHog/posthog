@@ -13,7 +13,6 @@ export interface DashboardWidgetPlacementMenusProps {
     placementDestinations: DashboardWidgetPlacementDestination[]
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onCopyToDashboard?: (dashboard: DashboardBasicType) => void
-    /** Groups of this dashboard that Move to also offers. */
     tileGroupMoveOptions?: TileGroupMoveOptions
     onMoveToGroup?: (groupKey: string | null) => void
 }

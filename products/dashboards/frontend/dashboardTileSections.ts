@@ -15,7 +15,6 @@ export type DashboardSection =
 
 type SectionLayouts = Partial<Record<DashboardLayoutSize, Layout>>
 
-/** Where a tile's menu can move it on its own dashboard. */
 export interface TileGroupMoveOptions {
     groups: { groupKey: string; label: string }[]
     inGroup: boolean
@@ -85,7 +84,6 @@ export function getDashboardSections({
     return sections
 }
 
-/** For each tile, the other groups of its dashboard, and whether it is in a group it can leave. */
 export function getTileGroupMoveOptions(sections: DashboardSection[]): Record<number, TileGroupMoveOptions> {
     const groups = sections.flatMap((section) =>
         section.kind === 'group'
