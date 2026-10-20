@@ -5564,14 +5564,17 @@ class TestHogFlowAPI(APIBaseTest):
         assert activity.status_code == status.HTTP_200_OK
         return activity.json().get("results")
 
-    def _post_webhook_hog_flow(self):
+    def _post_webhook_hog_flow(self, **extra_fields: Any):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
                 "template_id": "template-webhook",
                 "inputs": {"url": {"value": "https://example.com"}},
             }
         )
-        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, **extra_fields})
+
+    def _has_workflows_product_intent(self) -> bool:
+        return ProductIntent.objects.filter(team=self.team, product_type="workflows").exists()
 
     def test_create_hog_flow_registers_workflows_product_intent(self):
         response = self._post_webhook_hog_flow()
@@ -5580,29 +5583,33 @@ class TestHogFlowAPI(APIBaseTest):
         intent = ProductIntent.objects.get(team=self.team, product_type="workflows")
         assert intent.contexts == {"workflow_created": 1}
 
-    @parameterized.expand(
-        [
-            (
-                "impersonated_session",
-                "products.workflows.backend.presentation.views.hog_flow.is_impersonated",
-                {"return_value": True},
-            ),
-            (
-                "intent_registration_failure",
+    def test_create_loop_registers_no_workflows_product_intent(self):
+        response = self._post_webhook_hog_flow(origin_product="loops")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert not self._has_workflows_product_intent()
+
+    def test_create_hog_flow_from_impersonated_session_registers_no_workflows_product_intent(self):
+        with patch("products.workflows.backend.presentation.views.hog_flow.is_impersonated", return_value=True):
+            response = self._post_webhook_hog_flow()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert not self._has_workflows_product_intent()
+
+    def test_create_hog_flow_reports_a_failed_workflows_product_intent_to_error_tracking(self):
+        registration_error = RuntimeError("intent store unavailable")
+        with (
+            patch(
                 "products.workflows.backend.presentation.views.hog_flow.ProductIntent.register",
-                {"side_effect": RuntimeError("intent store unavailable")},
+                side_effect=registration_error,
             ),
-        ]
-    )
-    def test_create_hog_flow_succeeds_without_workflows_product_intent(
-        self, _name: str, patch_target: str, patch_kwargs: dict[str, Any]
-    ) -> None:
-        with patch(patch_target, **patch_kwargs):
+            patch("products.workflows.backend.presentation.views.hog_flow.capture_exception") as capture_exception,
+        ):
             response = self._post_webhook_hog_flow()
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert HogFlow.objects.filter(team=self.team, id=response.json()["id"]).exists()
-        assert not ProductIntent.objects.filter(team=self.team, product_type="workflows").exists()
+        capture_exception.assert_any_call(registration_error)
 
     def test_create_hog_flow_logs_activity(self):
         hog_flow, _ = self._create_hog_flow_with_action(

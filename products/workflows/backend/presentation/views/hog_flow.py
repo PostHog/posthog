@@ -5130,8 +5130,8 @@ class HogFlowViewSet(
         except Exception as e:
             logger.warning("Failed to capture workflow usage event", event=event, error=str(e))
 
-    def _register_workflows_product_intent(self) -> None:
-        if is_impersonated(self.request):
+    def _register_workflows_product_intent(self, workflow: Workflow) -> None:
+        if is_impersonated(self.request) or workflow.origin_product == HogFlowOriginProduct.LOOPS:
             return
         try:
             ProductIntent.register(
@@ -5157,7 +5157,7 @@ class HogFlowViewSet(
             validated_data=serializer.validated_data,
         )
         serializer.instance = self._written_workflow(result)
-        self._register_workflows_product_intent()
+        self._register_workflows_product_intent(serializer.instance)
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
