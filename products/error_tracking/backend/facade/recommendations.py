@@ -9,6 +9,7 @@ from uuid import UUID
 
 from ..logic.recommendations import (
     refresh as _refresh,
+    source_maps as _source_maps,
     store as _store,
 )
 from . import contracts
@@ -52,3 +53,9 @@ def dismiss_recommendation(team_id: int, recommendation_id: UUID) -> contracts.E
 
 def restore_recommendation(team_id: int, recommendation_id: UUID) -> contracts.ErrorTrackingRecommendation:
     return _to_recommendation(_store.restore_recommendation(team_id, recommendation_id))
+
+
+def list_missing_symbols_examples(
+    team_id: int, platform: contracts.SymbolsPlatform
+) -> contracts.MissingSymbolsExamples:
+    return _source_maps.missing_symbols_examples(team_id, platform)

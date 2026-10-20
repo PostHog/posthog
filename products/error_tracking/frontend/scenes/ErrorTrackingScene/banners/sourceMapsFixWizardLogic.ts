@@ -8,11 +8,24 @@ import { getSurveyIdBasedResponseKey, getSurveyResponseKey } from 'scenes/survey
 import { SurveyEventName, SurveyEventProperties } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../../../frontend/src/lib/logic/featureFlagLogic'
+import type { SourceMapsPlatform } from './types'
 
 export type WizardRating = 'good' | 'bad'
 export type WizardOpenSource = 'issues_list'
 
 export const SOURCE_MAPS_DOCS_URL = 'https://posthog.com/docs/error-tracking/upload-source-maps'
+
+export const SOURCE_MAPS_PLATFORM_LABELS: Record<SourceMapsPlatform, { platform: string; symbols: string }> = {
+    javascript: { platform: 'JavaScript', symbols: 'source maps' },
+    java: { platform: 'Android', symbols: 'mapping files' },
+    native: { platform: 'iOS and native', symbols: 'debug symbols' },
+}
+
+// The wizard sets up JavaScript projects only. Rows computed before per-platform scoring have no
+// platform, and they counted JavaScript frames only.
+export function isWizardPlatform(platform: SourceMapsPlatform | null | undefined): boolean {
+    return !platform || platform === 'javascript'
+}
 
 // Delay before we ask "how did the wizard do?" — long enough that the user has
 // actually had a chance to copy the command and kick the wizard off.

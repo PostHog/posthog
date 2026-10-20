@@ -1766,6 +1766,94 @@ export interface PaginatedErrorTrackingRecommendationListApi {
 }
 
 /**
+ * * `javascript` - JavaScript
+ * * `java` - Android
+ * * `native` - iOS and native
+ */
+export type SymbolsPlatformEnumApi = (typeof SymbolsPlatformEnumApi)[keyof typeof SymbolsPlatformEnumApi]
+
+export const SymbolsPlatformEnumApi = {
+    Javascript: 'javascript',
+    Java: 'java',
+    Native: 'native',
+} as const
+
+/**
+ * * `chunk_not_uploaded` - Source map not uploaded
+ * * `no_source_map_linked` - Script links no source map
+ * * `file_not_reachable` - Script or source map not reachable
+ * * `invalid_source_map` - Source map URL returns something else
+ * * `too_large_to_fetch` - Too large to fetch
+ * * `bundle_not_injected` - Bundle not processed by the PostHog CLI
+ * * `mapping_not_uploaded` - Mapping file not uploaded
+ * * `dsym_not_uploaded` - dSYM not uploaded
+ * * `debug_symbols_not_uploaded` - Debug symbols not uploaded
+ */
+export type MissingSymbolsReasonEnumApi = (typeof MissingSymbolsReasonEnumApi)[keyof typeof MissingSymbolsReasonEnumApi]
+
+export const MissingSymbolsReasonEnumApi = {
+    ChunkNotUploaded: 'chunk_not_uploaded',
+    NoSourceMapLinked: 'no_source_map_linked',
+    FileNotReachable: 'file_not_reachable',
+    InvalidSourceMap: 'invalid_source_map',
+    TooLargeToFetch: 'too_large_to_fetch',
+    BundleNotInjected: 'bundle_not_injected',
+    MappingNotUploaded: 'mapping_not_uploaded',
+    DsymNotUploaded: 'dsym_not_uploaded',
+    DebugSymbolsNotUploaded: 'debug_symbols_not_uploaded',
+} as const
+
+export interface MissingSymbolsExampleApi {
+    /** Why the frames miss symbols, as a code. Each code maps to one kind of setup gap.
+     *
+     * * `chunk_not_uploaded` - Source map not uploaded
+     * * `no_source_map_linked` - Script links no source map
+     * * `file_not_reachable` - Script or source map not reachable
+     * * `invalid_source_map` - Source map URL returns something else
+     * * `too_large_to_fetch` - Too large to fetch
+     * * `bundle_not_injected` - Bundle not processed by the PostHog CLI
+     * * `mapping_not_uploaded` - Mapping file not uploaded
+     * * `dsym_not_uploaded` - dSYM not uploaded
+     * * `debug_symbols_not_uploaded` - Debug symbols not uploaded */
+    reason: MissingSymbolsReasonEnumApi
+    /**
+     * Where the frames come from: the script URL or path, the bundle, or an example class or app image.
+     * @nullable
+     */
+    location: string | null
+    /**
+     * The chunk ID, mapping ID or debug ID that the missing symbols must be uploaded under, when known.
+     * @nullable
+     */
+    symbol_id: string | null
+    /**
+     * The HTTP status the script or source map returned, for 'file_not_reachable'.
+     * @nullable
+     */
+    http_status: number | null
+    /** How many distinct stack frames in the lookback window this covers. */
+    frames: number
+    /**
+     * The function name of one affected frame, as the SDK reported it.
+     * @nullable
+     */
+    example_function: string | null
+}
+
+export interface MissingSymbolsExamplesApi {
+    /** The platform the examples are for.
+     *
+     * * `javascript` - JavaScript
+     * * `java` - Android
+     * * `native` - iOS and native */
+    platform: SymbolsPlatformEnumApi
+    /** How many hours of recent stack frames the examples cover. */
+    lookback_hours: number
+    /** The files and builds with the most frames missing symbols, most frames first. */
+    results: MissingSymbolsExampleApi[]
+}
+
+/**
  * @nullable
  */
 export type ErrorTrackingReleaseApiMetadata = { [key: string]: unknown } | null
@@ -2511,6 +2599,27 @@ export type ErrorTrackingRecommendationsRefreshCreateParams = {
      */
     force?: boolean
 }
+
+export type ErrorTrackingRecommendationsSourceMapsExamplesRetrieveParams = {
+    /**
+     * The platform to list examples for: 'javascript', 'java' (Android) or 'native' (iOS and native).
+     *
+     * * `javascript` - JavaScript
+     * * `java` - Android
+     * * `native` - iOS and native
+     * @minLength 1
+     */
+    platform: ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform
+}
+
+export type ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform =
+    (typeof ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform)[keyof typeof ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform]
+
+export const ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform = {
+    Javascript: 'javascript',
+    Java: 'java',
+    Native: 'native',
+} as const
 
 export type ErrorTrackingReleasesListParams = {
     /**

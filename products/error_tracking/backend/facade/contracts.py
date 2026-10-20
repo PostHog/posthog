@@ -16,6 +16,8 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
+
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
 # Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/banners/sourceMapsFixWizardLogic.ts.
@@ -315,6 +317,43 @@ class ErrorTrackingRecommendation:
     dismissed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class SymbolsPlatform(LabeledStrEnum):
+    JAVASCRIPT = "javascript", "JavaScript"
+    JAVA = "java", "Android"
+    NATIVE = "native", "iOS and native"
+
+
+class MissingSymbolsReason(LabeledStrEnum):
+    CHUNK_NOT_UPLOADED = "chunk_not_uploaded", "Source map not uploaded"
+    NO_SOURCE_MAP_LINKED = "no_source_map_linked", "Script links no source map"
+    FILE_NOT_REACHABLE = "file_not_reachable", "Script or source map not reachable"
+    INVALID_SOURCE_MAP = "invalid_source_map", "Source map URL returns something else"
+    TOO_LARGE_TO_FETCH = "too_large_to_fetch", "Too large to fetch"
+    BUNDLE_NOT_INJECTED = "bundle_not_injected", "Bundle not processed by the PostHog CLI"
+    MAPPING_NOT_UPLOADED = "mapping_not_uploaded", "Mapping file not uploaded"
+    DSYM_NOT_UPLOADED = "dsym_not_uploaded", "dSYM not uploaded"
+    DEBUG_SYMBOLS_NOT_UPLOADED = "debug_symbols_not_uploaded", "Debug symbols not uploaded"
+
+
+@dataclass(frozen=True)
+class MissingSymbolsExample:
+    """Frames from one file or build that miss the same symbols, for the same reason."""
+
+    reason: MissingSymbolsReason
+    location: str | None
+    symbol_id: str | None
+    http_status: int | None
+    frames: int
+    example_function: str | None
+
+
+@dataclass(frozen=True)
+class MissingSymbolsExamples:
+    platform: SymbolsPlatform
+    lookback_hours: int
+    results: list[MissingSymbolsExample]
 
 
 @dataclass(frozen=True)
