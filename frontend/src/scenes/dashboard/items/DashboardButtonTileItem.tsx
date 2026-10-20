@@ -9,6 +9,8 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import type { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
+import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
+
 type BaseButtonTileCardProps = React.ComponentProps<typeof ButtonTileCard>
 
 interface DashboardButtonTileItemProps extends Omit<
@@ -20,6 +22,8 @@ interface DashboardButtonTileItemProps extends Omit<
     dashboardId?: number | null
     onEdit: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    tileGroupMoveOptions?: TileGroupMoveOptions
+    onMoveToGroup?: (groupKey: string | null) => void
     onDuplicate: () => void
     onRemove?: () => void
 }
@@ -31,6 +35,8 @@ function DashboardButtonTileItemInternal(
         dashboardId,
         onEdit,
         onMoveToDashboard,
+        tileGroupMoveOptions,
+        onMoveToGroup,
         onDuplicate,
         onRemove,
         ...buttonTileCardProps
@@ -59,6 +65,8 @@ function DashboardButtonTileItemInternal(
                     <DashboardWidgetPlacementMenus
                         placementDestinations={copyToDestinations}
                         onMoveToDashboard={onMoveToDashboard}
+                        tileGroupMoveOptions={tileGroupMoveOptions}
+                        onMoveToGroup={onMoveToGroup}
                     />
 
                     <LemonButton onClick={onDuplicate} fullWidth data-attr="duplicate-button-tile-from-dashboard">

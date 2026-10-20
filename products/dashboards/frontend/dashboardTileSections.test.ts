@@ -1,5 +1,7 @@
 import type { Layout } from 'react-grid-layout'
 
+import { pluralize } from 'lib/utils/strings'
+
 import type { DashboardTile } from '~/types'
 
 import { DashboardGridCompaction, getDashboardGridCompactor } from './dashboardCustomization'
@@ -9,6 +11,7 @@ import {
     getDropCell,
     getLayoutAfterSectionChange,
     getSectionLayouts,
+    getTileGroupMoveOptions,
     hasSectionLayoutChanged,
     moveTileToSection,
     stackSectionLayouts,
@@ -222,6 +225,23 @@ describe('dashboardTileSections', () => {
                 tileWidth: 6,
             })
         ).toEqual(expected)
+    })
+
+    it('getTileGroupMoveOptions offers every other group by its band label', () => {
+        const sections = getDashboardSections({
+            tiles: [tile(1, 'plans'), tile(2), tile(3, 'ops'), tile(4, 'ops')],
+            layout: [box(1, 0, 0), box(2, 0, 2), box(3, 0, 4), box(4, 6, 4)],
+            groups: { plans: { title: 'Pricing plans' }, ops: {} },
+        })
+        const plans = { groupKey: 'plans', label: 'Pricing plans' }
+        const ops = { groupKey: 'ops', label: pluralize(2, 'tile') }
+
+        expect(getTileGroupMoveOptions(sections)).toEqual({
+            1: { groups: [ops], inGroup: true },
+            2: { groups: [plans, ops], inGroup: false },
+            3: { groups: [plans], inGroup: true },
+            4: { groups: [plans], inGroup: true },
+        })
     })
 
     describe('moveTileToSection', () => {

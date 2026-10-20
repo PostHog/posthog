@@ -10,6 +10,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
+import type { TileGroupMoveOptions } from '../../dashboardTileSections'
 import { DashboardImageTile } from '../ImageTile/DashboardImageTile'
 import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
 
@@ -21,6 +22,8 @@ interface DashboardTextItemProps extends Omit<BaseTextCardProps, 'textTile' | 'p
     dashboardId?: number | null
     onEdit: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    tileGroupMoveOptions?: TileGroupMoveOptions
+    onMoveToGroup?: (groupKey: string | null) => void
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
     onRemove?: () => void
@@ -33,6 +36,8 @@ function DashboardTextItemInternal(
         dashboardId,
         onEdit,
         onMoveToDashboard,
+        tileGroupMoveOptions,
+        onMoveToGroup,
         onCopyToDashboard,
         onDuplicate,
         onRemove,
@@ -60,6 +65,8 @@ function DashboardTextItemInternal(
             <DashboardWidgetPlacementMenus
                 placementDestinations={copyToDestinations}
                 onMoveToDashboard={onMoveToDashboard}
+                tileGroupMoveOptions={tileGroupMoveOptions}
+                onMoveToGroup={onMoveToGroup}
                 onCopyToDashboard={onCopyToDashboard}
             />
 

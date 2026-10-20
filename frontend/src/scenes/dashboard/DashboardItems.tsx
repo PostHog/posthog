@@ -49,7 +49,6 @@ import {
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import {
     type DashboardSection,
-    getDashboardSections,
     getLayoutAfterSectionChange,
     getSectionLayouts,
 } from 'products/dashboards/frontend/dashboardTileSections'
@@ -131,6 +130,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         sizeKey,
         tileGroupSectionsEnabled,
         collapsedTileGroupKeys,
+        tileGroupSections: sections,
+        tileGroupMoveOptions,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -152,6 +153,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         toggleTileGroup,
         preloadTileGroup,
         moveTileToGroup,
+        moveTileToGroupFromMenu,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
@@ -307,17 +309,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             widgetTilesShown,
         ]
     )
-    const sections = useMemo((): DashboardSection[] => {
-        const renderedTiles = (tiles || []).filter((tile) => !tile.widget || widgetTilesShown)
-        const groupSections = tileGroupSectionsEnabled
-            ? getDashboardSections({
-                  tiles: renderedTiles,
-                  layout: layouts.sm,
-                  groups: dashboard?.customization?.groups,
-              })
-            : []
-        return groupSections.some((section) => section.kind === 'group') ? groupSections : []
-    }, [tiles, widgetTilesShown, tileGroupSectionsEnabled, layouts.sm, dashboard?.customization?.groups])
     // `sections` changes on every insight response, but the grids only depend on which tiles each band holds.
     const sectionTileIds = sections.map((section) => section.tiles.map((tile) => tile.id).join(',')).join('|')
     const sectionLayouts = useMemo(
@@ -341,7 +332,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             margin,
             enabled: canEditDashboard && layoutEditMode && !isMobileView,
             toggleTileGroup,
-            moveTileToGroup,
+            moveTileToGroup: (tileId, groupKey, layout) => moveTileToGroup(tileId, groupKey, layout, 'drag'),
             updateLayout: (layout) => updateLayouts({ sm: layout }),
         })
 
@@ -592,6 +583,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 copyToDashboard(tile, requireDashboardId('copy this tile'), id, name)
             },
             removeFromDashboard: () => removeTile(tile),
+            tileGroupMoveOptions: tileGroupMoveOptions[tile.id],
+            moveToGroup: (groupKey: string | null) => moveTileToGroupFromMenu(tile.id, groupKey),
         }
 
         if (tile.error && !insight) {
@@ -686,6 +679,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         }
                     }}
                     onMoveToDashboard={commonTileProps.moveToDashboard}
+                    tileGroupMoveOptions={commonTileProps.tileGroupMoveOptions}
+                    onMoveToGroup={commonTileProps.moveToGroup}
                     onCopyToDashboard={commonTileProps.copyToDashboard}
                     onDuplicate={() => duplicateTile(tile)}
                     onRemove={commonTileProps.removeFromDashboard}
@@ -714,6 +709,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         }
                     }}
                     onMoveToDashboard={commonTileProps.moveToDashboard}
+                    tileGroupMoveOptions={commonTileProps.tileGroupMoveOptions}
+                    onMoveToGroup={commonTileProps.moveToGroup}
                     onDuplicate={() => duplicateTile(tile)}
                     onRemove={commonTileProps.removeFromDashboard}
                     showResizeHandles={commonTileProps.showResizeHandles}
@@ -761,6 +758,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     onDuplicate={() => duplicateTile(tile)}
                     onRemove={commonTileProps.removeFromDashboard}
                     onMoveToDashboard={commonTileProps.moveToDashboard}
+                    tileGroupMoveOptions={commonTileProps.tileGroupMoveOptions}
+                    onMoveToGroup={commonTileProps.moveToGroup}
                     onCopyToDashboard={commonTileProps.copyToDashboard}
                     showResizeHandles={commonTileProps.showResizeHandles}
                     showEditingControls={commonTileProps.showEditingControls}

@@ -113,6 +113,8 @@ interface InsightMetaProps extends Pick<
     | 'dashboardId'
     | 'canEditDashboard'
     | 'moveToDashboard'
+    | 'tileGroupMoveOptions'
+    | 'moveToGroup'
     | 'copyToDashboard'
     | 'showEditingControls'
     | 'showDetailsControls'
@@ -159,6 +161,8 @@ export function InsightMeta({
     duplicate,
     setOverride,
     moveToDashboard,
+    tileGroupMoveOptions,
+    moveToGroup,
     copyToDashboard,
     areDetailsShown,
     setAreDetailsShown,
@@ -679,6 +683,8 @@ export function InsightMeta({
                                         <DashboardWidgetPlacementMenus
                                             placementDestinations={copyToDestinations}
                                             onMoveToDashboard={moveToDashboard}
+                                            tileGroupMoveOptions={tileGroupMoveOptions}
+                                            onMoveToGroup={moveToGroup}
                                             onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
                                         />
                                         {removeFromDashboard && (

@@ -5,6 +5,7 @@ import { IconChevronRight } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils/strings'
 
+import { getTileGroupLabel } from '../../dashboardTileSections'
 import type { DashboardTileGroupApi, DashboardTileGroupRailEnumApi } from '../../generated/api.schemas'
 
 const RAIL_CLASS_NAMES: Record<DashboardTileGroupRailEnumApi, string> = {
@@ -63,7 +64,7 @@ export function DashboardTileGroup({
                     aria-expanded={!collapsed}
                     data-attr="dashboard-tile-group-toggle"
                 >
-                    <span className="font-semibold">{group.title || tileCountLabel}</span>
+                    <span className="font-semibold">{getTileGroupLabel(group, tileCount)}</span>
                 </LemonButton>
                 {group.title && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}
             </div>

@@ -47,6 +47,7 @@ import {
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
+import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
@@ -195,6 +196,8 @@ export interface InsightCardProps extends Resizeable {
     duplicate?: () => void
     setOverride?: () => void
     moveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    tileGroupMoveOptions?: TileGroupMoveOptions
+    moveToGroup?: (groupKey: string | null) => void
     /** Copy this insight tile to another dashboard (same insight; requires editor on destination). */
     copyToDashboard?: (dashboard: DashboardBasicType) => void
     /** buttons to add to the "more" menu on the card**/
@@ -261,6 +264,8 @@ function InsightCardInternal(
         duplicate,
         setOverride,
         moveToDashboard,
+        tileGroupMoveOptions,
+        moveToGroup,
         copyToDashboard,
         className,
         moreButtons,
@@ -519,6 +524,8 @@ function InsightCardInternal(
                         duplicate={duplicate}
                         setOverride={setOverride}
                         moveToDashboard={moveToDashboard}
+                        tileGroupMoveOptions={tileGroupMoveOptions}
+                        moveToGroup={moveToGroup}
                         copyToDashboard={copyToDashboard}
                         areDetailsShown={areDetailsShown}
                         setAreDetailsShown={setAreDetailsShown}

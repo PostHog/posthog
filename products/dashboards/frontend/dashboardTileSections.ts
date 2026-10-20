@@ -2,6 +2,8 @@ import { cloneLayout } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 import { moveElement } from 'react-grid-layout/core'
 
+import { pluralize } from 'lib/utils/strings'
+
 import type { DashboardLayoutSize, DashboardTile } from '~/types'
 
 import type { DashboardGridCompactor } from './dashboardCustomization'
@@ -12,6 +14,17 @@ export type DashboardSection =
     | { kind: 'group'; key: string; groupKey: string; group: DashboardTileGroupApi; tiles: DashboardTile[] }
 
 type SectionLayouts = Partial<Record<DashboardLayoutSize, Layout>>
+
+/** Where a tile's menu can move it on its own dashboard. */
+export interface TileGroupMoveOptions {
+    groups: { groupKey: string; label: string }[]
+    inGroup: boolean
+}
+
+/** The name a group's band header shows. */
+export function getTileGroupLabel(group: DashboardTileGroupApi, tileCount: number): string {
+    return group.title || pluralize(tileCount, 'tile')
+}
 
 function tilesInLayoutOrder(tiles: DashboardTile[], layout: Layout | undefined): DashboardTile[] {
     const positions = new Map((layout ?? []).map((item) => [item.i, item]))
@@ -70,6 +83,25 @@ export function getDashboardSections({
     }
 
     return sections
+}
+
+/** For each tile, the other groups of its dashboard, and whether it is in a group it can leave. */
+export function getTileGroupMoveOptions(sections: DashboardSection[]): Record<number, TileGroupMoveOptions> {
+    const groups = sections.flatMap((section) =>
+        section.kind === 'group'
+            ? [{ groupKey: section.groupKey, label: getTileGroupLabel(section.group, section.tiles.length) }]
+            : []
+    )
+    return Object.fromEntries(
+        sections.flatMap((section) => {
+            const currentGroupKey = section.kind === 'group' ? section.groupKey : null
+            const options: TileGroupMoveOptions = {
+                groups: groups.filter((group) => group.groupKey !== currentGroupKey),
+                inGroup: currentGroupKey !== null,
+            }
+            return section.tiles.map((tile) => [tile.id, options])
+        })
+    )
 }
 
 function moveToTop(layout: Layout): Layout {

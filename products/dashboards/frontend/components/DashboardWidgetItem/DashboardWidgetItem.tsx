@@ -14,6 +14,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
+import type { TileGroupMoveOptions } from '../../dashboardTileSections'
 import {
     DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER,
     getDashboardWidgetCatalogEntry,
@@ -76,6 +77,8 @@ type DashboardWidgetItemProps = {
     onDuplicate?: () => void
     onRemove?: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    tileGroupMoveOptions?: TileGroupMoveOptions
+    onMoveToGroup?: (groupKey: string | null) => void
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     /** Injected by react-grid-layout / react-resizable — must render inside the card root. */
     children?: React.ReactNode
@@ -155,6 +158,8 @@ function DashboardWidgetItemContent({
     onDuplicate,
     onRemove,
     onMoveToDashboard,
+    tileGroupMoveOptions,
+    onMoveToGroup,
     onCopyToDashboard,
     copyToDestinations,
     editOpen,
@@ -286,6 +291,8 @@ function DashboardWidgetItemContent({
                                     <DashboardWidgetPlacementMenus
                                         placementDestinations={copyToDestinations ?? []}
                                         onMoveToDashboard={onMoveToDashboard}
+                                        tileGroupMoveOptions={tileGroupMoveOptions}
+                                        onMoveToGroup={onMoveToGroup}
                                         onCopyToDashboard={onCopyToDashboard}
                                     />
                                 )}
@@ -400,6 +407,8 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onDuplicate,
             onRemove,
             onMoveToDashboard,
+            tileGroupMoveOptions,
+            onMoveToGroup,
             onCopyToDashboard,
             children,
             className,
@@ -470,6 +479,8 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onDuplicate={onDuplicate}
                     onRemove={onRemove}
                     onMoveToDashboard={onMoveToDashboard}
+                    tileGroupMoveOptions={tileGroupMoveOptions}
+                    onMoveToGroup={onMoveToGroup}
                     onCopyToDashboard={onCopyToDashboard}
                     copyToDestinations={copyToDestinations}
                     editOpen={editOpen}

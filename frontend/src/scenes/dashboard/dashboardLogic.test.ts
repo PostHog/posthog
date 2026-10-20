@@ -16,6 +16,7 @@ import { dayjs, now } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { pluralize } from 'lib/utils/strings'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
@@ -1736,7 +1737,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             const movedTile = logic.values.dashboard!.tiles[0]
             await expectLogic(logic, () => {
-                logic.actions.moveTileToGroup(movedTile.id, 'plans', logic.values.layouts.sm ?? [])
+                logic.actions.moveTileToGroup(movedTile.id, 'plans', logic.values.layouts.sm ?? [], 'drag')
             }).toFinishAllListeners()
             expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             jest.spyOn(api, 'update')
@@ -1832,7 +1833,7 @@ describe('dashboardLogic', () => {
                 layout.i === String(movedTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
             )
             await expectLogic(logic, () => {
-                logic.actions.moveTileToGroup(movedTile.id, 'plans', movedLayout ?? [])
+                logic.actions.moveTileToGroup(movedTile.id, 'plans', movedLayout ?? [], 'drag')
             }).toFinishAllListeners()
             ;(api.update as jest.Mock).mockRejectedValueOnce(new Error('network down'))
 
@@ -1859,6 +1860,148 @@ describe('dashboardLogic', () => {
 
             expect(api.update).not.toHaveBeenCalled()
             expect(logic.values.dashboard!.tiles.find((tile) => tile.id === movedTile.id)?.group_key ?? null).toBeNull()
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+        })
+
+        describe('moving a tile to a group from its menu', () => {
+            const groupKeys = [null, 'plans', 'ops']
+
+            beforeEach(async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
+                    [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                })
+                const grouped: DashboardType = {
+                    ...dashboards[5],
+                    customization: { groups: { plans: { title: 'Pricing plans' }, ops: { collapsed: true } } },
+                    tiles: dashboards[5].tiles.map((tile, index) => ({ ...tile, group_key: groupKeys[index] })),
+                }
+                useMocks({ get: { '/api/environments/:team_id/dashboards/5/': grouped } })
+                logic.unmount()
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                jest.spyOn(api, 'update').mockImplementation(async (_url, payload: any) => ({
+                    ...grouped,
+                    tiles: grouped.tiles.map((tile) => ({
+                        ...tile,
+                        ...payload.tiles.find((entry: { id: number }) => entry.id === tile.id),
+                    })),
+                }))
+            })
+
+            // A spy keeps its implementation across tests, and later tests need the real request.
+            afterEach(() => {
+                ;(api.update as jest.Mock).mockRestore()
+            })
+
+            const tileGroupKey = (tileId: number): string | null =>
+                logic.values.dashboard!.tiles.find((tile) => tile.id === tileId)?.group_key ?? null
+
+            it.each([
+                { name: 'into a group', tileIndex: 0, groupKey: 'plans', toast: 'Moved to the "Pricing plans" group' },
+                // An untitled group is named by its tile count, which the move changes.
+                {
+                    name: 'into a closed group',
+                    tileIndex: 0,
+                    groupKey: 'ops',
+                    toast: `Moved to the "${pluralize(2, 'tile')}" group`,
+                },
+                { name: 'out of its group', tileIndex: 1, groupKey: null, toast: 'Tile taken out of its group' },
+            ])(
+                'in view mode saves a tile moved $name at once',
+                async ({ tileIndex, groupKey, toast: expectedToast }) => {
+                    const tile = logic.values.dashboard!.tiles[tileIndex]
+                    const successToast = jest.spyOn(lemonToast, 'success')
+                    const capture = jest.spyOn(posthog, 'capture')
+
+                    await expectLogic(logic, () => {
+                        logic.actions.moveTileToGroupFromMenu(tile.id, groupKey)
+                    }).toFinishAllListeners()
+
+                    expect(api.update).toHaveBeenCalledTimes(1)
+                    const payload = (api.update as jest.Mock).mock.calls[0][1]
+                    expect(payload.tiles.filter((entry: object) => 'group_key' in entry)).toEqual([
+                        expect.objectContaining({ id: tile.id, group_key: groupKey }),
+                    ])
+                    expect(payload.tiles.every((entry: DashboardTile) => !!entry.layouts?.sm)).toBe(true)
+                    expect(tileGroupKey(tile.id)).toBe(groupKey)
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+                    expect(logic.values.collapsedTileGroupKeys).toEqual(['ops'])
+                    expect(successToast).toHaveBeenCalledWith(expectedToast)
+                    expect(capture).toHaveBeenCalledWith(
+                        'dashboard tile moved between groups',
+                        expect.objectContaining({ method: 'menu' })
+                    )
+                }
+            )
+
+            it('in view mode leaves the saved dashboard in place when the save fails', async () => {
+                const tile = logic.values.dashboard!.tiles[0]
+                const savedLayouts = logic.values.dashboard!.tiles.map((dashboardTile) => dashboardTile.layouts)
+                ;(api.update as jest.Mock).mockRejectedValueOnce(new Error('network down'))
+                const errorToast = jest.spyOn(lemonToast, 'error')
+
+                await expectLogic(logic, () => {
+                    logic.actions.moveTileToGroupFromMenu(tile.id, 'plans')
+                }).toFinishAllListeners()
+
+                expect(tileGroupKey(tile.id)).toBeNull()
+                expect(logic.values.dashboard!.tiles.map((dashboardTile) => dashboardTile.layouts)).toEqual(
+                    savedLayouts
+                )
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+                expect(errorToast).toHaveBeenCalled()
+            })
+
+            it('in edit mode keeps the move unsaved until a cancel reverts it', async () => {
+                const tile = logic.values.dashboard!.tiles[0]
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
+                }).toFinishAllListeners()
+                await expectLogic(logic, () => {
+                    logic.actions.moveTileToGroupFromMenu(tile.id, 'plans')
+                }).toFinishAllListeners()
+
+                expect(api.update).not.toHaveBeenCalled()
+                expect(tileGroupKey(tile.id)).toBe('plans')
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                }).toFinishAllListeners()
+
+                expect(tileGroupKey(tile.id)).toBeNull()
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+            })
+        })
+
+        it('discarding keeps a duplicated tile in its group', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const sourceTile = logic.values.dashboard!.tiles[0]
+            const groupedCopy = { ...sourceTile, id: 999, group_key: 'plans' }
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                ...logic.values.dashboard!,
+                tiles: [...logic.values.dashboard!.tiles, groupedCopy],
+            })
+            await expectLogic(logic, () => {
+                logic.actions.duplicateTile(sourceTile)
+            })
+                .toDispatchActions(['duplicateTileSuccess'])
+                .toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboard!.tiles.find((tile) => tile.id === groupedCopy.id)?.group_key).toBe('plans')
             expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
         })
 

@@ -59,7 +59,12 @@ import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
-import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
+import {
+    BREAKPOINTS,
+    dashboardToSaveableTemplate,
+    getDashboardTileDisplayName,
+    isWidgetTileVisibleOnPlacement,
+} from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import {
@@ -121,7 +126,7 @@ import {
     TileLayout,
 } from '~/types'
 
-import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
+import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
 import {
     dashboardFiltersEqual,
     dashboardVariableValuesEqual,
@@ -134,7 +139,16 @@ import {
     type TileGroupChoices,
     dashboardTileGroupChoicesLogic,
 } from 'products/dashboards/frontend/dashboardTileGroupChoicesLogic'
-import { getCollapsedTileGroupKeys } from 'products/dashboards/frontend/dashboardTileSections'
+import {
+    type DashboardSection,
+    type TileGroupMoveOptions,
+    getCollapsedTileGroupKeys,
+    getDashboardSections,
+    getSectionLayouts,
+    getTileGroupLabel,
+    getTileGroupMoveOptions,
+    moveTileToSection,
+} from 'products/dashboards/frontend/dashboardTileSections'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
@@ -450,6 +464,9 @@ export interface DashboardEditing {
 
 type DashboardEditSaveScope = 'colors' | 'layout'
 
+// pinned: `method` property values of the "dashboard tile moved between groups" event
+export type TileGroupMoveMethod = 'drag' | 'menu'
+
 function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew {
     const parsedTileId = Number(tileId)
     return Number.isNaN(parsedTileId) ? null : parsedTileId
@@ -667,6 +684,8 @@ export interface dashboardLogicValues {
     terraformModalOpen: boolean
     textTileId: DashboardTileIdOrNew
     textTiles: DashboardTile[]
+    tileGroupMoveOptions: Record<number, TileGroupMoveOptions>
+    tileGroupSections: DashboardSection[]
     tileGroupSectionsEnabled: boolean
     tiles: DashboardTile[]
     urlFilters: DashboardFilter
@@ -913,10 +932,19 @@ export interface dashboardLogicActions {
     moveTileToGroup: (
         tileId: number,
         groupKey: string | null,
-        layout: Layout
+        layout: Layout,
+        method: TileGroupMoveMethod
     ) => {
         groupKey: string | null
         layout: Layout
+        method: TileGroupMoveMethod
+        tileId: number
+    }
+    moveTileToGroupFromMenu: (
+        tileId: number,
+        groupKey: string | null
+    ) => {
+        groupKey: string | null
         tileId: number
     }
     moveToDashboard: (
@@ -1136,6 +1164,27 @@ export interface dashboardLogicActions {
     }
     saveLayoutChanges: () => {
         value: true
+    }
+    saveTileGroupMove: (successMessage: string) => {
+        successMessage: string
+    }
+    saveTileGroupMoveFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    saveTileGroupMoveSuccess: (
+        dashboard: DashboardType | null,
+        payload?: {
+            successMessage: string
+        }
+    ) => {
+        dashboard: DashboardType | null
+        payload?: {
+            successMessage: string
+        }
     }
     scheduleRefreshDashboardWidgets: (tileId: number) => {
         tileId: number
@@ -1658,6 +1707,18 @@ export interface dashboardLogicMeta {
             sizeKey: DashboardLayoutSize | undefined
         ) => Layout | undefined
         layoutForItem: (layout: Layout | undefined) => Record<string, TileLayout>
+        tileGroupSections: (
+            tileGroupSectionsEnabled: boolean,
+            tiles: DashboardTile[],
+            dashboardWidgetsEnabled: boolean,
+            placement: DashboardPlacement,
+            layouts: Partial<Record<DashboardLayoutSize, Layout>>,
+            dashboard: DashboardType | null
+        ) => DashboardSection[]
+        tileGroupMoveOptions: (
+            tileGroupSections: DashboardSection[],
+            canEditDashboard: boolean
+        ) => Record<number, TileGroupMoveOptions>
         refreshMetrics: (
             refreshStatus: Record<string, RefreshStatus>,
             refreshTilesTotal: number | null
@@ -1816,7 +1877,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         cancelWidgetRefresh: (tileIds: number[], requestNumber: number) => ({ tileIds, requestNumber }),
         toggleTileGroup: (groupKey: string) => ({ groupKey }),
         tilePlacementsSaved: (dashboard: DashboardType) => ({ dashboard }),
-        moveTileToGroup: (tileId: number, groupKey: string | null, layout: Layout) => ({ tileId, groupKey, layout }),
+        moveTileToGroup: (tileId: number, groupKey: string | null, layout: Layout, method: TileGroupMoveMethod) => ({
+            tileId,
+            groupKey,
+            layout,
+            method,
+        }),
+        moveTileToGroupFromMenu: (tileId: number, groupKey: string | null) => ({ tileId, groupKey }),
         preloadTileGroup: (groupKey: string, retryFailed: boolean = false) => ({ groupKey, retryFailed }),
         /** Debounced run_widgets refresh for a single tile (tile filters). */
         scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
@@ -1913,6 +1980,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         saveLayoutChanges: true,
         discardLayoutChanges: true,
         saveEditModeChanges: (scope: DashboardEditSaveScope) => ({ scope }),
+        saveTileGroupMove: (successMessage: string) => ({ successMessage }),
         saveLayout: true,
         resetUrlFilters: () => true,
         resetUrlVariables: true,
@@ -2272,6 +2340,45 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tiles: [...(values.tiles || []), tile],
                         } as DashboardType
                     }
+                },
+                saveTileGroupMove: async ({ successMessage }) => {
+                    // Two moves in quick succession must not race: the server has to apply the older PATCH first.
+                    const persist = async (): Promise<DashboardType | null> => {
+                        const currentDashboard = values.dashboard
+                        if (!currentDashboard) {
+                            return null
+                        }
+                        try {
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                            const persistedDashboard: DashboardType = await api.update(
+                                `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
+                                { tiles: tileLayoutUpdates(currentDashboard.tiles, values.savedTilePlacements) }
+                            )
+                            const latestDashboard = values.dashboard ?? currentDashboard
+                            const updatedDashboard: DashboardType = {
+                                ...persistedDashboard,
+                                breakdown_colors: latestDashboard.breakdown_colors,
+                                data_color_theme_id: latestDashboard.data_color_theme_id,
+                                persisted_filters: latestDashboard.persisted_filters,
+                                persisted_variables: latestDashboard.persisted_variables,
+                            }
+                            actions.tilePlacementsSaved(updatedDashboard)
+                            dashboardsModel.actions.updateDashboardSuccess(updatedDashboard, { layoutsPersisted: true })
+                            lemonToast.success(successMessage)
+                            return updatedDashboard
+                        } catch {
+                            lemonToast.error('Could not move the tile, so it stays where it was. Try again.')
+                            return withSavedTilePlacement(
+                                values.dashboard ?? currentDashboard,
+                                values.savedTilePlacements
+                            )
+                        }
+                    }
+                    cache.tileGroupMoveSaveQueue = (cache.tileGroupMoveSaveQueue ?? Promise.resolve()).then(
+                        persist,
+                        persist
+                    )
+                    return cache.tileGroupMoveSaveQueue
                 },
                 setDashboardEditing: async ({ editing, source }) => {
                     if (
@@ -3845,6 +3952,40 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (layouts: ResponsiveLayouts, sizeKey: DashboardLayoutSize | undefined) =>
                 sizeKey ? layouts[sizeKey] : undefined,
         ],
+        tileGroupSections: [
+            (s) => [
+                s.tileGroupSectionsEnabled,
+                s.tiles,
+                s.dashboardWidgetsEnabled,
+                s.placement,
+                s.layouts,
+                s.dashboard,
+            ],
+            (
+                tileGroupSectionsEnabled: boolean,
+                tiles: DashboardTile[],
+                dashboardWidgetsEnabled: boolean,
+                placement: DashboardPlacement,
+                layouts: Partial<Record<DashboardLayoutSize, Layout>>,
+                dashboard: DashboardType | null
+            ): DashboardSection[] => {
+                if (!tileGroupSectionsEnabled) {
+                    return []
+                }
+                const widgetTilesShown = dashboardWidgetsEnabled && isWidgetTileVisibleOnPlacement(placement)
+                const sections = getDashboardSections({
+                    tiles: tiles.filter((tile) => !tile.widget || widgetTilesShown),
+                    layout: layouts.sm,
+                    groups: dashboard?.customization?.groups,
+                })
+                return sections.some((section) => section.kind === 'group') ? sections : []
+            },
+        ],
+        tileGroupMoveOptions: [
+            (s) => [s.tileGroupSections, s.canEditDashboard],
+            (tileGroupSections: DashboardSection[], canEditDashboard: boolean): Record<number, TileGroupMoveOptions> =>
+                canEditDashboard ? getTileGroupMoveOptions(tileGroupSections) : {},
+        ],
         layoutForItem: [
             (s) => [s.layout],
             (layout: TileLayout[] | undefined) => {
@@ -5194,7 +5335,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.refreshDashboardWidgets({ tileIds: expandedWidgetTileIds, forceRefresh })
             }
         },
-        moveTileToGroup: ({ tileId, groupKey, layout }) => {
+        moveTileToGroup: ({ tileId, groupKey, layout, method }) => {
             const previousGroupKey = values.tiles.find((tile) => tile.id === tileId)?.group_key ?? null
             actions.updateLayouts({ sm: layout })
             actions.setTileProperty(tileId, { group_key: groupKey })
@@ -5202,7 +5343,47 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboard_id: props.id,
                 from_group: previousGroupKey !== null,
                 to_group: groupKey !== null,
+                method,
             })
+        },
+        moveTileToGroupFromMenu: ({ tileId, groupKey }) => {
+            const sections = values.tileGroupSections
+            const lastSection = sections.at(-1)
+            // A loose tile goes to the bottom of the dashboard, which is the drop zone a drag uses to take it out of its group.
+            const targetIndex =
+                groupKey !== null
+                    ? sections.findIndex((section) => section.kind === 'group' && section.groupKey === groupKey)
+                    : lastSection?.kind === 'tiles'
+                      ? sections.length - 1
+                      : sections.length
+            if (targetIndex < 0 || !sections.some((section) => section.tiles.some((tile) => tile.id === tileId))) {
+                return
+            }
+            const moved = moveTileToSection({
+                sections,
+                sectionLayouts: sections.map((section) => getSectionLayouts(values.layouts, section.tiles).sm ?? []),
+                tileId,
+                targetIndex,
+                cell: null,
+                compactor: getDashboardGridCompactor(values.dashboard?.customization?.layout_compaction),
+                cols: BREAKPOINT_COLUMN_COUNTS.sm,
+            })
+            actions.moveTileToGroup(tileId, moved.groupKey, moved.layout, 'menu')
+
+            // An untitled group is named by its tile count, so name it after the move, the way its band header does.
+            const target = values.tileGroupSections.find(
+                (section) => section.kind === 'group' && section.groupKey === moved.groupKey
+            )
+            const message =
+                target?.kind === 'group'
+                    ? `Moved to the "${getTileGroupLabel(target.group, target.tiles.length)}" group`
+                    : 'Tile taken out of its group'
+            if (!values.layoutEditMode) {
+                actions.saveTileGroupMove(message)
+            } else if (moved.groupKey && values.collapsedTileGroupKeys.includes(moved.groupKey)) {
+                // The tile is out of sight in a closed group, so say where it went.
+                lemonToast.info(message)
+            }
         },
         toggleTileGroup: ({ groupKey }) => {
             const collapse = !values.collapsedTileGroupKeys.includes(groupKey)
