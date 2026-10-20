@@ -1060,6 +1060,10 @@ snapshots:
         hash: v1.k794b7964.16c554b0bd1f8528c6e1d08289c6ec9fa2000f8b9af0dfc374852c88ecb98445.xJ2MACgsrbGtNe1FHLCl5uYcLY9454d1lk6I1lu33wI
     components-hogcharts-barlist--share-of-total--light:
         hash: v1.k794b7964.9dc5c7e4c3578e6b4170df55b54bb3028e7dfda478b4e7d7197dc40953139647.7yjEOpNKFJZaLt6XuiGJiSKZOhxemH1lVCDmQndgyEI
+    components-hogcharts-barlist--wide-with-one-long-label--dark:
+        hash: v1.k794b7964.da827e3a071b7de4e432a4b15af6c6e452d42ac7fd45f535f39c51b8aa06b746.6SDobIKa4IbJuipFFjjieWj1DMtgVcWBmwh7Xan1EQ4
+    components-hogcharts-barlist--wide-with-one-long-label--light:
+        hash: v1.k794b7964.163c8a1058bf5f2bf1d5cf8a1bde53ad2cc1f23a31b04ba44d149d346f950e92.B-juvp5CdUQ8hpm9Ryg-PYqcKww9Rrrl7pcJhLlswLM
     components-hogcharts-boxplot--horizontal--dark:
         hash: v1.k794b7964.30cbeacc1f375b50732dd7c20765bbedfc0dc626d4896c8fa9687aa5f9bfc001.FTUzztXbfM9Du-zf-HPWGeBiY0cPJRqb3Ybj7dYNln8
     components-hogcharts-boxplot--horizontal--light:
@@ -12730,6 +12734,18 @@ snapshots:
         hash: v1.k794b7964.ef34c395a9c714e408b11f16c269b26faf1702c47d28b1a4a75a6dfc53843c86.bGIL3-MblhBwE8TbLeV2b950OxPKA6zuY845SbU3Eyk
     scenes-app-llm-observability-numericevaluationconfig--system-one-narrow--light:
         hash: v1.k794b7964.0582a7952e17e17dcbcf88734e3593fda4adc9e4ef4d18dc33e3264f1f54db30.L3V9MhG1KqtPXLmo0YNTOyblMDqwyN5ByhYuKSUz3-g
+    scenes-app-llm-observability-tagger-creation-retired-modal--default--dark:
+        hash: v1.k794b7964.a50e0bc709ba60817178e68de22478ed2246b4b0fe368b2bc0980d6685db75f1.TrIdwsauxW1KI2-THnOP2aeIOaxBp2FYLo_S6yaiJ78
+    scenes-app-llm-observability-tagger-creation-retired-modal--default--light:
+        hash: v1.k794b7964.3d11df71f93f30412159fd9f1dd312ff71a6d717840fd489c1b074d9ab08c32d.9YSVVJe1RobDnHYUhTN4A7IgSv-h-Rtq5CHh9DVzKKU
+    scenes-app-llm-observability-tagger-creation-retired-modal--turn-back-on--dark:
+        hash: v1.k794b7964.d0d918ec528620c42a9db7a571b17df37f1766388fdb22a16f145f69064848da.6-c8xtoOfnqBHlZIjtTHrVeUuLcJ8HMxe1N75_0X1Zc
+    scenes-app-llm-observability-tagger-creation-retired-modal--turn-back-on--light:
+        hash: v1.k794b7964.dd4d8aef334145fa385feb77f79a384b7ffbe718f93d6f347b2f65a97d2d11aa.pSRDtGAxPvPj7aSzrg0OHapd58TfcJksaMcu2rVLUbA
+    scenes-app-llm-observability-taggers-deprecation-banner--default--dark:
+        hash: v1.k794b7964.4e5e8fcbc5e9ff76ccda6b84a6bfb7a99d28334c6b2afc4ee6bb08e221fde8e6.Euz0mSfdHk2e8kSuHfbkcOEuljQWO8FJAMneFQE5EHk
+    scenes-app-llm-observability-taggers-deprecation-banner--default--light:
+        hash: v1.k794b7964.4afb0ca40061311438558a25b30e8afe725a6645742a036410f3803dcb7ce3b1.I-UIHserKVYTZtQOJ1HTlRwwhbn-uFPSzYzjgdbUGK0
     scenes-app-logs-logsimpactcounts--no-coverage--dark:
         hash: v1.k794b7964.fcfa5be29c5721d0db9fa21ecab20f16c04a4074c9af7fb3a58311900e168a48.2eslY8aigbAuKJ2Bsn8AjSOah5Q77FoWONVdG2fb6C4
     scenes-app-logs-logsimpactcounts--no-coverage--light:

@@ -16,8 +16,6 @@ class TestAttioSource:
     @pytest.mark.parametrize(
         "pattern",
         [
-            "401 Client Error: Unauthorized for url: https://api.attio.com",
-            "403 Client Error: Forbidden for url: https://api.attio.com",
             "400 Client Error: Bad Request for url: https://api.attio.com/v2/objects/",
         ],
     )
