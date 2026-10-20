@@ -36,7 +36,7 @@ def extend_api_router() -> None:
         router as root_router,
     )
 
-    from ee.api import hands_free, max_tools
+    from ee.api import max_tools
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     organizations_router.register(
@@ -51,8 +51,6 @@ def extend_api_router() -> None:
     projects_router.register(r"core_memory", core_memory.MaxCoreMemoryViewSet, "project_core_memory", ["team_id"])
 
     projects_router.register(r"max_tools", max_tools.MaxToolsViewSet, "project_max_tools", ["team_id"])
-
-    projects_router.register(r"max_hands_free", hands_free.MaxHandsFreeViewSet, "project_max_hands_free", ["team_id"])
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe

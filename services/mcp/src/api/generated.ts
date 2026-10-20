@@ -55035,11 +55035,6 @@ export namespace Schemas {
       on_overflow?: OnOverflowEnum;
     }
 
-    export interface HandsFreeToken {
-      /** Single-use ElevenLabs Scribe realtime token, valid for 15 minutes. */
-      token: string;
-    }
-
     /**
      * 409 body when a guarded write was based on a stale head.
      */
