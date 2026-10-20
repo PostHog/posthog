@@ -129,7 +129,12 @@ describe('Hogflow Executor', () => {
             }
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
-        hogFlowFunctionsService = new HogFlowFunctionsService(hub.SITE_URL, hogFunctionTemplateManager, hogExecutor)
+        hogFlowFunctionsService = new HogFlowFunctionsService(
+            hub.SITE_URL,
+            hogFunctionTemplateManager,
+            hogExecutor,
+            hub.teamManager
+        )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
         // Stubbed to always allow: this suite covers executor routing and flow control,

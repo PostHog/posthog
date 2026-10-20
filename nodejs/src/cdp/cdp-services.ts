@@ -518,7 +518,8 @@ export function createCdpCoreServices(
     const hogFlowFunctionsService = new HogFlowFunctionsService(
         config.SITE_URL,
         hogFunctionTemplateManager,
-        hogExecutorAsync
+        hogExecutorAsync,
+        deps.teamManager
     )
 
     const recipientPreferencesService = new RecipientPreferencesService(

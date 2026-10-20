@@ -6,6 +6,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionType,
 } from '~/cdp/types'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
@@ -18,7 +19,8 @@ export class HogFlowFunctionsService {
     constructor(
         private siteUrl: string,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
-        private hogFunctionExecutor: HogExecutorAsyncService
+        private hogFunctionExecutor: HogExecutorAsyncService,
+        private teamManager: Pick<TeamManager, 'getTeam'>
     ) {}
 
     async buildHogFunction(
@@ -116,8 +118,8 @@ export class HogFlowFunctionsService {
             },
             project: {
                 id: hogFunction.team_id,
-                name: '',
-                url: '',
+                name: (await this.teamManager.getTeam(teamId))?.name ?? '',
+                url: projectUrl,
             },
         }
 

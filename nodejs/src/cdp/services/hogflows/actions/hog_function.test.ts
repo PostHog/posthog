@@ -106,7 +106,8 @@ describe('HogFunctionHandler', () => {
         mockHogFlowFunctionsService = new HogFlowFunctionsService(
             hub.SITE_URL,
             mockHogFunctionTemplateManager,
-            mockHogFunctionExecutor
+            mockHogFunctionExecutor,
+            hub.teamManager
         )
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(null),
@@ -332,8 +333,11 @@ describe('HogFunctionHandler', () => {
         })
     })
 
-    it('renders the workflow name and id from source in function inputs', async () => {
-        action.config.inputs.name = { value: '{{ source.name }}|{{ source.id }}', templating: 'liquid' }
+    it('renders the workflow and its project from source and project in function inputs', async () => {
+        action.config.inputs.name = {
+            value: '{{ source.name }}|{{ source.id }}|{{ project.name }}|{{ project.url }}',
+            templating: 'liquid',
+        }
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
@@ -343,7 +347,9 @@ describe('HogFunctionHandler', () => {
         const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
         expect(handlerResult.error).toBeUndefined()
-        expect(mockFetch.mock.calls[0][1].body).toContain(`"name":"Hog Flow|${invocation.hogFlow.id}"`)
+        expect(mockFetch.mock.calls[0][1].body).toContain(
+            `"name":"Hog Flow|${invocation.hogFlow.id}|${team.name}|${hub.SITE_URL}/project/${invocation.hogFlow.team_id}"`
+        )
     })
 
     it('should throw an error if template is not found', async () => {
