@@ -16,6 +16,7 @@ import {
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -40,6 +41,7 @@ import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason 
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { CreateScannerButton } from './components/CreateScannerButton'
+import { QuillCreateScannerButton } from './components/QuillCreateScannerButton'
 import { ScannerStatusLabel } from './components/ScannerStatusLabel'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
@@ -146,6 +148,7 @@ export function ReplayScannersScene(): JSX.Element {
     const { showUsd, quota } = useValues(visionQuotaLogic)
     const quotaExhausted = quotaBannerState(quota).kind === 'exhausted'
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const activeTab = KNOWN_TABS.includes(searchParams.tab) ? searchParams.tab : DEFAULT_TAB
 
     const columns: LemonTableColumns<ReplayScanner> = [
@@ -256,7 +259,11 @@ export function ReplayScannersScene(): JSX.Element {
                 actions={
                     <>
                         <ReplayVisionFeedbackButton />
-                        <CreateScannerButton acceptedLabel="New scanner" dataAttr="vision-scanner-create" />
+                        {todayRailNav ? (
+                            <QuillCreateScannerButton acceptedLabel="New scanner" dataAttr="vision-scanner-create" />
+                        ) : (
+                            <CreateScannerButton acceptedLabel="New scanner" dataAttr="vision-scanner-create" />
+                        )}
                     </>
                 }
             />

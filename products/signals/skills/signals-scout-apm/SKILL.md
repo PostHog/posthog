@@ -17,6 +17,11 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: apm
+scout-precheck-query: |
+  SELECT 1 AS has_spans
+  FROM posthog.trace_spans
+  WHERE timestamp > {now} - INTERVAL 24 HOUR
+  LIMIT 1
 ---
 
 # Signals scout: distributed tracing (APM)
@@ -30,6 +35,8 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 **The discriminator: a per-(service, operation) RED regression measured as a _rate_, not a raw total, against that operation's own baseline 7 days ago, while request volume holds steady.** Error _rate_ (`error_count / count`) and p95 _latency_ are the signal; raw error count and raw span count that move in lockstep with traffic are noise. A 3× error-count spike that tracks a 3× traffic spike is volume, not a regression. Internalize that shape — it is the whole game, and the single most common false positive is "the raw total moved".
 
 ## Quick close-out: is APM even in use?
+
+A scheduled run can start with a `<precheck_result>` block. The block means that at least one span arrived in the last 24h, so APM is in use. When the block is present, skip this check and go to the full run.
 
 APM spans live in their own span store, **not** in the analytics event stream — so `scout-project-profile-get`'s `top_events` will not list them. Use the APM tools to check:
 
@@ -125,7 +132,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 
 ### Decide
 
-The generic report mechanics — search the inbox first (via the `report:apm:{service}:{operation}` pointer, else an `inbox-reports-list` search on the specific service / operation, not a broad word like `latency`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the APM judgment layered on top:
+The generic report mechanics — search the inbox first (via the `report:apm:{service}:{operation}` pointer, else an `inbox-reports-list` search on the specific service / operation, not a broad word like `latency`), edit-vs-author, the status rules, reviewer routing, the retry and cross-run deduplication rules, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the APM judgment layered on top:
 
 - **Edit** when a still-live report already tracks the operation — an error rate still stepped up, a p95 still elevated, a service still dark. A persistent regression is one report across runs: a new complete bucket confirming it is ongoing is a re-escalation (`append_evidence` with the fresh before/after numbers), not a fresh report per tick.
 - **Author** when nothing live covers the regression. A report-worthy finding names the concrete `(service, operation)`, gives before/after numbers (rate or p95, with the steady denominator), dates the onset bucket, and explains the shape that rules out a volume explanation, with the query results in the `evidence`. Attach the regressing series via `charts` — the rate or p95 with the steady request volume alongside — so the rate-step-on-steady-denominator shape is visible. A cause you have not named yet is not human input: a regression that names the `(service, operation)` and the shape of its error or latency move gives an agent somewhere to start, so set `actionability=immediately_actionable` and name the `repository` that serves the operation (omit the field when you can't tell which repo that is, so selection can find it). Keep `actionability=requires_human_input` for a regression whose next step is a call only a person can make — a dependency you don't control, a capacity or cost trade-off — and say which call in the summary. Priority: an active error-rate regression hitting many requests is **P1**; a contained latency regression **P2**; a single-dependency or low-traffic operation **P3**.

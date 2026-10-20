@@ -9,13 +9,12 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clarifai.settings import (
     AUTH_ERROR,
+    CLARIFAI_ENDPOINTS,
     DEFAULT_API_HOST,
-    ENDPOINTS,
     HOST_ERROR,
-    PAGE_SIZE,
     PERMISSION_ERROR,
-    PRIMARY_KEYS,
     RESOURCE_ERROR,
+    ClarifaiEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
@@ -23,10 +22,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import PaginatorConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    PaginatorConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     UNKNOWN_RESOURCE_PREFIX,
@@ -40,7 +46,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 @frozen
 class ClarifaiResumeConfig:
-    page: int
+    page: int | None = None
+    # Fan-out endpoints store the state that `build_dependent_resource` checkpoints per parent.
+    fanout_state: dict[str, Any] | None = None
+
+
+def _add_input_id(row: dict[str, Any]) -> dict[str, Any]:
+    input_data = row.get("input")
+    row["input_id"] = input_data.get("id") if isinstance(input_data, dict) else None
+    return row
+
+
+ROW_MAPS = {"dataset_inputs": _add_input_id}
 
 
 class ClarifaiAPIError(ValueError):
@@ -108,40 +125,62 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
             )
         raise ValueError("Clarifai returned an unsuccessful response. Check the API status and try again.")
 
-    def resource_config(self, endpoint: str, *, probe: bool = False) -> RESTAPIConfig:
-        if endpoint not in ENDPOINTS:
-            raise UnknownResourceError(f"{UNKNOWN_RESOURCE_PREFIX} {endpoint}")
+    def client_config(self, *, probe: bool = False) -> ClientConfig:
         session = make_tracked_session(redact_values=(self.config.personal_access_token,), allow_redirects=False)
         # Clarifai reports API failures in the JSON status, including responses with HTTP 200.
         session.hooks["response"].append(self.check_response)
         return {
-            "client": {
-                "base_url": self.base_url,
-                "auth": {
-                    "type": "api_key",
-                    "name": "Authorization",
-                    "api_key": f"Key {self.config.personal_access_token}",
-                },
-                "session": session,
-                "allowed_hosts": [],
-                "allow_redirects": False,
-                "request_timeout": (10, 60),
-                # PageNumberPaginatorConfig and the runtime constructor currently disagree on this field name.
-                "paginator": "single_page"
-                if probe
-                else cast(PaginatorConfig, {"type": "page_number", "base_page": 1, "total_path": None}),
+            "base_url": self.base_url,
+            "auth": {
+                "type": "api_key",
+                "name": "Authorization",
+                "api_key": f"Key {self.config.personal_access_token}",
             },
+            "session": session,
+            "allowed_hosts": [],
+            "allow_redirects": False,
+            "request_timeout": (10, 60),
+            # PageNumberPaginatorConfig and the runtime constructor currently disagree on this field name.
+            "paginator": "single_page"
+            if probe
+            else cast(PaginatorConfig, {"type": "page_number", "base_page": 1, "total_path": None}),
+        }
+
+    @staticmethod
+    def endpoint_config(endpoint: str) -> ClarifaiEndpointConfig:
+        config = CLARIFAI_ENDPOINTS.get(endpoint)
+        if config is None:
+            raise UnknownResourceError(f"{UNKNOWN_RESOURCE_PREFIX} {endpoint}")
+        return config
+
+    def resource_config(self, endpoint: str, *, probe: bool = False) -> RESTAPIConfig:
+        config = self.endpoint_config(endpoint)
+        if config.fanout is not None:
+            if not probe:
+                raise ValueError(f"{endpoint} fans out over {config.fanout.parent_name} and has no flat resource.")
+            # A child list needs a parent ID, so the probe checks the parent list instead.
+            config = self.endpoint_config(config.fanout.parent_name)
+        return {
+            "client": self.client_config(probe=probe),
             "resources": [
                 {
-                    "name": endpoint,
+                    "name": config.name,
                     "endpoint": {
-                        "path": endpoint,
-                        "data_selector": endpoint,
-                        "params": {"page": 1, "per_page": 1 if probe else PAGE_SIZE},
+                        "path": config.path,
+                        "data_selector": config.data_selector,
+                        "params": {"page": 1, "per_page": 1 if probe else config.page_size, **config.params},
                     },
                 }
             ],
         }
+
+    def own_app_rows(self, row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        # Listings scoped to an app can also return Clarifai main models, whose children 404 under this app's path.
+        if row.get("user_id", self.config.user_id) != self.config.user_id:
+            return []
+        if row.get("app_id", self.config.app_id) != self.config.app_id:
+            return []
+        return row
 
     def source(
         self,
@@ -149,24 +188,57 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
         job_id: str,
         manager: ResumableSourceManager[ClarifaiResumeConfig],
     ) -> SourceResponse:
+        config = self.endpoint_config(endpoint)
         resume = manager.load_state() if manager.can_resume() else None
 
-        def save_checkpoint(state: dict[str, Any] | None) -> None:
-            if state is not None:
-                manager.save_state(ClarifaiResumeConfig(page=int(state["page"])))
+        resource: Resource
+        if config.fanout is not None:
+            parent = self.endpoint_config(config.fanout.parent_name)
 
-        resource = rest_api_resource(
-            self.resource_config(endpoint),
-            team_id=self.team_id,
-            job_id=job_id,
-            db_incremental_field_last_value=None,
-            initial_paginator_state={"page": resume.page} if resume else None,
-            resume_hook=save_checkpoint,
-        )
+            def save_fanout_state(state: dict[str, Any] | None) -> None:
+                if state:
+                    manager.save_state(ClarifaiResumeConfig(fanout_state=state))
+
+            resource = cast(
+                Resource,
+                build_dependent_resource(
+                    endpoint_configs=CLARIFAI_ENDPOINTS,
+                    child_endpoint=endpoint,
+                    fanout=config.fanout,
+                    client_config=self.client_config(),
+                    path_format_values={},
+                    team_id=self.team_id,
+                    job_id=job_id,
+                    db_incremental_field_last_value=None,
+                    page_size_param="per_page",
+                    parent_endpoint_extra={"data_selector": parent.data_selector},
+                    parent_data_map=self.own_app_rows,
+                    child_endpoint_extra={"data_selector": config.data_selector},
+                    resume_hook=save_fanout_state,
+                    initial_paginator_state=resume.fanout_state if resume else None,
+                ),
+            )
+        else:
+
+            def save_checkpoint(state: dict[str, Any] | None) -> None:
+                if state is not None:
+                    manager.save_state(ClarifaiResumeConfig(page=int(state["page"])))
+
+            resource = rest_api_resource(
+                self.resource_config(endpoint),
+                team_id=self.team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=None,
+                initial_paginator_state={"page": resume.page} if resume and resume.page is not None else None,
+                resume_hook=save_checkpoint,
+            )
+        row_map = ROW_MAPS.get(endpoint)
+        if row_map is not None:
+            resource.add_map(row_map)
         return SourceResponse(
             name=endpoint,
             items=lambda: resource,
-            primary_keys=PRIMARY_KEYS,
+            primary_keys=config.primary_keys,
             sort_mode=None,
             on_complete=manager.clear_state,
         )

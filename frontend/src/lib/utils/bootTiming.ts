@@ -2,7 +2,15 @@
 const BOOT_TIMING_EVENT = 'app boot timing'
 const SAMPLE_RATE = 0.05
 
-export type BootPhase = 'entry' | 'app_modules_loaded' | 'app_ready' | 'scene_loaded' | 'scene_rendered'
+export type BootPhase =
+    | 'entry'
+    | 'app_modules_loaded'
+    | 'css_ready'
+    | 'app_booted'
+    | 'app_first_render'
+    | 'app_ready'
+    | 'scene_loaded'
+    | 'scene_rendered'
 
 export interface BootContext {
     scene?: string
@@ -14,9 +22,17 @@ const context: BootContext = {}
 let pageWasHidden = false
 let sent = false
 
-function getNavigationType(): string | null {
+function getNavigationProperties(): Record<string, string | number | null> {
     const navigation = performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined
-    return navigation?.type ?? null
+    if (!navigation) {
+        return { navigation_type: null }
+    }
+    return {
+        navigation_type: navigation.type,
+        request_start_ms: Math.round(navigation.requestStart),
+        response_start_ms: Math.round(navigation.responseStart),
+        response_end_ms: Math.round(navigation.responseEnd),
+    }
 }
 
 // A background tab throttles timers and skips rendering, so its boot times are not comparable.
@@ -48,7 +64,7 @@ async function sendBootTiming(): Promise<void> {
     posthog.capture(BOOT_TIMING_EVENT, {
         ...durations,
         ...context,
-        navigation_type: getNavigationType(),
+        ...getNavigationProperties(),
         page_was_hidden: pageWasHidden,
         sample_rate: SAMPLE_RATE,
     })

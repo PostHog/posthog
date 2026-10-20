@@ -760,6 +760,24 @@ jobs:
                     --merge-wide-persons 3 --merge-wide-distinct-ids 1000 --merge-wide-role source \
                     --kill-after 5s --scale-up-after 8s
 
+            # The publish plane: the identity service writes an outbox row for
+            # every create, attach, merge and delete, two publisher replicas
+            # drain it to per-run topics, and the gate reads the topics back
+            # once the outbox is empty. The latest row per distinct id must
+            # equal the Postgres mapping, the merge event pairs must equal the
+            # merged sources, and every mapping must carry a tombstone after
+            # the delete leg, through a leader kill, an identity crash and a
+            # publisher crash. Small wide merges keep the pointer cursor busy.
+            - name: Run the e2e gate publishing to Kafka under chaos (kill + identity crash + publisher crash)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --publish --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 200 \
+                    --concurrency 10 --duration 15s --merge-concurrency 4 --merge-rate 5 \
+                    --merge-sources 2 \
+                    --merge-wide-persons 2 --merge-wide-distinct-ids 500 --merge-wide-role source \
+                    --kill-after 5s --identity-crash-after 7s --publisher-crash-after 9s
+
             # Regression gate for eviction under writer lag: the cache is
             # sized far below the person count so dirty entries evict while
             # the paused writer guarantees their PG rows are stale. Before

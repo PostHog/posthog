@@ -9,8 +9,9 @@
 #
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - Every pull request event runs here. Canonical runs no backend tests on pull requests;
-#   its `Django Tests Pass` job only points at this workflow. Depot's own checks carry no
-#   output, so the gate posts a `Test results` check with the failure summary.
+#   its `Django Tests Pass` job only points at this workflow, and it has no push trigger.
+#   Depot's own checks carry no output, so the gate posts a `Test results` check with the
+#   failure summary.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
 # - turbo-discover adds the `origin` remote before its history fetch when it is missing.
 #   Depot CI serves an input-less actions/checkout from a fast clone that has no remote.
@@ -40,11 +41,9 @@
 #   here is depot-only: the paths-filter skip, the `!= 'schedule'` gates on the per-commit
 #   checks, the events_json cron in build_django_matrix, the events schema recording and
 #   its upload, and POSTHOG_PYTEST_HARD_EXIT.
-# - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
-#   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
-#   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
-#   The shadow routes cache writes to Depot Cache, so it must not fill the GitHub
-#   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
+# - The master run's schema dump lands in Depot artifacts and Depot Cache, which GitHub-hosted
+#   runners and fork PRs cannot read. .github/workflows/ci-backend-schema-mirror.yml copies it
+#   into a GitHub artifact and GitHub Actions cache; canonical has no mirror job.
 # - Superseded-run cancel: Depot's concurrency policy can keep an older event, so each event gets
 #   its own group and `cancel-superseded-runs` cancels older runs. See "Superseded runs" in
 #   .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
@@ -115,10 +114,8 @@
 #   .github/workflows/ci-backend-update-test-timing.yml runs on Depot runners and writes
 #   that same cache, so shard counts match GitHub Actions. Committed .test_durations is the
 #   fallback.
-# - No push trigger: canonical primes the shared schema cache on master, and Depot Cache
-#   serves both engines. The `github.event_name != 'push'` guards stay to mirror canonical.
-# - Fresh-master cache waiting is canonical-only: it waits on the GitHub Actions
-#   warmer, which cannot signal readiness for Depot's separate cache channel.
+# - The master push runs here, so the per-commit checks and the schema dump have no
+#   `github.event_name != 'push'` guard; the matrices keep theirs, as in canonical.
 
 # This workflow runs all of our backend django tests.
 #
@@ -127,11 +124,13 @@
 name: Backend CI on Depot
 # Depot CI copy of canonical Backend CI. Branch protection requires this workflow's gate,
 # `Backend CI on Depot / Django Tests Pass on Depot`, posted by the Depot Code Access app.
-# Pull requests, manual runs and the hourly master run start here on their own; canonical
-# keeps the master push.
+# Pull requests, master pushes, manual runs and the hourly master run all start here.
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
 # with canonical; it runs whenever either file changes.
 on:
+    push:
+        branches:
+            - master
     schedule:
         # Hourly full-matrix run against the newest master state. The merge queue's
         # trunk-merge/** run already gated every commit before it landed, so this is where
@@ -545,6 +544,10 @@ jobs:
                         # (markdown is dropped outright, .semgrep is not listed), so a
                         # change to either would skip repo-checks and report green while
                         # leaving a tag pointing at a rule that no longer exists.
+                        # The out-of-band domain ratchet reads these trees, so a resolver added there must run it.
+                        - 'nodejs/src/**'
+                        - 'rust/**'
+                        - 'products/desktop/**'
                         - 'AGENTS.md'
                         - '.semgrep/**'
                         - 'pyproject.toml'
@@ -1528,7 +1531,7 @@ jobs:
     # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
     sdk-major-guard:
         needs: [changes]
-        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'push' && github.event_name != 'schedule'
+        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'schedule'
         timeout-minutes: 5
         permissions: {}
         name: SDK major-version guard (depot-ubuntu-24.04)
@@ -1541,7 +1544,7 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'push' && github.event_name != 'schedule'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'schedule'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1808,7 +1811,10 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   repository: PostHog/posthog
-                  ref: master
+                  # The schema dump takes its cache key from the pushed commit, so a push
+                  # migrates from that commit. A newer master can carry migrations that the
+                  # pushed commit does not have.
+                  ref: ${{ github.event_name == 'push' && github.sha || 'master' }}
                   path: upstream-master
             - name: Install python dependencies for master
               working-directory: upstream-master
@@ -1898,7 +1904,7 @@ jobs:
                   # For same-repo PRs, checkout the actual branch (not the merge commit)
                   # so upstream/master..HEAD reflects PR files. Fork PRs fall back
                   # to the default merge commit.
-                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
+                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.event_name == 'push' && github.sha || github.ref }}
                   clean: false
             - name: Install python dependencies for this PR
               run: |
@@ -2278,22 +2284,6 @@ jobs:
                   # Verify the dump is valid
                   gunzip -t schema.sql.gz
 
-            - name: Upload migrated schema artifact
-              if: ${{ github.event_name == 'push' }}
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: migrated-schema
-                  path: schema.sql.gz
-                  # Consumers only ever take the newest artifact, so a longer window just
-                  # adds pages to the artifacts listing that db:download-schema walks.
-                  retention-days: 7
-            - name: Save schema to Actions cache for PR shards
-              # Kept as the exact PR-base key that every consumer's restore-keys falls back to.
-              if: github.event_name == 'push'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: posthog-schema-master-${{ github.sha }}
             - name: Compute migration-set schema key
               # Must match the PR-base computation in turbo-discover and the
               # master restore key above (inputs, hash, and key prefix).
@@ -2308,13 +2298,35 @@ jobs:
                   DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                   PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  KEY=""
                   if [ -z "$MIG_FILES" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — skipping migration-set schema save"
                   else
                       MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
-                      echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                      KEY="posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}"
                   fi
+                  echo "key=$KEY" >> $GITHUB_OUTPUT
+                  printf '%s' "$KEY" > schema-cache-key
+            - name: Upload migrated schema artifact
+              if: ${{ github.event_name == 'push' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: migrated-schema
+                  # .github/workflows/ci-backend-schema-mirror.yml copies the dump into GitHub
+                  # artifacts and cache; the key file tells it the migration-set cache key.
+                  path: |
+                      schema.sql.gz
+                      schema-cache-key
+                  # Consumers only ever take the newest artifact, so a longer window just
+                  # adds pages to the artifacts listing that db:download-schema walks.
+                  retention-days: 7
+            - name: Save schema to Actions cache for PR shards
+              # Kept as the exact PR-base key that every consumer's restore-keys falls back to.
+              if: github.event_name == 'push'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: posthog-schema-master-${{ github.sha }}
             - name: Save schema to Actions cache (migration-set key)
               if: github.event_name == 'push' && steps.mig-schema-key.outputs.key != ''
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -2450,8 +2462,7 @@ jobs:
 
     check-openapi-types:
         needs: [changes]
-        # Not on master push: master only primes the schema cache.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'push' && github.event_name != 'schedule'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'schedule'
         timeout-minutes: 20
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -2460,7 +2471,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
+                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.event_name == 'push' && github.sha || github.ref }}
                   clean: false
             - name: Clean up data directories with container permissions
               run: |

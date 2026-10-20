@@ -3,6 +3,7 @@ import { IconCursorClick, IconPencil } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Scene } from 'scenes/sceneTypes'
@@ -10,7 +11,13 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { QuillNewActionButton } from './QuillNewActionButton'
+
 export function NewActionButton({ onSelectOption }: { onSelectOption?: () => void }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillNewActionButton onSelectOption={onSelectOption} />
+    }
     return (
         <AccessControlAction resourceType={AccessControlResourceType.Action} minAccessLevel={AccessControlLevel.Editor}>
             <Shortcut

@@ -7,7 +7,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
 from posthog.dataclasses import frozen
-from posthog.hogql_queries.utils.breakdowns import ALL_USERS_COHORT_ID, has_breakdown_filter
+from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
 
 from products.product_analytics.backend.hogql_queries.retention.retention_base_query_builder import (
     RetentionBaseQueryBuilder,
@@ -852,26 +852,6 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     def _event_filters(self) -> list[ast.Expr]:
         return [*self.global_event_filters, *self._cohort_breakdown_filters()]
 
-    def _cohort_breakdown_filters(self) -> list[ast.Expr]:
-        if (
-            self.query.breakdownFilter
-            and self.query.breakdownFilter.breakdowns
-            and len(self.query.breakdownFilter.breakdowns) == 1
-            and self.query.breakdownFilter.breakdowns[0].type == "cohort"
-        ):
-            cohort_id = self.query.breakdownFilter.breakdowns[0].property
-            # Don't add cohort filter for "all users" (cohort_id = 0)
-            if int(cohort_id) != ALL_USERS_COHORT_ID:
-                return [
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.InCohort,
-                        left=ast.Field(chain=["person_id"]),
-                        right=ast.Constant(value=int(cohort_id)),
-                    )
-                ]
-
-        return []
-
     def _arm_scan_predicate(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> ast.Expr:
         # First-ever anchors the start side against the property-stripped stream (its minIf pair needs
         # rows that match the entity but not necessarily its property filters); every other role only
@@ -898,8 +878,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         self, entity: RetentionEntity, query_kind: Literal["start", "return"], timestamp_field: ast.Expr
     ) -> list[ast.Expr]:
         """The warehouse counterpart of _arm_where_filters. Every aggregate that a warehouse arm computes already
-        conditions on its entity and the query window. These filters therefore drop only rows that no aggregate reads."""
-        filters: list[ast.Expr] = []
+        conditions on its entity and the query window. Apart from the global property filters, these filters therefore
+        drop only rows that no aggregate reads."""
+        filters = list(self.runner.global_property_filters)
         # A first-time start arm finds the first start row of each actor across all time.
         # It reads rows outside the window.
         if query_kind == "return" or not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
@@ -83,6 +84,11 @@ class TestConfigurationErrors:
             (_client_error("AccessDenied", "AssumeRole"), "trust policy", True),
             (_client_error("AccessDeniedException", "AssumeRole"), "external ID", True),
             (InvalidCredentialsError("fake-secret"), "trust policy", True),
+            (
+                botocore.exceptions.ParamValidationError(report='Invalid bucket name "foo": fake-secret'),
+                "bucket name, region and prefix",
+                False,
+            ),
         ],
     )
     async def test_permanent_errors_are_configuration_errors(
@@ -143,3 +149,15 @@ class TestConfigurationErrors:
 
         assert caught.value is error
         assert not isinstance(caught.value, DestinationConfigurationError)
+
+    async def test_bucket_name_whitespace_is_trimmed(self) -> None:
+        # A bucket name pasted with a stray leading/trailing space fails S3's name regex with
+        # no retry able to fix it. Trimming it here is the difference between that and a
+        # working sync.
+        ctx = dataclasses.replace(_ctx(), config={"bucket": " example-bucket ", "region": "us-east-1"})
+        client = mock.AsyncMock()
+        writer = LocalS3Writer(ctx, client, connection_error=None)
+
+        await writer.write_batch(_batches(), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False))
+
+        assert client.put_object.call_args.kwargs["Bucket"] == "example-bucket"

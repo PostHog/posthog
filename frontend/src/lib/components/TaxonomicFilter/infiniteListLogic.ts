@@ -395,6 +395,9 @@ export interface infiniteListLogicActions {
     applyInitialPinnedRow: (rowIndex: number) => {
         rowIndex: number
     }
+    emptyResultShown: () => {
+        value: true
+    }
     expand: () => {
         value: true
     }
@@ -888,6 +891,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             forbidden,
         }),
         retryRemoteItems: true,
+        emptyResultShown: true,
     }),
     loaders(({ actions, values, cache, props }) => ({
         remoteItems: [
@@ -915,11 +919,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         minSearchQueryLength,
                     } = values
 
-                    if (!remoteEndpoint) {
-                        return createEmptyListStorage(searchQuery)
-                    }
-
-                    if (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) {
+                    if (
+                        !remoteEndpoint ||
+                        (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) ||
+                        values.group?.shouldSearch?.(searchQuery) === false
+                    ) {
+                        cache.disposables.dispose('abortController')
+                        cache.abortController = null
                         return createEmptyListStorage(searchQuery)
                     }
 
@@ -2335,6 +2341,36 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             }
         },
+        emptyResultShown: async (_, breakpoint) => {
+            // Remote success and aggregate matches update in separate actions; count only the settled view.
+            await breakpoint(0)
+            if (
+                !values.isSuggestedFilters ||
+                !values.isActiveTab ||
+                !values.showEmptyState ||
+                values.showLoadingState ||
+                !values.trimmedSearchQuery
+            ) {
+                return
+            }
+            const parent = taxonomicFilterLogic(props)
+            const hasFailedGroup = Object.entries(parent.values.infiniteListLogics).some(
+                ([groupType, logic]) =>
+                    !parent.values.metaGroupTypes.has(groupType) &&
+                    logic.isMounted() &&
+                    logic.values.remoteFetchFailed === values.searchQuery
+            )
+            if (hasFailedGroup || cache.lastEmptyResultDedupeKey === values.trimmedSearchQuery) {
+                return
+            }
+            cache.lastEmptyResultDedupeKey = values.trimmedSearchQuery
+            posthog.capture('taxonomic filter empty result', {
+                surface: legacyTaxonomicSurface(),
+                scope: 'all',
+                groupType: props.listGroupType,
+                searchQuery: values.trimmedSearchQuery,
+            })
+        },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
 
@@ -2343,7 +2379,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             cache.lastFetchFailedDedupeKey = null
 
             const trimmedQuery = (remoteItems.searchQuery ?? '').trim()
-            const queryReachedBackend = trimmedQuery.length >= values.minSearchQueryLength
+            const queryReachedBackend =
+                trimmedQuery.length >= values.minSearchQueryLength &&
+                values.group?.shouldSearch?.(trimmedQuery) !== false
             // Only fire on the tab the user is actually looking at — every list runs the same
             // search in parallel, so without this gate one keystroke can fire 4-8 empty events
             // from background tabs the user never sees, inflating the dead-end metric.
@@ -2358,6 +2396,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     cache.lastEmptyResultDedupeKey = dedupeKey
                     posthog.capture('taxonomic filter empty result', {
                         surface: legacyTaxonomicSurface(),
+                        scope: 'category',
                         groupType: props.listGroupType,
                         searchQuery: trimmedQuery,
                     })
