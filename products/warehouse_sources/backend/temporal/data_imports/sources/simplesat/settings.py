@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class SimplesatEndpointConfig:
     name: str
     path: str
