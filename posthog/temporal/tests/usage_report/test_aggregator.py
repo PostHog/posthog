@@ -174,9 +174,7 @@ def test_load_all_data_does_not_default_patched_queries_for_patched_workflow_his
     all_data: dict[str, dict[int, int]] = {}
     results = [
         RunQueryToS3Result(query_name="sandbox_compute_usage", s3_key="unused", duration_ms=1),
-        RunQueryToS3Result(
-            query_name="teams_with_logs_distinct_patterns_in_period", s3_key="unused", duration_ms=1
-        ),
+        RunQueryToS3Result(query_name="teams_with_logs_distinct_patterns_in_period", s3_key="unused", duration_ms=1),
         RunQueryToS3Result(query_name="teams_with_metrics_series_in_period", s3_key="unused", duration_ms=1),
     ]
     add_pre_patch_query_defaults(all_data, results)

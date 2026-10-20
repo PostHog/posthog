@@ -64,7 +64,6 @@ from posthog.usage_counters import (
     UsageCounterPlan,
 )
 
-
 _PATCHABLE_QUERY_NAMES = {SANDBOX_COMPUTE_QUERY_NAME, LOGS_DISTINCT_PATTERNS_QUERY_NAME, METRICS_SERIES_QUERY_NAME}
 
 

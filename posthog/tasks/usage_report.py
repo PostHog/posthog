@@ -3835,7 +3835,6 @@ def send_all_org_usage_reports(
     skip_capture_event: bool = False,
     organization_ids: Optional[list[str]] = None,
 ) -> None:
-
     are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
     if are_usage_reports_disabled:
         posthoganalytics.capture_exception(Exception(f"Usage reports are disabled for {at}"))
