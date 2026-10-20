@@ -39,6 +39,21 @@ RUNNING_UNEVEN_SPLIT = replace(
 
 NO_EXPOSURES = replace(UNEVEN_SPLIT_TOTALS, total_exposures={"control": 0, "test": 0})
 ENDED: dict[str, Any] = {"is_running": False, "has_ended": True}
+EVEN_SPLIT_FLAG = FlagState(
+    active=True,
+    deleted=False,
+    release_groups=(),
+    variants=(FlagVariant(key="control", rollout_percentage=50), FlagVariant(key="test", rollout_percentage=50)),
+    reachable_conditions=(),
+)
+
+
+def _totals_with_multiple(multiple: int, total: int) -> ExposureTotals:
+    single = total - multiple
+    return replace(
+        UNEVEN_SPLIT_TOTALS,
+        total_exposures={"control": single - single // 2, "test": single // 2, "$multiple": multiple},
+    )
 
 
 def _raise(_ctx: HealthContext) -> Any:
@@ -79,6 +94,23 @@ class TestEvaluate(TestCase):
                     "exposures": replace(NO_EXPOSURES, total_exposures={"control": 0, "test": 0, "$multiple": 3}),
                 },
                 [],
+            ),
+            (
+                "multiple_variants_share_on_an_even_split",
+                {"flag": EVEN_SPLIT_FLAG, "exposures": _totals_with_multiple(60, 1000)},
+                [ExperimentHealthFindingCode.MULTIPLE_VARIANTS_SHARE],
+            ),
+            (
+                "multiple_variants_share_after_the_end",
+                {**ENDED, "exposures": _totals_with_multiple(60, 1000)},
+                [ExperimentHealthFindingCode.MULTIPLE_VARIANTS_SHARE],
+            ),
+            ("no_multiple_variants_share_at_the_threshold", {**ENDED, "exposures": _totals_with_multiple(5, 100)}, []),
+            ("no_multiple_variants_share_under_5_users", {**ENDED, "exposures": _totals_with_multiple(4, 40)}, []),
+            (
+                "multiple_variants_share_under_100_exposures",
+                {**ENDED, "exposures": _totals_with_multiple(5, 60)},
+                [ExperimentHealthFindingCode.MULTIPLE_VARIANTS_SHARE],
             ),
         ]
     )
