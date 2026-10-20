@@ -455,21 +455,50 @@ function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew 
     return Number.isNaN(parsedTileId) ? null : parsedTileId
 }
 
-const tileGroupKeysFromDashboard = (dashboard: DashboardType | null | undefined): Record<number, string | null> =>
-    Object.fromEntries((dashboard?.tiles ?? []).map((tile) => [tile.id, tile.group_key ?? null]))
-
-const tileGroupKeyChanged = (tile: DashboardTile, savedGroupKeys: Record<number, string | null>): boolean =>
-    (tile.group_key ?? null) !== (savedGroupKeys[tile.id] ?? null)
-
-const tileLayoutsFromDashboard = (
-    dashboard: DashboardType | null | undefined
-): Record<number, DashboardTile['layouts']> => {
-    const tileIdToLayouts: Record<number, DashboardTile['layouts']> = {}
-    dashboard?.tiles.forEach((tile: DashboardTile) => {
-        tileIdToLayouts[tile.id] = tile.layouts
-    })
-    return tileIdToLayouts
+export interface TilePlacement {
+    layouts: DashboardTile['layouts']
+    group_key: string | null
 }
+
+const tilePlacement = (tile: DashboardTile): TilePlacement => ({
+    layouts: tile.layouts,
+    group_key: tile.group_key ?? null,
+})
+
+const tilePlacementsFromDashboard = (dashboard: DashboardType | null | undefined): Record<number, TilePlacement> =>
+    Object.fromEntries((dashboard?.tiles ?? []).map((tile) => [tile.id, tilePlacement(tile)]))
+
+const tileGroupChanged = (tile: DashboardTile, saved: TilePlacement | undefined): boolean =>
+    (tile.group_key ?? null) !== (saved?.group_key ?? null)
+
+const tilePlacementChanged = (tile: DashboardTile, saved: TilePlacement | undefined): boolean =>
+    !equal(saved?.layouts?.sm || {}, tile.layouts?.sm || {}) || tileGroupChanged(tile, saved)
+
+const withTilePlacement = (tile: DashboardTile, placement: TilePlacement | undefined): DashboardTile => ({
+    ...tile,
+    layouts: placement?.layouts,
+    group_key: placement?.group_key ?? null,
+})
+
+// A new object, because selectors only recompute when the reference changes.
+const withSavedTilePlacement = (
+    dashboard: DashboardType,
+    savedPlacements: Record<number, TilePlacement>
+): DashboardType => ({
+    ...dashboard,
+    tiles: dashboard.tiles.map((tile) => withTilePlacement(tile, savedPlacements[tile.id])),
+})
+
+// Only sm layouts are saved, because xs layouts are derived on the fly. A group_key goes only with a tile whose group changed.
+const tileLayoutUpdates = (
+    tiles: DashboardTile[],
+    savedPlacements: Record<number, TilePlacement>
+): { id: number; layouts: Partial<Record<DashboardLayoutSize, TileLayout>>; group_key?: string | null }[] =>
+    tiles.map((tile) => ({
+        id: tile.id,
+        layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
+        ...(tileGroupChanged(tile, savedPlacements[tile.id]) ? { group_key: tile.group_key ?? null } : {}),
+    }))
 
 function mergeUpdatedWidgetTileIntoDashboard(dashboard: DashboardType, updatedTile: DashboardTile): DashboardType {
     return {
@@ -543,8 +572,6 @@ export interface dashboardLogicValues {
     dashboardEditing: DashboardEditing | null
     dashboardFailedToLoad: boolean
     dashboardFiltersSaving: boolean
-    dashboardGroupKeys: Record<DashboardTile['id'], string | null>
-    dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
         dashboardQueryId: string
@@ -618,6 +645,7 @@ export interface dashboardLogicValues {
     refreshStatus: Record<string, RefreshStatus>
     refreshTilesTotal: number | null
     savedDashboardSettings: DashboardSettings
+    savedTilePlacements: Record<DashboardTile['id'], TilePlacement>
     scrollToBottomSignal: number
     settingsForRefresh: DashboardSettings
     shouldReportOnAPILoad: boolean
@@ -697,10 +725,10 @@ export interface dashboardLogicActions {
     }
     applyDashboardUpdate: (
         dashboard: DashboardType,
-        layouts: Record<number, DashboardTile['layouts']>
+        savedPlacements: Record<number, TilePlacement>
     ) => {
         dashboard: DashboardType
-        layouts: Record<number, Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined>
+        savedPlacements: Record<number, TilePlacement>
     }
     applyWidgetIssueMetadataChange: (payload: {
         context: WidgetIssueMetadataContext
@@ -1308,7 +1336,7 @@ export interface dashboardLogicActions {
     setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => {
         results: Record<number, DashboardWidgetRunResultApi>
     }
-    tileGroupKeysSaved: (dashboard: DashboardType) => {
+    tilePlacementsSaved: (dashboard: DashboardType) => {
         dashboard: DashboardType
     }
     tileStreamingComplete: () => {
@@ -1512,11 +1540,7 @@ export interface dashboardLogicMeta {
         currentDashboardVariables: (currentDashboardSettings: DashboardSettings) => Record<string, HogQLVariable>
         hasUnsavedLayoutChanges: (
             dashboard: DashboardType | null,
-            dashboardLayouts: Record<
-                number,
-                Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined
-            >,
-            dashboardGroupKeys: Record<number, string | null>
+            savedTilePlacements: Record<number, TilePlacement>
         ) => boolean
         effectiveVariablesAndAssociatedInsights: (
             dashboard: DashboardType | null,
@@ -1658,7 +1682,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (
@@ -1791,7 +1815,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         clearDeferredTileRefresh: (tileIds: number[]) => ({ tileIds }),
         cancelWidgetRefresh: (tileIds: number[], requestNumber: number) => ({ tileIds, requestNumber }),
         toggleTileGroup: (groupKey: string) => ({ groupKey }),
-        tileGroupKeysSaved: (dashboard: DashboardType) => ({ dashboard }),
+        tilePlacementsSaved: (dashboard: DashboardType) => ({ dashboard }),
         moveTileToGroup: (tileId: number, groupKey: string | null, layout: Layout) => ({ tileId, groupKey, layout }),
         preloadTileGroup: (groupKey: string, retryFailed: boolean = false) => ({ groupKey, retryFailed }),
         /** Debounced run_widgets refresh for a single tile (tile filters). */
@@ -1932,9 +1956,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
-        applyDashboardUpdate: (dashboard: DashboardType, layouts: Record<number, DashboardTile['layouts']>) => ({
+        applyDashboardUpdate: (dashboard: DashboardType, savedPlacements: Record<number, TilePlacement>) => ({
             dashboard,
-            layouts,
+            savedPlacements,
         }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
@@ -2123,14 +2147,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 saveEditModeChanges: async ({ scope }, breakpoint) => {
                     cache.dashboardChangesPersisted = false
                     try {
-                        // Only persist sm layouts; xs layouts are derived on the fly
-                        const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
-                            id: tile.id,
-                            layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
-                            ...(tileGroupKeyChanged(tile, values.dashboardGroupKeys)
-                                ? { group_key: tile.group_key ?? null }
-                                : {}),
-                        }))
+                        const layoutsToUpdate = tileLayoutUpdates(
+                            values.dashboard?.tiles || [],
+                            values.savedTilePlacements
+                        )
 
                         const currentDashboard = values.dashboard
                         if (!currentDashboard) {
@@ -2154,14 +2174,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const breakdownColorsChanged = !equal(persistedBreakdownColors, breakdownColorsToSave)
                         const themeChanged = (values.dataColorThemeId ?? null) !== persistedThemeId
 
-                        const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
-                            const originalLayouts = values.dashboardLayouts?.[tile.id]?.sm
-                            const updatedLayouts = layoutsToUpdate.find((t) => t.id === tile.id)?.layouts?.sm
-                            return (
-                                !equal(originalLayouts || {}, updatedLayouts || {}) ||
-                                tileGroupKeyChanged(tile, values.dashboardGroupKeys)
-                            )
-                        })
+                        const layoutsChanged = (currentDashboard.tiles || []).some((tile) =>
+                            tilePlacementChanged(tile, values.savedTilePlacements[tile.id])
+                        )
 
                         const colorsChanged = breakdownColorsChanged || themeChanged
                         const hasChanges = scope === 'colors' ? colorsChanged : layoutsChanged
@@ -2227,7 +2242,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                         cache.dashboardChangesPersisted = true
                         if (scope === 'layout') {
-                            actions.tileGroupKeysSaved(updatedDashboard)
+                            actions.tilePlacementsSaved(updatedDashboard)
                         }
                         return updatedDashboard
                     } catch (e) {
@@ -2265,15 +2280,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         values.dashboard?.tiles
                     ) {
                         // layout changes were discarded so need to reset to original state
-                        // (as a new object — selectors only recompute when the reference changes)
-                        return {
-                            ...values.dashboard,
-                            tiles: values.dashboard.tiles.map((tile) => ({
-                                ...tile,
-                                layouts: values.dashboardLayouts?.[tile.id],
-                                group_key: values.dashboardGroupKeys[tile.id] ?? null,
-                            })),
-                        }
+                        return withSavedTilePlacement(values.dashboard, values.savedTilePlacements)
                     }
 
                     return values.dashboard
@@ -2547,33 +2554,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDashboardStreamFailed: () => true,
             },
         ],
-        dashboardGroupKeys: [
-            {} as Record<DashboardTile['id'], string | null>,
+        savedTilePlacements: [
+            {} as Record<DashboardTile['id'], TilePlacement>,
             {
-                loadDashboardSuccess: (_, { dashboard }) => tileGroupKeysFromDashboard(dashboard),
-                loadDashboardMetadataSuccess: (_, { dashboard }) => tileGroupKeysFromDashboard(dashboard),
+                loadDashboardSuccess: (_, { dashboard }) => tilePlacementsFromDashboard(dashboard),
+                loadDashboardMetadataSuccess: (_, { dashboard }) => tilePlacementsFromDashboard(dashboard),
+                applyDashboardUpdate: (_, { savedPlacements }) => savedPlacements,
                 // Not saveEditModeChangesSuccess: a failed save also fires it, and the moves must stay unsaved.
-                tileGroupKeysSaved: (_, { dashboard }) => tileGroupKeysFromDashboard(dashboard),
-                receiveTileFromStream: (state, { tile }) => ({ ...state, [tile.id]: tile.group_key ?? null }),
-                // Adds only the new tile's key, so the duplicate itself does not count as an unsaved change.
-                duplicateTileSuccess: (state, { dashboard }) => ({
-                    ...tileGroupKeysFromDashboard(dashboard),
-                    ...state,
-                }),
-            },
-        ],
-        dashboardLayouts: [
-            {} as Record<DashboardTile['id'], DashboardTile['layouts']>,
-            {
-                loadDashboardSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
-                loadDashboardMetadataSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
-                applyDashboardUpdate: (_, { layouts }) => layouts,
-                // Not saveEditModeChangesSuccess: a failed save also fires it, and the moves must stay unsaved.
-                tileGroupKeysSaved: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
-                receiveTileFromStream: (state, { tile }) => ({
-                    ...state,
-                    [tile.id]: tile.layouts,
-                }),
+                tilePlacementsSaved: (_, { dashboard }) => tilePlacementsFromDashboard(dashboard),
+                receiveTileFromStream: (state, { tile }) => ({ ...state, [tile.id]: tilePlacement(tile) }),
+                // The loader puts the server dashboard in place of the draft, so every tile now matches what is saved.
+                duplicateTileSuccess: (state, { dashboard }) =>
+                    dashboard ? tilePlacementsFromDashboard(dashboard) : state,
             },
         ],
         // Unsaved color edits only — merged over dashboard.breakdown_colors in effectiveBreakdownColors
@@ -3433,21 +3425,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (settings: DashboardSettings) => settings.variables,
         ],
         hasUnsavedLayoutChanges: [
-            (s) => [s.dashboard, s.dashboardLayouts, s.dashboardGroupKeys],
+            (s) => [s.dashboard, s.savedTilePlacements],
             (
                 dashboard: DashboardType | null,
-                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>,
-                dashboardGroupKeys: Record<DashboardTile['id'], string | null>
-            ): boolean => {
-                if (!dashboard) {
-                    return false
-                }
-                return (dashboard.tiles || []).some((tile: DashboardTile) => {
-                    const originalSm = dashboardLayouts?.[tile.id]?.sm
-                    const currentSm = tile.layouts?.sm
-                    return !equal(originalSm || {}, currentSm || {}) || tileGroupKeyChanged(tile, dashboardGroupKeys)
-                })
-            },
+                savedTilePlacements: Record<DashboardTile['id'], TilePlacement>
+            ): boolean =>
+                (dashboard?.tiles || []).some((tile: DashboardTile) =>
+                    tilePlacementChanged(tile, savedTilePlacements[tile.id])
+                ),
         ],
         effectiveVariablesAndAssociatedInsights: [
             (s) => [s.dashboard, s.variables, s.currentDashboardVariables],
@@ -4227,48 +4212,52 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const layoutsPersisted = payload?.layoutsPersisted === true
             const previousTiles = new Map(values.dashboard.tiles.map((tile) => [tile.id, tile]))
-            const originalLayouts = layoutsPersisted
+            const savedBefore = values.savedTilePlacements
+            // With persisted layouts the server placement is saved. Otherwise only a new tile takes it.
+            const savedPlacements = Object.fromEntries(
+                dashboard.tiles.map((tile) => [
+                    tile.id,
+                    !layoutsPersisted && previousTiles.has(tile.id)
+                        ? (savedBefore[tile.id] ?? tilePlacement(tile))
+                        : tilePlacement(tile),
+                ])
+            )
+            const savedGeometry = layoutsPersisted
                 ? layoutsByTile(
                       calculateLayouts(
-                          values.dashboard.tiles.map((tile) => ({
-                              ...tile,
-                              layouts: values.dashboardLayouts[tile.id],
-                          }))
+                          values.dashboard.tiles.map((tile) => withTilePlacement(tile, savedBefore[tile.id]))
                       )
                   )
                 : null
-            const layouts = tileLayoutsFromDashboard(dashboard)
-            if (!layoutsPersisted) {
-                values.dashboard.tiles.forEach((tile) => {
-                    if (tile.id in layouts) {
-                        layouts[tile.id] = values.dashboardLayouts[tile.id]
-                    }
-                })
-            }
             const tiles = dashboard.tiles.map((tile) => {
                 const previousTile = previousTiles.get(tile.id)
-                if (previousTile && !layoutsPersisted) {
-                    return { ...tile, layouts: previousTile.layouts, group_key: previousTile.group_key }
+                if (!previousTile) {
+                    return tile
                 }
-                const draftSm = previousTile?.layouts?.sm
-                const originalSm = originalLayouts?.[tile.id]?.sm
-                const draftMoved =
-                    draftSm &&
-                    originalSm &&
-                    (draftSm.x !== originalSm.x ||
-                        draftSm.y !== originalSm.y ||
-                        draftSm.w !== originalSm.w ||
-                        draftSm.h !== originalSm.h)
-                if (previousTile && draftMoved) {
-                    return { ...tile, layouts: previousTile.layouts, group_key: previousTile.group_key }
+                if (!layoutsPersisted) {
+                    return withTilePlacement(tile, tilePlacement(previousTile))
                 }
-                if (previousTile && tileGroupKeyChanged(previousTile, values.dashboardGroupKeys)) {
-                    return { ...tile, group_key: previousTile.group_key }
+                // Compare against calculated geometry, because a saved layout can be empty until the grid fills it in.
+                const draftSm = previousTile.layouts?.sm
+                const savedSm = savedGeometry?.[tile.id]?.sm
+                const layoutMoved =
+                    !!draftSm &&
+                    !!savedSm &&
+                    (draftSm.x !== savedSm.x ||
+                        draftSm.y !== savedSm.y ||
+                        draftSm.w !== savedSm.w ||
+                        draftSm.h !== savedSm.h)
+                const groupMoved = tileGroupChanged(previousTile, savedBefore[tile.id])
+                if (!layoutMoved && !groupMoved) {
+                    return tile
                 }
-                return tile
+                return withTilePlacement(tile, {
+                    layouts: layoutMoved ? previousTile.layouts : tile.layouts,
+                    group_key: groupMoved ? (previousTile.group_key ?? null) : (tile.group_key ?? null),
+                })
             })
 
-            actions.applyDashboardUpdate({ ...dashboard, tiles }, layouts)
+            actions.applyDashboardUpdate({ ...dashboard, tiles }, savedPlacements)
         },
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
             if (!cache.widgetTileRefreshScheduler) {
@@ -5607,13 +5596,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             const changeCompaction = (discardUnsavedLayoutChanges = false): void => {
                 if (discardUnsavedLayoutChanges) {
-                    const savedSmLayout = Object.entries(values.dashboardLayouts).flatMap(([tileId, layouts]) =>
+                    const savedSmLayout = Object.entries(values.savedTilePlacements).flatMap(([tileId, { layouts }]) =>
                         layouts?.sm ? [{ ...layouts.sm, i: tileId }] : []
                     )
                     actions.updateLayouts({ sm: savedSmLayout })
                     for (const tile of values.tiles) {
-                        if (tileGroupKeyChanged(tile, values.dashboardGroupKeys)) {
-                            actions.setTileProperty(tile.id, { group_key: values.dashboardGroupKeys[tile.id] ?? null })
+                        if (tileGroupChanged(tile, values.savedTilePlacements[tile.id])) {
+                            actions.setTileProperty(tile.id, {
+                                group_key: values.savedTilePlacements[tile.id]?.group_key ?? null,
+                            })
                         }
                     }
                 }

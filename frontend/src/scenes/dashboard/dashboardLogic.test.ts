@@ -45,6 +45,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     InsightModel,
+    TileLayout,
 } from '~/types'
 
 import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
@@ -1407,7 +1408,7 @@ describe('dashboardLogic', () => {
             const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
             expect(payload).not.toHaveProperty('tiles')
             expect(logic.values.dashboard!.tiles[0].layouts?.sm?.x).toBe(modifiedLayouts.sm[0].x)
-            expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(firstTile.layouts)
+            expect(logic.values.savedTilePlacements[firstTile.id]?.layouts).toEqual(firstTile.layouts)
             expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
         })
 
@@ -1825,7 +1826,7 @@ describe('dashboardLogic', () => {
         it('discarding after a failed save restores the tile position from before the move', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const movedTile = logic.values.dashboard!.tiles[0]
-            const originalSm = logic.values.dashboardLayouts[movedTile.id]?.sm
+            const originalSm = logic.values.savedTilePlacements[movedTile.id]?.layouts?.sm
 
             const movedLayout = logic.values.layouts.sm?.map((layout) =>
                 layout.i === String(movedTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
@@ -1861,32 +1862,6 @@ describe('dashboardLogic', () => {
             expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
         })
 
-        it('discarding keeps a duplicated tile in its group', async () => {
-            await expectLogic(logic).toFinishAllListeners()
-            const sourceTile = logic.values.dashboard!.tiles[0]
-            const groupedCopy = { ...sourceTile, id: 999, group_key: 'plans' }
-            jest.spyOn(api, 'update').mockResolvedValueOnce({
-                ...logic.values.dashboard!,
-                tiles: [...logic.values.dashboard!.tiles, groupedCopy],
-            })
-            await expectLogic(logic, () => {
-                logic.actions.duplicateTile(sourceTile)
-            })
-                .toDispatchActions(['duplicateTileSuccess'])
-                .toFinishAllListeners()
-
-            await expectLogic(logic, () => {
-                logic.actions.setDashboardEditing(
-                    { filters: true, layout: true },
-                    DashboardEventSource.SceneCommonButtons
-                )
-                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-            }).toFinishAllListeners()
-
-            expect(logic.values.dashboard!.tiles.find((tile) => tile.id === groupedCopy.id)?.group_key).toBe('plans')
-            expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
-        })
-
         it('discarding edit mode restores original layouts', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -1894,7 +1869,7 @@ describe('dashboardLogic', () => {
             expect(initialDashboard).not.toBeNull()
 
             const firstTile = initialDashboard!.tiles[0]
-            const originalLayouts = logic.values.dashboardLayouts[firstTile.id]
+            const originalLayouts = logic.values.savedTilePlacements[firstTile.id]?.layouts
 
             expect(originalLayouts).not.toBeUndefined()
 
@@ -1919,6 +1894,209 @@ describe('dashboardLogic', () => {
 
             const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
             expect(restoredTileLayouts).toEqual(originalLayouts)
+        })
+
+        describe('saved tile placement', () => {
+            type Placement = { sm: TileLayout | undefined; group_key: string | null }
+            type Move = 'layout' | 'group' | 'both'
+            type Outcome = { subjectId: number; saved: Placement; unsaved: boolean }
+            const NEW_TILE_ID = 999
+            const MOVES: Move[] = ['layout', 'group', 'both']
+            const NEW_TILE_GROUPS = [null, 'plans']
+
+            const firstTileId = (): number => logic.values.dashboard!.tiles[0].id
+            const placementOf = (tileId: number): Placement => {
+                const tile = logic.values.dashboard!.tiles.find((candidate) => candidate.id === tileId)
+                return { sm: tile?.layouts?.sm, group_key: tile?.group_key ?? null }
+            }
+            const moved = (placement: Placement, move: Move): Placement => ({
+                sm: move === 'group' ? placement.sm : { ...placement.sm!, x: placement.sm!.x + 1 },
+                group_key: move === 'layout' ? placement.group_key : 'plans',
+            })
+            const placed = (tile: DashboardTile, placement: Placement): DashboardTile => ({
+                ...tile,
+                layouts: (placement.sm ? { sm: placement.sm } : {}) as DashboardTile['layouts'],
+                group_key: placement.group_key,
+            })
+            const dashboardWith = (tileId: number, placement: Placement): DashboardType => ({
+                ...logic.values.dashboard!,
+                tiles: logic.values.dashboard!.tiles.map((tile) =>
+                    tile.id === tileId ? placed(tile, placement) : tile
+                ),
+            })
+            const newTile = (groupKey: string | null): DashboardTile =>
+                placed(
+                    { ...logic.values.dashboard!.tiles[0], id: NEW_TILE_ID },
+                    { sm: { i: String(NEW_TILE_ID), x: 0, y: 100, w: 6, h: 5 }, group_key: groupKey }
+                )
+            const moveDraft = async (tileId: number, move: Move): Promise<Placement> => {
+                const draft = moved(placementOf(tileId), move)
+                await expectLogic(logic, () => {
+                    if (move !== 'group') {
+                        logic.actions.updateLayouts({
+                            ...logic.values.layouts,
+                            sm: logic.values.layouts.sm?.map((layout) =>
+                                layout.i === String(tileId) ? { ...layout, x: draft.sm!.x } : layout
+                            ),
+                        })
+                    }
+                    if (move !== 'layout') {
+                        logic.actions.setTileProperty(tileId, { group_key: draft.group_key })
+                    }
+                }).toFinishAllListeners()
+                return draft
+            }
+            const serverMove = async (move: Move, apply: (dashboard: DashboardType) => void): Promise<Outcome> => {
+                const server = moved(placementOf(firstTileId()), move)
+                await expectLogic(logic, () => apply(dashboardWith(firstTileId(), server))).toFinishAllListeners()
+                return { subjectId: firstTileId(), saved: server, unsaved: false }
+            }
+            const draftMove = async (move: Move, apply: (lastSaved: Placement) => Promise<void>): Promise<Outcome> => {
+                const lastSaved = placementOf(firstTileId())
+                await moveDraft(firstTileId(), move)
+                await apply(lastSaved)
+                return { subjectId: firstTileId(), saved: lastSaved, unsaved: true }
+            }
+            const saveLayout = async (): Promise<void> => {
+                await expectLogic(logic, () => logic.actions.saveLayoutChanges()).toFinishAllListeners()
+            }
+
+            beforeEach(async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                // Store complete sm layouts, so a group-only draft does not also count as a layout change.
+                const calculated = logic.values.layouts.sm ?? []
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboardSuccess({
+                        ...logic.values.dashboard!,
+                        tiles: logic.values.dashboard!.tiles.map((tile) =>
+                            placed(tile, {
+                                sm: calculated.find((layout) => layout.i === String(tile.id)),
+                                group_key: null,
+                            })
+                        ),
+                    })
+                }).toFinishAllListeners()
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+            })
+
+            it.each([
+                ...MOVES.map((move) => ({
+                    writer: 'loadDashboardSuccess',
+                    move,
+                    act: () => serverMove(move, (dashboard) => logic.actions.loadDashboardSuccess(dashboard)),
+                })),
+                ...MOVES.map((move) => ({
+                    writer: 'loadDashboardMetadataSuccess',
+                    move,
+                    act: () => serverMove(move, (dashboard) => logic.actions.loadDashboardMetadataSuccess(dashboard)),
+                })),
+                ...NEW_TILE_GROUPS.map((groupKey) => ({
+                    writer: 'receiveTileFromStream',
+                    move: `new tile in group ${groupKey}`,
+                    act: async (): Promise<Outcome> => {
+                        const tile = newTile(groupKey)
+                        await expectLogic(logic, () =>
+                            logic.actions.receiveTileFromStream({ tile, order: 99 })
+                        ).toFinishAllListeners()
+                        return {
+                            subjectId: NEW_TILE_ID,
+                            saved: { sm: tile.layouts?.sm, group_key: groupKey },
+                            unsaved: false,
+                        }
+                    },
+                })),
+                ...MOVES.map((move) => ({
+                    writer: 'updateDashboardSuccess echo of an unsaved draft',
+                    move,
+                    act: () =>
+                        draftMove(move, async (lastSaved) => {
+                            const echo = dashboardWith(firstTileId(), lastSaved)
+                            await expectLogic(logic, () =>
+                                dashboardsModel.actions.updateDashboardSuccess(echo)
+                            ).toFinishAllListeners()
+                        }),
+                })),
+                ...NEW_TILE_GROUPS.map((groupKey) => ({
+                    writer: 'updateDashboardSuccess echo',
+                    move: `new tile in group ${groupKey}`,
+                    act: async (): Promise<Outcome> => {
+                        const tile = newTile(groupKey)
+                        await expectLogic(logic, () =>
+                            dashboardsModel.actions.updateDashboardSuccess({
+                                ...logic.values.dashboard!,
+                                tiles: [...logic.values.dashboard!.tiles, tile],
+                            })
+                        ).toFinishAllListeners()
+                        return {
+                            subjectId: NEW_TILE_ID,
+                            saved: { sm: tile.layouts?.sm, group_key: groupKey },
+                            unsaved: false,
+                        }
+                    },
+                })),
+                ...MOVES.map((move) => ({
+                    writer: 'updateDashboardSuccess with layoutsPersisted (toast undo)',
+                    move,
+                    act: () =>
+                        serverMove(move, (dashboard) =>
+                            dashboardsModel.actions.updateDashboardSuccess(dashboard, { layoutsPersisted: true })
+                        ),
+                })),
+                ...MOVES.map((move) => ({
+                    writer: 'a successful layout save',
+                    move,
+                    act: async (): Promise<Outcome> => {
+                        const draft = await moveDraft(firstTileId(), move)
+                        ;(api.update as jest.Mock).mockResolvedValueOnce(dashboardWith(firstTileId(), draft))
+                        await saveLayout()
+                        return { subjectId: firstTileId(), saved: draft, unsaved: false }
+                    },
+                })),
+                ...MOVES.map((move) => ({
+                    writer: 'a failed layout save',
+                    move,
+                    act: () =>
+                        draftMove(move, async () => {
+                            ;(api.update as jest.Mock).mockRejectedValueOnce(new Error('network down'))
+                            await saveLayout()
+                        }),
+                })),
+                ...NEW_TILE_GROUPS.map((groupKey) => ({
+                    writer: 'duplicateTileSuccess',
+                    move: `new tile in group ${groupKey}`,
+                    act: async (): Promise<Outcome> => {
+                        const copy = newTile(groupKey)
+                        ;(api.update as jest.Mock).mockResolvedValueOnce({
+                            ...logic.values.dashboard!,
+                            tiles: [...logic.values.dashboard!.tiles, copy],
+                        })
+                        await expectLogic(logic, () => logic.actions.duplicateTile(logic.values.dashboard!.tiles[0]))
+                            .toDispatchActions(['duplicateTileSuccess'])
+                            .toFinishAllListeners()
+                        return {
+                            subjectId: NEW_TILE_ID,
+                            saved: { sm: copy.layouts?.sm, group_key: groupKey },
+                            unsaved: false,
+                        }
+                    },
+                })),
+                ...MOVES.map((move) => ({
+                    writer: 'discard',
+                    move,
+                    act: () => draftMove(move, async () => {}),
+                })),
+            ])('keeps layout and group together after $writer ($move)', async ({ act }) => {
+                const { subjectId, saved, unsaved } = await act()
+
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(unsaved)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                }).toFinishAllListeners()
+
+                expect(placementOf(subjectId)).toEqual(saved)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+            })
         })
 
         describe('layoutEditMode', () => {
@@ -2521,7 +2699,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
                 moveFirstTile()
                 const draftTile = logic.values.dashboard!.tiles[0]
-                const savedLayouts = logic.values.dashboardLayouts[draftTile.id]
+                const savedLayouts = logic.values.savedTilePlacements[draftTile.id]?.layouts
                 const addedTile = { ...WIDGET_TILE, id: 999 }
                 const updatedDashboard = {
                     ...logic.values.dashboard!,
@@ -2531,8 +2709,8 @@ describe('dashboardLogic', () => {
                 dashboardsModel.actions.updateDashboardSuccess(updatedDashboard)
 
                 expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
-                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(savedLayouts)
-                expect(logic.values.dashboardLayouts[addedTile.id]).toEqual(addedTile.layouts)
+                expect(logic.values.savedTilePlacements[draftTile.id]?.layouts).toEqual(savedLayouts)
+                expect(logic.values.savedTilePlacements[addedTile.id]?.layouts).toEqual(addedTile.layouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
 
@@ -2587,7 +2765,7 @@ describe('dashboardLogic', () => {
                     .toFinishAllListeners()
 
                 expect(logic.values.dashboard!.tiles[1].layouts).toEqual(serverLayouts)
-                expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(serverLayouts)
+                expect(logic.values.savedTilePlacements[firstTile.id]?.layouts).toEqual(serverLayouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
             })
 
@@ -2619,7 +2797,7 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
                 expect(logic.values.dashboard!.tiles[1].layouts).toEqual(serverLayouts)
-                expect(logic.values.dashboardLayouts[unchangedTile.id]).toEqual(serverLayouts)
+                expect(logic.values.savedTilePlacements[unchangedTile.id]?.layouts).toEqual(serverLayouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
 
@@ -2644,7 +2822,7 @@ describe('dashboardLogic', () => {
                     .toFinishAllListeners()
 
                 expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
-                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(savedLayouts)
+                expect(logic.values.savedTilePlacements[draftTile.id]?.layouts).toEqual(savedLayouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             })
 
@@ -2660,7 +2838,7 @@ describe('dashboardLogic', () => {
                     .toDispatchActions(['applyDashboardUpdate'])
                     .toFinishAllListeners()
 
-                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(draftTile.layouts)
+                expect(logic.values.savedTilePlacements[draftTile.id]?.layouts).toEqual(draftTile.layouts)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
             })
 
@@ -6252,7 +6430,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const firstTile = logic.values.dashboard!.tiles[0]
-            const savedLayouts = logic.values.dashboardLayouts[firstTile.id]
+            const savedLayouts = logic.values.savedTilePlacements[firstTile.id]?.layouts
             logic.actions.updateLayouts({
                 ...logic.values.layouts,
                 sm: logic.values.layouts.sm?.map((layout) =>
@@ -6270,8 +6448,8 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftLayouts)
-            expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(savedLayouts)
-            expect(logic.values.dashboardLayouts[addedTile.id]).toEqual(addedTile.layouts)
+            expect(logic.values.savedTilePlacements[firstTile.id]?.layouts).toEqual(savedLayouts)
+            expect(logic.values.savedTilePlacements[addedTile.id]?.layouts).toEqual(addedTile.layouts)
             expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
         })
 
