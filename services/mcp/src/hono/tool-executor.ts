@@ -848,6 +848,7 @@ export class ToolExecutor {
                 ),
                 flagGatedTools: state.flagGatedTools,
                 builtInSkillHint: this.builtInSkillHint(state),
+                oauthClientId: state.oauthClientId,
                 ...(state.gatewayToolsEnabled
                     ? {
                           gatewayToolsProvider: () => this.gatewayToolsFor(state),
