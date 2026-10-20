@@ -853,6 +853,7 @@ export namespace Schemas {
     };
     export type CohortPropertyFilter = {
         cohort_deleted?: (boolean | null) | undefined;
+        cohort_missing?: (boolean | null) | undefined;
         cohort_name?: (string | null) | undefined;
         key?: string | undefined;
         label?: (string | null) | undefined;
@@ -9667,6 +9668,7 @@ export namespace Schemas {
          */
         value: unknown;
         cohort_deleted?: boolean | undefined;
+        cohort_missing?: boolean | undefined;
     };
     /**
      * * `flag` - flag
