@@ -574,6 +574,30 @@ async fn a_request_that_fails_admission_is_rejected_with_its_reason() {
         store.get_changelog_config().await.unwrap().unwrap().epoch,
         1
     );
+
+    store
+        .put_changelog_config(&ChangelogConfig {
+            topic: TOPIC.to_string(),
+            partitions: PARTITIONS,
+            epoch: 1,
+            writer_group: "writer".to_string(),
+            draining: vec![Generation {
+                topic: "personhog_updates_test_v0".to_string(),
+                partitions: PARTITIONS,
+                epoch: 0,
+            }],
+        })
+        .await
+        .unwrap();
+    assert!(store
+        .create_migration_request(&request("m-2", 8))
+        .await
+        .unwrap());
+    let archived = wait_for_rejection(&store, "m-2").await;
+    assert_eq!(
+        archived.blocking,
+        vec!["generation_still_draining".to_string()]
+    );
     cancel.cancel();
 }
 

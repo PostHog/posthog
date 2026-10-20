@@ -529,9 +529,8 @@ async fn admission_refusal(
     let reason = match store.get_changelog_config().await? {
         None => Some("config_not_seeded"),
         Some(live) if live.target() != request.from => Some("from_is_not_the_live_config"),
-        Some(live) if live.draining.iter().any(|g| g.topic == request.to.topic) => {
-            Some("topic_still_draining")
-        }
+        // The protocol is checked with at most one draining generation.
+        Some(live) if !live.draining.is_empty() => Some("generation_still_draining"),
         _ if request.to.topic == request.from.topic => Some("same_topic"),
         _ if members
             .iter()
