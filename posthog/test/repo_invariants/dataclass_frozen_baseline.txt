@@ -1198,8 +1198,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/woocommerce/woocommerce.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wordpress/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wordpress/wordpress.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/workable/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/workable/workable.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workday/workday.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/workos.py

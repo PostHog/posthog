@@ -32592,6 +32592,8 @@ export namespace Schemas {
      * * `Leantime` - Leantime
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -33995,6 +33997,8 @@ export namespace Schemas {
       Leantime: 'Leantime',
       Testomatio: 'Testomatio',
       GoogleAdMob: 'GoogleAdMob',
+      Klar: 'Klar',
+      ConectoCRM: 'ConectoCRM',
     } as const;
 
     /**
@@ -35411,7 +35415,9 @@ export namespace Schemas {
        * * `Creem` - Creem
        * * `Leantime` - Leantime
        * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob */
+       * * `GoogleAdMob` - GoogleAdMob
+       * * `Klar` - Klar
+       * * `ConectoCRM` - ConectoCRM */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -38117,7 +38123,9 @@ export namespace Schemas {
        * * `Creem` - Creem
        * * `Leantime` - Leantime
        * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob */
+       * * `GoogleAdMob` - GoogleAdMob
+       * * `Klar` - Klar
+       * * `ConectoCRM` - ConectoCRM */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -44826,6 +44834,7 @@ export namespace Schemas {
      * * `flag_live_after_end` - Flag Live After End
      * * `flag_live_before_launch` - Flag Live Before Launch
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -44844,6 +44853,7 @@ export namespace Schemas {
       FlagLiveAfterEnd: 'flag_live_after_end',
       FlagLiveBeforeLaunch: 'flag_live_before_launch',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
       NoMetric: 'no_metric',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
@@ -44905,6 +44915,7 @@ export namespace Schemas {
        * * `flag_live_after_end` - Flag Live After End
        * * `flag_live_before_launch` - Flag Live Before Launch
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+       * * `multiple_variants_share` - Multiple Variants Share
        * * `no_metric` - No Metric
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
@@ -45212,6 +45223,7 @@ export namespace Schemas {
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
     } as const;
 
     export type ExperimentExposureHealthFindingSeverity = typeof ExperimentExposureHealthFindingSeverity[keyof typeof ExperimentExposureHealthFindingSeverity];
@@ -50241,7 +50253,9 @@ export namespace Schemas {
        * * `Creem` - Creem
        * * `Leantime` - Leantime
        * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob */
+       * * `GoogleAdMob` - GoogleAdMob
+       * * `Klar` - Klar
+       * * `ConectoCRM` - ConectoCRM */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -51678,7 +51692,9 @@ export namespace Schemas {
        * * `Creem` - Creem
        * * `Leantime` - Leantime
        * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob */
+       * * `GoogleAdMob` - GoogleAdMob
+       * * `Klar` - Klar
+       * * `ConectoCRM` - ConectoCRM */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -61427,6 +61443,17 @@ export namespace Schemas {
       OpenFilterSettings: 'open_filter_settings',
     } as const;
 
+    export interface InsightDataCheckFilter {
+      /** The property the rule reads, such as `$host`. */
+      key: string;
+      /** The kind of property, such as `event` or `person`. */
+      type: string;
+      /** How the rule compares the property, such as `not_regex`. */
+      operator: string;
+      /** The values the rule compares the property to. */
+      value: string[];
+    }
+
     export interface InsightDataCheck {
       /** Which check this is.
        *
@@ -61435,7 +61462,7 @@ export namespace Schemas {
        * * `bot_traffic` - Bot and crawler traffic
        * * `duplicate_events` - Events sent twice */
       key: InsightDataCheckKeyEnum;
-      /** `passed` when the check found nothing worth acting on, `warning` for a small share of the events, `problem` for a fifth of the events or more, and `skipped` when the check could not run.
+      /** `passed` when the check found nothing worth acting on, `warning` for a small share of the events, `problem` for a fifth of the events or more, and `skipped` when the check could not run. The local development check is never a `problem`, because some apps serve real users from a local host.
        *
        * * `passed` - Passed
        * * `warning` - Warning
@@ -61470,17 +61497,46 @@ export namespace Schemas {
       share: number | null;
       /** True when `events` is an estimate scaled up from a sample, rather than a count of every event. */
       scaled: boolean;
-      /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
+      /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter, for example by adding `filter_to_add`. Null when there is no single change.
        *
        * * `filter_internal_users` - Turn on the internal and test users filter for the insight
        * * `open_filter_settings` - Change the project's internal and test users filter */
       action: InsightDataCheckActionEnum | null;
       /** The event names the check found most often, most affected first. */
       top_events: string[];
-      /** For the local development check, the local hosts found most often, most affected first. */
+      /** For the local development check, the local hosts whose events the project's internal and test users filter keeps, most affected first. */
       top_hosts: string[];
+      /**
+         * For the local development check, how many local hosts sent the events in `events`. Null for the other checks and when the check did not run.
+         * @nullable
+         */
+      distinct_hosts: number | null;
       /** For the bot traffic check, the bots and crawlers found most often, most affected first. */
       top_bots: string[];
+      /**
+         * For the bot traffic check, how many named bots and crawlers sent the sampled events. Null for the other checks and when the check did not run.
+         * @nullable
+         */
+      distinct_bots: number | null;
+      /**
+         * For the internal users check, the part of `events` that the project's internal and test users filter removes. It is 0 when the insight already applies the filter. Null for the other checks and when the check did not run.
+         * @nullable
+         */
+      removed_by_filter: number | null;
+      /**
+         * For the internal users check, the part of `events` from team emails that the project's internal and test users filter keeps. Null for the other checks and when the check did not run.
+         * @nullable
+         */
+      missed_by_filter: number | null;
+      /** For the internal users check, the team emails whose events the project's internal and test users filter keeps, most affected first. Only emails the caller may see as the team's are matched. Empty for a token without the `person:read` scope. */
+      top_emails: string[];
+      /**
+         * For the internal users check, how many team emails sent events that the project's internal and test users filter keeps. Null for the other checks and when the check did not run.
+         * @nullable
+         */
+      distinct_emails: number | null;
+      /** A rule for the project's internal and test users filter that removes what the check found: the local hosts or team emails it found, up to 50 values, or bot and AI agent traffic. Null when the check found none, and for the internal users check for a token without the `person:read` scope. */
+      filter_to_add: InsightDataCheckFilter | null;
     }
 
     /**
@@ -79372,7 +79428,7 @@ export namespace Schemas {
     export type WorkflowProposalContent = { [key: string]: unknown };
 
     /**
-     * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+     * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window (a relative one such as `-7d`, or an ISO 8601 interval `start/end` with offsets, which PostHog reads back exactly), query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
      */
     export type WorkflowProposalEvidence = { [key: string]: unknown };
 
@@ -79384,7 +79440,7 @@ export namespace Schemas {
       readonly rationale: string;
       /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
       readonly content: WorkflowProposalContent;
-      /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+      /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window (a relative one such as `-7d`, or an ISO 8601 interval `start/end` with offsets, which PostHog reads back exactly), query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
       readonly evidence: WorkflowProposalEvidence;
       /**
          * The workflow step this is about. Set for a change to one step: the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Null only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
@@ -106284,7 +106340,9 @@ export namespace Schemas {
        * * `Creem` - Creem
        * * `Leantime` - Leantime
        * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob */
+       * * `GoogleAdMob` - GoogleAdMob
+       * * `Klar` - Klar
+       * * `ConectoCRM` - ConectoCRM */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -107752,7 +107810,9 @@ export namespace Schemas {
        * * `Creem` - Creem
        * * `Leantime` - Leantime
        * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob */
+       * * `GoogleAdMob` - GoogleAdMob
+       * * `Klar` - Klar
+       * * `ConectoCRM` - ConectoCRM */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -109187,7 +109247,9 @@ export namespace Schemas {
        * * `Creem` - Creem
        * * `Leantime` - Leantime
        * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob */
+       * * `GoogleAdMob` - GoogleAdMob
+       * * `Klar` - Klar
+       * * `ConectoCRM` - ConectoCRM */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -122942,6 +123004,19 @@ export namespace Schemas {
       Dynamic: 'dynamic',
       Static: 'static',
     } as const;
+
+    export type CohortsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number;
+    };
 
     export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat;
