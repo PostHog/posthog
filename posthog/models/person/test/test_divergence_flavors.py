@@ -158,6 +158,13 @@ class TestClassifyMapping(SimpleTestCase):
                 _v("deleted_visible", None, "bury"),
             ),
             (
+                "deleted_and_never_published",
+                _pg_map(version=2, deleted=True),
+                _ch_map(version=1),
+                None,
+                _v("deleted_visible", None, "bury"),
+            ),
+            (
                 "deleted_and_published",
                 _pg_map(version=2, deleted=True),
                 _ch_map(version=2, deleted=True),
