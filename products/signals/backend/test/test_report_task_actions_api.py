@@ -12,7 +12,9 @@ from products.signals.backend.report_task_actions import (
     MAKE_IT_GREEN_NO_PR_DISABLED_REASON,
     MERGE_PR_REQUEST,
     REPORT_DISCUSSION_STATE_INSTRUCTIONS,
+    task_create_data,
 )
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import compute_quota_limit_response
 from products.tasks.backend.models import Task, TaskRun
 
@@ -193,6 +195,26 @@ class TestReportTaskActionsAPI(APIBaseTest):
             assert second.json()["task_id"] == str(task.id)
         assert Task.objects.filter(signal_report=report).count() == 1
         workflow.assert_called_once()
+
+    def test_a_pr_run_task_without_a_run_yet_blocks_another_pr_run(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        report = self._report()
+        self._attach_pr(report, "approved")
+        # The inbox creates the task and starts its run in separate requests.
+        pending = tasks_facade.create_task(
+            self.team.id,
+            self.user.id,
+            validated_data=task_create_data(
+                report, f"<posthog_trusted_context>\n</posthog_trusted_context>\n\n{FIX_CI_REQUEST}"
+            ),
+        )
+
+        response = self._run(report, {"action": "get_it_merged"})
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.data
+        assert set(Task.objects.filter(signal_report=report).values_list("id", flat=True)) == {pending.id}
+        workflow.assert_not_called()
 
     def test_get_it_merged_without_an_approved_pr_starts_nothing(
         self, workflow: MagicMock, _flag_mock: MagicMock

@@ -20,19 +20,19 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
     const { isDiscussing, isCreatingPr, aiConsentDisabledReason, freeTrialDisabledReason } =
         useValues(inboxTaskKickoffLogic)
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
-    const { prChecksFailing } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { prChecksFailing, selectedPullRequest } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const prActionsEnabled = useFeatureFlag('INBOX_GET_IT_MERGED')
     const canMerge = prActionsEnabled && hasApprovedOpenReportPullRequest(report)
     const canMakeGreen = prActionsEnabled && prChecksFailing
 
-    const startPrAction = (question: string, intent: ReportDiscussionIntent): void => {
+    const startPrAction = (question: string, intent: ReportDiscussionIntent, pullRequestUrl?: string): void => {
         captureInboxReportAction({
             report,
             actionType: 'discuss',
             surface: 'detail_pane',
             extra: discussQuestionProperties({ source: 'suggested', suggestionCount: 1, intent }),
         })
-        discussReport(report, reportUrl, question, undefined, intent)
+        discussReport(report, reportUrl, question, undefined, intent, pullRequestUrl)
     }
 
     const items: LemonMenuItems = [
@@ -48,7 +48,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
             label: 'Make it green',
             icon: <IconCheckCircle />,
             tooltip: 'Fix failing CI on the PR and stop, so you can review and merge it',
-            onClick: () => startPrAction(FIX_CI_REQUEST, 'fix_ci'),
+            onClick: () => startPrAction(FIX_CI_REQUEST, 'fix_ci', selectedPullRequest.url),
             disabledReason: freeTrialDisabledReason,
             'data-attr': 'inbox-report-ask-ai-fix-ci',
         },

@@ -191,6 +191,11 @@ export const MERGE_PR_REQUEST = `Get this approved PR merged. Fix failing CI and
 /** What "Make it green" in the Ask AI menu sends. The run fixes CI and stops: it never merges. */
 export const FIX_CI_REQUEST = `Make CI green on this PR. Fix the failing checks and resolve any merge conflicts, then stop. Do not merge it. Ask me before you make a decision I did not make.`
 
+/** Pins a Make it green run from the inbox to the pull request the person had selected. */
+export function fixCiSelectedPullRequestInstructions(pullRequestUrl: string): string {
+    return `The person chose the pull request at ${pullRequestUrl}. Fix CI on that pull request only, even when another open pull request also has failing checks.`
+}
+
 function discussReportInstructions(
     report: SignalReport | null,
     reportUrl: string,
@@ -476,10 +481,12 @@ export interface inboxTaskKickoffLogicActions {
         reportUrl: string,
         question: string,
         agentQuestion?: string,
-        intent?: ReportDiscussionIntent
+        intent?: ReportDiscussionIntent,
+        pullRequestUrl?: string
     ) => {
         agentQuestion: string | undefined
         intent: ReportDiscussionIntent | undefined
+        pullRequestUrl: string | undefined
         question: string
         report: SignalReport
         reportUrl: string
@@ -587,13 +594,15 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             reportUrl: string,
             question: string,
             agentQuestion?: string,
-            intent?: ReportDiscussionIntent
+            intent?: ReportDiscussionIntent,
+            pullRequestUrl?: string
         ) => ({
             report,
             reportUrl,
             question,
             agentQuestion,
             intent,
+            pullRequestUrl,
         }),
         createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
@@ -792,7 +801,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.setActiveCreation({ streamKey: resolvedStreamKey ?? runId, taskId, runId })
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
-        discussReport: async ({ report, reportUrl, question, agentQuestion, intent }) => {
+        discussReport: async ({ report, reportUrl, question, agentQuestion, intent, pullRequestUrl }) => {
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             const disabledReason =
@@ -849,7 +858,15 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
             try {
                 const messageText = discussReportMessage(agentQuestion ?? question)
-                const prompt = buildDiscussReportPrompt(currentReport, reportUrl, messageText, intent, contextItems)
+                // The pane enables Make it green from the selected PR's checks, so the run works on that PR.
+                const selectedPullRequest: AttachedContextItem[] =
+                    intent === 'fix_ci' && pullRequestUrl
+                        ? [{ type: 'instructions', value: fixCiSelectedPullRequestInstructions(pullRequestUrl) }]
+                        : []
+                const prompt = buildDiscussReportPrompt(currentReport, reportUrl, messageText, intent, [
+                    ...selectedPullRequest,
+                    ...contextItems,
+                ])
                 const warmLease = values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null
                 if (warmLease) {
                     actions.setReportWarmLease(null)

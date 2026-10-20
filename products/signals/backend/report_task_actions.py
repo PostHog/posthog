@@ -13,7 +13,10 @@ agent to leave a work-log note instead of a question.
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 from enum import StrEnum
+
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -343,12 +346,14 @@ def build_report_task_prompt(action: ReportTaskAction) -> str:
 @frozen
 class ActiveReportRun:
     task_id: str
-    run_id: str
+    run_id: str | None
 
 
 # Requests of the runs that push to the report's pull request. Two of them at once would push to the
 # same branch.
 PULL_REQUEST_RUN_REQUESTS = (MERGE_PR_REQUEST, FIX_CI_REQUEST)
+
+PULL_REQUEST_RUN_START_GRACE = timedelta(minutes=2)
 
 PULL_REQUEST_RUN_ACTIVE_DETAIL = "A run is already working on this report's pull request. Follow that run instead."
 
@@ -371,14 +376,21 @@ def active_pull_request_run(*, team_id: int, report_id: str) -> ActiveReportRun 
         )
         if run.task_id
     ]
-    pull_request_task_ids = [
-        str(task.id)
+    pull_request_tasks = {
+        str(task.id): task
         for task in tasks_facade.get_tasks_by_ids(discussion_task_ids, [team_id])
         if is_pull_request_run_request(task.description)
-    ]
-    for task_id, run in tasks_facade.get_latest_run_by_task(pull_request_task_ids).items():
+    }
+    latest_runs = tasks_facade.get_latest_run_by_task(list(pull_request_tasks))
+    for task_id, run in latest_runs.items():
         if not run.is_terminal:
             return ActiveReportRun(task_id=task_id, run_id=str(run.id))
+    # A task gets its run in a later transaction, so a fresh task without one still holds the branch.
+    # The window is short, so a task whose run never started stops blocking soon.
+    fresh_since = timezone.now() - PULL_REQUEST_RUN_START_GRACE
+    for task_id, task in pull_request_tasks.items():
+        if task_id not in latest_runs and task.created_at >= fresh_since:
+            return ActiveReportRun(task_id=task_id, run_id=None)
     return None
 
 

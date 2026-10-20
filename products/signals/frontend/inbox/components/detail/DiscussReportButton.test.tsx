@@ -75,13 +75,22 @@ function makeReport(suggestedPrompts?: string[]): SignalReport {
 }
 
 describe('DiscussReportButton', () => {
+    let checksConclusion: 'failure' | 'success' | null = null
     let discussReport: jest.Mock
 
     beforeEach(() => {
+        checksConclusion = null
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
-                '/api/projects/:team_id/signals/reports/:id/pr_checks/': { checks: [] },
+                '/api/projects/:team_id/signals/reports/:id/pr_checks/': () => [
+                    200,
+                    {
+                        checks: checksConclusion
+                            ? [{ name: 'backend', status: 'completed', conclusion: checksConclusion, url: null }]
+                            : [],
+                    },
+                ],
                 '/api/projects/:team_id/signals/reports/:id/pr_comments/': { comments: [] },
                 '/api/projects/:team_id/signals/reports/available_reviewers/': [],
             },
@@ -297,7 +306,8 @@ describe('DiscussReportButton', () => {
             'https://app/report-1',
             MERGE_PR_REQUEST,
             undefined,
-            'merge_pr'
+            'merge_pr',
+            undefined
         )
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
             question_source: 'suggested',
@@ -320,13 +330,7 @@ describe('DiscussReportButton', () => {
     })
 
     async function setChecks(report: SignalReport, conclusion: 'failure' | 'success'): Promise<void> {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/signals/reports/:id/pr_checks/': {
-                    checks: [{ name: 'backend', status: 'completed', conclusion, url: null }],
-                },
-            },
-        })
+        checksConclusion = conclusion
         const logic = inboxReportDetailLogic({ reportId: report.id, report })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -350,7 +354,8 @@ describe('DiscussReportButton', () => {
             'https://app/report-1',
             FIX_CI_REQUEST,
             undefined,
-            'fix_ci'
+            'fix_ci',
+            'https://github.com/org/repo/pull/1'
         )
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
             question_source: 'suggested',
