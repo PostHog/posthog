@@ -237,6 +237,17 @@ def read_dashboard_tiles(*, team_id: int, dashboard_id: int) -> tuple[DashboardT
     )
 
 
+def read_dashboard_metric_variables(*, team_id: int, dashboard_id: int) -> list[dict[str, Any]]:
+    """The metrics dashboard variables of a dashboard, as MetricsDashboardVariable JSON."""
+    filters = (
+        Dashboard.objects.filter(team_id=team_id, id=dashboard_id, deleted=False)
+        .values_list("filters", flat=True)
+        .first()
+    )
+    variables = filters.get("metricVariables") if isinstance(filters, dict) else None
+    return [variable for variable in variables if isinstance(variable, dict)] if isinstance(variables, list) else []
+
+
 def delete_unlisted_dashboard(*, team_id: int, dashboard_id: int) -> bool:
     """Soft-delete an unlisted dashboard that a product created. Returns False when there is no such dashboard."""
     deleted = Dashboard.objects.filter(

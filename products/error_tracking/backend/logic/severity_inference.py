@@ -99,12 +99,13 @@ def _page_without_query(current_url: object) -> str | None:
 
 def infer_severity(team_id: int, state: str) -> ChoiceAnswer | None:
     """Ask the decision model for a severity. Raises the ml_inference gateway errors unchanged."""
-    result = ml_inference.decide(
+    result = ml_inference.decide_when_available(
         DecisionRequest(
             team_id=team_id,
             state=state,
             questions={_SEVERITY_QUESTION_ID: _SEVERITY_QUESTION},
             model=SEVERITY_INFERENCE_MODEL,
+            privacy_mode=True,
         )
     )
     answer = result.answers.get(_SEVERITY_QUESTION_ID)
