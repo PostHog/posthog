@@ -467,6 +467,21 @@ pub struct StackArgs {
     #[arg(long, default_value_t = 100)]
     pub publish_rows_per_pass: i64,
 
+    /// Also run `personhog-parity-monitor` against the publish topics and
+    /// the Node path's topics named below, and put its metrics address in
+    /// the ready line. Requires --publish; the Node topics must exist.
+    #[arg(long, default_value_t = false)]
+    pub monitor: bool,
+
+    /// The Node path's `clickhouse_person_distinct_id` topic the monitor
+    /// compares the publish topic against.
+    #[arg(long)]
+    pub monitor_node_distinct_ids_topic: Option<String>,
+
+    /// The Node path's `person_merge_events` topic.
+    #[arg(long)]
+    pub monitor_node_merge_events_topic: Option<String>,
+
     /// Also write the ready line's JSON to this file once the stack is up.
     /// A parent process polls for the file instead of parsing stdout,
     /// which the logs share.

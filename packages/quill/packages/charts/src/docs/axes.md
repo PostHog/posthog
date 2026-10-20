@@ -27,7 +27,7 @@ Theme-side restyle knobs, all optional: `theme.axisLineColor` strokes the baseli
 
 - Labels must be unique. The x-scale keys positions off the strings, so a duplicate collapses onto the first occurrence and draws the series backwards. On time-series charts pass ISO date strings, never formatted display labels that repeat across years. Set `xAxis.timezone` to format ticks and tooltip headers. The library infers the interval from `allDays` or chart labels; set `interval` only to override it. `tickFormatter` overrides automatic formatting.
 - `xAxis.tickLabelRotation` (`-45` tilts left) fixes the rotation, clamped to `-90..90`. Omit it to keep horizontal labels and the collision behavior.
-- `maxCategoryLabelWidth` truncates category labels with an ellipsis and reveals the full value on hover. It also clamps the axis margin, so a long label cannot push the plot off screen. `MAX_CATEGORY_LABEL_WIDTH` is the exported default.
+- `maxCategoryLabelWidth` truncates category labels with an ellipsis and reveals the full value on hover. It also clamps the axis margin, so a long label cannot push the plot off screen. On horizontal charts the cap grows to 30% of the chart width when that is wider, so a wider chart shows more of each label. `MAX_CATEGORY_LABEL_WIDTH` is the exported default.
 
 ## Y-axis format
 
