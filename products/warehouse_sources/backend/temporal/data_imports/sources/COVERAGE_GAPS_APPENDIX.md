@@ -5135,12 +5135,12 @@ Note: Diffed the official Seller API V2 OpenAPI file and also inspected the Buye
 
 ## Gainsight CS — gaps
 
-Today (9): `activity_timeline`, `call_to_action`, `company`, `company_person`, `cta_group`, `email_logs`, `gsuser`, `relationship`, `relationship_person`
+Today (11): `activity_timeline`, `call_to_action`, `company`, `company_person`, `cta_configuration`, `cta_group`, `cta_task`, `email_logs`, `gsuser`, `relationship`, `relationship_person`
 
 Diffed against: <https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs>
 
-- [ ] `Get CTA configurations (GET /v2/cockpit/admin/picklist/lite)` — resolve CTA status, priority, type, and reason IDs into readable labels (high)
-- [ ] `Fetch Tasks (GET /v2/cockpit/task/list/{CTA_GSID})` — measure follow-up task completion, due dates, and ownership for synced calls to action (medium)
+- [x] `Get CTA configurations (GET /v2/cockpit/admin/picklist/lite)` — resolve CTA status, priority, type, and reason IDs into readable labels (high)
+- [x] `Fetch Tasks (GET /v2/cockpit/task/list/{CTA_GSID})` — measure follow-up task completion, due dates, and ownership for synced calls to action (medium)
 
 Note: Read the official API index and the Cockpit CTA, Task, Success Plan, Person, and Data Management references. The two gaps use specialized GET routes; tasks need CTA fan-out and picklists need entity and category selection. The custom_objects field already permits extra readable objects through the generic query API, so arbitrary object names are not new gaps. Excluded write APIs, job status, and playbook configuration; tenant access determines generic object availability.
 
