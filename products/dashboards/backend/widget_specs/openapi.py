@@ -12,24 +12,61 @@ from products.dashboards.backend.constants import (
     MAX_GROUP_TITLE_LENGTH,
 )
 from products.dashboards.backend.facade.enums import RestrictionLevel
-from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
+from products.dashboards.backend.models.dashboard import (
+    DASHBOARD_GRID_COMPACTION_MODES,
+    DASHBOARD_GRID_SPACING_GAPS,
+    DashboardTileGroupRail,
+)
 from products.dashboards.backend.models.dashboard_tile import DashboardTileBadge
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
 from products.dashboards.backend.widget_specs.registry import EXPECTED_WIDGET_TYPES, WIDGET_SPECS
 
-GROUP_TITLES_HELP_TEXT = (
-    "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. "
-    "A write replaces the whole map. Send an empty object or null to remove all group titles."
+GROUPS_HELP_TEXT = (
+    "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band "
+    "of its tiles under a heading that viewers can use to open and close the group. A group without settings "
+    "still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove "
+    "all group settings."
 )
 GROUP_KEY_HELP_TEXT = (
     "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. "
-    "Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group."
+    "Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its "
+    "group."
 )
 BADGE_HELP_TEXT = (
     "Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. "
     "cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. "
     "More than one tile in a group can have the winner badge."
 )
+
+
+class DashboardTileGroupSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        max_length=MAX_GROUP_TITLE_LENGTH,
+        required=False,
+        allow_blank=True,
+        help_text="Heading for the group. When it is blank or omitted, the heading shows the number of tiles.",
+    )
+    collapsed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Whether the group starts closed. A closed group does not load its tiles until a viewer opens it. "
+            "When a viewer opens or closes the group, their browser keeps that choice and it wins over this default."
+        ),
+    )
+    tint = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether to show a soft background behind the group.",
+    )
+    rail = serializers.ChoiceField(
+        choices=DashboardTileGroupRail.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Color of a line on the left edge of the group. Null or omitted shows no line.",
+    )
+
 
 WIDGET_BATCH_ADD_OPENAPI_HELP = (
     "Widget tiles to add atomically. Supported widget_type values: "
@@ -463,11 +500,11 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
             "to the left, and stable preserves positions while moving colliding tiles."
         ),
     )
-    group_titles = serializers.DictField(
-        child=serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH),
+    groups = serializers.DictField(
+        child=DashboardTileGroupSerializer(),
         required=False,
         allow_null=True,
-        help_text=GROUP_TITLES_HELP_TEXT,
+        help_text=GROUPS_HELP_TEXT,
     )
     tiles = DashboardPatchTileOpenApiSerializer(
         many=True,
