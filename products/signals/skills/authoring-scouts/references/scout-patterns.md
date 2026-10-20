@@ -731,6 +731,8 @@ That is a scout with a book of one experiment, and it lives as long as the exper
 - **Watched data:** the experiment entity (`experiment-get`: status, flag key and version, variants, metrics, stats method, exposure criteria), its results (`experiment-results-get` for every metric plus the exposures block with the SRM p-value and daily series, `experiment-timeseries-results` for one metric's history), the raw exposure and metric events through `execute-sql`, and anything that can change what an arm shows mid-run: deploys, model or config promotions, the activity log on the experiment and its flag, and a Replay Vision experiment scanner's per-variant split (`vision-scanners-variants-list`).
 - **Write the experiment into the body.** Unlike a canonical scout, this one is project-only by design: name the experiment id, the flag key, each arm and what it serves, the launch time, the planned read date, the metric ids, and the pre-registered decision rule word for word.
   Point at the design doc or tracking skill that holds the decisions, read it every run, and say it wins when it and the body disagree, so a decision made mid-run reaches the scout without a body edit.
+  Check `is_legacy` in `experiment-get` before you write the body: a legacy experiment has no results, so `experiment-results-get` fails for it.
+  Ask the owner to migrate it with `experiment-migrate` first, or limit the scout to raw-SQL reads and say so in the body.
 - **Discriminator: does this change what the owner should decide or believe today?** Four shapes clear it.
   **Arm integrity:** the treatment arm does not actually receive the treatment, users flip variant, or exposures arrive from a segment the design excludes.
   **Validity:** SRM below a set p-value (0.01), an exposure stall against the trailing mean, a flag or metric edit, or stale results.
@@ -740,24 +742,27 @@ That is a scout with a book of one experiment, and it lives as long as the exper
 - **Arm integrity is the check generic scouts miss.** Assignment can be perfect while the treatment is diluted: a fallback path that serves control behaviour, items without a score that sort like control, a client that never sends the request that evaluates the flag.
   Compare the server-side assignment (the variant on the exposure event) with what the surface recorded as served, per arm.
   Also measure the share of the treated surface's events whose person has no exposure event: an identity gap shrinks the analysed population without any warning.
-- **One living tracker, plus rotating deep dives.** File one rolling report (`Experiment <id> tracker: <name>`) and edit it every run: day N of the planned run, what changed since the last run, a scoreboard of every metric (n, rate or mean, chance to win and interval per arm), the integrity line, the change timeline, and one proposed next action.
+- **One living tracker, plus rotating deep dives.** File one rolling report (`Experiment <id> tracker: <name>`) and edit it every run: day N of the planned run, what changed since the last run, a scoreboard of every metric (n and rate or mean per arm, then for each test arm against the baseline: goal-adjusted chance to win and credible interval when Bayesian, p-value and confidence interval when Frequentist), the integrity line, the change timeline, and one proposed next action.
   Spend the rest of the run budget on one deep dive from a named rotation, oldest first: position or funnel-step curves, the mechanism the hypothesis assumes, segments (labelled as hypotheses), guardrail shape (a falling guardrail can mean less engagement, not a better product), replay themes per variant, and time to decision.
   A dive that earns a report gets a notebook with a SQL cell for every number it quotes.
 - **Annotate what changes under the test.** Grant `annotation:write` so the scout annotates any mid-run change that does not restart the experiment (a model or config promotion, a deploy that touches the treated surface), and split reads before and after it.
-- **Read the stats the way the experiment does.** Use the experiment's own method and the decision rule as written.
-  For a goal-decrease metric, read the direction from the interval sign, not from a bare chance to win.
+- **Read the stats the way the experiment does.** Use the experiment's own method (`stats_config.method`) and the decision rule as written.
+  For a goal-decrease metric, the stored `chance_to_win` is not inverted: use one minus it, as the experiment page does, then apply the rule.
+  Do not substitute the interval sign, because a one-sided chance to win can cross its threshold while the two-sided interval still crosses zero.
   Results are cached and recompute on a schedule, so record `last_refresh` and treat results older than about a day and a half as stale, not as quiet.
   Schedule the cron just after the daily metric recalculation, so each run reads fresh results.
+  The recalculation hour is in UTC (02:00 by default) and the cron runs in the project's timezone, so convert it and allow for daylight saving time, or anchor on the `last_refresh` of an observed recalculation.
 - **Hand the decisions to the owner.** The scout never ends, pauses, ships, or edits the experiment, its flag, or its metrics, and never triggers a recalculation; it proposes, with evidence.
   Before the planned read, only the exact decision-rule conditions or a validity break justify a proposal to stop early: early results move a lot, and a scout that calls a winner on day three teaches people to ignore it.
   On or after the read date it writes the readout against the rule (ship, no ship, or extend), and the owner decides.
-- **Quick close-out on end.** When the experiment stops, write a final tracker edit with the scoreboard and the reason from the activity log, save `addressed:<exp>:ended`, and close out empty on later runs; pause the scout once the readout is done.
-- **Dedupe + memory:** `dedupe:<exp>:tracker` holds the tracker report id; `pattern:<exp>:config` (flag version, variants, metric ids) catches drift; `pattern:<exp>:last-read` (per-metric n and chance to win) is the baseline for threshold crossings; `pattern:<exp>:timeline` lists mid-run changes with annotation ids; `pattern:<exp>:last-dive:<name>` drives the rotation; `noise:<exp>:<topic>` records what was ruled out.
+- **Quick close-out on end.** When the experiment stops, write a final tracker edit with the scoreboard and the reason from the activity log, save `addressed:<exp>:ended`, and close out empty on later runs.
+  A run cannot pause its own scout (`signal_scout:write` is not a grantable scope), so the final tracker edit asks the owner to set `enabled=false` once the readout is done.
+- **Dedupe + memory:** `dedupe:<exp>:tracker` holds the tracker report id; `pattern:<exp>:config` (flag version, variants, metric ids) catches drift; `pattern:<exp>:last-read` (per-metric n plus chance to win or p-value, per the method) is the baseline for threshold crossings; `pattern:<exp>:timeline` lists mid-run changes with annotation ids; `pattern:<exp>:last-dive:<name>` drives the rotation; `noise:<exp>:<topic>` records what was ruled out.
 - **Seams:** the canonical experiments scout keeps fleet-wide validity across every experiment, so edit or reference its open report on this experiment rather than filing a duplicate.
   A feature-owner scout for the system under test (a model, a pipeline) keeps that surface; the experiment scout reads those facts only where they change what an arm shows.
 - **Gotchas:** SQL timestamp literals follow the project timezone, so prefer `now() - INTERVAL` windows or convert the launch time once.
   A client that never evaluates the flag can still emit metric events for exposed users, so filter raw SQL the same way the metrics do.
-  Internal users are in the exposure stream even when the results apply a test-account filter, so exclude them in raw SQL too.
+  Raw exposure and metric events skip the test-account filter that the results apply, so read the project's filter rows (`project-get`) and reproduce them exactly in SQL, or label the comparison as unfiltered.
   After creating the scout, start one manual run with a run-only note that carries any leads found while writing it.
 
 ### Trigger-to-brief enrichment scout
