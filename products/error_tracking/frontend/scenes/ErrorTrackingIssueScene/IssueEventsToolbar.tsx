@@ -1,9 +1,14 @@
+import { useValues } from 'kea'
+
 import { IconRefresh } from '@posthog/icons'
 
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 import { ErrorFilters } from '../../components/IssueFilters'
-import { LinkedDataFilters } from './LinkedDataFilters'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { issueLinkedDataLogic } from './issueLinkedDataLogic'
+import { LinkedDataFilterMenuItems } from './LinkedDataFilterMenuItems'
+import { LinkedDataFilterPills } from './LinkedDataFilterPills'
 
 interface IssueEventsToolbarProps {
     loading: boolean
@@ -11,11 +16,16 @@ interface IssueEventsToolbarProps {
 }
 
 export function IssueEventsToolbar({ loading, onReload }: IssueEventsToolbarProps): JSX.Element {
+    const { issueId } = useValues(errorTrackingIssueSceneLogic)
+    const { requiredLinks } = useValues(issueLinkedDataLogic({ issueId }))
+
     return (
         <div className="sticky top-0 z-10 shrink-0 border-y border-primary bg-surface-primary">
             <ErrorFilters.Root className="w-full">
                 <ErrorFilters.FilterGroup
                     iconOnly
+                    menuItems={<LinkedDataFilterMenuItems />}
+                    leadingFilters={requiredLinks.length > 0 ? <LinkedDataFilterPills /> : undefined}
                     renderControls={({ filterPicker, activeFilters }) => (
                         <div className="flex w-full flex-col gap-2 p-2">
                             <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
@@ -45,7 +55,6 @@ export function IssueEventsToolbar({ loading, onReload }: IssueEventsToolbarProp
                                     <ErrorFilters.InternalAccounts />
                                 </div>
                             </div>
-                            <LinkedDataFilters />
                             {activeFilters}
                         </div>
                     )}

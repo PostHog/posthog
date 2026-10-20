@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { PropsWithChildren, useEffect, useRef } from 'react'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
 import { EventsTable, EventsTableLoading } from '../../components/EventsTable/EventsTable'
@@ -18,6 +19,9 @@ import { LinkedDataBadges } from './LinkedDataBadges'
 export function IssueEventsPanel(): JSX.Element {
     const { issueFingerprintsLoading, issueId } = useValues(errorTrackingIssueSceneLogic)
     const { linkedDataPending } = useValues(issueLinkedDataLogic({ issueId }))
+    const { requestLinkedData } = useActions(issueLinkedDataLogic({ issueId }))
+
+    useOnMountEffect(requestLinkedData)
 
     if (issueFingerprintsLoading || linkedDataPending) {
         return (
