@@ -921,6 +921,22 @@ describe('preserveGroupTargetingFilters', () => {
             typed: [{ type: 'person' }, {}],
             restored: [{ type: 'person' }, {}],
         },
+        {
+            name: 'two existence filters trade places and the agent types them without a value',
+            stored: [
+                { ...onGroupType0, operator: 'is_set', value: null },
+                { ...onGroupType1, operator: 'is_set', value: null },
+            ],
+            values: [undefined, undefined],
+            typed: [
+                { ...onGroupType1, operator: 'is_set' },
+                { ...onGroupType0, operator: 'is_set' },
+            ],
+            restored: [
+                { ...onGroupType1, operator: 'is_set' },
+                { ...onGroupType0, operator: 'is_set' },
+            ],
+        },
     ])(
         'merges a group property that two person-aggregated sets hold when $name',
         ({
@@ -1048,57 +1064,6 @@ describe('preserveGroupTargetingFilters', () => {
             expect(merged?.groups?.map((group) => group.properties?.[0]?.group_type_index)).toEqual(restored)
         }
     )
-
-    it('restores no group type from a deleted set when the set that moved also drops a key', () => {
-        const existing = {
-            groups: [onGroupType0, onGroupType1].map((typing) => ({
-                properties: [
-                    { key: 'plan', operator: 'exact', value: 'pro', ...typing },
-                    { key: 'country', type: 'person', operator: 'exact', value: 'US' },
-                ],
-                rollout_percentage: 100,
-            })),
-        }
-
-        const merged = preserveGroupTargetingFilters(existing, {
-            groups: [
-                {
-                    properties: [
-                        { key: 'plan', operator: 'exact', value: 'pro' },
-                        { key: 'country', operator: 'exact', value: 'US' },
-                    ],
-                    rollout_percentage: 100,
-                },
-                {
-                    properties: [{ key: 'plan', operator: 'exact', value: 'pro', ...onGroupType1 }],
-                    rollout_percentage: 100,
-                },
-            ],
-        })
-
-        expect(merged?.groups?.[0]?.properties).toEqual([
-            { key: 'plan', operator: 'exact', value: 'pro' },
-            { key: 'country', type: 'person', operator: 'exact', value: 'US' },
-        ])
-    })
-
-    it('keeps typed person sets on persons when an existence filter that traded places omits its value', () => {
-        const existing = {
-            groups: [onGroupType0, onGroupType1].map((typing) => ({
-                properties: [{ key: 'plan', operator: 'is_set', value: null, ...typing }],
-                rollout_percentage: 50,
-            })),
-        }
-
-        const merged = preserveGroupTargetingFilters(existing, {
-            groups: [onGroupType1, onGroupType0].map((typing) => ({
-                properties: [{ key: 'plan', operator: 'is_set', ...typing }],
-                rollout_percentage: 50,
-            })),
-        })
-
-        expect(merged?.groups?.map((group) => group.aggregation_group_type_index ?? null)).toEqual([null, null])
-    })
 
     it('passes through multivariate and payloads without restoring from existing', () => {
         const existing = {
@@ -1617,6 +1582,39 @@ describe('preserveGroupTargetingFilters', () => {
                 groups: [{ properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 }],
             },
             expected: [[undefined, undefined, undefined]],
+        },
+        {
+            name: 'a set is deleted and the set that moves into its place drops a key',
+            existing: {
+                groups: [0, 1].map((group_type_index) => ({
+                    properties: [
+                        { key: 'plan', type: 'group', group_type_index, operator: 'exact', value: 'pro' },
+                        { key: 'country', type: 'person', operator: 'exact', value: 'US' },
+                    ],
+                    rollout_percentage: 100,
+                })),
+            },
+            incoming: {
+                groups: [
+                    {
+                        properties: [
+                            { key: 'plan', operator: 'exact', value: 'pro' },
+                            { key: 'country', operator: 'exact', value: 'US' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 1, operator: 'exact', value: 'pro' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            expected: [
+                [undefined, undefined, undefined],
+                [undefined, 'group', 1],
+            ],
         },
         {
             name: 'two person sets with different keys trade places and one holds the key as a group property',
