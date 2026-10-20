@@ -877,6 +877,16 @@ describe('preserveGroupTargetingFilters', () => {
             typed: [onGroupType1, onGroupType0],
             restored: [onGroupType1, onGroupType0],
         },
+        {
+            name: 'two sets with one filter trade places and the agent types only the second',
+            stored: [
+                { ...onGroupType0, value: 'business' },
+                { ...onGroupType1, value: 'business' },
+            ],
+            values: ['business', 'business'],
+            typed: [{}, onGroupType0],
+            restored: [{}, onGroupType0],
+        },
     ])(
         'merges a group property that two person-aggregated sets hold when $name',
         ({
@@ -973,6 +983,78 @@ describe('preserveGroupTargetingFilters', () => {
             )
         }
     )
+
+    it.each([
+        { name: 'a null rollout', echoed: { rollout_percentage: null } },
+        { name: 'a full rollout', echoed: { rollout_percentage: 100 } },
+        { name: 'a null variant', echoed: { variant: null } },
+    ])('keeps two same-filter person sets on their group types when the agent echoes $name', ({ echoed }) => {
+        const existing = {
+            groups: [onGroupType0, onGroupType1].map((typing) => ({
+                properties: [{ key: 'plan', operator: 'exact', value: 'business', ...typing }],
+            })),
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: existing.groups.map(() => ({
+                properties: [{ key: 'plan', operator: 'exact', value: 'business' }],
+                ...echoed,
+            })),
+        })
+
+        expect(merged?.groups?.map((group) => group.properties?.[0]?.group_type_index)).toEqual([0, 1])
+    })
+
+    it('restores no group type from a deleted set when the set that moved also drops a key', () => {
+        const existing = {
+            groups: [onGroupType0, onGroupType1].map((typing) => ({
+                properties: [
+                    { key: 'plan', operator: 'exact', value: 'pro', ...typing },
+                    { key: 'country', type: 'person', operator: 'exact', value: 'US' },
+                ],
+                rollout_percentage: 100,
+            })),
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: [
+                {
+                    properties: [
+                        { key: 'plan', operator: 'exact', value: 'pro' },
+                        { key: 'country', operator: 'exact', value: 'US' },
+                    ],
+                    rollout_percentage: 100,
+                },
+                {
+                    properties: [{ key: 'plan', operator: 'exact', value: 'pro', ...onGroupType1 }],
+                    rollout_percentage: 100,
+                },
+            ],
+        })
+
+        expect(merged?.groups?.[0]?.properties).toEqual([
+            { key: 'plan', operator: 'exact', value: 'pro' },
+            { key: 'country', type: 'person', operator: 'exact', value: 'US' },
+        ])
+    })
+
+    it('keeps typed person sets on persons when an existence filter that traded places omits its value', () => {
+        const existing = {
+            groups: [onGroupType0, onGroupType1].map((typing) => ({
+                properties: [{ key: 'plan', operator: 'is_set', value: null, ...typing }],
+                rollout_percentage: 50,
+            })),
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: [onGroupType1, onGroupType0].map((typing) => ({
+                properties: [{ key: 'plan', operator: 'is_set', ...typing }],
+                rollout_percentage: 50,
+            })),
+        })
+
+        expect(merged?.groups?.map((group) => group.aggregation_group_type_index ?? null)).toEqual([null, null])
+    })
 
     it('passes through multivariate and payloads without restoring from existing', () => {
         const existing = {

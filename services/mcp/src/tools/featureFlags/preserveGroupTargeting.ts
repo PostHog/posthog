@@ -196,11 +196,24 @@ function hasSameKeySet(incoming: ReadonlyMap<string, unknown>, existing: Readonl
     return incoming.size === existing.size && [...incoming.keys()].every((key) => existing.has(key))
 }
 
+/** The flag evaluator ignores the value of an existence filter. */
+const EXISTENCE_OPERATORS = new Set(['is_set', 'is_not_set'])
+
 /** The flag evaluator reads a missing operator as `exact`. */
 function matchesFilter(stored: FlagProperty, incoming: FlagProperty): boolean {
+    const operator = stored.operator ?? 'exact'
     return (
-        (stored.operator ?? 'exact') === (incoming.operator ?? 'exact') &&
-        isDeepStrictEqual(stored.value, incoming.value)
+        operator === (incoming.operator ?? 'exact') &&
+        (EXISTENCE_OPERATORS.has(operator) || isDeepStrictEqual(stored.value, incoming.value))
+    )
+}
+
+/** A type or group_type_index that the agent sends and that differs from the stored filter is a change. */
+function keepsExplicitTyping(stored: FlagProperty, incoming: FlagProperty): boolean {
+    return (
+        matchesFilter(stored, incoming) &&
+        (!isPresentType(incoming.type) || incoming.type === stored.type) &&
+        (!isPresentGroupIndex(incoming.group_type_index) || incoming.group_type_index === stored.group_type_index)
     )
 }
 
@@ -208,13 +221,17 @@ function matchesFilter(stored: FlagProperty, incoming: FlagProperty): boolean {
  * The filters under each key compare as a multiset of operator and value pairs, so a removed, added,
  * or changed filter on a key is a change.
  */
-function keepsFilters(incoming: FlagConditionGroup, source: ExistingSet): boolean {
+function keepsFilters(
+    incoming: FlagConditionGroup,
+    source: ExistingSet,
+    matches: (stored: FlagProperty, incoming: FlagProperty) => boolean = matchesFilter
+): boolean {
     return [...indexProperties(incoming.properties)].every(([key, props]) => {
         const unmatched = [...(source.propsByKey.get(key) ?? [])]
         return (
             props.length === unmatched.length &&
             props.every((prop) => {
-                const match = unmatched.findIndex((stored) => matchesFilter(stored, prop))
+                const match = unmatched.findIndex((stored) => matches(stored, prop))
                 if (match === -1) {
                     return false
                 }
@@ -225,12 +242,20 @@ function keepsFilters(incoming: FlagConditionGroup, source: ExistingSet): boolea
     })
 }
 
+/** The values the flag evaluator reads for a missing or null field. */
+const CONDITION_DEFAULTS = { rollout_percentage: 100, variant: null } as const
+
 /** A field that the agent omits is not a change, so an echo that leaves it out still keeps its source. */
 function keepsCondition(incoming: FlagConditionGroup, source: ExistingSet): boolean {
     return (
-        keepsFilters(incoming, source) &&
+        keepsFilters(incoming, source, keepsExplicitTyping) &&
         (['rollout_percentage', 'variant'] as const).every(
-            (field) => !hasKey(incoming, field) || isDeepStrictEqual(incoming[field], source.group[field])
+            (field) =>
+                !hasKey(incoming, field) ||
+                isDeepStrictEqual(
+                    incoming[field] ?? CONDITION_DEFAULTS[field],
+                    source.group[field] ?? CONDITION_DEFAULTS[field]
+                )
         )
     )
 }
@@ -252,7 +277,11 @@ function filterSignature(propsByKey: Map<string, FlagProperty[]>): string {
     return JSON.stringify(
         [...propsByKey.values()]
             .flat()
-            .map((prop) => JSON.stringify([prop.key, prop.operator ?? 'exact', canonicalJson(prop.value)]))
+            .map((prop) => {
+                const operator = prop.operator ?? 'exact'
+                const value = EXISTENCE_OPERATORS.has(operator) ? null : canonicalJson(prop.value)
+                return JSON.stringify([prop.key, operator, value])
+            })
             .sort()
     )
 }
@@ -571,7 +600,7 @@ export function preserveGroupTargetingFilters(
         const personSources = sourceSets.map((sourceSet) => (sourceSet?.aggregation === null ? sourceSet : undefined))
         const keptConditions = existingSets.map((existingSet, index) => {
             const group = incomingGroups[index]
-            return !!existingSet && isRecord(group) && keepsCondition(group, existingSet)
+            return !!existingSet && isRecord(group) && keptKeys[index] && keepsCondition(group, existingSet)
         })
         const personSetsByFilters = groupPersonSetsByFilters(existingSets)
         const changedTypings = new Set(
