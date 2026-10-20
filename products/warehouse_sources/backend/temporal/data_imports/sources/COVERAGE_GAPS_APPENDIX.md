@@ -2975,7 +2975,7 @@ Note: The whole public REST API is four doc pages (applications, artifacts, buil
 
 ## Codescene — **thin**
 
-Today (7): `Analyses`, `AuthorStatistics`, `Components`, `Files`, `Issues`, `Projects`, `TechnicalDebt`
+Today (11): `Analyses`, `AuthorStatistics`, `BranchStatistics`, `CommitActivity`, `Commits`, `Components`, `DeltaAnalyses`, `Files`, `Issues`, `Projects`, `TechnicalDebt`
 
 Diffed against: <https://docs.enterprise.codescene.io/latest/integrations/rest-api.html>
 
@@ -2983,16 +2983,16 @@ Diffed against: <https://docs.enterprise.codescene.io/latest/integrations/rest-a
 - [x] `projects/{project-id}/analyses/latest/issues` — issues from the project management integration, with status, cycle time and the commits and files changed while each was open (high)
 - [x] `projects/{project-id}/analyses/latest/technical-debt` — technical debt and refactoring targets, CodeScene's headline metric (high)
 - [x] `projects/{project-id}/analyses/latest/author-statistics` — per-author contribution stats; the only way to join code health to people (high)
-- [ ] `projects/{project-id}/analyses/latest/commits` — commit-level rows underpinning every aggregate CodeScene reports (medium)
-- [ ] `projects/{project-id}/analyses/latest/commit-activity` — commit activity time series for delivery-rate dashboards (medium)
-- [ ] `projects/{project-id}/analyses/latest/branch-statistics` — per-branch stats for branching-strategy and lead-time analysis (medium)
-- [ ] `projects/{project-id}/delta-analyses` — per-PR delta analyses - the state/transition history of quality per change (medium)
+- [x] `projects/{project-id}/analyses/latest/commits` — commit-level rows underpinning every aggregate CodeScene reports (medium)
+- [x] `projects/{project-id}/analyses/latest/commit-activity` — commit activity time series for delivery-rate dashboards (medium)
+- [x] `projects/{project-id}/analyses/latest/branch-statistics` — per-branch stats for branching-strategy and lead-time analysis (medium)
+- [x] `projects/{project-id}/delta-analyses` — per-PR delta analyses - the state/transition history of quality per change (medium)
 - [ ] `code-coverage/projects/{project-id}/gate-results/outcomes` — coverage quality-gate pass/fail outcomes over a date range (medium)
 - [ ] `code-health/projects/{project-id}/safeguards/pr/outcomes` — PR safeguard outcomes, the enforcement signal teams report on (medium)
 - [ ] `active-authors` — authoritative author roster; a lookup table for the author ids appearing in analyses (medium)
 - [ ] `projects/{project-id}/analyses/latest/experience/languages` — author language experience, used for knowledge-risk and bus-factor reporting (low)
 
-Note: Static endpoint list; no dynamic table discovery in products/warehouse_sources/backend/temporal/data_imports/sources/codescene/settings.py (hardcoded CODESCENE_ENDPOINTS). The v2 API exposes ~100 paths; PostHog covers 7. The per-analysis tables still read the 'latest' analysis only, but `Analyses` now carries the run history so an analysis id can be pinned.
+Note: Static endpoint list; no dynamic table discovery in products/warehouse_sources/backend/temporal/data_imports/sources/codescene/settings.py (hardcoded CODESCENE_ENDPOINTS). The v2 API exposes ~100 paths; PostHog covers 11. The per-analysis tables still read the 'latest' analysis only, but `Analyses` now carries the run history so an analysis id can be pinned.
 
 ## Cody — adequate
 
@@ -13250,9 +13250,9 @@ Today (5): `candidates`, `jobs`, `members`, `recruiters`, `stages`
 
 Diffed against: <https://workable.readme.io/reference/jobs>
 
-- [ ] `candidate activities (GET /candidates/{id}/activities)` — the stage-transition and action history behind every candidate; without it stages is a static snapshot (high)
-- [ ] `employees (GET /employees)` — the entire Workable HR side is absent, and it is what links hires back to headcount (high)
-- [ ] `departments (GET /departments)` — lookup resolving the department carried on jobs, requisitions and employees (high)
+- [x] `candidate activities (GET /candidates/{id}/activities)` — the stage-transition and action history behind every candidate; without it stages is a static snapshot (high)
+- [x] `employees (GET /employees)` — the entire Workable HR side is absent, and it is what links hires back to headcount (high)
+- [x] `departments (GET /departments)` — lookup resolving the department carried on jobs, requisitions and employees (high)
 - [ ] `locations (GET /accounts/{subdomain}/locations)` — lookup resolving the location id on jobs and candidates (high)
 - [ ] `time entries (GET /time-tracking/time-entries)` — time tracking fact table for employees (high)
 - [ ] `job activities (GET /jobs/{shortcode}/activities)` — per-job event stream for pipeline throughput analysis (medium)

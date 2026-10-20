@@ -90,6 +90,16 @@ DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
 )
 
+# The size-driven split budget for tables that upsert on a primary key (incremental, webhook, xmin).
+# Those upserts go through deltalite, whose peak memory does not grow with partition size, while on an
+# md5 table every extra partition adds one more rewritten file to each merge. The delta-rs MERGE runs on
+# such a table only for a batch that deltalite fails, and this larger cap bounds partition size for that
+# fallback. The OOM-history trigger still splits a table whose fallback runs out of memory.
+# A value below DATA_WAREHOUSE_TARGET_PARTITION_BYTES has no effect.
+DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES = get_from_env(
+    "DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES", 2_000_000_000, type_cast=int
+)
+
 # How often each sync activity self-reports its workload (phase, buffer bytes, RSS) to the warehouse
 # Redis, for post-mortem enrichment of silent worker deaths. Zero or negative disables reporting
 # entirely (the fleet kill switch — hooks become no-ops and no thread starts).
