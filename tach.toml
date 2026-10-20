@@ -536,6 +536,7 @@ depends_on = [
     "products.product_analytics",
     "products.product_tours",
     "products.surveys", "products.access_control",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -1199,6 +1200,7 @@ expose = [
     "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
     "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
+    "backend\\.temporal\\.EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",

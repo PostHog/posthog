@@ -1,4 +1,4 @@
-import { formatRankingLift, rankingLiftBarPercent, rankingStrength } from './rankingFormat'
+import { formatRankingLift, rankingLiftBarFill, rankingLiftBarPercent, rankingStrength } from './rankingFormat'
 
 describe('rankingFormat', () => {
     test.each([
@@ -21,6 +21,20 @@ describe('rankingFormat', () => {
         [40, 100],
     ])('places a lift of %s at %s% of the bar', (lift, expected) => {
         expect(rankingLiftBarPercent(lift)).toBeCloseTo(expected)
+    })
+
+    test.each([
+        [1, 50, 0],
+        [10, 50, 50],
+        [40, 50, 50],
+        [Math.sqrt(10), 50, 25],
+        [0.1, 0, 50],
+        [0.05, 0, 50],
+        [1 / Math.sqrt(10), 25, 25],
+    ])('fills the bar for a lift of %s from %s% with a width of %s%', (lift, left, width) => {
+        const fill = rankingLiftBarFill(lift)
+        expect(fill.left).toBeCloseTo(left)
+        expect(fill.width).toBeCloseTo(width)
     })
 
     test.each([

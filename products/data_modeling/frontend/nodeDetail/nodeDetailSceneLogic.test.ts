@@ -342,6 +342,10 @@ describe('nodeDetailSceneLogic', () => {
 
         render(createElement(NodeDetailQuery, { id: NODE_ID }))
 
+        // The columns panel is collapsed by default.
+        expect(screen.queryByText('column_1')).toBeNull()
+        fireEvent.click(screen.getByText('Columns (11)'))
+
         expect(screen.getByText('column_10')).toBeTruthy()
         expect(screen.queryByText('column_11')).toBeNull()
         expect(screen.getByText('1-10 of 11 columns')).toBeTruthy()

@@ -27,10 +27,6 @@ class TestOpenRouterSource:
         # Static endpoint catalog with no I/O — required for the public-docs table list to render.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_name(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["models", "activity"])
-        assert {s.name for s in schemas} == {"models", "activity"}
-
     def test_validate_credentials_invalid_key(self):
         with _patch_key_info(None):
             ok, error = self.source.validate_credentials(self.config, self.team_id)

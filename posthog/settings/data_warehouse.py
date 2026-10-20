@@ -93,6 +93,16 @@ DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
 )
 
+# The size-driven split budget for tables that upsert on a primary key (incremental, webhook, xmin).
+# Those upserts go through deltalite, whose peak memory does not grow with partition size, while on an
+# md5 table every extra partition adds one more rewritten file to each merge. The delta-rs MERGE runs on
+# such a table only for a batch that deltalite fails, and this larger cap bounds partition size for that
+# fallback. The OOM-history trigger still splits a table whose fallback runs out of memory.
+# A value below DATA_WAREHOUSE_TARGET_PARTITION_BYTES has no effect.
+DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES = get_from_env(
+    "DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES", 2_000_000_000, type_cast=int
+)
+
 # How often each sync activity self-reports its workload (phase, buffer bytes, RSS) to the warehouse
 # Redis, for post-mortem enrichment of silent worker deaths. Zero or negative disables reporting
 # entirely (the fleet kill switch — hooks become no-ops and no thread starts).
@@ -155,6 +165,11 @@ DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS = get_from_env(
 # `optimize.compact`. deltalite streams each bin under the load slot's memory budget. A deltalite build
 # without `compact`, a table that deltalite refuses, or a deltalite failure falls back to delta-rs.
 DATA_WAREHOUSE_DELTALITE_COMPACTION = get_from_env("DATA_WAREHOUSE_DELTALITE_COMPACTION", False, type_cast=str_to_bool)
+# A rebuild run (first sync, reset, full refresh) compacts its own files once a compaction would remove
+# this many, so a long rebuild does not leave one post-load pass that outlasts the stuck-batch timeout.
+DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES = get_from_env(
+    "DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES", 20_000, type_cast=int
+)
 
 # delta-rs merge spill-to-disk. A merge decompresses the target partition into an Arrow working set that
 # can exceed the 29 GB pod limit and OOM — killing every co-tenant activity on the pod. When set, delta-rs

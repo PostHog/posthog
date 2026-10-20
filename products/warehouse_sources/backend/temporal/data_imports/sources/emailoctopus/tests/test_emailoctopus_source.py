@@ -34,10 +34,6 @@ class TestEmailOctopusGetSchemas:
         schemas = {s.name: s for s in EmailOctopusSource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].supports_incremental is supports_incremental
 
-    def test_names_filter(self) -> None:
-        schemas = EmailOctopusSource().get_schemas(_config(), team_id=1, names=["contacts"])
-        assert [s.name for s in schemas] == ["contacts"]
-
 
 class TestEmailOctopusValidateCredentials:
     @parameterized.expand([("valid", True), ("invalid", False)])

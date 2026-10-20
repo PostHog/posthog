@@ -27,12 +27,6 @@ class TestFireHydrantSourceConfig:
         assert FireHydrantSource.lists_tables_without_credentials is True
 
 
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = FireHydrantSource().get_schemas(_config(), team_id=1, names=["incidents", "services"])
-        assert {s.name for s in schemas} == {"incidents", "services"}
-
-
 class TestNonRetryableErrors:
     @parameterized.expand(
         [

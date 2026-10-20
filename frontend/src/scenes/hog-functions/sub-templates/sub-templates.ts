@@ -809,7 +809,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
     'data-warehouse-billing-limit-reached': notificationVariants({
         subTemplateId: 'data-warehouse-billing-limit-reached',
         nameSuffix: 'when the billing limit stops a sync',
-        description: 'Know when the data warehouse billing limit stops a table from syncing',
+        description: 'Know when the Sources billing limit stops a table from syncing',
         webhookDescription: 'Send billing limit events to your own endpoint',
         slackMessage: dwhBillingLimitMessage(DWH_SLACK_FIELDS, '*'),
         slackFallbackText: 'The billing limit stopped a table sync',

@@ -682,6 +682,8 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     clickhouse?: string
     /** Returned columns */
     columns?: any[]
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[]
     /** Types of returned columns */
     types?: any[]
     /** Query explanation output */
@@ -5510,6 +5512,7 @@ export interface FileSystemEntry {
 export type FileSystemIconType =
     | 'default_icon_type'
     | 'dashboard'
+    | 'canvas'
     | 'llm_analytics'
     | 'product_analytics'
     | 'revenue_analytics'

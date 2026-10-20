@@ -14,8 +14,7 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     enabled: true,
     source_kind: 'logs',
     source_config: {
-        serviceNames: ['checkout'],
-        severityLevels: ['error'],
+        filters: { serviceNames: ['checkout'], severityLevels: ['error'] },
         condition: { threshold_count: 100, threshold_operator: 'above', window_minutes: 5 },
     },
     check_interval_minutes: 1,
@@ -28,6 +27,10 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     next_check_at: '2026-10-05T12:01:00Z',
     consecutive_failures: 0,
     legacy_configuration_id: '0192a5b0-0000-7000-8000-0000000000aa',
+    grouping: { mode: 'single', keys: [], max_instances: 100, on_overflow: 'degrade_visible' },
+    snooze_until: null,
+    check_status: 'ok',
+    owner: 'source',
     created_at: '2026-09-20T09:00:00Z',
     updated_at: '2026-10-01T09:00:00Z',
     alerts: [

@@ -45,6 +45,7 @@ import type {
     ScoutCostsApi,
     ScoutMetadataApi,
     SignalScoutConfigApi,
+    SignalsScoutConfigSyncSurface,
 } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameArchiveCreate, llmSkillsNamePublishCommunityCreate } from 'products/skills/frontend/generated/api'
 import type { CommunitySkillScoutConfigApi } from 'products/skills/frontend/generated/api.schemas'
@@ -437,6 +438,7 @@ export interface scoutFleetLogicValues {
     scoutEnabledFilter: ScoutEnabledFilter
     scoutFleetSyncOutcome: ScoutFleetSyncOutcome
     scoutFleetSyncRequested: boolean
+    scoutFleetSyncSurface: SignalsScoutConfigSyncSurface
     scoutFleetSynced: boolean
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
@@ -606,8 +608,8 @@ export interface scoutFleetLogicActions {
         scoutRuns: SignalScoutRunSummary[]
         payload?: void
     }
-    materializeScoutFleet: () => {
-        value: true
+    materializeScoutFleet: (surface?: SignalsScoutConfigSyncSurface) => {
+        surface: SignalsScoutConfigSyncSurface
     }
     mergeScoutRunCosts: (costs: Map<string, number>) => {
         costs: Map<string, number>
@@ -830,7 +832,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     actions({
         // Fired when the roster opens. The listener decides whether a sync is still owed, so the
         // caller never has to know whether one already ran.
-        materializeScoutFleet: true,
+        materializeScoutFleet: (surface: SignalsScoutConfigSyncSurface = 'roster') => ({ surface }),
         updateScoutConfig: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         updateScoutConfigFinished: (configId: string) => ({ configId }),
         // A full server config doubles as a local patch when reconciling optimistic edits.
@@ -925,7 +927,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         return values.scoutConfigs
                     }
                     try {
-                        const configs = await signalsScoutConfigSync(String(teamId), { surface: 'roster' })
+                        const configs = await signalsScoutConfigSync(String(teamId), {
+                            surface: values.scoutFleetSyncSurface,
+                        })
                         // Same unmount race as `loadScoutConfigs`: break before reading `values`.
                         breakpoint()
                         actions.setScoutFleetSyncOutcome('synced')
@@ -1345,6 +1349,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 materializeScoutFleet: () => true,
             },
+        ],
+        scoutFleetSyncSurface: [
+            'roster' as SignalsScoutConfigSyncSurface,
+            { materializeScoutFleet: (_, { surface }) => surface },
         ],
         // Flips true once the fleet materialization settles, either way. It does double duty: the
         // listener reads it so one roster session syncs at most once, and the roster reads it to
