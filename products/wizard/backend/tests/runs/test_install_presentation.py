@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -15,11 +16,15 @@ from posthog.models import PersonalAPIKey
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.utils import absolute_uri
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import CreatePullRequestArtifactInput, UpdateWizardRunTaskInput
 from products.wizard.backend.facade.enums import WizardRunStatus, WizardTaskStatus
 from products.wizard.backend.models import WizardRun
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 REPOSITORY_ACCESS = "products.wizard.backend.logic.runs.repository_access.repo_selection"
 
@@ -77,7 +82,7 @@ class TestWizardInstallViewSet(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
-    def _start(self, **payload: str):
+    def _start(self, **payload: str) -> "_MonkeyPatchedResponse":
         return self.client.post(self._url(), {"repository": "posthog/posthog", **payload}, format="json")
 
     @parameterized.expand(
@@ -108,7 +113,7 @@ class TestWizardInstallViewSet(APIBaseTest):
                 {
                     "run_id": str(run.id),
                     "status": "created",
-                    "url": f"http://testserver/project/{self.team.id}/wizard/runs",
+                    "url": absolute_uri(f"/project/{self.team.id}/wizard/runs"),
                 },
             )
             self.assertEqual(run.program["id"], "posthog-integration")

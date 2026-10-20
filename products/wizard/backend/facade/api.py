@@ -138,7 +138,7 @@ def get_run(team_id: int, run_id: UUID) -> WizardRunDTO:
 
 def start_install(params: StartWizardInstallInput) -> WizardRunCreationResult:
     """
-    Starts the PostHog setup program in the cloud on a GitHub repository, with the guardrails for agent callers.
+    Starts the PostHog setup program in the cloud on a GitHub repository of the project.
     """
     return installs.start_install(params)
 

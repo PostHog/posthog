@@ -6,7 +6,6 @@ from products.wizard.backend.facade.contracts import (
     StartWizardInstallInput,
     WizardInstallStatusDTO,
     WizardRunCreationResult,
-    WizardRunPullRequestArtifactDTO,
 )
 from products.wizard.backend.facade.enums import WizardRunEnvironment
 from products.wizard.backend.facade.errors import RepositoryNotAccessibleError, WizardRunNotFoundError
@@ -47,15 +46,7 @@ def get_install_status(team_id: int, run_id: UUID) -> WizardInstallStatusDTO:
     if run.environment != WizardRunEnvironment.CLOUD:
         raise WizardRunNotFoundError
 
-    pull_request = next(
-        (
-            artifact
-            for artifact in artifacts_store.list_artifacts(team_id, run.id)
-            if isinstance(artifact, WizardRunPullRequestArtifactDTO)
-        ),
-        None,
-    )
-    pull_request_url = pull_request.url if pull_request is not None else None
+    pull_request_url = artifacts_store.get_pull_request_url(team_id, run.id)
 
     return WizardInstallStatusDTO(
         run=run, pull_request_url=pull_request_url, next_step=next_step(run, pull_request_url)
