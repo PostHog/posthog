@@ -287,7 +287,7 @@ Vitally fail:safe-point
 WeightsAndBiases fail:stall-budget
 WikipediaPageviews fail:safe-point
 Wordpress fail:rate-limit-budget,stall-budget
-WorkOS not-checkable:database
+WorkOS fail:stall-budget
 Wrike not-checkable:no-request
 Writesonic fail:rate-limit-budget,safe-point,stall-budget
 YouTubeAnalytics not-checkable:database
