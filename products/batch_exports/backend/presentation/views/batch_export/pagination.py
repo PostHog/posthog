@@ -11,6 +11,9 @@ from rest_framework.response import Response
 from products.batch_exports.backend.facade import contracts
 
 
+# TODO: Nothing here is specific to batch exports. Move it to posthog/api/pagination.py with
+# select_page in logic/pagination.py, and a core page type to replace contracts.ListPage, so other
+# facade-backed products can page with a cursor too.
 class _FacadePageSource[T]:
     """Stands in for the queryset that ``CursorPagination.paginate_queryset`` pages through.
 

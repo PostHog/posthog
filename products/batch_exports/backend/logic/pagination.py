@@ -9,6 +9,9 @@ from posthog.api.pagination import stable_queryset_ordering
 from products.batch_exports.backend.facade import contracts
 
 
+# TODO: Nothing here is specific to batch exports. Move it to posthog/api/pagination.py with the cursor
+# page source in presentation/views/batch_export/pagination.py, and a core page type to replace
+# contracts.ListPage, so other facade-backed products can page with a cursor too.
 def select_page[M: Model](
     queryset: QuerySet[M], page: contracts.ListPage, *, ordering_fields: Collection[str]
 ) -> list[M]:
