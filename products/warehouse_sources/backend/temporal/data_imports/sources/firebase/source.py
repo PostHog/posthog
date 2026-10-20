@@ -274,7 +274,7 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
 Create a service account key in the Firebase console under Project settings, Service accounts, Generate new private key, then upload that JSON file here. Grant the service account **Firebase Viewer** to read Auth users, **Cloud Datastore Viewer** to read Firestore, and **Firebase Realtime Database Viewer** to read the Realtime Database.""",
             iconPath="/static/services/firebase.png",
             docsUrl="https://posthog.com/docs/cdp/sources/firebase",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["firestore", "rtdb", "gcp", "nosql"],
             fields=cast(
                 list[FieldType],
