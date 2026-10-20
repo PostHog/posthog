@@ -755,6 +755,9 @@ export interface experimentLogicActions {
         experiment: Experiment
         forceRefresh: boolean
     }
+    reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => {
+        openedFrom: ExperimentHealthChecksOpenedFrom
+    }
     reportHealthFindingActedOn: (
         finding: ExperimentHealthFinding,
         actionKind: ExperimentHealthFindingActionKind
@@ -771,9 +774,6 @@ export interface experimentLogicActions {
     }
     reportHealthFindingShown: (finding: ExperimentHealthFinding) => {
         finding: ExperimentHealthFinding
-    }
-    reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => {
-        openedFrom: ExperimentHealthChecksOpenedFrom
     }
     resetRunningExperiment: () => {
         value: true
