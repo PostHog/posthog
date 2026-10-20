@@ -14,6 +14,7 @@ import { selectProduct } from "../boot/select-product";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { ProductLaunchConfiguration } from "../sdk/product";
 import {
+  createTask as createBaseTask,
   createTaskRun,
   createTestRepo,
   type TestRepo,
@@ -81,17 +82,14 @@ const TEST_PAYLOAD = {
 };
 
 function createTask(overrides: Partial<Task> = {}): Task {
-  return {
+  return createBaseTask({
     id: "test-task-id",
-    task_number: null,
     slug: "test-task",
     title: "t",
     description: "original task description",
-    created_at: "2026-01-01T00:00:00.000Z",
-    updated_at: "2026-01-01T00:00:00.000Z",
     origin_product: "tasks",
     ...overrides,
-  };
+  });
 }
 
 const QUESTION_META = {

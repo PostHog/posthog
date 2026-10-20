@@ -131,7 +131,6 @@ import type {
   TaskRun,
   TaskRunArtifact,
   TaskRunState,
-  TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { attachmentFilePath, safeArtifactFileName } from "../utils/attachments";
@@ -159,6 +158,7 @@ import {
   type GatewayEnvInput,
 } from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
+import { readProductLaunch, readRunLaunch } from "./launch/run-launch";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
 import {
   CliProcessRegistry,
@@ -172,7 +172,6 @@ import {
 import {
   appendClosingInstructions,
   openProductSession,
-  readOriginProduct,
   readQuestionRequest,
   resolvePullRequestFooter,
 } from "./product/session";
@@ -180,7 +179,6 @@ import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import {
   type CredentialResponseParams,
-  claudeCodeConfigSchema,
   jsonRpcRequestSchema,
   validateCommandParams,
 } from "./schemas";
@@ -430,14 +428,6 @@ interface LocalSkillPromptContext {
   /** Set when the message is a bare `/skill` invocation the adapter should strip. */
   skillName?: string;
   context: string;
-}
-
-function getTaskRunStateString(
-  taskRun: TaskRun | null,
-  key: TaskRunStateField,
-): string | null {
-  const value = taskRun?.state[key];
-  return typeof value === "string" ? value : null;
 }
 
 type SteerDeclineReason =
@@ -2149,17 +2139,23 @@ export class AgentServer {
           this.fetchTaskForSessionContext(payload.task_id),
         ]),
     );
-    this.taskRepositories =
-      preTask?.repositories ??
-      (preTask?.repository ? [preTask.repository] : []);
+    const launchSources = {
+      payload,
+      task: preTask,
+      taskRun: preTaskRun,
+      config: this.config,
+      env: process.env,
+    };
+    const launch = readRunLaunch(launchSources);
+    this.taskRepositories = launch.repositories;
 
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = payload.run_id;
     this.lastBudgetSnapshot = undefined;
     this.lastPersistedBudgetKey = undefined;
     this.budgetPersistInFlightKey = undefined;
-    seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
-    this.prewarmedRun = preTaskRun?.state.prewarmed === true;
+    seedRunUsage(this.runUsage, launch.tokenUsage);
+    this.prewarmedRun = launch.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
     const runtimeAdapter = this.getRuntimeAdapter();
@@ -2173,28 +2169,23 @@ export class AgentServer {
 
     const gatewayEnv = this.configureEnvironment({
       runSpanContext: telemetry?.getRunSpanContext(),
-      isInternal: preTask?.internal === true,
-      originProduct: preTask?.origin_product,
-      signalReportId: preTask?.signal_report,
-      aiStage: getTaskRunStateString(preTaskRun, "ai_stage"),
-      aiAgentName: getTaskRunStateString(preTaskRun, "ai_agent_name"),
+      isInternal: launch.internal,
+      originProduct: launch.originProduct,
+      signalReportId: launch.signalReportId,
+      aiStage: launch.aiStage,
+      aiAgentName: launch.aiAgentName,
       taskId: payload.task_id,
       taskRunId: payload.run_id,
-      taskUserId: payload.user_id || preTask?.created_by?.id || null,
-      taskTitle: preTask?.title,
-      taskOriginKey: preTask?.origin_key,
-      repositories: this.taskRepositories,
+      taskUserId: launch.userId,
+      taskTitle: launch.title,
+      taskOriginKey: launch.originKey,
+      repositories: launch.repositories,
       runtimeAdapter,
-      sandboxEnvironmentId: getTaskRunStateString(
-        preTaskRun,
-        "sandbox_environment_id",
-      ),
-      snapshotKind: preTaskRun
-        ? (getTaskRunStateString(preTaskRun, "snapshot_kind") ?? "absent")
-        : null,
-      prewarmed: preTaskRun ? this.prewarmedRun : null,
+      sandboxEnvironmentId: launch.sandboxEnvironmentId,
+      snapshotKind: launch.snapshotKind,
+      prewarmed: launch.prewarmed,
       executionEnvironment: "cloud",
-      sharedPromptCache: preTaskRun?.state.codex_shared_prompt_cache === true,
+      sharedPromptCache: launch.sharedPromptCache,
     });
 
     // Only that stamped header makes the run id a trace the generations land
@@ -2212,62 +2203,36 @@ export class AgentServer {
       }).catch(() => {});
     }
 
-    const runState = preTaskRun?.state;
-
-    // Web backlink to the inbox report that spawned this task, so the
-    // auto-generated PR can point back at it. Built from the same pieces as the
-    // report's `_posthogUrl`: <apiUrl>/project/<projectId>/inbox/<reportId>.
-    const signalReportId = preTask?.signal_report;
-    const inboxReportUrl = signalReportId
-      ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
-      : null;
-
     // Unconditional so a re-init on the same instance drops the previous run's product
     // behavior and PR URL.
-    await this.openProductSession({
-      taskId: payload.task_id,
-      runId: payload.run_id,
-      originProduct: readOriginProduct(),
-      launchOptions: structuredClone(runState ?? {}),
-      source: inboxReportUrl
-        ? { label: "inbox report", url: inboxReportUrl }
-        : undefined,
-    });
+    await this.openProductSession(readProductLaunch(launchSources));
     const prUrl = this.detectedPrUrl;
 
     // Before the prompt: its skills-store section counts the stubs on disk.
     await this.installStoreSkills(
       payload.task_id,
       payload.run_id,
-      runState ?? null,
+      launch.runState,
     );
     // Before the adapter starts: Claude and Codex read these files when the session opens.
     this.agentInstructions = await new AgentInstructionFiles(this.logger).sync(
-      runState ?? null,
+      launch.runState,
       { taskId: payload.task_id, runId: payload.run_id },
     );
 
-    const runStateSystemPrompt =
-      claudeCodeConfigSchema.shape.systemPrompt.safeParse(
-        runState?.systemPrompt,
-      );
-    const runStateSystemPromptData = runStateSystemPrompt.success
-      ? runStateSystemPrompt.data
-      : undefined;
-
     if (
-      preTask?.origin_product === POSTHOG_AI_ORIGIN_PRODUCT &&
-      !systemPromptAppendText(runStateSystemPromptData)
+      launch.originProduct === POSTHOG_AI_ORIGIN_PRODUCT &&
+      !systemPromptAppendText(launch.systemPrompt)
     ) {
       this.logger.warn("posthog_ai_run_state_system_prompt_missing", {
         runId: payload.run_id,
-        parsed: runStateSystemPrompt.success,
+        parsed: launch.systemPromptValid,
       });
     }
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
-      runStateSystemPromptData,
+      launch.systemPrompt,
     );
     const codexInstructions =
       runtimeAdapter === "codex"
@@ -2383,10 +2348,10 @@ export class AgentServer {
               serviceTier: this.config.serviceTier,
               // Codex runs at most 3 sub-agents per session at once by default; the main agent does
               // not count. A run that starts more sub-agents at once sets its own limit.
-              ...(runState?.codex_max_subagents && {
+              ...(launch.codexMaxSubagents && {
                 configOverrides: {
                   "agents.max_concurrent_threads_per_session":
-                    runState.codex_max_subagents,
+                    launch.codexMaxSubagents,
                 },
               }),
               developerInstructions: codexInstructions,
@@ -2438,18 +2403,8 @@ export class AgentServer {
     // local sessions. Claude keeps the historical auto-approved default when
     // PostHog Desktop has not explicitly selected a mode.
     const initialPermissionMode: PermissionMode =
-      typeof runState?.initial_permission_mode === "string"
-        ? (runState.initial_permission_mode as PermissionMode)
-        : runtimeAdapter === "codex"
-          ? "auto"
-          : "bypassPermissions";
-    const pendingUserArtifactIds = Array.isArray(
-      runState?.pending_user_artifact_ids,
-    )
-      ? runState.pending_user_artifact_ids.filter(
-          (artifactId): artifactId is string => typeof artifactId === "string",
-        )
-      : [];
+      launch.initialPermissionMode ??
+      (runtimeAdapter === "codex" ? "auto" : "bypassPermissions");
     const sessionCwd = this.config.repositoryPath ?? "/tmp/workspace";
     // Only a run with no repository at all gets the discover-and-clone tools;
     // a multi-repository workspace already has its repos on disk.
@@ -2464,15 +2419,15 @@ export class AgentServer {
       systemPrompt: sessionSystemPrompt,
       ...(this.config.model && { model: this.config.model }),
       allowedDomains: this.config.allowedDomains,
-      jsonSchema: preTask?.json_schema ?? null,
+      jsonSchema: launch.jsonSchema,
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
       budgetSteer: { mode: this.budgetSteerMode() },
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
-      ...(preTask?.origin_product && {
-        taskOriginProduct: preTask.origin_product,
+      ...(launch.originProduct && {
+        taskOriginProduct: launch.originProduct,
       }),
-      ...(runState?.end_run_when_done === true && { endRunWhenDone: true }),
+      ...(launch.endRunWhenDone && { endRunWhenDone: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -2512,7 +2467,7 @@ export class AgentServer {
             payload.run_id,
             this.getArtifactsById(
               preTaskRun?.artifacts,
-              pendingUserArtifactIds,
+              launch.pendingUserArtifactIds,
             ),
           );
           const preparedNativeResume = await this.prepareNativeResume(
