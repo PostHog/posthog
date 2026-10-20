@@ -42,8 +42,14 @@ jobs:
             # drifted — a stale bundle would silently run old matching logic in CI.
             - name: Verify dist/index.js matches src
               run: |
-                  npx ncc build src/main.ts -o dist_check
+                  ncc_flags=()
+                  build_command="npx ncc build src/main.ts -o dist"
+                  if [ "${{ matrix.action }}" = "shared-image-releases" ]; then
+                      ncc_flags+=(--minify)
+                      build_command="$build_command ${ncc_flags[*]}"
+                  fi
+                  npx ncc build src/main.ts -o dist_check "${ncc_flags[@]}"
                   if ! diff -q dist_check/index.js dist/index.js; then
-                      echo "::error::dist/index.js is out of date. Run 'npx ncc build src/main.ts -o dist' in .github/actions/${{ matrix.action }} and commit the result."
+                      echo "::error::dist/index.js is out of date. Run '$build_command' in .github/actions/${{ matrix.action }} and commit the result."
                       exit 1
                   fi
