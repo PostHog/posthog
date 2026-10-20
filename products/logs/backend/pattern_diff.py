@@ -9,6 +9,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.logs.backend.agent_window import utc_iso, window_echo
@@ -45,11 +47,22 @@ def _group_by_key(patterns: list[dict], key: Callable[[dict], str]) -> dict[str,
 
 
 def stored_pattern_keys(current: list[dict], baseline: list[dict]) -> Callable[[dict], str]:
-    owner = {member: min(group["match_patterns"]) for group in current for member in group["match_patterns"]}
+    parent: dict[str, str] = {}
+
+    def find(member: str) -> str:
+        while parent.setdefault(member, member) != member:
+            parent[member] = parent[parent[member]]
+            member = parent[member]
+        return member
+
+    for group in (*current, *baseline):
+        roots = {find(member) for member in group["match_patterns"]}
+        root = min(roots)
+        for other in roots:
+            parent[other] = root
 
     def key(pattern: dict) -> str:
-        members = pattern["match_patterns"]
-        return next((owner[member] for member in members if member in owner), min(members))
+        return find(pattern["match_patterns"][0])
 
     return key
 
@@ -209,7 +222,13 @@ def run_patterns_diff(
     }
     version = versions.pop() if len(versions) == 1 else None
     if version is None:
-        for index, window_query in enumerate((query, baseline_query)):
+        pinned = [
+            query.model_copy(
+                update={"dateRange": DateRange(date_from=start.isoformat(), date_to=end.isoformat(), explicitDate=True)}
+            )
+            for start, end in ((current_from, current_to), (baseline_from, baseline_to))
+        ]
+        for index, window_query in enumerate(pinned):
             if results[index].get("source") == "stored_patterns":
                 runner = PatternsQueryRunner(team=team, query=window_query, user=user)
                 runner.use_stored_patterns = False
@@ -228,6 +247,8 @@ def run_patterns_diff(
     truncated = limit is not None and len(entries) > limit
     entries = entries[:limit]
     first_seen = _first_seen_ever(team, query, entries, version, current_to) if version else {}
+    history_failed = first_seen is None
+    first_seen = first_seen or {}
     for entry in entries:
         pattern = entry["pattern"]
         seen = [first_seen[member] for member in pattern.get("match_patterns") or [] if member in first_seen]
@@ -242,6 +263,8 @@ def run_patterns_diff(
         if version
         else "Body mining fallback: counts are sample estimates and first_seen_ever is null."
     ]
+    if history_failed:
+        notes.append("The first_seen_ever lookup hit its read budget, so first_seen_ever is null.")
     if baseline_results["total_count"] == 0:
         notes.append("The baseline window has no matching logs, so every pattern reads as new.")
 
@@ -256,17 +279,19 @@ def run_patterns_diff(
         "baseline": _window_meta(baseline_results, baseline_from, baseline_to),
         "notes": notes,
         "next": [
-            _raw_lines_call(entry, query, current_from, current_to)
+            call
             for entry in entries
             if entry["classification"] in ("new", "rate_shift")
+            and (call := _raw_lines_call(entry, query, current_from, current_to)) is not None
         ][:3],
     }
 
 
 def _first_seen_ever(
     team: "Team", query: LogsQuery, entries: list[dict], version: int, current_to: dt.datetime
-) -> dict[str, dt.datetime]:
+) -> dict[str, dt.datetime] | None:
     members = list(dict.fromkeys(member for entry in entries for member in entry["pattern"]["match_patterns"]))
+    members = members[:_FIRST_SEEN_MAX_MEMBERS] or [""]
     where = "pattern_version = {version} AND pattern IN {members} AND time_bucket >= {date_from} AND time_bucket < {date_to}"
     if query.serviceNames:
         where += " AND service_name IN {services}"
@@ -274,28 +299,39 @@ def _first_seen_ever(
         where += " AND severity_text IN {severities}"
     placeholders: dict[str, ast.Expr] = {
         "version": ast.Constant(value=version),
-        "members": ast.Constant(value=members[:_FIRST_SEEN_MAX_MEMBERS] or [""]),
+        "members": ast.Constant(value=members),
         "date_from": ast.Constant(value=current_to - FIRST_SEEN_LOOKBACK),
         "date_to": ast.Constant(value=current_to),
         "services": ast.Constant(value=list(query.serviceNames or [])),
         "severities": ast.Constant(value=[str(level) for level in query.severityLevels or []]),
     }
-    response = execute_hogql_query(
-        query_type="LogsPatternsFirstSeen",
-        query=parse_select(
-            "SELECT pattern, min(time_bucket) FROM posthog.logs_pattern_buckets WHERE {where} GROUP BY pattern",
-            placeholders={"where": parse_expr(where, placeholders=placeholders)},
-        ),
-        team=team,
-        workload=Workload.LOGS,
-        settings=fail_fast_aggregate_settings(),
+    select = parse_select(
+        "SELECT pattern, min(time_bucket) FROM posthog.logs_pattern_buckets WHERE {where} GROUP BY pattern LIMIT {limit}",
+        placeholders={"where": parse_expr(where, placeholders=placeholders), "limit": ast.Constant(value=len(members))},
     )
+    try:
+        response = execute_hogql_query(
+            query_type="LogsPatternsFirstSeen",
+            query=select,
+            team=team,
+            workload=Workload.LOGS,
+            settings=fail_fast_aggregate_settings(),
+        )
+    except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
+        return None
     return {row[0]: row[1] for row in response.results}
 
 
-def _raw_lines_call(entry: dict, query: LogsQuery, date_from: dt.datetime, date_to: dt.datetime) -> dict:
+def _raw_lines_call(entry: dict, query: LogsQuery, date_from: dt.datetime, date_to: dt.datetime) -> dict | None:
     pattern = entry["pattern"]
     regex = pattern.get("match_regex")
+    if not pattern.get("pattern_version") and not regex and not pattern.get("match_literal"):
+        return None
+    scope = [
+        prop.model_dump(exclude_none=True)
+        for group in (query.filterGroup.values if query.filterGroup else [])
+        for prop in getattr(group, "values", [])
+    ]
     pivot = (
         [
             {"key": "pattern", "value": pattern["match_patterns"], "operator": "exact", "type": "log"},
@@ -305,19 +341,30 @@ def _raw_lines_call(entry: dict, query: LogsQuery, date_from: dt.datetime, date_
         else [
             {
                 "key": "message",
-                "value": regex or pattern.get("match_literal") or "",
+                "value": regex or pattern["match_literal"],
                 "operator": "regex" if regex else "icontains",
                 "type": "log",
             }
         ]
     )
+    scoped = {
+        name: value
+        for name, value in (
+            ("severityLevels", [str(level) for level in query.severityLevels or []]),
+            ("searchTerm", query.searchTerm),
+            ("personId", query.personId),
+            ("sessionId", query.sessionId),
+        )
+        if value
+    }
     return {
         "tool": "query-logs",
         "why": f"raw lines for {entry['classification']} pattern {entry['masked_example'][:60]}",
         "query": {
             "dateRange": {"date_from": utc_iso(date_from), "date_to": utc_iso(date_to)},
             "serviceNames": entry["services"] or list(query.serviceNames or []),
-            "filterGroup": pivot,
+            **scoped,
+            "filterGroup": scope + pivot,
             "limit": 20,
         },
     }

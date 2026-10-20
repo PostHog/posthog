@@ -22,7 +22,7 @@ class PatternsDiffBodyFields(serializers.Serializer):
 
 class PatternDiffEntryFields(serializers.Serializer):
     masked_example = serializers.CharField(
-        help_text="The template with variable parts masked. Safe to quote in reports."
+        help_text="The template with variable parts masked."
     )
     services = serializers.ListField(child=serializers.CharField(), help_text="Up to 4 services with this pattern.")
     first_seen_ever = serializers.CharField(

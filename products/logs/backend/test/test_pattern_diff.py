@@ -1,19 +1,35 @@
 import json
 import datetime as dt
+from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
+from posthog.schema import (
+    DateRange,
+    FilterLogicalOperator,
+    LogPropertyFilter,
+    LogsQuery,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorTooManyBytes
 
 from products.logs.backend.log_patterns import pattern_fingerprint
-from products.logs.backend.pattern_diff import diff_patterns, run_patterns_diff, stored_pattern_keys
+from products.logs.backend.pattern_diff import (
+    _first_seen_ever,
+    _raw_lines_call,
+    diff_patterns,
+    run_patterns_diff,
+    stored_pattern_keys,
+)
 
 _HOUR = (dt.datetime(2026, 6, 23, 12, 0), dt.datetime(2026, 6, 23, 13, 0))
 _BASELINE_HOUR = (dt.datetime(2026, 6, 16, 12, 0), dt.datetime(2026, 6, 16, 13, 0))
@@ -248,6 +264,89 @@ class TestStoredPatternKeys(TestCase):
         entries = diff_patterns(current, baseline, current_window=_HOUR, baseline_window=_BASELINE_HOUR, key=keys)
 
         assert [e["classification"] for e in entries] == ["rate_shift"]
+
+    def test_a_baseline_group_spanning_two_current_groups_matches_both(self) -> None:
+        current = [
+            {**_pattern("Retry <*> timed out", count=100), "match_patterns": ["Retry <N> timed out"]},
+            {**_pattern("Retry <*> timed out again", count=100), "match_patterns": ["Retry <N> timed out again"]},
+        ]
+        baseline = [
+            {
+                **_pattern("Retry <*> timed out", count=100),
+                "match_patterns": ["Retry <N> timed out again", "Retry <N> timed out"],
+            }
+        ]
+
+        keys = stored_pattern_keys(current, baseline)
+        entries = diff_patterns(current, baseline, current_window=_HOUR, baseline_window=_BASELINE_HOUR, key=keys)
+
+        assert "new" not in [e["classification"] for e in entries]
+
+
+def _bare_query() -> LogsQuery:
+    return LogsQuery(
+        dateRange=DateRange(date_from="-1h"),
+        filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+        severityLevels=[],
+        serviceNames=[],
+    )
+
+
+class TestRawLinesCall(TestCase):
+    _WINDOW = (dt.datetime(2026, 6, 23, 12, 0, tzinfo=dt.UTC), dt.datetime(2026, 6, 23, 13, 0, tzinfo=dt.UTC))
+
+    def _entry(self, **pattern: Any) -> dict:
+        return {"classification": "new", "masked_example": "boom <*>", "services": ["api"], "pattern": pattern}
+
+    def test_keeps_the_original_scope_and_adds_the_pattern(self) -> None:
+        query = LogsQuery(
+            dateRange=DateRange(date_from="-1h"),
+            serviceNames=[],
+            severityLevels=["error"],
+            searchTerm="checkout",
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            LogPropertyFilter(key="env", value="prod", operator=PropertyOperator.EXACT, type="log")
+                        ],
+                    )
+                ],
+            ),
+        )
+
+        call = _raw_lines_call(self._entry(match_regex="boom .*"), query, *self._WINDOW)
+
+        assert call is not None
+        assert call["query"]["severityLevels"] == ["error"]
+        assert call["query"]["searchTerm"] == "checkout"
+        assert [f["key"] for f in call["query"]["filterGroup"]] == ["env", "message"]
+
+    def test_omits_the_call_without_a_matcher(self) -> None:
+        query = _bare_query()
+
+        assert _raw_lines_call(self._entry(match_regex=None, match_literal=""), query, *self._WINDOW) is None
+
+
+class TestFirstSeenEver(TestCase):
+    _ENTRIES = [{"pattern": {"match_patterns": [f"pattern {i}" for i in range(150)]}}]
+
+    def test_sets_an_explicit_limit_for_every_member(self) -> None:
+        with patch("products.logs.backend.pattern_diff.execute_hogql_query") as execute:
+            execute.return_value.results = []
+            _first_seen_ever(MagicMock(), _bare_query(), self._ENTRIES, 1, dt.datetime.now(dt.UTC))
+
+        assert execute.call_args.kwargs["query"].limit.value == 150
+
+    def test_returns_none_when_the_history_lookup_hits_its_budget(self) -> None:
+        with patch(
+            "products.logs.backend.pattern_diff.execute_hogql_query", side_effect=CHQueryErrorTooManyBytes("too many")
+        ):
+            result = _first_seen_ever(MagicMock(), _bare_query(), self._ENTRIES, 1, dt.datetime.now(dt.UTC))
+
+        assert result is None
 
 
 class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):

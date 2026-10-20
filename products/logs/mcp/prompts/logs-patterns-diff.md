@@ -10,7 +10,7 @@ Each entry has:
 
 - `classification`: `new`, `rate_shift`, `gone` or `unchanged` ("no confident claim").
 - `rate_ratio`: current rate / baseline rate, per second. 4.0 is 4x faster now.
-- `masked_example`: the template with variables masked. Safe to quote in a report.
+- `masked_example`: the template with variable parts masked. It can still hold literal text from the logs, so check it before you quote it.
 - `services`, `baseline_estimated_count`, and `pattern` with counts and `match_regex` / `match_patterns`.
 - `first_seen_ever`: the earliest time the pattern appears in the last 14 days. It tells "new today" from "new this week". Null on the body-mining fallback.
 

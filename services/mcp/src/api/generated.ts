@@ -117337,7 +117337,7 @@ export namespace Schemas {
     } as const;
 
     export interface _LogPatternDiffEntry {
-      /** The template with variable parts masked. Safe to quote in reports. */
+      /** The template with variable parts masked. */
       masked_example: string;
       /** Up to 4 services with this pattern. */
       services: string[];
