@@ -19,10 +19,7 @@ export function TaggersDeprecationBanner(): JSX.Element {
             }}
         >
             <p className="font-semibold">Taggers are deprecated in favor of evaluations</p>
-            <p>
-                We'll email you before migrating your taggers to evaluations. To tag new generations, create an
-                evaluation with a categorical output.
-            </p>
+            <p>To tag new generations, create an evaluation with a categorical output.</p>
         </LemonBanner>
     )
 }
