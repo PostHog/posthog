@@ -201,7 +201,7 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
     assert properties["system_one_model"] == JEEVES_MODEL
     assert properties["system_one_prompt_source"] == "bundled"
     assert properties["system_one_model_experiment_status"] == "not_enrolled"
-    assert properties["system_one_estimated_cost_usd"] is None
+    assert properties["system_one_estimated_cost_usd"] == pytest.approx(1000 * 0.042 / 1_000_000)
     assert decide.call_count == 1
     assert decide.call_args.args[0].model == JEEVES_MODEL
     trace_id = properties["signals_decision_id"]
