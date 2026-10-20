@@ -1,10 +1,12 @@
 import json
 import math
+import time
 from typing import Any, cast
 
 from django.db import models
 
 import structlog
+import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import AuthenticationFailed
@@ -13,7 +15,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
+from posthog.event_usage import groups
 from posthog.models import Team
+from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
 from products.cdp.backend.presentation.hog_functions import gated_template_enabled
 from products.ml_inference.backend.facade.contracts import (
@@ -27,6 +31,7 @@ from products.ml_inference.backend.facade.contracts import (
     DecisionsDisabledError,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
+from products.workflows.backend.facade.api import get_workflow_classification_daily_limit
 from products.workflows.backend.facade.service_jwt import WORKFLOW_CLASSIFY_PURPOSE
 
 logger = structlog.get_logger(__name__)
@@ -44,6 +49,17 @@ MAX_CONTEXT_CHARS = 65_536
 # whole context into logs and exception reporting. A small payload can reach that depth, so cap it first.
 # Keep it equal to MAX_CONTEXT_DEPTH in nodejs/src/cdp/async-functions/classify.ts.
 MAX_CONTEXT_DEPTH = 100
+# Each classification is a paid model call. TeamWorkflowsConfig.classification_team_rate_limit_per_day overrides it.
+CLASSIFICATIONS_PER_DAY = 1000
+
+
+class ClassificationOutcome(models.TextChoices):
+    CLASSIFIED = "classified"
+    RATE_LIMITED = "rate_limited"
+    NOT_AVAILABLE = "not_available"
+    UNREACHABLE = "unreachable"
+    REFUSED = "refused"
+    UNUSABLE_ANSWER = "unusable_answer"
 
 
 # The models an author can pick for the step, keyed by the value the step stores. A new entry needs the AI gateway
@@ -149,6 +165,10 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                 response=WorkflowClassificationErrorSerializer,
                 description="The feature is disabled or the organization has not approved AI data processing",
             ),
+            409: OpenApiResponse(
+                response=WorkflowClassificationErrorSerializer,
+                description="The project reached its daily limit of classifications",
+            ),
             501: OpenApiResponse(
                 response=WorkflowClassificationErrorSerializer,
                 description="This deployment has no AI gateway configured",
@@ -181,6 +201,53 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                 status.HTTP_403_FORBIDDEN,
             )
 
+        hog_flow_id = str(cast(dict[str, Any], request.auth)["hog_flow_id"])
+        model = data["model"] or ClassificationModel.JEV
+        started_at = time.monotonic()
+        response, outcome, input_tokens = self._classify(team, hog_flow_id, model, data)
+        _capture_classification(
+            team,
+            hog_flow_id=hog_flow_id,
+            model=model,
+            outcome=outcome,
+            status_code=response.status_code,
+            duration_ms=round((time.monotonic() - started_at) * 1000),
+            category_count=len(data["categories"]),
+            input_tokens=input_tokens,
+        )
+        return response
+
+    def _classify(
+        self, team: Team, hog_flow_id: str, model: str, data: dict[str, Any]
+    ) -> tuple[Response, ClassificationOutcome, int | None]:
+        daily_limit = get_workflow_classification_daily_limit(team_id=team.id)
+        if daily_limit is None:
+            daily_limit = CLASSIFICATIONS_PER_DAY
+        if daily_limit == 0:
+            return (
+                _error(
+                    "Classify with AI is paused for this project. Contact support to raise the daily limit.",
+                    status.HTTP_409_CONFLICT,
+                ),
+                ClassificationOutcome.RATE_LIMITED,
+                None,
+            )
+        # The bucket refills over 24 hours, so a full day of quota is never spent in one burst at a day boundary.
+        budget = Budget(burst=daily_limit, per_hour=math.ceil(daily_limit / 24))
+        budget_key = f"workflows_classify:{team.id}"
+        decision = consume(budget_key, budget)
+        # A Redis outage fails open: one model call per step still bounds the spend.
+        if isinstance(decision, BucketDecision) and not decision.allowed:
+            return (
+                _error(
+                    f"This project reached its daily limit of {daily_limit} AI classifications. "
+                    "More become available over the next 24 hours.",
+                    status.HTTP_409_CONFLICT,
+                ),
+                ClassificationOutcome.RATE_LIMITED,
+                None,
+            )
+
         # The facade pulls the LLM SDKs through the gateway client, which must stay out of Django startup.
         from posthog.llm.gateway_client import GatewayNotConfiguredError  # noqa: PLC0415
 
@@ -197,47 +264,109 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                             type=DecisionQuestionType.CHOICE, instructions=data["question"], criteria=categories
                         )
                     },
-                    model=CLASSIFICATION_MODELS[data["model"] or ClassificationModel.JEV],
+                    model=CLASSIFICATION_MODELS[model],
                     ai_product="workflows",
-                    properties={"hog_flow_id": str(cast(dict[str, Any], request.auth)["hog_flow_id"])},
+                    properties={"hog_flow_id": hog_flow_id},
                     # The context carries person and event data, which must stay out of the internal AI observability project.
                     privacy_mode=True,
                 ),
                 timeout_seconds=TIMEOUT_SECONDS,
             )
         except (DecisionsDisabledError, GatewayNotConfiguredError):
-            return _error("The model is not available on this PostHog deployment.", status.HTTP_501_NOT_IMPLEMENTED)
+            refund(budget_key, budget)
+            return (
+                _error("The model is not available on this PostHog deployment.", status.HTTP_501_NOT_IMPLEMENTED),
+                ClassificationOutcome.NOT_AVAILABLE,
+                None,
+            )
         except DecisionGatewayUnreachableError:
+            # No refund: after a timeout the gateway can still finish, and pay for, the call.
             logger.warning("workflow_classification_unreachable", team_id=team.id)
-            return _error("The model is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
+            return (
+                _error("The model is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE),
+                ClassificationOutcome.UNREACHABLE,
+                None,
+            )
         except DecisionGatewayError as error:
             # Only the status is logged: the gateway's body can echo the context.
             logger.warning("workflow_classification_failed", team_id=team.id, status_code=error.status_code)
-            if error.status_code == 429 or error.status_code >= 500:
-                return _error("The model is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
             if error.status_code == 200:
-                return _error(
-                    "The model returned an answer the step cannot read.", status.HTTP_422_UNPROCESSABLE_ENTITY
+                return (
+                    _error("The model returned an answer the step cannot read.", status.HTTP_422_UNPROCESSABLE_ENTITY),
+                    ClassificationOutcome.UNUSABLE_ANSWER,
+                    None,
                 )
-            return _error(
-                f"The model refused the request (gateway status {error.status_code}).",
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+            # The gateway answered without a decision, so the model did no paid work.
+            refund(budget_key, budget)
+            if error.status_code == 429 or error.status_code >= 500:
+                return (
+                    _error("The model is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE),
+                    ClassificationOutcome.UNREACHABLE,
+                    None,
+                )
+            return (
+                _error(
+                    f"The model refused the request (gateway status {error.status_code}).",
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                ),
+                ClassificationOutcome.REFUSED,
+                None,
             )
 
         answer = result.answers.get(_QUESTION_ID)
         if not _is_usable(answer, categories):
             logger.warning("workflow_classification_unusable_answer", team_id=team.id)
-            return _error("The model returned an answer the step cannot read.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+            return (
+                _error("The model returned an answer the step cannot read.", status.HTTP_422_UNPROCESSABLE_ENTITY),
+                ClassificationOutcome.UNUSABLE_ANSWER,
+                result.input_tokens,
+            )
         answer = cast(ChoiceAnswer, answer)
-        return Response(
-            WorkflowClassificationResponseSerializer(
-                {
-                    "category": answer.choice,
-                    "confidence": answer.confidence,
-                    "probabilities": {name: answer.probabilities[name] for name in categories},
-                }
-            ).data
+        return (
+            Response(
+                WorkflowClassificationResponseSerializer(
+                    {
+                        "category": answer.choice,
+                        "confidence": answer.confidence,
+                        "probabilities": {name: answer.probabilities[name] for name in categories},
+                    }
+                ).data
+            ),
+            ClassificationOutcome.CLASSIFIED,
+            result.input_tokens,
         )
+
+
+def _capture_classification(
+    team: Team,
+    *,
+    hog_flow_id: str,
+    model: str,
+    outcome: ClassificationOutcome,
+    status_code: int,
+    duration_ms: int,
+    category_count: int,
+    input_tokens: int | None,
+) -> None:
+    # Only counts and ids leave here. The question, the context and the category names are customer content.
+    try:
+        posthoganalytics.capture(
+            event="workflow_classification_requested",
+            distinct_id=f"team-{team.id}",
+            properties={
+                "team_id": team.id,
+                "hog_flow_id": hog_flow_id,
+                "model": model,
+                "outcome": outcome.value,
+                "status_code": status_code,
+                "duration_ms": duration_ms,
+                "category_count": category_count,
+                "input_tokens": input_tokens,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.exception("workflow_classification_capture_failed", team_id=team.id)
 
 
 def _is_usable(answer: object, categories: dict[str, str]) -> bool:

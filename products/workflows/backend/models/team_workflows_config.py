@@ -68,6 +68,10 @@ class TeamWorkflowsConfig(models.Model):
     replay_vision_scan_team_rate_limit_per_day = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(0)]
     )
+    # The same override for "Classify with AI" steps, counted across all workflows of the team.
+    classification_team_rate_limit_per_day = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(0)]
+    )
 
     # Max marketing messages per person per rolling window across all workflows; null on either means no cap.
     marketing_frequency_cap_max_messages = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])

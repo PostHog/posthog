@@ -8,6 +8,8 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from 
 import { RETRIABLE_STATUS_CODES, fetchErrorDetail, isTimeoutError } from '../utils/cdp-fetch'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 
+export type InternalApiResponse = { status: number; body: unknown }
+
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Rolling deploys drop in-flight connections, so one quick retry round matters; anything
@@ -43,12 +45,14 @@ export async function callInternalApi(
         body?: string
         extraHeaders?: Record<string, string>
         retriableStatuses?: number[]
+        /** Statuses that end the retry round at once, for a caller that retries them later itself. */
+        finalStatuses?: number[]
         /** Per-attempt budget. Defaults to internalFetch's inter-service timeout. */
         timeoutMs?: number
         /** Retry an attempt that hit timeoutMs. Turn it off when the server may still be doing costly work for that attempt. */
         retryOnTimeout?: boolean
     }
-): Promise<void> {
+): Promise<InternalApiResponse> {
     const {
         jwt,
         path,
@@ -57,6 +61,7 @@ export async function callInternalApi(
         body,
         extraHeaders,
         retriableStatuses = [],
+        finalStatuses = [],
         timeoutMs,
         retryOnTimeout = true,
     } = options
@@ -76,7 +81,7 @@ export async function callInternalApi(
         }
     }
 
-    let response: { status: number; body: unknown } | null = null
+    let response: InternalApiResponse | null = null
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         // Fresh token per attempt: nothing stored, nothing reusable after the short TTL.
@@ -107,7 +112,9 @@ export async function callInternalApi(
         }
 
         const shouldRetry =
-            status !== null && (RETRIABLE_STATUSES.includes(status) || retriableStatuses.includes(status))
+            status !== null &&
+            !finalStatuses.includes(status) &&
+            (RETRIABLE_STATUSES.includes(status) || retriableStatuses.includes(status))
         const succeeded = fetchError === null && status !== null && !shouldRetry
         if (succeeded) {
             const parsedBody = parseBody(text)
@@ -168,4 +175,5 @@ export async function callInternalApi(
     })
 
     result.invocation.state.vmState?.stack.push(response)
+    return response!
 }

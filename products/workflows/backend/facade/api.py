@@ -174,6 +174,15 @@ def get_workflow_vision_scan_daily_limits(*, team_id: int) -> WorkflowVisionScan
     )
 
 
+def get_workflow_classification_daily_limit(*, team_id: int) -> int | None:
+    """The team's override for "Classify with AI" steps a day. None keeps the product default."""
+    return (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .values_list("classification_team_rate_limit_per_day", flat=True)
+        .first()
+    )
+
+
 def accept_github_event(delivery: WebhookDelivery) -> None:
     """The inbound GitHub App webhook enters workflows here, so its consumer needs no internal import."""
     # Deferred to keep the Kafka producer off the facade import path.

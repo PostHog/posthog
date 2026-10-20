@@ -1,12 +1,14 @@
 import jwt from 'jsonwebtoken'
 
+import { VMState } from '@posthog/hogvm'
+
 import { defaultConfig } from '~/common/config/config'
 import { parseJSON } from '~/common/utils/json-parse'
 import * as requestModule from '~/common/utils/request'
 
 import { createExampleInvocation } from '../_tests/fixtures'
 import { AsyncFunctionContext, getAsyncFunctionHandler } from '../async-function-registry'
-import { MinimalLogEntry } from '../types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, MinimalLogEntry } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 import './classify'
 
@@ -17,17 +19,28 @@ describe('postHogClassify', () => {
         categories: { spam: 'Cold outreach', support: 'A customer asking for help' },
     }
 
-    const invokeLive = async (args: Record<string, unknown>): Promise<void> => {
-        const invocation = { ...createExampleInvocation(), hogFlow: { id: 'flow-1' } }
+    const invokeLive = async (
+        args: Record<string, unknown>,
+        { attempts = 0, isTest = false } = {}
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> => {
+        const example = createExampleInvocation()
+        const invocation = {
+            ...example,
+            state: { ...example.state, attempts, vmState: { stack: [] } as unknown as VMState },
+            hogFlow: { id: 'flow-1' },
+        }
+        const result = createInvocationResult<typeof invocation>(invocation)
         await getAsyncFunctionHandler('postHogClassify')!.execute(
             [args],
             {
                 invocation,
                 internalApiBaseUrl: defaultConfig.INTERNAL_API_BASE_URL,
                 consumeInlineAsyncBudget: () => {},
+                isTest,
             } as unknown as AsyncFunctionContext,
-            createInvocationResult<typeof invocation>(invocation)
+            result
         )
+        return result
     }
 
     let fetchSpy: jest.SpyInstance
@@ -73,6 +86,31 @@ describe('postHogClassify', () => {
             jest.useRealTimers()
         }
     })
+
+    it.each([
+        ['the first busy answer', 0, false, true],
+        ['the last busy answer', 3, false, false],
+        ['a test run', 0, true, false],
+    ])(
+        'on %s, asks once and schedules a later retry only while retries remain',
+        async (_name, attempts, isTest, scheduled) => {
+            fetchSpy.mockResolvedValue({
+                status: 503,
+                text: () =>
+                    Promise.resolve(JSON.stringify({ detail: 'The model is busy or unreachable. Retry later.' })),
+            } as requestModule.FetchResponse)
+
+            const result = await invokeLive(payload, { attempts, isTest })
+
+            // An immediate retry would add load to a busy gateway and hold the consumer loop.
+            expect(fetchSpy).toHaveBeenCalledTimes(1)
+            expect(result.invocation.state.vmState!.stack).toEqual([
+                { status: 503, body: expect.anything(), retry_scheduled: scheduled || undefined },
+            ])
+            expect(Boolean(result.invocation.queueScheduledAt)).toBe(scheduled)
+            expect(result.invocation.state.attempts).toBe(scheduled ? attempts + 1 : 0)
+        }
+    )
 
     it.each([
         ['a blank question', { ...payload, question: ' ' }, /Enter a question/],

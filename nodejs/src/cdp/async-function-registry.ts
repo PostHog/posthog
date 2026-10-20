@@ -23,6 +23,8 @@ export type AsyncFunctionContext = {
     // per invocation to share the same per-dequeue async-work budget queued calls are capped by.
     // Throws once the budget is exhausted. A no-op for callers that don't enforce a budget.
     consumeInlineAsyncBudget: () => void
+    // The editor's test panel runs in-process and never enqueues, so a handler must not schedule a later resume.
+    isTest: boolean
 }
 
 export type AsyncFunctionHandler = {

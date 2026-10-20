@@ -16,11 +16,16 @@ const getClassifyJwt = (): ScopedServiceJwt =>
     ))
 
 // Django gives the gateway 5 seconds (TIMEOUT_SECONDS in workflow_classifications.py) and returns a 503
-// on a gateway timeout, which this worker retries. The worker budget must be longer than that plus Django's
-// own work. That 5 seconds limits each network operation, not the whole call, so Django can still overrun
+// on a gateway timeout. The worker budget must be longer than that plus Django's own work. That 5 seconds limits each network operation, not the whole call, so Django can still overrun
 // this budget. The worker does not retry its own timeout, because the gateway may still be answering the
 // first request and a retry would pay for the same classification again.
 const CLASSIFY_TIMEOUT_MS = 7000
+
+// A 503 means the model is busy or unreachable. An immediate retry adds load to a gateway that is already
+// slow and holds the consumer loop, so the step waits in the queue instead and the template asks again.
+// The jitter spreads the steps that a gateway outage pauses at the same time.
+const BUSY_RETRY_DELAYS_MS = [30_000, 120_000, 600_000]
+const BUSY_RETRY_JITTER = 0.25
 
 // Match the limits of the classification endpoint (the request serializer in workflow_classifications.py),
 // so a mocked test run fails on the same inputs as a live run.
@@ -102,7 +107,7 @@ registerAsyncFunction('postHogClassify', {
                 'Classify with AI is not configured. Set WORKFLOW_CLASSIFY_JWT_SECRET on the worker and Django to matching keys.'
             )
         }
-        await callInternalApi(context, result, {
+        const response = await callInternalApi(context, result, {
             jwt,
             path: `/api/projects/${context.invocation.teamId}/workflow_classifications/`,
             method: 'POST',
@@ -110,6 +115,25 @@ registerAsyncFunction('postHogClassify', {
             body: JSON.stringify(payload),
             timeoutMs: CLASSIFY_TIMEOUT_MS,
             retryOnTimeout: false,
+            finalStatuses: [503],
+        })
+
+        // The fetch path owns this counter too, and resets it when its call ends, so the two never overlap.
+        const state = result.invocation.state
+        const delayMs = BUSY_RETRY_DELAYS_MS[state.attempts]
+        if (response.status !== 503 || delayMs === undefined || context.isTest) {
+            state.attempts = 0
+            return
+        }
+        state.attempts++
+        const waitMs = Math.round(delayMs * (1 + Math.random() * BUSY_RETRY_JITTER))
+        result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: waitMs })
+        // The template calls again while this flag is set, after the resume.
+        Object.assign(response, { retry_scheduled: true })
+        result.logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `The model is busy. Classify with AI tries again in ${Math.round(waitMs / 1000)} seconds (retry ${state.attempts} of ${BUSY_RETRY_DELAYS_MS.length}).`,
         })
     },
     mock: (args, logs) => {

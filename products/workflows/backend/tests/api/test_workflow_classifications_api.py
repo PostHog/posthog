@@ -13,6 +13,7 @@ from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.redis import get_client
 from posthog.test.authentication_checks import covers_authentication
 
 from products.ml_inference.backend.facade.contracts import (
@@ -26,6 +27,7 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
+from products.workflows.backend.models import TeamWorkflowsConfig
 from products.workflows.backend.presentation.views.workflow_classifications import WorkflowClassifyJWTAuthentication
 
 SECRET = "test-workflow-classify-jwt"
@@ -52,6 +54,10 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
         flag_patch = patch("posthoganalytics.feature_enabled", return_value=True)
         self.feature_flag = flag_patch.start()
         self.addCleanup(flag_patch.stop)
+        capture_patch = patch("posthoganalytics.capture")
+        self.capture = capture_patch.start()
+        self.addCleanup(capture_patch.stop)
+        get_client().flushdb()
 
     def _post(self, body: dict | None = None, token: str | None = None) -> Any:
         return self.client.post(
@@ -114,6 +120,11 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
                 type=DecisionQuestionType.CHOICE, instructions="Is this ticket spam?", criteria=CATEGORIES
             )
         }
+        properties = self.capture.call_args.kwargs["properties"]
+        assert properties["outcome"] == "classified"
+        assert properties["input_tokens"] == 20
+        # Customer content never reaches the usage event.
+        assert not {"Buy SEO", "Is this ticket spam?", "spam", "support"} & {str(v) for v in properties.values()}
 
     @parameterized.expand(
         [
@@ -133,6 +144,31 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
             response = self._post()
 
         assert response.status_code == expected
+        assert self.capture.call_args.kwargs["properties"]["status_code"] == expected
+
+    @parameterized.expand(
+        [
+            ("paused", 0, 0),
+            ("limit_reached", 2, 2),
+        ]
+    )
+    def test_refuses_a_classification_over_the_project_daily_limit(self, _name: str, limit: int, allowed: int) -> None:
+        TeamWorkflowsConfig.objects.create(team=self.team, classification_team_rate_limit_per_day=limit)
+        answer = ChoiceAnswer(choice="spam", confidence=0.9, probabilities={"spam": 0.9, "support": 0.1})
+        with patch(_DECIDE, return_value=_result(answer)) as decide:
+            statuses = [self._post().status_code for _ in range(allowed + 1)]
+
+        assert statuses == [status.HTTP_200_OK] * allowed + [status.HTTP_409_CONFLICT]
+        assert decide.call_count == allowed
+        assert self.capture.call_args.kwargs["properties"]["outcome"] == "rate_limited"
+
+    def test_a_gateway_answer_without_a_decision_does_not_count_against_the_limit(self) -> None:
+        TeamWorkflowsConfig.objects.create(team=self.team, classification_team_rate_limit_per_day=1)
+        answer = ChoiceAnswer(choice="spam", confidence=0.9, probabilities={"spam": 0.9, "support": 0.1})
+        with patch(_DECIDE, side_effect=[DecisionGatewayError(503, "down"), _result(answer)]):
+            statuses = [self._post().status_code for _ in range(2)]
+
+        assert statuses == [status.HTTP_503_SERVICE_UNAVAILABLE, status.HTTP_200_OK]
 
     @parameterized.expand(
         [
