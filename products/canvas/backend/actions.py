@@ -20,13 +20,16 @@ from django.db import transaction
 
 import structlog
 import posthoganalytics
-from rest_framework import serializers
+from rest_framework import (
+    serializers,
+    status as http_status,
+)
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
 
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
-    from rest_framework.response import Response
-
     from products.canvas.backend.models import Canvas
 
 logger = structlog.get_logger(__name__)
@@ -102,9 +105,6 @@ class WorkflowIdsPayloadSerializer(serializers.Serializer):
 
 
 def _set_workflows_enabled(team_id: int, user_id: int, payload: dict[str, Any], *, enabled: bool) -> dict[str, Any]:
-    from rest_framework import status as http_status  # noqa: PLC0415
-    from rest_framework.response import Response  # noqa: PLC0415
-
     from products.workflows.backend.facade import api as workflows_facade  # noqa: PLC0415 — load on execute
     from products.workflows.backend.presentation.views.hog_flow import (  # noqa: PLC0415 — load on execute
         set_workflow_enabled,
@@ -248,15 +248,10 @@ class SurveyIdPayloadSerializer(serializers.Serializer):
 
 
 def _denied(detail: str, status_code: int, **extra: Any) -> CanvasActionDenied:
-    from rest_framework.response import Response  # noqa: PLC0415
-
     return CanvasActionDenied(Response({"detail": detail, **extra}, status=status_code))
 
 
 def _set_flag_active(team_id: int, user_id: int, payload: dict[str, Any], *, active: bool) -> dict[str, Any]:
-    from rest_framework import status as http_status  # noqa: PLC0415
-    from rest_framework.exceptions import ValidationError  # noqa: PLC0415
-
     from posthog.models.team.team import Team  # noqa: PLC0415
     from posthog.models.user import User  # noqa: PLC0415
 
@@ -275,6 +270,15 @@ def _set_flag_active(team_id: int, user_id: int, payload: dict[str, Any], *, act
         raise _denied(
             approval.message, http_status.HTTP_409_CONFLICT, change_request_id=str(approval.change_request.id)
         )
+    except flags_facade.PolicyConflict as conflict:
+        # The same 400 body the flag API returns: the change matched more than one approval policy.
+        raise _denied(
+            conflict.message,
+            http_status.HTTP_400_BAD_REQUEST,
+            code="policy_conflict",
+            conflicting_policies=conflict.conflicting_policies,
+            guidance=conflict.guidance,
+        )
     except ValidationError as error:
         raise _denied(str(error.detail), http_status.HTTP_400_BAD_REQUEST)
     return {"flag_id": saved.id, "flag_key": saved.key, "active": saved.active}
@@ -289,8 +293,6 @@ def _disable_flag(team_id: int, user_id: int, canvas: "Canvas", payload: dict[st
 
 
 def _add_persons_to_cohort(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
-    from rest_framework import status as http_status  # noqa: PLC0415
-
     from products.cohorts.backend.facade import api as cohorts_facade  # noqa: PLC0415 — load on execute
 
     try:
@@ -302,6 +304,8 @@ def _add_persons_to_cohort(team_id: int, user_id: int, canvas: "Canvas", payload
         )
     except cohorts_facade.CohortNotFound:
         raise _denied(f"Cohort {payload['cohort_id']} is not in this project.", http_status.HTTP_404_NOT_FOUND)
+    except cohorts_facade.CohortAccessDenied:
+        raise _denied(f"You cannot edit cohort {payload['cohort_id']}.", http_status.HTTP_403_FORBIDDEN)
     except cohorts_facade.CohortNotStatic:
         raise _denied("People can only be added to a static cohort.", http_status.HTTP_400_BAD_REQUEST)
     except cohorts_facade.NoValidPersons:
@@ -310,8 +314,7 @@ def _add_persons_to_cohort(team_id: int, user_id: int, canvas: "Canvas", payload
 
 
 def _assign_issue(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
-    from rest_framework import status as http_status  # noqa: PLC0415
-
+    from posthog.models.activity_logging.model_activity import get_was_impersonated  # noqa: PLC0415
     from posthog.models.team.team import Team  # noqa: PLC0415
     from posthog.models.user import User  # noqa: PLC0415
 
@@ -323,7 +326,7 @@ def _assign_issue(team_id: int, user_id: int, canvas: "Canvas", payload: dict[st
         raise _denied("You cannot change error tracking issues in this project.", http_status.HTTP_403_FORBIDDEN)
     try:
         changed = issues_facade.assign_issue(
-            team_id, payload["issue_id"], payload.get("assignee"), user=user, was_impersonated=False
+            team_id, payload["issue_id"], payload.get("assignee"), user=user, was_impersonated=get_was_impersonated()
         )
     except IssueNotFoundError:
         raise _denied(f"Issue {payload['issue_id']} is not in this project.", http_status.HTTP_404_NOT_FOUND)
@@ -333,8 +336,6 @@ def _assign_issue(team_id: int, user_id: int, canvas: "Canvas", payload: dict[st
 
 
 def _survey_lifecycle(team_id: int, user_id: int, payload: dict[str, Any], *, launch: bool) -> dict[str, Any]:
-    from rest_framework import status as http_status  # noqa: PLC0415
-
     from products.surveys.backend.facade import api as surveys_facade  # noqa: PLC0415 — load on execute
 
     change = surveys_facade.launch_survey if launch else surveys_facade.stop_survey

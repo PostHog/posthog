@@ -5,11 +5,12 @@ Lifecycle writes (``launch_survey``, ``stop_survey``) mirror the survey API's ``
 run as the given user with their own access-control level checked first.
 """
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -45,7 +46,7 @@ class SurveyLifecycleError(Exception):
     """The survey's state refuses the change; ``str(error)`` says why."""
 
 
-@dataclass(frozen=True)
+@frozen
 class SurveyLifecycleState:
     survey_id: str
     name: str
@@ -69,7 +70,8 @@ def _log(
         organization_id=survey.team.organization_id,
         team_id=survey.team_id,
         user=user,
-        was_impersonated=False,
+        # The request-scoped activity context knows when staff act as this user.
+        was_impersonated=get_was_impersonated(),
         item_id=survey.id,
         scope="Survey",
         activity=activity,
