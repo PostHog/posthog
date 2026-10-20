@@ -660,14 +660,13 @@ pub struct TrafficArgs {
 
 /// Environment the stack assigns per leader; overriding any of these
 /// would break pod identity or point a spawned leader at the wrong
-/// topic or table, and the resulting run would look like a real result.
+/// table, and the resulting run would look like a real result.
 const RESERVED_LEADER_ENV: &[&str] = &[
     "POD_NAME",
     "GRPC_ADDRESS",
     "METRICS_PORT",
     "ETCD_ENDPOINTS",
     "ETCD_PREFIX",
-    "KAFKA_PERSON_STATE_TOPIC",
     "FALLBACK_TABLE",
     "LIFECYCLE_OP_TABLE",
     "LIFECYCLE_OP_PERSON_TABLE",

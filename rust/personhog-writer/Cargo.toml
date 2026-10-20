@@ -12,6 +12,8 @@ common-alloc = { path = "../common/alloc" }
 common-liveness = { path = "../common/liveness" }
 common-metrics = { path = "../common/metrics" }
 lifecycle = { path = "../common/lifecycle" }
+assignment-coordination = { path = "../common/assignment-coordination" }
+personhog-coordination = { path = "../personhog-coordination" }
 
 async-trait = { workspace = true }
 axum = { workspace = true }

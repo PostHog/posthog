@@ -9,6 +9,8 @@ use common::{
     h2_frame, read_h2_frame, H2Frame, TestLeaderService, H2_FRAME_SETTINGS, H2_FRAME_WINDOW_UPDATE,
     H2_PREFACE,
 };
+use personhog_coordination::changelog::LiveChangelog;
+use personhog_coordination::types::ChangelogConfig;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_router::backend::discovery::{build_discovered_endpoint, EndpointConfig};
 use personhog_router::backend::{
@@ -136,11 +138,12 @@ fn discovered_channel(addr: SocketAddr, http2_windows: Http2Windows) -> Channel 
 async fn leader_channel(addr: SocketAddr, http2_windows: Http2Windows) -> Channel {
     let mut routing = HashMap::new();
     routing.insert(0, "leader-0".to_string());
+    let changelog = LiveChangelog::new(ChangelogConfig::new("personhog_updates", 1));
     let backend = LeaderBackend::new(
         Arc::new(RwLock::new(routing)),
         Arc::new(move |_| Some(format!("http://{addr}"))),
         LeaderBackendConfig {
-            num_partitions: 1,
+            changelog,
             timeout: Duration::from_secs(5),
             num_channels: 1,
             http2_windows,

@@ -1,4 +1,5 @@
 pub mod authority;
+pub mod changelog;
 pub mod coordinator;
 pub mod error;
 pub mod hash;

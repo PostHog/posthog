@@ -15,7 +15,9 @@ use bytes::Bytes;
 use common::{create_test_person, start_test_leader, start_test_leader_at, TestLeaderService};
 use http::HeaderMap;
 use http_body_util::BodyExt;
+use personhog_coordination::changelog::LiveChangelog;
 use personhog_coordination::routing_table::StashHandler;
+use personhog_coordination::types::ChangelogConfig;
 use personhog_proto::personhog::types::v1::{
     FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest, GetPersonResponse,
     Person, SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
@@ -64,7 +66,10 @@ async fn make_backend(leader_addr: std::net::SocketAddr, stash: StashTable) -> A
         routing_table,
         resolver,
         LeaderBackendConfig {
-            num_partitions: NUM_PARTITIONS,
+            changelog: LiveChangelog::new(ChangelogConfig::new(
+                "personhog_updates",
+                NUM_PARTITIONS,
+            )),
             timeout: Duration::from_secs(5),
             num_channels: 1,
             http2_windows: Http2Windows::default(),
