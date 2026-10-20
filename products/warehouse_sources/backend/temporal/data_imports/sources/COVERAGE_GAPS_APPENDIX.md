@@ -5052,15 +5052,15 @@ Note: Diffed against Front's published OpenAPI 3.0 spec (128 GET operations). Th
 
 ## Frontegg — **thin**
 
-Today (3): `permissions`, `roles`, `users`
+Today (5): `audits`, `permissions`, `roles`, `tenants`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/frontegg/openapi-public/master/combined.json>
 
-- [ ] `Get accounts (tenants) (GET /tenants/resources/tenants/v2)` — resolve tenantId and tenantIds on users into customer account names and metadata (high)
-- [ ] `Get audits (V2) (GET /audits/resources/audits/v2)` — analyze login activity, user changes, and account events over time (high)
-- [ ] `Get users roles (GET /identity/resources/users/v3/roles)` — join synced users and roles through account-specific assignments (medium)
+- [x] `Get accounts (tenants) (GET /tenants/resources/tenants/v2)` — resolve tenantId and tenantIds on users into customer account names and metadata (high). Added as `tenants`.
+- [x] `Get audits (V2) (GET /audits/resources/audits/v2)` — analyze login activity, user changes, and account events over time (high). Added as `audits`, incremental on `createdAt`.
+- [ ] `Get users roles (GET /identity/resources/users/v3/roles)` — join synced users and roles through account-specific assignments (medium); skipped: a lookup that needs user IDs and an account header, and each `users` row already carries its per-account roles in `tenants`
 - [ ] `Get all groups paginated (GET /identity/resources/groups/v2)` — describe customer user groups for account segmentation and membership analysis (medium)
-- [ ] `Get users groups (GET /identity/resources/users/v3/groups)` — connect users to their customer groups (medium)
+- [ ] `Get users groups (GET /identity/resources/users/v3/groups)` — connect users to their customer groups (medium); skipped: a lookup that needs user IDs and an account header, with no documented response shape or key. `Get all groups paginated` is the better route to membership
 - [ ] `Get sub-accounts hierarchy tree (GET /tenants/resources/hierarchy/v1/tree)` — roll up account activity through parent and child customer accounts (medium)
 
 Note: Parsed the official combined OpenAPI file and checked identity.json, tenants.json, and audits.json for service prefixes. The user schema exposes tenant IDs but the source only imports users, roles, and permissions. Account-scoped lists need tenant fan-out and management-token permissions. Excluded authentication, keys, session configuration, and invitations that expose tokens.
