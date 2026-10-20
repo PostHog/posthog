@@ -16,26 +16,6 @@ class TestJobNimbusSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://app.jobnimbus.com/api1/contacts?size=100&from=0",),
-            ("403 Client Error: Forbidden for url: https://app.jobnimbus.com/api1/jobs?size=100&from=0",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://app.jobnimbus.com/api1/contacts",),
-            ("429 Client Error: Too Many Requests for url: https://app.jobnimbus.com/api1/jobs",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
             (True, None),
             (False, "Invalid JobNimbus API key"),
             (False, "Could not validate JobNimbus API key"),

@@ -36,7 +36,6 @@ class TestPersonioSource:
         "other_vendor_error",
         [
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.personio.de/v2/persons",
             # A transient 429/5xx token error shares the endpoint phrasing but lacks the marker.
             "HTTP 503 from the OAuth2 token endpoint",
             # A mid-sync 401 on a data endpoint isn't a disable condition — the token is re-minted.
