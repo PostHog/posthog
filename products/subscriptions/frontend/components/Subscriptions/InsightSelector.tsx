@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
@@ -111,26 +110,11 @@ export function InsightSelector({
                 )}
             </div>
             {unavailableSelectedIds.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
-                    <p className="mb-0 text-secondary">
-                        {unavailableSelectedIds.length === 1
-                            ? '1 selected insight is no longer on this dashboard.'
-                            : `${unavailableSelectedIds.length} selected insights are no longer on this dashboard.`}
-                    </p>
-                    <LemonButton
-                        size="small"
-                        type="tertiary"
-                        status="danger"
-                        noPadding
-                        data-attr="subscription-remove-all-unavailable-insights"
-                        onClick={() => {
-                            setUserHasInteracted()
-                            onChange(validSelectedIds)
-                        }}
-                    >
-                        Remove all missing insights
-                    </LemonButton>
-                </div>
+                <p className="mb-0 text-sm text-danger">
+                    {unavailableSelectedIds.length === 1
+                        ? '1 selected insight is no longer on this dashboard. It will be removed from this subscription when you save.'
+                        : `${unavailableSelectedIds.length} selected insights are no longer on this dashboard. They will be removed from this subscription when you save.`}
+                </p>
             )}
         </div>
     )

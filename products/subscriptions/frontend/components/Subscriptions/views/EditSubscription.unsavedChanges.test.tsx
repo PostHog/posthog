@@ -109,7 +109,7 @@ describe('EditSubscription unsaved changes', () => {
     })
 
     it.each([[[998, 999]], [[11, 999]]])(
-        'saves only the explicit correction to %j',
+        'removes unavailable selections on save: %j',
         async (selectedIds) => {
             const subscription = subscriptionFixture({
                 target_type: 'email',
@@ -150,20 +150,13 @@ describe('EditSubscription unsaved changes', () => {
             )
 
             await screen.findByText(/selected insights? (?:is|are) no longer on this dashboard/, {}, { timeout: 10000 })
-            expect(isClean()).toBe(true)
-            const name = screen.getByPlaceholderText('e.g. Weekly team report')
-            await userEvent.type(name, ' corrected')
-            await userEvent.click(saveButton())
-            expect(await screen.findByText('Remove missing insights before saving')).toBeInTheDocument()
-            expect(patch).not.toHaveBeenCalled()
-
+            expect(isClean()).toBe(false)
+            expect(screen.queryByText('Remove all missing insights')).not.toBeInTheDocument()
             if (selectedIds.includes(998)) {
-                await userEvent.click(screen.getByText('Remove all missing insights'))
                 await userEvent.click(saveButton())
+                expect(await screen.findAllByText('Select at least one insight')).not.toHaveLength(0)
                 expect(patch).not.toHaveBeenCalled()
                 await userEvent.click(screen.getByText('Pageviews'))
-            } else {
-                await userEvent.click(screen.getByText('Remove all missing insights'))
             }
             await userEvent.click(saveButton())
             await waitFor(() => expect(patch).toHaveBeenCalledTimes(1))

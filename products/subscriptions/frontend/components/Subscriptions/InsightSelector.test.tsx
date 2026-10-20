@@ -130,21 +130,6 @@ describe('InsightSelector', () => {
         expect(screen.queryByText(/ID:/)).not.toBeInTheDocument()
     })
 
-    it.each([[[101, 998, 999]], [[101, 999]]])('removes all unavailable insights with one action: %j', async (ids) => {
-        const onChange = jest.fn()
-        renderInsightSelector({
-            tiles: createMockTiles() as DashboardTile[],
-            selectedInsightIds: ids,
-            onChange,
-        })
-
-        expect(screen.getAllByRole('checkbox')).toHaveLength(3)
-        expect(screen.getByText(new RegExp(`^${ids.length - 1} selected insights? `))).toBeInTheDocument()
-        expect(screen.queryByText('Remove from subscription')).not.toBeInTheDocument()
-        await userEvent.click(screen.getByText('Remove all missing insights'))
-        expect(onChange).toHaveBeenLastCalledWith([101])
-    })
-
     it('keeps unavailable insights when selecting a replacement', async () => {
         const onChange = jest.fn()
         renderInsightSelector({
@@ -157,28 +142,14 @@ describe('InsightSelector', () => {
         expect(onChange).toHaveBeenLastCalledWith([999, 102])
     })
 
-    it('does not select replacements after removing all unavailable insights', async () => {
-        const onChange = jest.fn()
-        const tiles = createMockTiles() as DashboardTile[]
-        const { rerender } = renderInsightSelector({ tiles, selectedInsightIds: [998, 999], onChange })
-
-        await userEvent.click(screen.getByText('Remove all missing insights'))
-        expect(onChange).toHaveBeenLastCalledWith([])
-        onChange.mockClear()
-        rerender(
-            <Provider>
-                <InsightSelector tiles={tiles} selectedInsightIds={[]} onChange={onChange} />
-            </Provider>
-        )
-
-        expect(onChange).not.toHaveBeenCalled()
-        expect(screen.getByText('Select at least one insight')).toBeInTheDocument()
-    })
-
     it('shows unavailable selections even when the dashboard is empty', () => {
         renderInsightSelector({ tiles: [], selectedInsightIds: [999], onChange: jest.fn() })
         expect(screen.getByText(/selected insights? (?:is|are) no longer on this dashboard/)).toBeInTheDocument()
-        expect(screen.getByText('1 selected insight is no longer on this dashboard.')).toBeInTheDocument()
+        expect(
+            screen.getByText(
+                '1 selected insight is no longer on this dashboard. It will be removed from this subscription when you save.'
+            )
+        ).toBeInTheDocument()
     })
 
     it('shows max limit message when at capacity', () => {
