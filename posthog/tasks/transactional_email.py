@@ -1,10 +1,11 @@
-from celery import shared_task
+from celery import Task, shared_task
 
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.transactional_email import TransactionalEmailRetryableError, send_transactional_email
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     autoretry_for=(TransactionalEmailRetryableError,),
     retry_backoff=True,
@@ -14,6 +15,7 @@ from posthog.transactional_email import TransactionalEmailRetryableError, send_t
 )
 @skip_team_scope_audit
 def send_transactional_email_task(
+    self: Task,
     template_id: str,
     *,
     to: str,
@@ -21,4 +23,9 @@ def send_transactional_email_task(
     message_data: dict[str, object] | None = None,
 ) -> str:
     """Send a transactional email with PostHog."""
-    return send_transactional_email(template_id, to=to, distinct_id=distinct_id, message_data=message_data)
+    try:
+        return send_transactional_email(template_id, to=to, distinct_id=distinct_id, message_data=message_data)
+    except TransactionalEmailRetryableError as error:
+        if error.retry_after is not None:
+            raise self.retry(exc=error, countdown=error.retry_after)
+        raise

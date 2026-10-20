@@ -147,3 +147,17 @@ class TestTransactionalEmail(SimpleTestCase):
         post.assert_called_once()
         assert isinstance(raised.exception.exc, TransactionalEmailRetryableError)
         assert str(raised.exception.exc) == failure
+
+    @parameterized.expand([("60", 60), ("3600", 3600), ("invalid", None), (None, None)])
+    def test_rate_limit_retry_uses_server_delay(self, header: str | None, expected: int | None) -> None:
+        response = Mock(status_code=429, headers={"Retry-After": header} if header is not None else {})
+        with patch("posthog.transactional_email.requests.post", return_value=response) as post:
+            with self.assertRaises(Retry) as raised:
+                send_transactional_email_task.apply(
+                    args=[TEMPLATE_ID], kwargs={"to": "recipient@example.com"}, throw=True
+                )
+        post.assert_called_once()
+        assert isinstance(raised.exception.exc, TransactionalEmailRetryableError)
+        assert raised.exception.exc.retry_after == expected
+        if expected is not None:
+            assert raised.exception.when == expected

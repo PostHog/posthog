@@ -10,6 +10,10 @@ import requests
 class TransactionalEmailRetryableError(Exception):
     """The API did not accept the email, so retrying cannot duplicate it."""
 
+    def __init__(self, message: str, *, retry_after: int | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
 
 class TransactionalEmailRejected(Exception):
     """The API rejected the email and requires caller intervention."""
@@ -80,7 +84,11 @@ def send_transactional_email(
         raise TransactionalEmailDeliveryUncertain("request_failed") from None
 
     if response.status_code == 429:
-        raise TransactionalEmailRetryableError("rate_limited")
+        try:
+            retry_after: int | None = max(0, int(response.headers.get("Retry-After", "")))
+        except (ValueError, TypeError):
+            retry_after = None
+        raise TransactionalEmailRetryableError("rate_limited", retry_after=retry_after)
     if 300 <= response.status_code < 500 and response.status_code != 408:
         raise TransactionalEmailRejected(f"http_{response.status_code}")
     if response.status_code != 202:
