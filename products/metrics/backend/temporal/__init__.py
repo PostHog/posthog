@@ -22,7 +22,8 @@ ACTIVITIES: list[Callable[..., Any]] = [
     analyze_team_activity,
     start_generation_activity,
     draft_template_activity,
-    render_preview_activity,
     check_preview_activity,
     finish_generation_activity,
 ]
+# These run on the analytics platform queue, whose workers can render pictures.
+RENDER_ACTIVITIES: list[Callable[..., Any]] = [render_preview_activity]

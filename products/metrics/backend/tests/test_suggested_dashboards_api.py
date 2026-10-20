@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.models import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -185,6 +187,30 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         ]
         assert Dashboard.objects_including_soft_deleted.get(id=preview_id).deleted
         self.start_analysis.assert_called_once_with(self.team.id, force=True)
+
+    def test_approving_refuses_a_query_that_the_review_broke_on_the_preview(self) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        template = _template("generated-queue", "pending_review", *QUEUE_METRICS[:2], source="generated")
+        preview_id = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/preview/").json()[
+            "dashboard_id"
+        ]
+        tile = DashboardTile.objects.filter(dashboard_id=preview_id).select_related("insight").first()
+        assert tile is not None and tile.insight is not None and tile.insight.query is not None
+        tile.insight.query = {**tile.insight.query, "formula": "a / b"}
+        tile.insight.save(update_fields=["query"])
+
+        runner = MagicMock()
+        runner.return_value.calculate.side_effect = ExposedHogQLError("Unknown clause b in the formula.")
+        with patch("products.metrics.backend.suggested_dashboards.dashboards.MetricsQueryRunner", runner):
+            response = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/approve/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Unknown clause b in the formula." in str(response.json())
+        # Only the changed panel runs. The generation ran the others.
+        assert runner.call_count == 1
+        template.refresh_from_db()
+        assert template.status == "pending_review"
 
     @parameterized.expand(
         [
