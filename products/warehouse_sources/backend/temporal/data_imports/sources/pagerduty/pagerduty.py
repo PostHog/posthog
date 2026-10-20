@@ -1,5 +1,4 @@
 import functools
-import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -8,6 +7,8 @@ from urllib.parse import urlencode
 from requests import Request, Response
 from requests.exceptions import HTTPError
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -44,7 +46,7 @@ MAX_OFFSET = 10_000
 # status on that same endpoint is a genuine failure and must still raise.
 
 
-@dataclasses.dataclass
+@frozen
 class PagerDutyResumeConfig:
     # Row offset of the next unfetched page — PagerDuty list endpoints paginate with limit/offset.
     offset: int = 0
@@ -216,12 +218,9 @@ def _skip_when_plan_gated(
     plan_gated_feature: str,
     plan_gated_status: int,
     logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[PagerDutyResumeConfig],
 ) -> Iterator[Any]:
     try:
-        for page in items:
-            yield page
-            resumable_source_manager.safe_point()
+        yield from items
     except HTTPError as err:
         if err.response is None or err.response.status_code != plan_gated_status:
             raise
@@ -357,17 +356,25 @@ def pagerduty_source(
         if built.name == endpoint
     )
 
-    items: Callable[[], Iterable[Any]] = lambda: resource
+    gated_resource = resource
     if config.plan_gated_feature is not None and config.plan_gated_status is not None:
-        items = functools.partial(
-            _skip_when_plan_gated,
-            resource,
-            endpoint,
-            config.plan_gated_feature,
-            config.plan_gated_status,
-            logger,
-            resumable_source_manager,
+        # The plan gate hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+        # framework's checkpoints and safe points, which a plain generator wrapper would disable.
+        gated_resource = Resource(
+            functools.partial(
+                _skip_when_plan_gated,
+                resource,
+                endpoint,
+                config.plan_gated_feature,
+                config.plan_gated_status,
+                logger,
+            ),
+            name=endpoint,
+            hints=resource._hints,
         )
+
+    def items() -> Iterable[Any]:
+        return gated_resource
 
     return SourceResponse(
         name=endpoint,
