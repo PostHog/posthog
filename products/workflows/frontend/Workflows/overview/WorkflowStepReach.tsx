@@ -82,7 +82,7 @@ export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: stri
                     </Tooltip>
                 </h3>
                 <span className="text-xs text-muted">
-                    How many of the runs started in this date range got past each step.
+                    How many runs got past each step in this date range, as a share of runs started.
                 </span>
             </div>
             {stepTotalsFailed || healthTotalsFailed ? (
