@@ -12,7 +12,7 @@ export const MAX_RETAINED_RESPONSE_LENGTH = 10_000_000
 export const ABANDONED_QUERY_GRACE_PERIOD = 60 * 1000
 
 // Sizes are in serialized characters. The keys already name the user and project.
-const retainedResponses = new RetainedValues<AnyResponseType>({
+const retainedResponses = new RetainedValues<string>({
     maxEntries: 500,
     ttlMs: RESPONSE_CACHE_TTL,
     maxTotalSize: 50_000_000,
@@ -88,7 +88,7 @@ export function isCompleteResponse(response: AnyResponseType | null | undefined)
 
 export function getRetainedResponse(key: string | null): AnyResponseType | null {
     const response = key ? retainedResponses.get(key) : null
-    return response ? structuredClone(response) : null
+    return response ? (JSON.parse(response) as AnyResponseType) : null
 }
 
 export function forgetRetainedResponse(key: string | null): void {
@@ -102,7 +102,7 @@ export function retainResponse(key: string | null, response: AnyResponseType | n
 }
 
 function retainWith(
-    set: (key: string, response: AnyResponseType, size: number) => void,
+    set: (key: string, response: string, size: number) => void,
     key: string | null,
     response: AnyResponseType | null | undefined
 ): void {
@@ -111,7 +111,7 @@ function retainWith(
     }
     const serialized = JSON.stringify(response)
     if (serialized.length <= MAX_RETAINED_RESPONSE_LENGTH) {
-        set(key, JSON.parse(serialized), serialized.length)
+        set(key, serialized, serialized.length)
     }
 }
 
