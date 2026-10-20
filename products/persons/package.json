@@ -1,6 +1,7 @@
 {
     "name": "@posthog/products-persons",
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "fast-equals": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",

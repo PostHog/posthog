@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from typing import Any
 
 import pytest
@@ -109,13 +110,14 @@ class TestPostgresProducerSendBatch:
             cdc_write_mode="upsert",
             cdc_table_mode="merge",
         )
-        batch_result = _make_batch_result(batch_index=1)
+        batch_result = dataclasses.replace(_make_batch_result(batch_index=1), arrow_bytes=4096)
 
         producer.send_batch_notification(batch_result)
 
         mock = _mock_conn(producer)
         params = mock.execute.call_args[0][1]
         metadata = json.loads(params["metadata"])
+        assert metadata["arrow_bytes"] == 4096
         assert metadata["primary_keys"] == ["id"]
         assert metadata["partition_count"] == 4
         assert metadata["cdc_write_mode"] == "upsert"

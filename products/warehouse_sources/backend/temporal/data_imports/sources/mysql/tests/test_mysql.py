@@ -61,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_vitess_dial_timeout,
     _is_transient_vitess_no_endpoints,
     _is_transient_vitess_reparent,
+    _pinned_addresses,
     _reconnect_pinned,
     _release_streaming_cursor,
     _retry_on_transient_tablet_unavailable,
@@ -1032,6 +1033,33 @@ class TestKeysetReadPath:
         )
 
         assert source.supports_resume is False
+
+    @pytest.mark.parametrize(
+        "incremental,has_manager,expected_ascending,expected_resume",
+        [
+            pytest.param(True, False, True, False, id="incremental_streaming"),
+            pytest.param(True, True, True, False, id="incremental_streaming_with_manager"),
+            pytest.param(False, False, False, False, id="full_refresh_streaming"),
+            pytest.param(False, True, False, True, id="full_refresh_keyset"),
+        ],
+    )
+    def test_only_the_incremental_streaming_read_claims_ascending_order(
+        self, keyset_mocks, incremental: bool, has_manager: bool, expected_ascending: bool, expected_resume: bool
+    ):
+        inputs = _make_inputs(
+            should_use_incremental_field=incremental,
+            incremental_field="id" if incremental else None,
+            incremental_field_type=IncrementalFieldType.Integer if incremental else None,
+        )
+
+        source = MySQLImplementation().build_pipeline(
+            _make_config(), inputs, resumable_source_manager=self._fake_manager() if has_manager else None
+        )
+
+        assert (source.sort_mode, source.supports_resume) == (
+            "asc" if expected_ascending else None,
+            expected_resume,
+        )
 
 
 class TestBuildPipelineSourceLocation:
@@ -2264,6 +2292,7 @@ class TestBuildQueryForceIndex:
             db_incremental_field_last_value="2025-01-01",
         )
         assert "FORCE INDEX" not in query
+        assert query.endswith("ORDER BY `created_at` ASC")
 
     def test_force_index_hint_added_when_provided(self):
         query, _ = _build_query(
@@ -2278,6 +2307,7 @@ class TestBuildQueryForceIndex:
         assert "FORCE INDEX (`idx_created_at`)" in query
         # Hint goes between the table and the WHERE clause
         assert query.index("FORCE INDEX") < query.index("WHERE")
+        assert query.endswith("ORDER BY `created_at` ASC")
 
     def test_force_index_hint_applied_for_non_incremental_query_too(self):
         # Full refresh mode — the hint still attaches so callers can force a
@@ -3387,3 +3417,22 @@ class TestConnectCertificateVerification:
         else:
             connection._request_authentication()
             delegate.assert_called_once()
+
+
+class TestOOBDomainDetection:
+    def test_the_pinned_path_logs_before_it_resolves(self, mocker):
+        mysql_module = "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql"
+        mixins_module = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+        mocker.patch(f"{mixins_module}.is_cloud", return_value=True)
+        mocker.patch(f"{mysql_module}.host_lookup_is_skipped", return_value=False)
+        mocker.patch(
+            f"{mysql_module}.resolve_psycopg_hostaddr_with_timeout",
+            side_effect=AssertionError("resolved before the detection log"),
+        )
+        log_host_check = mocker.patch(f"{mixins_module}._log_host_check")
+
+        with pytest.raises(AssertionError):
+            _pinned_addresses("abc.oast.live", 3306, 5, 2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list]
+        assert "oob_domain" in stages
