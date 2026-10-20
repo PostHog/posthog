@@ -1,0 +1,300 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "query": {
+            "description": "The metric query to execute.",
+            "properties": {
+                "aggregation": {
+                    "default": "sum",
+                    "description": "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n* `none` - none\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+                    "enum": [
+                        "none",
+                        "sum",
+                        "avg",
+                        "count",
+                        "min",
+                        "max",
+                        "p95",
+                        "rate",
+                        "increase",
+                        "histogram_quantile"
+                    ],
+                    "type": "string"
+                },
+                "clauses": {
+                    "description": "Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum 10). Mutually exclusive with 'metricName'.",
+                    "items": {
+                        "properties": {
+                            "aggregation": {
+                                "default": "sum",
+                                "description": "Aggregation applied per time bucket; same semantics as the top-level aggregation.\n\n* `none` - none\n* `sum` - sum\n* `avg` - avg\n* `count` - count\n* `min` - min\n* `max` - max\n* `p95` - p95\n* `rate` - rate\n* `increase` - increase\n* `histogram_quantile` - histogram_quantile",
+                                "enum": [
+                                    "none",
+                                    "sum",
+                                    "avg",
+                                    "count",
+                                    "min",
+                                    "max",
+                                    "p95",
+                                    "rate",
+                                    "increase",
+                                    "histogram_quantile"
+                                ],
+                                "type": "string"
+                            },
+                            "filters": {
+                                "description": "Label predicates ANDed together for this clause.",
+                                "items": {
+                                    "properties": {
+                                        "key": {
+                                            "description": "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
+                                            "maxLength": 255,
+                                            "type": "string"
+                                        },
+                                        "op": {
+                                            "default": "eq",
+                                            "description": "Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+                                            "enum": ["eq", "neq", "regex", "not_regex"],
+                                            "type": "string"
+                                        },
+                                        "scope": {
+                                            "default": "auto",
+                                            "description": "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                                            "enum": ["resource", "attribute", "auto"],
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "description": "Value to compare against. For regex operators this is the pattern.",
+                                            "maxLength": 1024,
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key", "value"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "groupBy": {
+                                "description": "Labels to split this clause into separate series by.",
+                                "items": {
+                                    "properties": {
+                                        "key": {
+                                            "description": "Attribute name to split series by (e.g. 'k8s.pod.name', 'env').",
+                                            "maxLength": 255,
+                                            "type": "string"
+                                        },
+                                        "scope": {
+                                            "default": "auto",
+                                            "description": "Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                                            "enum": ["resource", "attribute", "auto"],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "metricName": {
+                                "description": "Exact metric name this clause queries.",
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            "metricType": {
+                                "anyOf": [
+                                    {
+                                        "description": "* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary",
+                                        "enum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary"
+                            },
+                            "name": {
+                                "description": "Clause name a formula refers to (e.g. 'a').",
+                                "maxLength": 64,
+                                "type": "string"
+                            },
+                            "quantile": {
+                                "anyOf": [
+                                    {
+                                        "maximum": 1,
+                                        "minimum": 0,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Quantile in (0, 1) for 'histogram_quantile'."
+                            },
+                            "rangeFunction": {
+                                "anyOf": [
+                                    {
+                                        "description": "* `rate` - rate\n* `increase` - increase",
+                                        "enum": ["rate", "increase"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.\n\n* `rate` - rate\n* `increase` - increase"
+                            }
+                        },
+                        "required": ["name", "metricName"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "dateFrom": {
+                    "description": "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo.",
+                    "type": "string"
+                },
+                "dateTo": {
+                    "description": "Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.",
+                    "type": "string"
+                },
+                "filters": {
+                    "description": "Label predicates ANDed together. Rows must satisfy every filter.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            "op": {
+                                "default": "eq",
+                                "description": "Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n* `eq` - eq\n* `neq` - neq\n* `regex` - regex\n* `not_regex` - not_regex",
+                                "enum": ["eq", "neq", "regex", "not_regex"],
+                                "type": "string"
+                            },
+                            "scope": {
+                                "default": "auto",
+                                "description": "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                                "enum": ["resource", "attribute", "auto"],
+                                "type": "string"
+                            },
+                            "value": {
+                                "description": "Value to compare against. For regex operators this is the pattern.",
+                                "maxLength": 1024,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["key", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "formula": {
+                    "anyOf": [
+                        {
+                            "maxLength": 512,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned."
+                },
+                "groupBy": {
+                    "description": "Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Attribute name to split series by (e.g. 'k8s.pod.name', 'env').",
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            "scope": {
+                                "default": "auto",
+                                "description": "Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.\n\n* `resource` - resource\n* `attribute` - attribute\n* `auto` - auto",
+                                "enum": ["resource", "attribute", "auto"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["key"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "interval": {
+                    "anyOf": [
+                        {
+                            "description": "* `second_15` - second_15\n* `second_30` - second_30\n* `minute` - minute\n* `minute_5` - minute_5\n* `minute_15` - minute_15\n* `minute_30` - minute_30\n* `hour` - hour\n* `hour_6` - hour_6\n* `day` - day\n* `week` - week",
+                            "enum": [
+                                "second_15",
+                                "second_30",
+                                "minute",
+                                "minute_5",
+                                "minute_15",
+                                "minute_30",
+                                "hour",
+                                "hour_6",
+                                "day",
+                                "week"
+                            ],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).\n\n* `second_15` - second_15\n* `second_30` - second_30\n* `minute` - minute\n* `minute_5` - minute_5\n* `minute_15` - minute_15\n* `minute_30` - minute_30\n* `hour` - hour\n* `hour_6` - hour_6\n* `day` - day\n* `week` - week"
+                },
+                "metricName": {
+                    "description": "Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.",
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                "metricType": {
+                    "anyOf": [
+                        {
+                            "description": "* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary",
+                            "enum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary"
+                },
+                "quantile": {
+                    "anyOf": [
+                        {
+                            "maximum": 1,
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations."
+                },
+                "rangeFunction": {
+                    "anyOf": [
+                        {
+                            "description": "* `rate` - rate\n* `increase` - increase",
+                            "enum": ["rate", "increase"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.\n\n* `rate` - rate\n* `increase` - increase"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

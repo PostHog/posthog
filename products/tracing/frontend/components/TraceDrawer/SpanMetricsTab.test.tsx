@@ -3,9 +3,6 @@ import '@testing-library/jest-dom'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
@@ -32,9 +29,6 @@ const span = {
 describe('SpanMetricsTab', () => {
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
-        // Enable both gates on ViewServiceMetricsButton so the real component renders its link.
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT,
             resource_access_control: {

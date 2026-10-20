@@ -1107,7 +1107,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'product-business-knowledge',
                 'field-notes',
                 'mcp-analytics-intent-routing',
-                'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
