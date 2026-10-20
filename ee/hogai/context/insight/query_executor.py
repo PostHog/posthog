@@ -47,6 +47,7 @@ from posthog.hogql.errors import (
     TableAccessDeniedError,
     unwrap_exposed_hogql_error,
 )
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
@@ -136,6 +137,8 @@ HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX = (
 
 RECORDABLE_STATUS_ERROR_CODE = re.compile(r"[a-z][a-z0-9_]{0,99}")
 
+HOGQL_INPUT_ERROR_CODES = frozenset({QueryError.code_name, HogQLSyntaxError.code_name, TrinoLoweringError.code_name})
+
 
 def get_clickhouse_error_code(error: BaseException | None) -> str | None:
     if not isinstance(error, InternalCHQueryError):
@@ -194,7 +197,7 @@ def _query_status_tool_error(query_status: dict[str, Any]) -> MaxToolError:
         error_code = None
     if error_code == TableAccessDeniedError.code_name:
         return MaxToolFatalError(error_message or "Table access denied.", error_type="permission")
-    if error_message and error_code in (QueryError.code_name, HogQLSyntaxError.code_name):
+    if error_message and error_code in HOGQL_INPUT_ERROR_CODES:
         return MaxToolRetryableError(
             error_message, error_type="validation", error_code=_hogql_code_from_message(error_message) or error_code
         )

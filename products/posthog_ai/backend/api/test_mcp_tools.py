@@ -471,6 +471,15 @@ class TestMCPToolsAPI(APIBaseTest):
                 expected_error_code="query_was_cancelled",
             ),
             param(
+                "trino_unsupported",
+                None,
+                "[T001] PIVOT is not supported by the Trino backend",
+                "hogql_trino_unsupported",
+                "Tool failed: MaxToolRetryableError: [T001] PIVOT is not supported by the Trino backend. You may retry with adjusted inputs.",
+                expected_error_code="hogql_trino_unsupported",
+                expected_error_type="validation",
+            ),
+            param(
                 "table_access_denied",
                 None,
                 "Access to the table is denied",
