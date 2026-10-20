@@ -5054,6 +5054,8 @@ async fn test_raise_person_version_floors_raises_only_live_persons() {
         .unwrap()
         .expect("live");
     assert_eq!(raised.version, Some(10));
+    // A mark left behind blocks every later lifecycle write to these persons.
+    assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 0);
 
     ctx.cleanup().await.ok();
 }

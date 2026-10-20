@@ -145,7 +145,8 @@ def _tombstone_queue_entry(team_id: int, person_uuid: str) -> dict[str, Any] | N
 def inspect_persons(
     team_id: int, person_uuids: Sequence[str], *, purged_at: datetime | None = None
 ) -> list[Inspection]:
-    uuids = list(dict.fromkeys(person_uuids))
+    # Every store keys persons by the canonical lowercase form, so other spellings would read as absent.
+    uuids = list(dict.fromkeys(str(UUID(u)) for u in person_uuids))
     team_exists = Team.objects.filter(id=team_id).exists()
     pg = observe.pg_person_states(team_id, uuids) if team_exists else {}
     ch = observe.ch_person_states(team_id, uuids)
