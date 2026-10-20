@@ -32,6 +32,8 @@ from products.alerts.backend.facade.api import LLMAlertWrite, admit_llm_alert_wr
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.platform_alert_backfill import follow_insight_alert
+from products.alerts.backend.platform_ownership import PlatformCannotOwn, on_created, on_updated
+from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -464,6 +466,13 @@ class UpsertAlertTool(MaxTool):
                 alert.next_check_at = timezone.now()
                 update_fields.append("next_check_at")
             alert.save(update_fields=update_fields)
+            if alert.platform_owned:
+                try:
+                    on_updated(alert, snooze_changed=False)
+                except (PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
+                    # Rolls back the insight row, so neither row takes an edit the platform rejects.
+                    transaction.set_rollback(True)
+                    return _SaveRefusal(message=str(error), error_code="validation_failed")
         return None
 
     @staticmethod
@@ -655,7 +664,8 @@ class UpsertAlertTool(MaxTool):
             alert_configuration=alert,
             created_by=user,
         )
-        if alert.enabled:
+        handed_over = on_created(alert, timezone.now())
+        if alert.enabled and not handed_over:
             transaction.on_commit(partial(follow_insight_alert, alert), robust=True)
 
         return alert

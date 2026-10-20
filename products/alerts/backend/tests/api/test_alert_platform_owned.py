@@ -9,10 +9,12 @@ from rest_framework import status
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.models.alert import AlertCheck
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.api import get_configuration
+from products.alerts_platform.backend.facade.contracts import SourceKind
 
 
 def _iso(moment: datetime) -> str:
@@ -98,3 +100,93 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             row = self._row("retrieve")
 
         assert [(check["state"], check["calculated_value"]) for check in row["checks"]] == [("Not firing", 1.0)]
+
+
+class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.now = datetime.now(UTC)
+        self.alert = create_insight_alert(self.team, next_check_at=self.now + timedelta(minutes=3))
+        [cutover] = cut_over_team(self.team.id, now=self.now)
+        assert cutover.skipped is None
+        with team_scope(self.team.id):
+            self.copy_id = platform_testing.copy_of(self.alert.id).id
+        self.url = f"/api/projects/{self.team.id}/alerts"
+
+    def _copy(self) -> Any:
+        with team_scope(self.team.id):
+            view = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=self.copy_id
+            )
+        assert view is not None
+        return view
+
+    def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            platform_edit = self.client.patch(
+                f"/api/projects/{self.team.id}/platform_alerts/{self.copy_id}/",
+                {"name": "Edited on the platform"},
+                format="json",
+            )
+        insight_edit = self.client.patch(
+            f"{self.url}/{self.alert.id}/",
+            {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
+            format="json",
+        )
+
+        assert platform_edit.status_code == status.HTTP_200_OK, platform_edit.json()
+        assert insight_edit.status_code == status.HTTP_200_OK, insight_edit.json()
+        assert insight_edit.json()["name"] == "Edited on the platform"
+        copy = self._copy()
+        assert (copy.name, copy.source_config["condition"]["threshold"]["bounds"]) == (
+            "Edited on the platform",
+            {"upper": 200},
+        )
+
+    def test_an_edit_the_platform_cannot_run_is_refused_on_both_rows(self) -> None:
+        response = self.client.patch(
+            f"{self.url}/{self.alert.id}/",
+            {"detector_config": {"type": "zscore", "threshold": 0.95, "window": 30}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "alerts platform" in str(response.json())
+        self.alert.refresh_from_db()
+        assert self.alert.detector_config is None
+
+    @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
+    def test_a_new_alert_is_handed_over_only_in_a_team_on_the_platform(self, _name: str, begun: bool) -> None:
+        if not begun:
+            AlertConfiguration.objects.filter(id=self.alert.id).update(owner="source")
+        insight = create_insight_alert(self.team).insight
+
+        response = self.client.post(
+            f"{self.url}",
+            {
+                "insight": insight.id,
+                "subscribed_users": [self.user.id],
+                "condition": {"type": "absolute_value"},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "A new alert",
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                "calculation_interval": "daily",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        created = AlertConfiguration.objects.get(id=response.json()["id"])
+        assert created.owner == ("platform" if begun else "source")
+
+    def test_deleting_a_moved_alert_deletes_its_copy(self) -> None:
+        response = self.client.delete(f"{self.url}/{self.alert.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        with team_scope(self.team.id):
+            assert (
+                get_configuration(
+                    team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=self.copy_id
+                )
+                is None
+            )
