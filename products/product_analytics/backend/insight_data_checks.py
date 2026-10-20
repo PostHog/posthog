@@ -259,7 +259,9 @@ def _filters_on_traffic_type(where: ast.Expr) -> bool:
 
 def _check_modifiers(chart_modifiers: HogQLQueryModifiers, *, keep_project_bot_rules: bool) -> HogQLQueryModifiers:
     # With `debug` on, a failed query returns an error and no rows, which would read as no events.
-    update: dict[str, Any] = {"debug": False}
+    # Without the pushdown, a persons join reads the latest version of every person in the project, however few
+    # events the check reads.
+    update: dict[str, Any] = {"debug": False, "personIdPushdown": True}
     if not keep_project_bot_rules:
         # The bot check uses PostHog's definition of a bot, so a project's own bot rules do not apply.
         update["customBotDefinitions"] = []
