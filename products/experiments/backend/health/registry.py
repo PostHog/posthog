@@ -4,6 +4,9 @@ from posthog.exceptions_capture import capture_exception
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded
+from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
+from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
+from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
@@ -17,7 +20,10 @@ HealthCheck = Callable[[HealthContext], ExperimentHealthFinding | None]
 
 EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     flag_state,
+    flag_history_not_readable,
     split_changed_mid_run,
+    bucketing_changed_mid_run,
+    release_conditions_changed_mid_run,
     flag_variants_mismatch,
     forced_variant_release_condition,
     no_metric,

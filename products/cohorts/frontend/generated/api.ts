@@ -12,6 +12,7 @@ import type {
     CohortApi,
     CohortPersonsResponseApi,
     CohortUsedInResponseApi,
+    CohortUsedInWorkflowsBlockApi,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
     CohortsStaffListParams,
@@ -260,6 +261,24 @@ export const cohortsAddPersonsToStaticCohortPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedAddPersonsToStaticCohortRequestApi),
+    })
+}
+
+export const getCohortsBlockingWorkflowsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/cohorts/${id}/blocking_workflows/`
+}
+
+/**
+ * Active workflows that block deleting this cohort or editing it so it stops updating in real time.
+ */
+export const cohortsBlockingWorkflowsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<CohortUsedInWorkflowsBlockApi> => {
+    return apiMutator<CohortUsedInWorkflowsBlockApi>(getCohortsBlockingWorkflowsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

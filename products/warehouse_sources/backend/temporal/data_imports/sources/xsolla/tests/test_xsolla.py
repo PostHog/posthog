@@ -126,6 +126,75 @@ def test_project_tables_read_each_project_and_resume_after_finished_projects(dri
     assert result.saved_states[-1] == XsollaResumeConfig(project_id=31)
 
 
+@pytest.mark.parametrize(
+    "table,path",
+    [
+        ("virtual_items", "admin/items/virtual_items"),
+        ("virtual_currencies", "admin/items/virtual_currency"),
+        ("bundles", "admin/items/bundle"),
+    ],
+)
+def test_store_tables_page_each_project_and_skip_projects_without_a_store(
+    driver: SourceDriver, table: str, path: str
+) -> None:
+    items = [{"sku": f"sku-{i}", "type": "virtual_good"} for i in range(51)]
+
+    def store_page(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/merchants/123/projects"):
+            return ScriptedResponse(json=[{"id": 20}, {"id": 10}])
+        if "/project/10/" in request.path:
+            return ScriptedResponse(status=404, json={"errorCode": 4001, "errorMessage": "Project not found"})
+        offset = int(request.param("offset") or 0)
+        return ScriptedResponse(
+            json={
+                "has_more": offset + 50 < len(items),
+                "total_items_count": len(items),
+                "items": items[offset : offset + 50],
+            }
+        )
+
+    result = driver.run(table, store_page)
+
+    assert result.raised is None
+    assert [(row["project_id"], row["sku"]) for row in result.rows] == [(20, f"sku-{i}") for i in range(51)]
+    assert [request.url.split("?")[0] for request in result.requests[1:]] == [
+        f"https://store.xsolla.com/api/v2/project/10/{path}",
+        f"https://store.xsolla.com/api/v2/project/20/{path}",
+        f"https://store.xsolla.com/api/v2/project/20/{path}",
+    ]
+    assert [(r.param("offset"), r.param("limit")) for r in result.requests[2:]] == [("0", "50"), ("50", "50")]
+    assert result.response is not None
+    assert result.response.primary_keys == ["project_id", "sku"]
+
+
+def test_transaction_registry_reads_v3_in_92_day_windows_and_pages(driver: SourceDriver) -> None:
+    rows = [
+        {"transaction": {"id": i, "status": "done"}, "payment_details": {"payout": {"amount": 1.5}}} for i in range(101)
+    ]
+
+    def registry_page(request: RecordedRequest) -> ScriptedResponse:
+        if request.param("datetime_from") != "2010-01-01":
+            return ScriptedResponse(json=[])
+        offset = int(request.param("offset") or 0)
+        return ScriptedResponse(json=rows[offset : offset + 100])
+
+    with time_machine.travel("2010-06-01T12:00:00Z", tick=False):
+        result = driver.run("transaction_registry", registry_page)
+
+    assert [row["id"] for row in result.rows] == list(range(101))
+    assert {request.url.split("?")[0] for request in result.requests} == {
+        "https://api.xsolla.com/merchant/v3/merchants/123/reports/transactions/registry.json"
+    }
+    assert [
+        (r.param("datetime_from"), r.param("datetime_to"), r.param("offset"), r.param("in_transfer_currency"))
+        for r in result.requests
+    ] == [
+        ("2010-01-01", "2010-04-02", "0", "0"),
+        ("2010-01-01", "2010-04-02", "100", "0"),
+        ("2010-04-03", "2010-06-01", "0", "0"),
+    ]
+
+
 def test_report_windows_drop_rows_already_seen_in_an_earlier_window(driver: SourceDriver) -> None:
     with time_machine.travel("2010-06-01T12:00:00Z", tick=False):
         result = driver.run(

@@ -128,11 +128,14 @@ You have GitHub access in this session.`;
     const settingsUrl = `${this.options.apiUrl.replace(/\/$/, "")}/project/${this.options.projectId}/settings/user-personal-integrations`;
     return `
 ## GitHub access
-You do not have GitHub access in this session.
+This session has no authenticated GitHub access.
 - You can read repository content that is already in the workspace.
 - You can clone an exact public repository. Do not call \`list_repos\` without GitHub access.
+- Read public or already cloned repository content without asking the user to connect GitHub.
 - Codebase analysis and code review require readable repository content.
-- Code changes also require publishing access.
+- Publishing changes requires authenticated GitHub access.
+
+Only when the requested work requires unavailable private repository or publishing access:
 - If the required access is unavailable, do not replace the requested code work with generic guidance or PostHog data analysis.
 - Tell the user to connect GitHub at ${settingsUrl}.
 - The connection applies to a new task, not this task.

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 66 enabled ops
+ * PostHog API - MCP 68 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -211,7 +211,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_\* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400."
+            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_\* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They need staff or the inbox model sort rollout: other users get a 400."
         ),
     priority: zod
         .string()
@@ -338,6 +338,48 @@ export const SignalsReportsPartialUpdateBody = () => zod
     .describe(
         'Editable human-facing fields on a signal report (PATCH).\n\nBoth fields are optional so a caller can change either independently, but at least one\nmust be supplied. Every other report field — status, weights, judgments — is owned by the\nsignals pipeline and is deliberately not writable here.'
     )
+
+/**
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * @summary List the report actions that start an agent run
+ */
+export const SignalsReportsActionsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * @summary Start a report action as a background agent run
+ */
+export const SignalsReportsActionsRunCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
+
+export const SignalsReportsActionsRunCreateBody = () => zod.object({
+    action: zod
+        .enum(['get_it_merged', 'suggested_prompt'])
+        .describe('\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt')
+        .describe(
+            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt'
+        ),
+    suggested_prompt_index: zod
+        .number()
+        .min(signalsReportsActionsRunCreateBodySuggestedPromptIndexMin)
+        .optional()
+        .describe('Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.'),
+})
 
 /**
  * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
@@ -752,6 +794,12 @@ export const signalsReportChecksReplaceCreateBodyTitleMax = 200
 
 export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax = 527040
+
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin = 0
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneMax = 527040
+
 export const signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax = 40
 
 export const SignalsReportChecksReplaceCreateBody = () => zod.object({
@@ -774,6 +822,46 @@ export const SignalsReportChecksReplaceCreateBody = () => zod.object({
                 .optional()
                 .describe(
                     'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
+                ),
+            monitoring: zod
+                .union([
+                    zod.object({
+                        reference_period_minutes: zod
+                            .number()
+                            .gt(
+                                signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin
+                            )
+                            .max(signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax)
+                            .describe(
+                                'The period the comparison target describes, in minutes. Independent of the soak and run schedule.'
+                            ),
+                        threshold_scaling: zod
+                            .enum(['linear', 'fixed'])
+                            .describe(
+                                'How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes \/ reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.'
+                            ),
+                        baseline_period_minutes: zod
+                            .union([
+                                zod
+                                    .number()
+                                    .gt(
+                                        signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin
+                                    )
+                                    .max(
+                                        signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneMax
+                                    ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
                 ),
             comparison: zod
                 .object({
@@ -1999,7 +2087,7 @@ export const SignalsScoutConfigTrialSetupQueryParams = () => zod.object({
 })
 
 /**
- * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately. With surface=onboarding, new configs stay disabled until explicitly activated.
  * @summary Sync scout configs
  */
 export const SignalsScoutConfigSyncParams = () => zod.object({
@@ -2012,10 +2100,10 @@ export const SignalsScoutConfigSyncParams = () => zod.object({
 
 export const SignalsScoutConfigSyncQueryParams = () => zod.object({
     surface: zod
-        .enum(['roster', 'desktop', 'wizard'])
+        .enum(['roster', 'desktop', 'wizard', 'onboarding'])
         .optional()
         .describe(
-            "Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.\n\n\* `roster` - roster\n\* `desktop` - desktop\n\* `wizard` - wizard"
+            "Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. The onboarding surface creates new configs disabled until the user activates them. Omitted means unknown.\n\n\* `roster` - roster\n\* `desktop` - desktop\n\* `wizard` - wizard\n\* `onboarding` - onboarding"
         ),
 })
 
@@ -3418,6 +3506,12 @@ export const signalsScoutReportCheckCreateBodyTitleMax = 200
 
 export const signalsScoutReportCheckCreateBodyRationaleMax = 2000
 
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesMax = 527040
+
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin = 0
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneMax = 527040
+
 export const signalsScoutReportCheckCreateBodyConfigOneOneUnitOneMax = 40
 
 export const signalsScoutReportCheckCreateBodyConfigOneTwoInstructionsMax = 2000
@@ -3461,6 +3555,48 @@ export const SignalsScoutReportCheckCreateBody = () => zod
                             .optional()
                             .describe(
                                 'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
+                            ),
+                        monitoring: zod
+                            .union([
+                                zod.object({
+                                    reference_period_minutes: zod
+                                        .number()
+                                        .gt(
+                                            signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesExclusiveMin
+                                        )
+                                        .max(
+                                            signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesMax
+                                        )
+                                        .describe(
+                                            'The period the comparison target describes, in minutes. Independent of the soak and run schedule.'
+                                        ),
+                                    threshold_scaling: zod
+                                        .enum(['linear', 'fixed'])
+                                        .describe(
+                                            'How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes \/ reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.'
+                                        ),
+                                    baseline_period_minutes: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .gt(
+                                                    signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin
+                                                )
+                                                .max(
+                                                    signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional()
+                                        .describe(
+                                            'The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
                             ),
                         comparison: zod
                             .object({
@@ -3645,7 +3781,7 @@ export const SignalsScoutReportCheckListQueryParams = () => zod.object({
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = () => zod.object({
@@ -3704,6 +3840,12 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
         .max(signalsScoutScratchpadSearchQueryLimitMax)
         .optional()
         .describe('Max rows to return (default 20, hard cap 1000).'),
+    skill_name: zod
+        .string()
+        .optional()
+        .describe(
+            'Return only the entries this writer created, matched against `created_by_skill` (a scout skill name or a `pipeline:\*` identity). Omit to return entries from every writer.'
+        ),
     text: zod
         .string()
         .optional()

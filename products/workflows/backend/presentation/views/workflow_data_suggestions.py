@@ -17,6 +17,7 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.workflows.backend.facade.contracts import DataSuggestionNotFound, DataSuggestionsResult
 from products.workflows.backend.facade.data_suggestions import (
+    FEATURE_FLAG_KEY,
     build_caller,
     email_sender_ready,
     get_data_suggestions,
@@ -25,9 +26,6 @@ from products.workflows.backend.facade.data_suggestions import (
     start_build,
     start_data_suggestions,
 )
-
-# pinned: feature flag key - the frontend gates the same surfaces on it
-FEATURE_FLAG_KEY = "workflows-data-suggestions"
 
 
 class DataSuggestionStepKind(models.TextChoices):

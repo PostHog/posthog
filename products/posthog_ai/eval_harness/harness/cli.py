@@ -63,6 +63,7 @@ class HarnessOptions:
 
     verbose: bool = False
     infrastructure_retries: int = DEFAULT_INFRA_RETRIES
+    interactive: bool | None = None
 
 
 def _default_case_timeout() -> int:
@@ -179,6 +180,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--verbose", action="store_true", help="Show detailed logs in the console as well as the transcript."
     )
+    display = parser.add_mutually_exclusive_group()
+    display.add_argument("--tui", dest="interactive", action="store_true", help="Show the interactive terminal view.")
+    display.add_argument("--no-tui", dest="interactive", action="store_false", help="Use plain text output.")
+    parser.set_defaults(interactive=None)
     parser.add_argument(
         "--fail-under",
         type=float,
@@ -262,4 +267,5 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         sandbox_flags_set=sandbox_flags_set,
         infrastructure_retries=args.infra_retries,
         verbose=args.verbose,
+        interactive=args.interactive,
     )

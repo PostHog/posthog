@@ -53,6 +53,13 @@ describe('maxGlobalLogic', () => {
         jest.restoreAllMocks()
     })
 
+    // GlobalModals mounts this logic on every page. Mounting it alone must not mount the task list,
+    // or every boot fetches tasks, and a boot where the task list cannot build crashes the app.
+    it('mounts without mounting the task list', () => {
+        expect(logic.isMounted()).toBe(true)
+        expect(tasksLogic.findMounted()).toBeNull()
+    })
+
     // Opening a conversation in the side panel must surface it in the side panel chat without
     // replacing the main content. The side panel floats over whatever scene you're on; the rendered
     // scene is chosen by the route, so the page (insight, survey, …) must stay put.

@@ -12,7 +12,7 @@
 #
 # INBOX_RANKING_SYNC_TITLE_EMBEDDINGS=1 copies inbox_report_title_embeddings, the title-only
 # vectors of the same reports. It is a separate switch for the same reason: each table is a vector
-# per live report per partition, and a local loop usually wants one of them.
+# per live report per partition. No model family trains on it.
 #
 # Two hops: prod S3 -> a disk cache -> the local object-storage bucket. The disk copy is what
 # makes a re-sync cheap (aws s3 sync only moves new partitions) and doubles as input for

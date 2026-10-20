@@ -33,9 +33,9 @@ class BloomerangResumeConfig:
 def _flatten_audit_trail(item: dict[str, Any]) -> dict[str, Any]:
     """Promote AuditTrail.CreatedDate/LastModifiedDate onto the row root.
 
-    Constituents, Transactions, and Interactions nest their timestamps under an `AuditTrail`
-    object; flattening them makes `CreatedDate` usable as a partition key and `LastModifiedDate`
-    usable as the incremental cursor column.
+    Every endpoint except Appeals, Campaigns, Funds, and Phones nests its timestamps under an
+    `AuditTrail` object; flattening them makes `CreatedDate` usable as a partition key and
+    `LastModifiedDate` usable as the incremental cursor column.
     """
     audit_trail = item.pop("AuditTrail", None)
     if isinstance(audit_trail, dict):
@@ -59,18 +59,21 @@ def _build_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
 ) -> dict[str, Any]:
+    params: dict[str, Any] = dict(config.extra_params)
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value:
-        return {
-            "lastModified": _format_last_modified(db_incremental_field_last_value),
-            "orderBy": "LastModifiedDate",
-            "orderDirection": "Asc",
-        }
-    if config.supports_sort:
+        params.update(
+            {
+                "lastModified": _format_last_modified(db_incremental_field_last_value),
+                "orderBy": "LastModifiedDate",
+                "orderDirection": "Asc",
+            }
+        )
+    elif config.supports_sort:
         # Explicit stable sort even for full refresh: Bloomerang's own default order direction
         # varies by endpoint (Transactions defaults to Desc), so an unstated default can't be
         # relied on to keep page boundaries stable as rows are inserted mid-sync.
-        return {"orderBy": "Id", "orderDirection": "Asc"}
-    return {}
+        params.update({"orderBy": config.sort_field, "orderDirection": "Asc"})
+    return params
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -78,8 +81,8 @@ def _client_config(api_key: str) -> ClientConfig:
         "base_url": BASE_URL,
         "headers": {"Accept": "application/json"},
         "auth": {"type": "api_key", "name": "X-Api-Key", "api_key": api_key, "location": "header"},
-        # `capture=False`: Constituents, Transactions, and Interactions carry donor PII and
-        # free-form interaction notes that the name-based sample scrubbers can't recognise, so
+        # `capture=False`: Constituents, Transactions, Interactions, Notes, and Tasks carry donor PII
+        # and free-form notes that the name-based sample scrubbers can't recognise, so
         # keep every response body out of HTTP sample storage. Requests stay metered and logged.
         "session": make_tracked_session(redact_values=(api_key,), capture=False),
         # `X-Api-Key` isn't the standard Authorization header, which `requests` strips on a

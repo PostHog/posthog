@@ -1,15 +1,15 @@
-import { eventValue, historyPoint, wouldFire } from './BillingAlertHistory'
-import type { BillingAlertConfigurationApi, BillingAlertEventApi } from './generated/api.schemas'
+import type {
+    BillingAlertConfigurationApi,
+    BillingAlertEventApi,
+} from 'products/billing/frontend/generated/api.schemas'
 
-function alert(
-    thresholdType: BillingAlertConfigurationApi['threshold_type'],
-    minimumValue = '0'
-): BillingAlertConfigurationApi {
+import { eventValue, historyPoint, wouldFire } from './BillingAlertHistory'
+
+function alert(thresholdType: BillingAlertConfigurationApi['threshold_type']): BillingAlertConfigurationApi {
     return {
         threshold_type: thresholdType,
         threshold_percentage: '50',
         threshold_value: '100',
-        minimum_value: minimumValue,
         configuration_revision: 2,
     } as unknown as BillingAlertConfigurationApi
 }
@@ -41,16 +41,8 @@ describe('billing alert history classification', () => {
         ).toBe(false)
     })
 
-    it.each([
-        ['relative_increase', { current_value: '99', relative_delta_percentage: '500' }],
-        ['absolute_value', { current_value: '99' }],
-        ['absolute_increase', { current_value: '99', absolute_delta: '500' }],
-    ] as const)('applies the minimum current value to %s alerts', (thresholdType, values) => {
-        expect(wouldFire(alert(thresholdType, '100'), event(values))).toBe(false)
-    })
-
-    it('classifies a complete value that clears both gates', () => {
-        expect(wouldFire(alert('relative_increase', '100'), event({ current_value: '150' }))).toBe(true)
+    it('classifies a complete value that clears the threshold', () => {
+        expect(wouldFire(alert('relative_increase'), event({ current_value: '150' }))).toBe(true)
     })
 
     it.each(['check', 'errored'] as const)('does not mark %s events as firing edges', (kind) => {

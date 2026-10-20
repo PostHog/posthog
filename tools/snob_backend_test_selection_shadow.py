@@ -89,6 +89,8 @@ FULL_RUN_PATTERNS = (
     "bin/wait-for-docker",
     "bin/ci-wait-for-docker",
     # Non-Python files that affect generated Python code or test behavior
+    # A data file the host guards read at runtime, so a change to it is a behavior change
+    "posthog/security/crosslang/",
     "frontend/src/queries/schema.json",
     "frontend/src/products.json",
     "frontend/public/email/",

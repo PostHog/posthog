@@ -149,4 +149,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "region": "AWS region selected for this source.",
         },
     },
+    "data_quality_results_v2": {
+        "description": "Data quality results published from any supported data processing engine, not only Glue jobs.",
+        "docs_url": "https://docs.aws.amazon.com/glue/latest/webapi/API_ListDataQualityResultsV2.html",
+        "columns": {
+            "result_id": "Identifier of the data quality result.",
+            "data_source": "Table associated with the data quality result, if any.",
+            "result_published_on": "Time when the data quality result was published.",
+            "dimensions": "Platform identifiers, such as cluster, application, workgroup, or project IDs, for where the evaluation ran.",
+            "evaluation_context": "Evaluation context that identifies a result, or a series of related results, within a run.",
+            "descriptors": "User-provided descriptors that add context to the result, such as database name, table name, team, or environment.",
+            "region": "AWS region selected for this source.",
+        },
+    },
 }

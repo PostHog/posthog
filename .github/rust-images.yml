@@ -126,6 +126,13 @@
   dockerfile: ./rust/Dockerfile
   project: jfz76fgvqd
 
+# Second binary of the personhog-identity crate: drains the publish outbox
+# identity writes. Shares identity's Depot project like the flags-cache
+# binaries share feature-flags'.
+- image: personhog-publisher
+  dockerfile: ./rust/Dockerfile
+  project: jfz76fgvqd
+
 - image: personhog-leader
   dockerfile: ./rust/Dockerfile
   project: g0kjbvxgqx

@@ -407,7 +407,7 @@ export const todayLogic = kea<todayLogicType>([
                         return { results: [], count: 0 }
                     }
                     // The person's own reports, ranked and counted.
-                    // A P0 nobody owns ranks above every one of them, so Today leaves it to the Inbox.
+                    // A P0 nobody owns belongs to the project, so Today leaves it to the Inbox.
                     let response
                     try {
                         response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {

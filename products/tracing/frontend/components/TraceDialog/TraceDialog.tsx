@@ -15,6 +15,8 @@ import { pluralize } from 'lib/utils/strings'
 import { SpanInspector } from 'products/tracing/frontend/components/SpanInspector/SpanInspector'
 import { MissingParentSpanNotice } from 'products/tracing/frontend/components/TraceDrawer/MissingParentSpanNotice'
 import { TraceIdentityChips } from 'products/tracing/frontend/components/TraceDrawer/TraceIdentityChips'
+import { TraceLoadErrorNotice } from 'products/tracing/frontend/components/TraceDrawer/TraceLoadErrorNotice'
+import { TraceUnavailableNotice } from 'products/tracing/frontend/components/TraceDrawer/TraceUnavailableNotice'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
 import { TRACE_DIALOG_DATA_ATTR, traceDialogLogic } from './traceDialogLogic'
@@ -147,16 +149,10 @@ export function TraceDialog(): JSX.Element | null {
                             <Spinner className="text-2xl" />
                         </div>
                     ) : traceSpansFailed ? (
-                        <div className="flex flex-1 flex-col items-center justify-center gap-2">
-                            <span>Couldn't load this trace.</span>
-                            <LemonButton type="secondary" onClick={() => loadTraceSpans(trace)}>
-                                Try again
-                            </LemonButton>
-                        </div>
+                        <TraceLoadErrorNotice onRetry={() => loadTraceSpans(trace)} />
                     ) : !traceSpans || traceSpans.spans.length === 0 ? (
-                        <div className="flex flex-1 items-center justify-center text-muted">
-                            No spans found for this trace. Open it in Tracing to search other time ranges.
-                        </div>
+                        // The dialog has no filters, and Open in Tracing below covers spans outside its time window.
+                        <TraceUnavailableNotice traceId={trace.traceId} filtersActive={false} surface="trace_dialog" />
                     ) : (
                         <div className="@container/trace-dialog flex flex-1 min-h-0">
                             <div className="flex flex-1 min-w-0 min-h-0 flex-col @min-[56rem]/trace-dialog:flex-row">

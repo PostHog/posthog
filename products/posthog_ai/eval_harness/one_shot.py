@@ -20,6 +20,7 @@ from .base import _BaseEvalRun
 from .config import BaseEvalCase
 from .engines.types import CaseHooks, ExperimentResult
 from .log_sink import write_case_logs
+from .offline_results import OfflineEvalSuite
 
 if TYPE_CHECKING:
     from .harness.context import EvalContext
@@ -50,6 +51,7 @@ class _OneShotEvalRun(_BaseEvalRun):
         is_public: bool,
         no_send_logs: bool,
         task_fn: OneShotTaskFn,
+        offline_suite: OfflineEvalSuite | None = None,
     ) -> None:
         super().__init__(
             experiment_name=experiment_name,
@@ -58,6 +60,7 @@ class _OneShotEvalRun(_BaseEvalRun):
             ctx=ctx,
             is_public=is_public,
             no_send_logs=no_send_logs,
+            offline_suite=offline_suite,
         )
         self._task_fn = task_fn
 
@@ -110,6 +113,7 @@ async def OneShotEval(
     ctx: EvalContext,
     is_public: bool = False,
     no_send_logs: bool = True,
+    offline_suite: OfflineEvalSuite | None = None,
 ) -> ExperimentResult:
     """Run a one-shot evaluation suite via Braintrust.
 
@@ -127,6 +131,7 @@ async def OneShotEval(
         is_public=is_public,
         no_send_logs=no_send_logs,
         task_fn=task,
+        offline_suite=offline_suite,
     )
     return await run.run()
 

@@ -73,6 +73,8 @@ Create a personal access token in the [Linode Cloud Manager](https://cloud.linod
 - NodeBalancers
 - Kubernetes
 - Domains
+- Images
+- Databases
 """,
             iconPath="/static/services/linode.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/linode",

@@ -32,6 +32,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.metric_calculation.config import build_calculation_configs
 from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -42,7 +43,6 @@ from products.experiments.backend.temporal.models import (
     METRICS_RECALCULATION_WORKFLOW_NAME,
     ExperimentMetricsRecalculationWorkflowInputs,
 )
-from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
@@ -57,6 +57,7 @@ _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
+RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -271,6 +272,7 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
                 ExperimentMetricsRecalculationWorkflowInputs(
                     recalculation_id=recalculation_id,
                     fairness_key=organization_id,
+                    activity_task_queue=_activity_task_queue(organization_id),
                 ),
                 id=metrics_recalculation_workflow_id(recalculation_id),
                 task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -309,21 +311,34 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
             pass
 
 
-def _refresh_window_enforced(experiment: Experiment) -> bool:
-    # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
-    if settings.DEBUG and not settings.TEST:
-        return False
-    organization_id = str(experiment.team.organization_id)
-    # Evaluated locally: this sits on the POST path, and a miss would otherwise block the request on a call
+def _organization_flag_enabled(flag_key: str, organization_id: str) -> bool:
+    # Evaluated locally: callers sit on request and start paths, and a miss would otherwise block them on a call
     # to /flags. The flag has to target the organization id sent here, or it reads false for everyone.
     return feature_enabled_or_false(
-        RECALCULATION_RATE_LIMIT_FEATURE_FLAG,
+        flag_key,
         organization_id,
         groups={"organization": organization_id},
         group_properties={"organization": {"id": organization_id}},
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
+
+
+def _activity_task_queue(organization_id: str) -> str | None:
+    # A flag error keeps the run on the workflow's queue, because a failed start would roll the row back to FAILED.
+    try:
+        enabled = _organization_flag_enabled(RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG, organization_id)
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
+
+
+def _refresh_window_enforced(experiment: Experiment) -> bool:
+    # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
+    if settings.DEBUG and not settings.TEST:
+        return False
+    return _organization_flag_enabled(RECALCULATION_RATE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
 
 
 def request_recalculation(experiment: Experiment, user: User | None, trigger: str = "manual") -> dict:
@@ -403,7 +418,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
 
         # Set total_metrics up front from the experiment definition so the client can show progress
         # ("N of M") immediately, before the workflow's discovery activity confirms the same count.
-        metrics = discover_experiment_metrics(experiment)
+        metrics = get_metrics_for_calculation(experiment)
         recalc = ExperimentMetricsRecalculation.objects.create(
             team=experiment.team,
             experiment=experiment,
@@ -411,7 +426,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
             status=ExperimentMetricsRecalculation.Status.PENDING,
             created_by=user,
             total_metrics=len(metrics),
-            metric_uuids=[m.metric_uuid for m in metrics],
+            metric_uuids=[m.uuid for m in metrics],
         )
         return build_job_payload(recalc, is_existing=False)
 

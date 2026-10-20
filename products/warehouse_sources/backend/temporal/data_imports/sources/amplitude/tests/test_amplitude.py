@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.
     COHORTS_ENDPOINT,
     EVENT_PROPERTIES_ENDPOINT,
     EVENTS_ENDPOINT,
+    GROUP_PROPERTIES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.source import AmplitudeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -262,16 +263,41 @@ class TestEventsWindowing:
 class TestListRows:
     @parameterized.expand(
         [
-            (COHORTS_ENDPOINT, {"cohorts": [{"id": "c1"}, {"id": "c2"}]}, ["c1", "c2"]),
-            (ANNOTATIONS_ENDPOINT, {"data": [{"id": 1}]}, [1]),
-            (COHORTS_ENDPOINT, {"cohorts": []}, []),
-            (COHORTS_ENDPOINT, {"unexpected": []}, []),
+            (COHORTS_ENDPOINT, {"cohorts": [{"id": "c1"}, {"id": "c2"}]}, "/api/3/cohorts", "id", ["c1", "c2"]),
+            (ANNOTATIONS_ENDPOINT, {"data": [{"id": 1}]}, "/api/2/annotations", "id", [1]),
+            (COHORTS_ENDPOINT, {"cohorts": []}, "/api/3/cohorts", "id", []),
+            (COHORTS_ENDPOINT, {"unexpected": []}, "/api/3/cohorts", "id", []),
+            (
+                GROUP_PROPERTIES_ENDPOINT,
+                {
+                    "success": True,
+                    "data": [
+                        {"group_property": "grp:plan_tier", "type": "string", "is_hidden": False},
+                        {"group_property": "grp:seat_count", "type": "number", "is_array_type": False},
+                    ],
+                },
+                "/api/2/taxonomy/group-property",
+                "group_property",
+                ["grp:plan_tier", "grp:seat_count"],
+            ),
+            (
+                GROUP_PROPERTIES_ENDPOINT,
+                {"success": True, "data": []},
+                "/api/2/taxonomy/group-property",
+                "group_property",
+                [],
+            ),
         ]
     )
-    def test_data_selector_extraction(self, endpoint: str, body: Any, expected_ids: list[Any]) -> None:
+    def test_data_selector_extraction(
+        self, endpoint: str, body: Any, expected_path: str, key_field: str, expected_keys: list[Any]
+    ) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=body)])
 
-        assert [row["id"] for row in result.rows] == expected_ids
+        assert [row[key_field] for row in result.rows] == expected_keys
+        assert result.paths == [expected_path]
+        # A `group_type` param would narrow group properties to one group type instead of the shared set.
+        assert "?" not in result.urls[0]
         assert result.raised is None
 
     def test_bare_list_response_is_yielded(self) -> None:

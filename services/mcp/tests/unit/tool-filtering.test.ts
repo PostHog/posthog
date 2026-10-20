@@ -452,20 +452,12 @@ describe('Tool Filtering - API Scopes', () => {
         ['notebooks-widget-status', ['notebook:read']],
         ['notebooks-widget-cancel', ['notebook:write']],
     ] satisfies [string, string[]][])(
-        'exposes %s only with notebook widgets enabled and the required scopes',
+        'exposes %s with the required scopes without feature flags',
         async (toolName, scopes) => {
             const context = createMockContext(scopes)
-            const enabledOptions = { featureFlags: { 'notebook-generated-widgets': true }, aiConsentGiven: true }
+            const enabledOptions = { aiConsentGiven: true }
             const enabled = await getToolsFromContext(context, enabledOptions)
             expect(enabled.map((tool) => tool.name)).toContain(toolName)
-
-            for (const flagValue of [false, undefined]) {
-                const disabled = await getToolsFromContext(context, {
-                    ...enabledOptions,
-                    featureFlags: { 'notebook-generated-widgets': flagValue },
-                })
-                expect(disabled.map((tool) => tool.name)).not.toContain(toolName)
-            }
 
             for (const missingScope of scopes) {
                 const denied = await getToolsFromContext(
@@ -1083,6 +1075,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
+            'inbox-report-actions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
@@ -1106,9 +1099,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-feature-requests',
                 'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
-                'notebook-generated-widgets',
                 'revamped-py-notebooks',
-                'notebook-generated-widgets',
                 'tasks',
                 'tasks-mcp-agent-run-start',
                 'dashboard-widgets',
@@ -1136,6 +1127,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
                 'workflows-data-suggestions',
+                'workflows-mcp-onboarding',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

@@ -52,15 +52,25 @@ class TestBuildParams:
             "orderDirection": "Asc",
         }
 
-    def test_incremental_endpoint_without_cursor_falls_back_to_stable_sort(self) -> None:
+    @parameterized.expand(
+        [
+            ("Constituents", "Id"),
+            # Refunds, SoftCredits, and Notes reject `orderBy=Id`.
+            ("SoftCredits", "CreatedDate"),
+            ("Notes", "CreatedDate"),
+        ]
+    )
+    def test_incremental_endpoint_without_cursor_falls_back_to_stable_sort(
+        self, endpoint: str, expected_sort: str
+    ) -> None:
         # First-ever sync: no watermark yet, but the endpoint still supports sorting, so page
         # boundaries must stay stable rather than sending no params at all.
         params = _build_params(
-            BLOOMERANG_ENDPOINTS["Constituents"],
+            BLOOMERANG_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=None,
         )
-        assert params == {"orderBy": "Id", "orderDirection": "Asc"}
+        assert params == {"orderBy": expected_sort, "orderDirection": "Asc"}
 
     def test_full_refresh_endpoint_with_sort_support_never_filters(self) -> None:
         # Transactions has no server-side lastModified filter; a cursor must not leak into the request.
@@ -170,6 +180,13 @@ class TestBloomerangSourceTransport:
         assert result.raised is None
         assert result.requests[0].param("lastModified") == "2026-03-04T02:58:14Z"
         assert result.requests[0].param("orderBy") == "LastModifiedDate"
+
+    def test_tasks_requests_every_status(self) -> None:
+        result = self._driver().run("Tasks", [_response([{"Id": 1}], total_filtered=1)])
+
+        assert result.raised is None
+        assert result.requests[0].param("status") == "Active|Complete|Archived"
+        assert result.requests[0].param("orderBy") == "CreatedDate"
 
     def test_audit_trail_endpoint_flattens_rows(self) -> None:
         result = self._driver().run(

@@ -16,6 +16,63 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const InboxReportActionsListSchema = () => {
+    const SignalsReportsActionsListParams = orvalSchemas.SignalsReportsActionsListParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['report_id'] }),
+        SignalsReportsActionsListParams.omit({ project_id: true })
+    )
+}
+
+const inboxReportActionsList = (): ToolBase<
+    ReturnType<typeof InboxReportActionsListSchema>,
+    WithPostHogUrl<Schemas.SignalReportTaskActionListResponse>
+> => ({
+    name: 'inbox-report-actions-list',
+    schema: InboxReportActionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportActionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReportTaskActionListResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/actions/`,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
+const InboxReportActionsRunSchema = () => {
+    const SignalsReportsActionsRunCreateBody = orvalSchemas.SignalsReportsActionsRunCreateBody()
+    const SignalsReportsActionsRunCreateParams = orvalSchemas.SignalsReportsActionsRunCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['report_id'] }),
+        SignalsReportsActionsRunCreateParams.omit({ project_id: true }).extend(SignalsReportsActionsRunCreateBody.shape)
+    )
+}
+
+const inboxReportActionsRun = (): ToolBase<
+    ReturnType<typeof InboxReportActionsRunSchema>,
+    WithPostHogUrl<Schemas.SignalReportTaskActionRunResponse>
+> => ({
+    name: 'inbox-report-actions-run',
+    schema: InboxReportActionsRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportActionsRunSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.action !== undefined) {
+            body['action'] = params.action
+        }
+        if (params.suggested_prompt_index !== undefined) {
+            body['suggested_prompt_index'] = params.suggested_prompt_index
+        }
+        const result = await context.api.request<Schemas.SignalReportTaskActionRunResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/actions/run/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
 const InboxReportArtefactsCreateSchema = () => {
     const SignalsReportArtefactsCreateBody = orvalSchemas.SignalsReportArtefactsCreateBody()
     const SignalsReportArtefactsCreateParams = orvalSchemas.SignalsReportArtefactsCreateParams()
@@ -2103,6 +2160,7 @@ const scoutScratchpadSearch = (): ToolBase<
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
+                skill_name: params.skill_name,
                 text: params.text,
             },
         })
@@ -3130,6 +3188,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
+                skill_name: params.skill_name,
                 text: params.text,
             },
         })
@@ -3138,6 +3197,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'inbox-report-actions-list': inboxReportActionsList,
+    'inbox-report-actions-run': inboxReportActionsRun,
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,
     'inbox-report-artefacts-delete': inboxReportArtefactsDelete,
     'inbox-report-artefacts-list': inboxReportArtefactsList,

@@ -27,8 +27,9 @@ def _last_modified_incremental_fields() -> list[IncrementalField]:
 class BloomerangEndpointConfig:
     name: str
     path: str  # path under https://api.bloomerang.co/v2
-    # Whether the list action accepts a server-side `lastModified` filter (Constituents only —
-    # Transactions/Interactions accept `orderBy=LastModifiedDate` for sorting but no filter param).
+    # Whether the list action accepts a server-side `lastModified` filter *and* `orderBy=LastModifiedDate`,
+    # so incremental pages arrive in ascending cursor order. Households, Addresses, and Emails accept
+    # the filter but not `orderBy`, so they stay full refresh.
     supports_incremental: bool
     # Whether the list action accepts `orderBy`/`orderDirection` at all (Appeals/Campaigns/Funds
     # accept neither, per the API's own parameter docs).
@@ -36,6 +37,10 @@ class BloomerangEndpointConfig:
     # Whether rows carry a nested `AuditTrail` object ({CreatedDate, LastModifiedDate, ...}) that
     # gets flattened onto the row root. Appeals/Campaigns/Funds have no AuditTrail field.
     has_audit_trail: bool
+    # Column for the stable full-refresh sort. The `orderBy` enum varies per endpoint: Refunds,
+    # SoftCredits, Notes, and Tasks don't accept `Id`.
+    sort_field: str = "Id"
+    extra_params: dict[str, str] = field(default_factory=dict)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     primary_keys: list[str] = field(default_factory=lambda: ["Id"])
     # Stable creation-time column to partition by. None when the endpoint has no AuditTrail.
@@ -88,6 +93,71 @@ BLOOMERANG_ENDPOINTS: dict[str, BloomerangEndpointConfig] = {
         supports_sort=False,
         has_audit_trail=False,
         partition_key=None,
+    ),
+    "Refunds": BloomerangEndpointConfig(
+        name="Refunds",
+        path="refunds",
+        supports_incremental=True,
+        supports_sort=True,
+        has_audit_trail=True,
+        sort_field="CreatedDate",
+        incremental_fields=_last_modified_incremental_fields(),
+    ),
+    "SoftCredits": BloomerangEndpointConfig(
+        name="SoftCredits",
+        path="softcredits",
+        supports_incremental=True,
+        supports_sort=True,
+        has_audit_trail=True,
+        sort_field="CreatedDate",
+        incremental_fields=_last_modified_incremental_fields(),
+    ),
+    "Households": BloomerangEndpointConfig(
+        name="Households",
+        path="households",
+        supports_incremental=False,
+        supports_sort=False,
+        has_audit_trail=True,
+    ),
+    "Phones": BloomerangEndpointConfig(
+        name="Phones",
+        path="phones",
+        supports_incremental=False,
+        supports_sort=False,
+        has_audit_trail=False,
+        partition_key=None,
+    ),
+    "Addresses": BloomerangEndpointConfig(
+        name="Addresses",
+        path="addresses",
+        supports_incremental=False,
+        supports_sort=False,
+        has_audit_trail=True,
+    ),
+    "Emails": BloomerangEndpointConfig(
+        name="Emails",
+        path="emails",
+        supports_incremental=False,
+        supports_sort=False,
+        has_audit_trail=True,
+    ),
+    "Notes": BloomerangEndpointConfig(
+        name="Notes",
+        path="notes",
+        supports_incremental=False,
+        supports_sort=True,
+        has_audit_trail=True,
+        sort_field="CreatedDate",
+    ),
+    "Tasks": BloomerangEndpointConfig(
+        name="Tasks",
+        path="tasks",
+        supports_incremental=False,
+        supports_sort=True,
+        has_audit_trail=True,
+        sort_field="CreatedDate",
+        # The API doesn't document which statuses an unfiltered request returns, so ask for all of them.
+        extra_params={"status": "Active|Complete|Archived"},
     ),
 }
 

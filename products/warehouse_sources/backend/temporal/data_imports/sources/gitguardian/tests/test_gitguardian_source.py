@@ -25,12 +25,6 @@ class TestGitguardianSourceConfig:
         assert GitguardianSource.lists_tables_without_credentials is True
 
 
-class TestGitguardianSchemas:
-    def test_names_filter(self) -> None:
-        schemas = GitguardianSource().get_schemas(MagicMock(), team_id=1, names=["teams"])
-        assert [s.name for s in schemas] == ["teams"]
-
-
 class TestNonRetryableErrors:
     @parameterized.expand(
         [

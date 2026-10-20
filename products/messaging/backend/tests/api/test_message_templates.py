@@ -112,17 +112,25 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    def test_create_email_template_without_subject_fails(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_templates/",
-            data={
-                "name": "No Subject Template",
-                "content": {"email": {"html": "<p>Hello</p>"}},
-                "type": "email",
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+    @parameterized.expand(
+        [
+            (
+                "create_without_subject",
+                "post",
+                False,
+                {"name": "No Subject Template", "content": {"email": {"html": "<p>Hello</p>"}}, "type": "email"},
+            ),
+            ("update_with_blank_subject", "patch", True, {"content": {"email": {"subject": "", "html": "<p>Hi</p>"}}}),
+        ]
+    )
+    def test_email_content_without_subject_fails(self, _name, method, detail, body):
+        url = f"/api/environments/{self.team.id}/messaging_templates/"
+        if detail:
+            url += f"{self.message_template.id}/"
+
+        response = getattr(self.client, method)(url, data=body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     @patch("products.messaging.backend.presentation.views.message_templates.report_user_action")
     def test_create_email_template_with_subject_succeeds(self, mock_report):
