@@ -29,11 +29,6 @@ logger = structlog.get_logger(__name__)
 BATCH_EXPORT_NOT_FOUND = "BatchExport not found."
 
 # The viewset declares no queryset, so drf-spectacular cannot read the type of the ids from a model.
-BATCH_EXPORT_ID_PARAMETER = OpenApiParameter(
-    "batch_export_id",
-    {"type": "string", "format": "uuid", "description": "The BatchExport this backfill belongs to."},
-    OpenApiParameter.PATH,
-)
 BACKFILL_ID_PARAMETER = OpenApiParameter(
     "id",
     OpenApiTypes.UUID,
@@ -106,7 +101,15 @@ class TooManyConcurrentBackfills(APIException):
     default_detail = "Too many concurrent batch export backfills for this team."
 
 
-@extend_schema(parameters=[BATCH_EXPORT_ID_PARAMETER])
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            "batch_export_id",
+            {"type": "string", "format": "uuid", "description": "The BatchExport this backfill belongs to."},
+            OpenApiParameter.PATH,
+        )
+    ]
+)
 @extend_schema_view(retrieve=extend_schema(parameters=[BACKFILL_ID_PARAMETER]))
 class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """ViewSet for BatchExportBackfill models.

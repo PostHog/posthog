@@ -30,11 +30,6 @@ from products.batch_exports.backend.presentation.views.utils import (
 )
 
 # The viewset declares no queryset, so drf-spectacular cannot read the type of the ids from a model.
-BATCH_EXPORT_ID_PARAMETER = OpenApiParameter(
-    "batch_export_id",
-    {"type": "string", "format": "uuid", "description": "The `BatchExport` this run belongs to."},
-    OpenApiParameter.PATH,
-)
 RUN_ID_PARAMETER = OpenApiParameter(
     "id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="A UUID string identifying this batch export run."
 )
@@ -169,7 +164,16 @@ class RunsCursorPagination(FacadeCursorPagination):
     page_size = 100
 
 
-@extend_schema(tags=["batch_exports"], parameters=[BATCH_EXPORT_ID_PARAMETER])
+@extend_schema(
+    tags=["batch_exports"],
+    parameters=[
+        OpenApiParameter(
+            "batch_export_id",
+            {"type": "string", "format": "uuid", "description": "The `BatchExport` this run belongs to."},
+            OpenApiParameter.PATH,
+        )
+    ],
+)
 @extend_schema_view(
     list=extend_schema(parameters=[BatchExportRunListQuerySerializer]),
     retrieve=extend_schema(parameters=[RUN_ID_PARAMETER]),
