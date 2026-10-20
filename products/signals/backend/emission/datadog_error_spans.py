@@ -29,13 +29,14 @@ DATADOG_ERROR_SPAN_FIELDS = (
     "error_type",
 )
 
-# Spans keep the error under `error`. A column shape that differs from this makes the extraction
-# return an empty string, so the group still emits without an error type. Error messages can hold
-# personal data, so only the error type reaches the signal, as with error logs.
+# The Datadog source writes `error_type` on every span row, because the spans API keeps the error
+# under `custom`, `attributes` or the top level depending on the span. Reading a raw `error` column
+# would fail the whole query on an account whose spans never carry one. Only the error type reaches
+# the signal, so the grouping key stays short and stable.
 _SELECT_SQL = """
     service,
     resource_name,
-    ifNull(JSONExtractString(toString(error), 'type'), '') AS error_type,
+    error_type,
     count() AS occurrences,
     min(start_timestamp) AS first_seen,
     max(start_timestamp) AS last_seen

@@ -1,8 +1,10 @@
+from collections.abc import Callable
 from dataclasses import field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_spans import with_span_error_type
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_tracking import (
     DatadogIssueSearchConfig,
 )
@@ -78,11 +80,12 @@ class DatadogEndpointConfig:
     default_lookback_days: Optional[int] = None
     # Set for the Error Tracking issue search, which walks a time window instead of pages.
     search: Optional[DatadogIssueSearchConfig] = None
-    # Stops a page walk after this many pages. Safe for ascending incremental endpoints, because the
-    # pipeline checkpoints the highest cursor value and the next sync resumes from it. Also safe for a
-    # newest-first full refresh, where the cap drops the oldest rows of the window. An ascending full
-    # refresh would keep the oldest rows and lose the newest.
+    # Stops a page walk after this many pages, on an incremental sync or a newest-first walk only. An
+    # incremental sync resumes from the checkpointed cursor, and a newest-first walk drops the oldest
+    # rows. An ascending full refresh would keep the oldest rows and lose the newest, so it is not capped.
     max_pages_per_sync: Optional[int] = None
+    # Applied to each flattened row, for a column the API does not return in one fixed place.
+    row_transform: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
     # Tables that are off until the user opts in, because they are high volume or need extra scopes.
     should_sync_default: bool = True
 
@@ -249,6 +252,7 @@ DATADOG_ENDPOINTS: dict[str, DatadogEndpointConfig] = {
         default_lookback_days=1,
         max_pages_per_sync=100,
         should_sync_default=False,
+        row_transform=with_span_error_type,
     ),
     # Error-level logs only, for the same volume reason as ``error_spans``. The ``logs`` table
     # stays unfiltered for users who want every log.

@@ -28,23 +28,58 @@ def _driver() -> SourceDriver:
 
 
 class TestWalkPageCap:
-    def test_max_pages_per_sync_stops_the_walk(self) -> None:
-        # The error endpoints are rate limited, so a sync stops after a bounded number of pages and the
-        # next one continues from the checkpointed cursor value.
+    @pytest.mark.parametrize(
+        ("incremental", "expected_ids", "expected_warnings"),
+        [
+            # The next incremental sync continues from the checkpointed cursor value.
+            (True, ["0", "1"], [("datadog.page_cap_reached",)]),
+            # An oldest-first full refresh replaces the table, so a cap would drop the newest rows.
+            (False, ["0", "1", "2", "3"], []),
+        ],
+    )
+    def test_page_cap_applies_only_where_the_dropped_rows_come_back(
+        self, incremental: bool, expected_ids: list[str], expected_warnings: list[tuple[str]]
+    ) -> None:
         capped = dataclasses.replace(DATADOG_ENDPOINTS["error_logs"], max_pages_per_sync=2)
         pages = [
             {"data": [{"id": str(i), "attributes": {}}], "links": {"next": f"https://api.datadoghq.com/p{i + 1}"}}
-            for i in range(4)
-        ]
+            for i in range(3)
+        ] + [{"data": [{"id": "3", "attributes": {}}], "links": {}}]
         logger = mock.MagicMock()
 
         with mock.patch.dict(DATADOG_ENDPOINTS, {"error_logs": capped}):
-            result = _driver().run("error_logs", [ScriptedResponse(json=page) for page in pages], logger=logger)
+            result = _driver().run(
+                "error_logs",
+                [ScriptedResponse(json=page) for page in pages],
+                logger=logger,
+                should_use_incremental_field=incremental,
+                incremental_field="timestamp" if incremental else None,
+            )
 
         assert result.raised is None
-        assert len(result.requests) == 2
-        assert [row["id"] for row in result.rows] == ["0", "1"]
-        assert [call.args for call in logger.warning.call_args_list] == [("datadog.page_cap_reached",)]
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert [call.args for call in logger.warning.call_args_list] == expected_warnings
+
+
+class TestSpanErrorType:
+    @pytest.mark.parametrize(
+        ("attributes", "expected"),
+        [
+            ({"custom": {"error": {"type": "TimeoutError", "message": "upstream"}}}, "TimeoutError"),
+            ({"custom": {"error.type": "KeyError"}}, "KeyError"),
+            ({"error": {"type": "ValueError"}}, "ValueError"),
+            ({"custom": {"http": {"status_code": "500"}}}, None),
+        ],
+    )
+    def test_sync_writes_the_error_type_wherever_the_span_keeps_it(
+        self, attributes: dict[str, Any], expected: str | None
+    ) -> None:
+        span = {"id": "s1", "type": "spans", "attributes": {"service": "checkout-api", **attributes}}
+
+        result = _driver().run("error_spans", [ScriptedResponse(json={"data": [span], "links": {}})])
+
+        assert result.raised is None
+        assert [row["error_type"] for row in result.rows] == [expected]
 
 
 def _issue_result(issue_id: str, total: int, sessions: int = 1, users: int = 1) -> dict[str, Any]:

@@ -296,6 +296,7 @@ def _walk(
     logger: FilteringBoundLogger,
     save_state: Callable[[str], None] | None = None,
     allow_missing: bool = False,
+    max_pages: int | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Page through one endpoint URL, yielding a normalized batch per response."""
     url = start_url
@@ -310,12 +311,11 @@ def _walk(
         if items:
             if config.flatten_attributes:
                 items = [_flatten_item(item) for item in items]
+            if config.row_transform is not None:
+                items = [config.row_transform(item) for item in items]
             yield items
 
-        if config.max_pages_per_sync is not None and pages >= config.max_pages_per_sync:
-            # An incremental walk arrives oldest first and the pipeline checkpoints the newest cursor
-            # value, so the next sync continues where this one stopped instead of losing the rest.
-            # A full refresh walks newest first, so the rows dropped here are the oldest ones.
+        if max_pages is not None and pages >= max_pages:
             logger.warning("datadog.page_cap_reached", endpoint=config.name, pages=pages)
             return
 
@@ -427,6 +427,10 @@ def get_rows(
         params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
         url = _build_initial_url(host, config.path, params)
 
+    # The cap is safe only where the rows it drops come back or are the oldest: an incremental sync
+    # resumes from the checkpointed cursor, and a newest-first walk drops the oldest rows.
+    newest_first = (config.sort_param or "").startswith("-")
+    max_pages = config.max_pages_per_sync if should_use_incremental_field or newest_first else None
     yield from _walk(
         config,
         url,
@@ -434,6 +438,7 @@ def get_rows(
         host,
         logger,
         save_state=lambda next_url: resumable_source_manager.save_state(DatadogResumeConfig(next_url=next_url)),
+        max_pages=max_pages,
     )
 
 
