@@ -24,7 +24,6 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     azure_openai: 'Azure OpenAI',
     together_ai: 'Together AI',
     minimax: 'MiniMax',
-    zeabur: 'Zeabur AI Hub',
     system_one: 'System One',
     openai_compatible: 'OpenAI-compatible',
 }
@@ -86,9 +85,6 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
     if (normalized === 'mini max' || normalized === 'mini-max') {
         return 'minimax'
-    }
-    if (normalized === 'zeabur ai hub' || normalized === 'zeabur-ai-hub') {
-        return 'zeabur'
     }
     if (normalized === 'openai-compatible' || normalized === 'openai compatible') {
         return 'openai_compatible'

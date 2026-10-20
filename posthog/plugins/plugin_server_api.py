@@ -255,6 +255,15 @@ WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE = ScopedServiceJwtPurpose(
 )
 
 
+# The workers that wake parked steps also wake parked batch resolvers, so the two share a key. The
+# audience keeps a token for one from waking the other.
+WORKFLOWS_RESUME_BATCH_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_RESUME_BATCH,
+    settings_name="WORKFLOWS_STEP_RESUME_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
 def _mint_transactional_email_jwt(team_id: int, hog_flow_id: str) -> str:
     """Short-lived scoped JWT for one transactional email send, pinned to the team and the transactional email's
     workflow so a leaked token can only send that email. Verified in the plugin server's CdpApi."""
@@ -270,6 +279,22 @@ def send_transactional_email(team_id: int, hog_flow_id: str, payload: dict) -> r
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email",
         json=payload,
         headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id)}"},
+        timeout=10,
+    )
+
+
+def resume_hog_flow_batch_job(team_id: int, hog_flow_id: str, batch_job_id: str) -> requests.Response:
+    """Wake a batch run's resolver, parked until its realtime cohort finished calculating. The JSON
+    `outcome` is `resumed` or `already_resumed` on success; a 409 means the resolver isn't parked."""
+    if not WORKFLOWS_RESUME_BATCH_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_STEP_RESUME_JWT_SECRET is not configured — cannot resume a batch run")
+    token = WORKFLOWS_RESUME_BATCH_JWT_PURPOSE.mint(
+        {"team_id": team_id, "hog_flow_id": hog_flow_id, "batch_job_id": batch_job_id}
+    )
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_jobs/{batch_job_id}/resume",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
         timeout=10,
     )
 
@@ -352,11 +377,14 @@ def create_batch_hog_flow_job_invocation(
     batch_job_id: UUIDT,
     max_audience_size: int | None = None,
     filters: dict | None = None,
+    realtime_cohort: dict | None = None,
 ) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
-        json={"max_audience_size": max_audience_size, "filters": filters},
+        json={"max_audience_size": max_audience_size, "filters": filters, "realtime_cohort": realtime_cohort},
         headers=get_internal_api_headers(),
+        # A run waits on this call while it is created, so a stalled CDP API must not hold it open.
+        timeout=30,
     )
 
 

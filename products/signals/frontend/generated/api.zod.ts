@@ -121,6 +121,367 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const signalsOnboardingCreateBodyScannerIdsMax = 100
+
+export const signalsOnboardingCreateBodyActivationScoutsItemMax = 200
+
+export const signalsOnboardingCreateBodyActivationScoutsMax = 50
+
+export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
+    step: zod
+        .enum(['signals', 'scouts', 'github'])
+        .describe('\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub')
+        .describe(
+            'Step to resume after returning.\n\n\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub'
+        ),
+    sources: zod
+        .array(
+            zod.object({
+                source_product: zod
+                    .enum([
+                        'session_replay',
+                        'llm_analytics',
+                        'github',
+                        'linear',
+                        'jira',
+                        'zendesk',
+                        'conversations',
+                        'error_tracking',
+                        'pganalyze',
+                        'signals_scout',
+                        'signals_check',
+                        'logs',
+                        'health_checks',
+                        'endpoints',
+                        'replay_vision',
+                        'analytics',
+                        'freshdesk',
+                        'freshservice',
+                        'front',
+                        'gorgias',
+                        'kustomer',
+                        'dixa',
+                        'plain',
+                        'gitlab',
+                        'gitea',
+                        'shortcut',
+                        'sentry',
+                        'rollbar',
+                        'bugsnag',
+                        'honeybadger',
+                        'raygun',
+                        'snyk',
+                        'sonarqube',
+                        'semgrep',
+                        'rapid7_insightvm',
+                        'featurebase',
+                        'frill',
+                        'aha',
+                        'uservoice',
+                        'productboard',
+                        'canny',
+                        'asknicely',
+                        'retently',
+                        'appfigures',
+                        'appfollow',
+                        'judgeme_reviews',
+                        'intercom',
+                        'hubspot',
+                        'engineering_analytics',
+                        'google_search_console',
+                    ])
+                    .describe(
+                        '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
+                    )
+                    .describe(
+                        'Source product selected during setup.\n\n\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
+                    ),
+                source_type: zod
+                    .enum([
+                        'session_analysis_cluster',
+                        'evaluation_report',
+                        'issue',
+                        'ticket',
+                        'issue_created',
+                        'issue_reopened',
+                        'issue_spiking',
+                        'cross_source_issue',
+                        'alert_state_change',
+                        'health_issue',
+                        'endpoint_execution_failed',
+                        'endpoint_breakdown_limit_exceeded',
+                        'scanner_finding',
+                        'anomaly_investigation',
+                        'feedback',
+                        'review',
+                        'ci_flaky_check',
+                        'ci_broken_default_branch',
+                        'ci_duration_regression',
+                        'search_opportunity',
+                    ])
+                    .describe(
+                        '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
+                    )
+                    .describe(
+                        'Signal type selected during setup.\n\n\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
+                    ),
+                enabled: zod.boolean().describe('Whether this source should be enabled at activation.'),
+            })
+        )
+        .describe('Staged signal source choices.'),
+    scanner_ids: zod
+        .array(zod.uuid())
+        .max(signalsOnboardingCreateBodyScannerIdsMax)
+        .describe('Existing enabled scanners selected to emit signals.'),
+    suggestions: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Stable id of this suggestion within the batch; use it to dismiss.'),
+                kind: zod
+                    .enum(['canonical', 'custom'])
+                    .describe('\* `canonical` - canonical\n\* `custom` - custom')
+                    .describe(
+                        '`canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.\n\n\* `canonical` - canonical\n\* `custom` - custom'
+                    ),
+                skill_name: zod
+                    .string()
+                    .describe(
+                        "The scout's `signals-scout-\*` skill name (existing for canonical, proposed for custom)."
+                    ),
+                title: zod.string().describe('Short sentence-case title: what the scout watches.'),
+                why_here: zod.string().describe('Project-specific evidence for this suggestion, in prose.'),
+                description: zod
+                    .string()
+                    .describe('Custom only: the one-line description the scout would be created with.'),
+                draft_body: zod
+                    .string()
+                    .describe('Custom only: the complete skill body the scout would be created with.'),
+                proposed_config: zod
+                    .object({
+                        run_cron_schedule: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Suggested five-field cron schedule in the project timezone, or null for an interval.'
+                            ),
+                        run_interval_minutes: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Suggested minutes between runs when no cron is given; null means the daily default.'
+                            ),
+                        emit: zod
+                            .boolean()
+                            .describe('Whether the suggested scout should write to the inbox (false = dry run).'),
+                    })
+                    .describe('Suggested schedule and emit posture.'),
+                gap: zod.boolean().describe('True when nothing in the current fleet covers this.'),
+                confidence: zod
+                    .enum(['high', 'medium', 'low'])
+                    .describe('\* `high` - high\n\* `medium` - medium\n\* `low` - low')
+                    .describe("The producer's confidence.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high"),
+            })
+        )
+        .describe('Selected scout suggestion drafts.'),
+    activation_scouts: zod
+        .array(zod.string().max(signalsOnboardingCreateBodyActivationScoutsItemMax))
+        .max(signalsOnboardingCreateBodyActivationScoutsMax)
+        .optional()
+        .describe('Scouts enabled by an unfinished activation, retained to undo later deselections.'),
+    automatic_implementation: zod.boolean().describe('Opt in to automatically creating pull requests.'),
+    implementation_priority: zod
+        .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+        .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4')
+        .describe(
+            'Lowest priority to implement automatically; P1 includes P0 and P1.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+        ),
+})
+
+export const signalsOnboardingCompleteCreateBodyScannerIdsMax = 100
+
+export const signalsOnboardingCompleteCreateBodyActivationScoutsItemMax = 200
+
+export const signalsOnboardingCompleteCreateBodyActivationScoutsMax = 50
+
+export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
+    step: zod
+        .enum(['signals', 'scouts', 'github'])
+        .describe('\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub')
+        .describe(
+            'Step to resume after returning.\n\n\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub'
+        ),
+    sources: zod
+        .array(
+            zod.object({
+                source_product: zod
+                    .enum([
+                        'session_replay',
+                        'llm_analytics',
+                        'github',
+                        'linear',
+                        'jira',
+                        'zendesk',
+                        'conversations',
+                        'error_tracking',
+                        'pganalyze',
+                        'signals_scout',
+                        'signals_check',
+                        'logs',
+                        'health_checks',
+                        'endpoints',
+                        'replay_vision',
+                        'analytics',
+                        'freshdesk',
+                        'freshservice',
+                        'front',
+                        'gorgias',
+                        'kustomer',
+                        'dixa',
+                        'plain',
+                        'gitlab',
+                        'gitea',
+                        'shortcut',
+                        'sentry',
+                        'rollbar',
+                        'bugsnag',
+                        'honeybadger',
+                        'raygun',
+                        'snyk',
+                        'sonarqube',
+                        'semgrep',
+                        'rapid7_insightvm',
+                        'featurebase',
+                        'frill',
+                        'aha',
+                        'uservoice',
+                        'productboard',
+                        'canny',
+                        'asknicely',
+                        'retently',
+                        'appfigures',
+                        'appfollow',
+                        'judgeme_reviews',
+                        'intercom',
+                        'hubspot',
+                        'engineering_analytics',
+                        'google_search_console',
+                    ])
+                    .describe(
+                        '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
+                    )
+                    .describe(
+                        'Source product selected during setup.\n\n\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
+                    ),
+                source_type: zod
+                    .enum([
+                        'session_analysis_cluster',
+                        'evaluation_report',
+                        'issue',
+                        'ticket',
+                        'issue_created',
+                        'issue_reopened',
+                        'issue_spiking',
+                        'cross_source_issue',
+                        'alert_state_change',
+                        'health_issue',
+                        'endpoint_execution_failed',
+                        'endpoint_breakdown_limit_exceeded',
+                        'scanner_finding',
+                        'anomaly_investigation',
+                        'feedback',
+                        'review',
+                        'ci_flaky_check',
+                        'ci_broken_default_branch',
+                        'ci_duration_regression',
+                        'search_opportunity',
+                    ])
+                    .describe(
+                        '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
+                    )
+                    .describe(
+                        'Signal type selected during setup.\n\n\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
+                    ),
+                enabled: zod.boolean().describe('Whether this source should be enabled at activation.'),
+            })
+        )
+        .describe('Staged signal source choices.'),
+    scanner_ids: zod
+        .array(zod.uuid())
+        .max(signalsOnboardingCompleteCreateBodyScannerIdsMax)
+        .describe('Existing enabled scanners selected to emit signals.'),
+    suggestions: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Stable id of this suggestion within the batch; use it to dismiss.'),
+                kind: zod
+                    .enum(['canonical', 'custom'])
+                    .describe('\* `canonical` - canonical\n\* `custom` - custom')
+                    .describe(
+                        '`canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.\n\n\* `canonical` - canonical\n\* `custom` - custom'
+                    ),
+                skill_name: zod
+                    .string()
+                    .describe(
+                        "The scout's `signals-scout-\*` skill name (existing for canonical, proposed for custom)."
+                    ),
+                title: zod.string().describe('Short sentence-case title: what the scout watches.'),
+                why_here: zod.string().describe('Project-specific evidence for this suggestion, in prose.'),
+                description: zod
+                    .string()
+                    .describe('Custom only: the one-line description the scout would be created with.'),
+                draft_body: zod
+                    .string()
+                    .describe('Custom only: the complete skill body the scout would be created with.'),
+                proposed_config: zod
+                    .object({
+                        run_cron_schedule: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Suggested five-field cron schedule in the project timezone, or null for an interval.'
+                            ),
+                        run_interval_minutes: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Suggested minutes between runs when no cron is given; null means the daily default.'
+                            ),
+                        emit: zod
+                            .boolean()
+                            .describe('Whether the suggested scout should write to the inbox (false = dry run).'),
+                    })
+                    .describe('Suggested schedule and emit posture.'),
+                gap: zod.boolean().describe('True when nothing in the current fleet covers this.'),
+                confidence: zod
+                    .enum(['high', 'medium', 'low'])
+                    .describe('\* `high` - high\n\* `medium` - medium\n\* `low` - low')
+                    .describe("The producer's confidence.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high"),
+            })
+        )
+        .describe('Selected scout suggestion drafts.'),
+    activation_scouts: zod
+        .array(zod.string().max(signalsOnboardingCompleteCreateBodyActivationScoutsItemMax))
+        .max(signalsOnboardingCompleteCreateBodyActivationScoutsMax)
+        .optional()
+        .describe('Scouts enabled by an unfinished activation, retained to undo later deselections.'),
+    automatic_implementation: zod.boolean().describe('Opt in to automatically creating pull requests.'),
+    implementation_priority: zod
+        .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+        .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4')
+        .describe(
+            'Lowest priority to implement automatically; P1 includes P0 and P1.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+        ),
+})
+
+export const SignalsOnboardingExposeCreateBody = /* @__PURE__ */ zod.object({
+    variant: zod
+        .enum(['control', 'test-ui', 'test-github'])
+        .describe('\* `control` - Control\n\* `test-ui` - Focused steps\n\* `test-github` - Activate and explore')
+        .describe(
+            'Assigned experiment variant at the eligible Inbox impression.\n\n\* `control` - Control\n\* `test-ui` - Focused steps\n\* `test-github` - Activate and explore'
+        ),
+})
+
 /**
  * View and control signal processing pipeline state for a team.
  */
@@ -158,6 +519,26 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     .describe(
         'Editable human-facing fields on a signal report (PATCH).\n\nBoth fields are optional so a caller can change either independently, but at least one\nmust be supplied. Every other report field — status, weights, judgments — is owned by the\nsignals pipeline and is deliberately not writable here.'
     )
+
+/**
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * @summary Start a report action as a background agent run
+ */
+export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
+
+export const SignalsReportsActionsRunCreateBody = /* @__PURE__ */ zod.object({
+    action: zod
+        .enum(['get_it_merged', 'suggested_prompt'])
+        .describe('\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt')
+        .describe(
+            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt'
+        ),
+    suggested_prompt_index: zod
+        .number()
+        .min(signalsReportsActionsRunCreateBodySuggestedPromptIndexMin)
+        .optional()
+        .describe('Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.'),
+})
 
 /**
  * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.

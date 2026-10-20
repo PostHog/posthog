@@ -214,6 +214,31 @@
         "params": [],
         "scope": "project"
     },
+    "analytics": {
+        "template": "/analytics",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsList": {
+        "template": "/analytics/all",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsMine": {
+        "template": "/analytics/mine",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsProductHome": {
+        "template": "/analytics/product-analytics",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsSpaces": {
+        "template": "/analytics/spaces",
+        "params": [],
+        "scope": "project"
+    },
     "annotation": {
         "template": "/data-management/annotations/{id}",
         "params": ["id"],
@@ -1464,6 +1489,11 @@
         "params": [],
         "scope": "project"
     },
+    "replayVisionNewScanner": {
+        "template": "/replay-vision/new/goal",
+        "params": [],
+        "scope": "project"
+    },
     "replayVisionObservation": {
         "template": "/replay-vision/observations/{observationId}",
         "params": ["observationId"],
@@ -1484,13 +1514,13 @@
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerOverview": {
-        "template": "/replay-vision/{id}/overview",
+    "replayVisionScannerGoal": {
+        "template": "/replay-vision/{id}/goal",
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerTemplate": {
-        "template": "/replay-vision/{id}/template",
+    "replayVisionScannerOverview": {
+        "template": "/replay-vision/{id}/overview",
         "params": ["id"],
         "scope": "project"
     },
@@ -1501,11 +1531,6 @@
     },
     "replayVisionTab": {
         "template": "/replay-vision",
-        "params": [],
-        "scope": "project"
-    },
-    "replayVisionTemplates": {
-        "template": "/replay-vision/new/template",
         "params": [],
         "scope": "project"
     },
@@ -1836,16 +1861,6 @@
     },
     "verifyEmail": {
         "template": "/verify_email",
-        "params": [],
-        "scope": "project"
-    },
-    "views": {
-        "template": "/views",
-        "params": [],
-        "scope": "project"
-    },
-    "viewsNew": {
-        "template": "/views/new",
         "params": [],
         "scope": "project"
     },

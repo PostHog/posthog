@@ -51,6 +51,7 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
     intentPrompt?: string
@@ -78,6 +79,7 @@ export interface ResolvedState {
      * the full roster into the instructions payload.
      */
     gatewayToolsEnabled: boolean
+    gatewayToolFilter?: Pick<RequestProperties, 'tools' | 'features' | 'excludeTools'> | undefined
     distinctId: string
     renderUiEnabled: boolean
 }
@@ -310,6 +312,7 @@ export class RequestStateResolver {
             reqCtx,
             context,
             useSingleExec,
+            viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
             interviewRecruitmentConfig,
             intentPrompt,
@@ -324,6 +327,7 @@ export class RequestStateResolver {
             allTools,
             scopeGatedTools,
             flagGatedTools,
+            gatewayToolFilter: { tools, features, excludeTools },
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&

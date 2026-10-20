@@ -146,11 +146,57 @@ class TestOffsetPagination:
         # State saved after the first full page, not after the short page.
         assert result.saved_states == [OpenRouterResumeConfig(offset=100)]
 
-    def test_offset_limit_endpoints_send_limit(self):
-        result = _driver().run("organization_members", [ScriptedResponse(json={"data": []})])
+    @pytest.mark.parametrize(
+        "endpoint,include_inactive",
+        [("organization_members", [None]), ("end_users", ["true"])],
+    )
+    def test_offset_limit_endpoints_send_limit(self, endpoint, include_inactive):
+        result = _driver().run(endpoint, [ScriptedResponse(json={"data": []})])
 
         assert result.raised is None
         assert result.params("limit") == ["100"]
+        assert result.params("include_inactive") == include_inactive
+
+
+class TestCursorPagination:
+    def test_batches_follow_last_id_until_has_more_is_false(self):
+        page1 = [{"id": "b3"}, {"id": "b2"}]
+        page2 = [{"id": "b1"}]
+        result = _driver().run(
+            "batches",
+            [
+                ScriptedResponse(json={"data": page1, "has_more": True, "last_id": "b2"}),
+                ScriptedResponse(json={"data": page2, "has_more": False, "last_id": "b1"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [page1, page2]
+        assert result.params("after") == [None, "b2"]
+        assert result.params("limit") == ["100", "100"]
+        assert result.saved_states == [OpenRouterResumeConfig(after="b2")]
+
+    def test_batches_fail_when_page_cap_leaves_pages_unread(self):
+        with mock.patch.object(openrouter, "MAX_PAGES", 2):
+            result = _driver().run(
+                "batches",
+                [
+                    ScriptedResponse(json={"data": [{"id": "b3"}], "has_more": True, "last_id": "b3"}),
+                    ScriptedResponse(json={"data": [{"id": "b2"}], "has_more": True, "last_id": "b2"}),
+                ],
+            )
+
+        assert isinstance(result.raised, openrouter.OpenRouterPageCapError)
+
+    def test_batches_resume_from_saved_cursor(self):
+        result = _driver().run(
+            "batches",
+            [ScriptedResponse(json={"data": [{"id": "b1"}], "has_more": False, "last_id": "b1"})],
+            resume_state=OpenRouterResumeConfig(after="b2"),
+        )
+
+        assert result.raised is None
+        assert result.params("after") == ["b2"]
 
 
 class TestSingleAndSingleton:

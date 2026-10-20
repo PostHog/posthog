@@ -42,6 +42,9 @@ RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
 BASE_RATE_SOURCE_CHOICES = api.BASE_RATE_SOURCE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
+KICKOFF_REASON_CHOICES = api.KICKOFF_REASON_CHOICES
+RESEARCH_INTERVAL_DAYS_CHOICES = api.RESEARCH_INTERVAL_DAYS_CHOICES
+TRAINING_PHASE_CHOICES = api.TRAINING_PHASE_CHOICES
 ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
 SUGGESTION_PRIORITY_CHOICES = api.SUGGESTION_PRIORITY_CHOICES
 SUGGESTION_STATUS_CHOICES = api.SUGGESTION_STATUS_CHOICES
@@ -662,10 +665,43 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         min_value=-2147483648,
         max_value=2147483647,
         required=False,
-        help_text="Total training iterations allowed for the autoresearch loop.",
+        help_text="Deprecated: scheduled training no longer reads it. Use iterations_per_run.",
     )
     iteration_budget_remaining = serializers.IntegerField(
-        read_only=True, help_text="Iterations remaining in the current budget."
+        read_only=True, help_text="Deprecated: scheduled training no longer reads or spends it."
+    )
+    iterations_per_run = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Experiments the agent may try in each training run (1-50). Each experiment costs agent time and "
+            "queries, so a higher value costs more per run. Scheduled runs and Train now use it."
+        ),
+    )
+    research_interval_days = serializers.ChoiceField(
+        choices=RESEARCH_INTERVAL_DAYS_CHOICES,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. "
+            "Null means only when asked: no scheduled research, so the only training cost comes from runs you "
+            "start and from rescue runs for a model that cannot score. A shorter interval costs more."
+        ),
+    )
+    training_phase = serializers.ChoiceField(
+        choices=TRAINING_PHASE_CHOICES,
+        read_only=True,
+        help_text=(
+            "explore: a research run on each scoring day until a run does not promote a better model, or until "
+            "5 research runs have run. maintain: one research run every research_interval_days."
+        ),
+    )
+    next_research_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Start of the UTC day from which the daily sweep can start the next scheduled research run. "
+            "Null when research_interval_days is null."
+        ),
     )
     success_auc = serializers.FloatField(
         required=False,
@@ -795,6 +831,10 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "cadence_days",
             "iteration_budget",
             "iteration_budget_remaining",
+            "iterations_per_run",
+            "research_interval_days",
+            "training_phase",
+            "next_research_at",
             "success_auc",
             "plateau_iterations",
             "output_person_property",
@@ -877,7 +917,26 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         required=False,
         min_value=1,
         max_value=500,
-        help_text="Total training iterations allowed for the autoresearch loop (1-500). Default: 50.",
+        help_text="Deprecated: scheduled training no longer reads it. Use iterations_per_run.",
+    )
+    iterations_per_run = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=50,
+        help_text=(
+            "Experiments the agent may try in each training run (1-50). Each experiment costs agent time and "
+            "queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5."
+        ),
+    )
+    research_interval_days = serializers.ChoiceField(
+        choices=RESEARCH_INTERVAL_DAYS_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. "
+            "Null means only when asked: no scheduled research, so the only training cost comes from runs you "
+            "start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7."
+        ),
     )
     success_auc = serializers.FloatField(
         required=False,
@@ -926,6 +985,8 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "inference_population",
             "cadence_days",
             "iteration_budget",
+            "iterations_per_run",
+            "research_interval_days",
             "success_auc",
             "plateau_iterations",
             "output_person_property",
@@ -1290,6 +1351,15 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         read_only=True,
         help_text="Run status: pending, running, completed, or failed.",
     )
+    kickoff_reason = serializers.ChoiceField(
+        choices=KICKOFF_REASON_CHOICES,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the run started: explore (the first burst of daily runs), scheduled (the research interval), "
+            "rescue (the champion cannot score) or manual (a person or an agent asked). Null for older runs."
+        ),
+    )
     iteration_budget = serializers.IntegerField(
         min_value=-2147483648,
         max_value=2147483647,
@@ -1347,6 +1417,7 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
             "task_run_id",
             "task_url",
             "status",
+            "kickoff_reason",
             "iteration_budget",
             "iteration_count",
             "best_holdout_score",
@@ -1857,7 +1928,7 @@ class StartTrainingRequestSerializer(serializers.Serializer):
         required=False,
         min_value=1,
         max_value=500,
-        help_text="Override the pipeline iteration budget for this training run.",
+        help_text="Iterations for this training run. Defaults to the pipeline's iterations_per_run.",
     )
 
 
@@ -1871,7 +1942,7 @@ class OpenTrainingRunSerializer(serializers.Serializer):
         required=False,
         min_value=1,
         max_value=500,
-        help_text="Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.",
+        help_text="Iteration budget for this run. Defaults to the pipeline's iterations_per_run if omitted.",
     )
 
 

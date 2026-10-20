@@ -1,7 +1,7 @@
 # Web app specific settings/middleware/apps setup
 import os
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -12,7 +12,13 @@ from whitenoise.compress import Compressor
 from posthog.openapi.enum_names import ChoicesEnumNameOverrides
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
-from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
+from posthog.settings.utils import (
+    generate_rsa_private_key_pem,
+    get_from_env,
+    get_list,
+    str_to_bool,
+    str_to_utc_datetime,
+)
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
@@ -1270,6 +1276,14 @@ OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 
+# A provisioning partner whose app predates the signing requirement may call unsigned until the grace period ends.
+PROVISIONING_SIGNING_REQUIRED_SINCE: datetime = get_from_env(
+    "PROVISIONING_SIGNING_REQUIRED_SINCE", datetime(2026, 10, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
+)
+PROVISIONING_UNSIGNED_GRACE_UNTIL: datetime = get_from_env(
+    "PROVISIONING_UNSIGNED_GRACE_UNTIL", datetime(2026, 10, 23, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
+)
+
 ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
 # IdPs issue ID-JAGs for immediate use (5 minutes is typical); the cap leaves headroom above that.
@@ -1280,6 +1294,7 @@ ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS
 
 # Extra accepted ID-JAG `aud` values (the advertised authorization-server issuer) beyond SITE_URL —
 # e.g. the OAuth proxy "https://oauth.posthog.com" on Cloud. SITE_URL is always accepted.
+# private_key_jwt client assertions accept these issuers and their token endpoints too.
 ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDIENCES", ""))
 # Extra accepted ID-JAG `resource` values (the advertised resource-server identifier) beyond SITE_URL —
 # e.g. "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
@@ -1551,3 +1566,5 @@ WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
 # header, so those consumers must reconnect from their onerror handler.
 # 0 rejects every stream (emergency lever).
 SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)
+
+CONTEXT_SELECTION_TIMEOUT_SECONDS = 3.0

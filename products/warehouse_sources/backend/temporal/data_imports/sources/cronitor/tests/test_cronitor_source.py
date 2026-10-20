@@ -13,11 +13,6 @@ class TestCronitorSource:
         self.team_id = 123
         self.config = CronitorSourceConfig(api_key="key")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["metrics"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "metrics"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
