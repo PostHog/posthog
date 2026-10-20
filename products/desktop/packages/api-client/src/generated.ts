@@ -15281,11 +15281,13 @@ export namespace Schemas {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
+     * * `alerts` - Alerts
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
-        | "transactional_emails";
+        | "transactional_emails"
+        | "alerts";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -15709,6 +15711,7 @@ export namespace Schemas {
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
+         * * `alerts` - Alerts
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -22182,7 +22185,11 @@ export namespace Endpoints {
                 limit: number;
                 offset: number;
                 optimization_enabled: boolean;
-                origin_product: "broadcasts" | "loops" | "transactional_emails";
+                origin_product:
+                    | "alerts"
+                    | "broadcasts"
+                    | "loops"
+                    | "transactional_emails";
                 search: string;
                 status: "active" | "archived" | "draft";
                 trigger: string;
