@@ -240,6 +240,10 @@ def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: in
         return False
     if credential.expires <= timezone.now():
         return False
+    # A staff member's impersonation session can mint OAuth tokens as the customer;
+    # gateway spend must never be attributed to a user who did not authorize it.
+    if credential.impersonated_by_id is not None:
+        return False
 
     # scoped_* narrows below the user's membership. team_id is the gateway's canonical
     # (project-root) team, so a token scoped only to a child env fails closed here.
