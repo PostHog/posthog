@@ -218,7 +218,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 assert expected_message in response.json()["detail"]
             build_runner.assert_not_called()
 
-    @parameterized.expand([("web", {}), ("mcp", {"HTTP_X_POSTHOG_CLIENT": "mcp"})])
+    @parameterized.expand([("web", {}), ("mcp", {"X-PostHog-Client": "mcp"})])
     def test_insight_saves_with_metrics_query(self, _name: str, client_headers: dict[str, str]) -> None:
         query = {
             "kind": "MetricsQuery",
@@ -229,7 +229,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.pk}/insights/",
             {"name": "queue depth", "saved": True, "query": query},
             format="json",
-            **client_headers,
+            headers=client_headers,
         )
 
         assert response.status_code == 201, response.json()
@@ -239,7 +239,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.pk}/insights/{response.json()['id']}/",
             {"query": query},
             format="json",
-            **client_headers,
+            headers=client_headers,
         )
 
         assert update_response.status_code == 200, update_response.json()
