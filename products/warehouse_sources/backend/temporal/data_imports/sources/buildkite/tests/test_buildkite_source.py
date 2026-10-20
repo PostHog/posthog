@@ -31,6 +31,8 @@ class TestBuildkiteSource:
             # fan-out that drives them. Nothing else has one.
             ("builds", True, True),
             ("jobs", True, False),
+            ("artifacts", True, False),
+            ("annotations", True, False),
             ("organizations", False, False),
             ("organization_members", False, False),
             ("pipelines", False, False),
@@ -47,8 +49,8 @@ class TestBuildkiteSource:
     def test_incremental_support_per_endpoint(self, endpoint: str, incremental: bool, append: bool) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
         assert schemas[endpoint].supports_incremental is incremental
-        # A job restates after it is created (state, finished_at) and each incremental run re-walks
-        # the trailing build window, so append would materialize the re-pulled rows as duplicates.
+        # A build child restates after it is created (a job's state, an artifact's state, an
+        # annotation's body), so append would materialize the re-pulled rows as duplicates.
         assert schemas[endpoint].supports_append is append
 
     @parameterized.expand(

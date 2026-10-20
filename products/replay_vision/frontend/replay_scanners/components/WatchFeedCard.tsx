@@ -1,9 +1,10 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
 import { colonDelimitedDuration } from 'lib/utils/durations'
@@ -23,6 +24,8 @@ import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcr
 import { citedTextToPlainText } from '../../utils/citations'
 import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
 import { watchFeedLogic } from '../watchFeedLogic'
+import { CARD_SEEN_DWELL_MS, cardProperties } from '../watchFeedTelemetry'
+import { WatchFeedDismissButton } from './WatchFeedDismissButton'
 
 /** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
  * feed, so a feed made up entirely of them means the window turned up no findings at all. */
@@ -207,9 +210,11 @@ interface WatchFeedRowProps {
 function WatchCardPerson({
     observation,
     person,
+    children,
 }: {
     observation: ReplayObservationApi
     person: string | null | undefined
+    children?: React.ReactNode
 }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
@@ -227,6 +232,8 @@ function WatchCardPerson({
                 ))}
             {person && <span aria-hidden>·</span>}
             <TZLabel time={observation.created_at} className="shrink-0" />
+            {children && <span aria-hidden>·</span>}
+            {children}
         </div>
     )
 }
@@ -339,6 +346,9 @@ export function watchFeedRowTitle(observation: ReplayObservationApi, reason: Wat
  */
 export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element {
     const { observation, reason } = item
+    const { feedLoad } = useValues(watchFeedLogic)
+    const { cardSeen, dismissItem } = useActions(watchFeedLogic)
+    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
     const result = readResult(observation)
     // Fall back to the result's own scanner_type when the snapshot is absent, like watchCardHeadline.
     const scannerType =
@@ -357,17 +367,14 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
     const filler = FILLER_REASON_KINDS.has(reason.kind)
     const captureOpened = (): void => {
         posthog.capture('replay_vision_watch_clip_clicked', {
-            scanner_id: observation.scanner_id,
+            ...cardProperties(feedLoad, item, position, 'feed_tab'),
             scanner_type: scannerType,
-            observation_id: observation.id,
-            position,
-            reason_kind: reason.kind,
             has_key_moment: keyMomentMs !== null,
             target: 'observation',
         })
     }
     return (
-        <article className="group relative flex min-w-0 gap-4" data-attr="vision-watch-feed-row">
+        <article ref={rowRef} className="group relative flex min-w-0 gap-4" data-attr="vision-watch-feed-row">
             <div className="relative w-36 shrink-0 self-start overflow-hidden rounded-lg border group-hover:border-accent group-focus-within:border-accent @xl:w-80">
                 {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
                 <ObservationThumbnail observation={observation} className="rounded-none border-0" />
@@ -396,7 +403,12 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                     </h3>
                 </Link>
                 <WatchFeedScannerLink observation={observation} scannerName={scannerName} scannerType={scannerType} />
-                <WatchCardPerson observation={observation} person={person} />
+                <WatchCardPerson observation={observation} person={person}>
+                    <WatchFeedDismissButton
+                        className="relative z-10 -my-1"
+                        onDismiss={(dismissalReason) => dismissItem(item, position, dismissalReason)}
+                    />
+                </WatchCardPerson>
                 {/* A short rule rather than a full-width line: rows carry no card, so a full line reads as
                     the border between two rows. */}
                 <div className="mt-1 flex flex-col gap-2" data-attr="vision-watch-feed-why">

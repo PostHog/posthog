@@ -35,9 +35,9 @@ interface DropdownTemplateMetadata {
 }
 
 // Remote config has its own dedicated menu item below, so the preset dropdown excludes it.
-type PresetTemplateKey = Exclude<TemplateKey, 'remote-config'>
+export type PresetTemplateKey = Exclude<TemplateKey, 'remote-config'>
 
-const TEMPLATE_METADATA: Record<PresetTemplateKey, DropdownTemplateMetadata> = {
+export const TEMPLATE_METADATA: Record<PresetTemplateKey, DropdownTemplateMetadata> = {
     simple: {
         name: 'Simple flag',
         description: 'On/off for all users',
@@ -60,10 +60,10 @@ const TEMPLATE_METADATA: Record<PresetTemplateKey, DropdownTemplateMetadata> = {
     },
 }
 
-const TEMPLATES: PresetTemplateKey[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
+export const TEMPLATES: PresetTemplateKey[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
 
-const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
-const AI_SUGGESTIONS = [
+export const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
+export const AI_SUGGESTIONS = [
     'Create a flag to gradually roll out…',
     'Create a flag that starts at 10% rollout for…',
     'Create a multivariate flag for…',
