@@ -26,6 +26,7 @@ from django.conf import settings
 
 import structlog
 
+from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
@@ -182,6 +183,26 @@ def plan_insight_batch(
         )
         safe_record(increment_checks_deferred, SourceKind.INSIGHT.value, len(candidates) - len(admitted))
     return tuple(admitted)
+
+
+def readmit_retried_check(team_id: int, configuration_id: str, *, previous_query_id: str, held_until: float) -> bool:
+    """Prepares a retried check. Returns False when the pool has no room for it.
+
+    A timed-out attempt's thread can still run its query, so the query is killed first, or the retry
+    would run beside it. The attempt that failed may also have released the check's slot, so the
+    retry takes it back rather than running past the pool's limit.
+    """
+    try:
+        cancel_query_on_cluster(team_id, f"{QUERY_ID_PREFIX}{previous_query_id}")
+    except Exception:
+        logger.exception("Could not stop a timed-out platform insight check", configuration_id=configuration_id)
+    admitted = admit_evaluation_slots(
+        [configuration_id],
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+        expires_at=held_until,
+        key=INFLIGHT_KEY,
+    )
+    return bool(admitted)
 
 
 def legacy_alerts_of(
