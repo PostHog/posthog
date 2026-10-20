@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect, type LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { fullName } from 'lib/utils/strings'
@@ -49,8 +50,8 @@ export function CanvasPickerSelect({
     dataAttr,
 }: CanvasPickerSelectProps): JSX.Element {
     const logic = canvasPickerLogic({ pickerKey })
-    const { canvasOptions, canvasOptionsLoading, selectedCanvas, search } = useValues(logic)
-    const { ensureOptionsLoaded, setSearch, ensureSelectedLoaded } = useActions(logic)
+    const { canvasOptions, canvasOptionsLoading, canvasOptionsFailed, selectedCanvas, search } = useValues(logic)
+    const { ensureOptionsLoaded, retryLoadOptions, setSearch, ensureSelectedLoaded } = useActions(logic)
 
     // Resolve the selected label even when it falls outside the loaded/searched page.
     useEffect(() => {
@@ -86,9 +87,18 @@ export function CanvasPickerSelect({
             value={value ? [value] : []}
             options={options}
             emptyStateComponent={
-                <p className="text-secondary italic p-1">
-                    {search ? `No canvases matching "${search}"` : 'No canvases yet'}
-                </p>
+                canvasOptionsFailed ? (
+                    <div className="flex items-center justify-between gap-2 p-1">
+                        <span className="text-danger">Couldn't load canvases.</span>
+                        <LemonButton size="xsmall" type="secondary" onClick={() => retryLoadOptions()}>
+                            Try again
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <p className="text-secondary italic p-1">
+                        {search ? `No canvases matching "${search}"` : 'No canvases yet'}
+                    </p>
+                )
             }
             onFocus={() => ensureOptionsLoaded()}
             onInputChange={(text) => setSearch(text)}
