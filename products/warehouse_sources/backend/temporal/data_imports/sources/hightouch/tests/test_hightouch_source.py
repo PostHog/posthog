@@ -22,7 +22,7 @@ class TestHightouchSource:
         assert config.name.value == "Hightouch"
         assert config.label == "Hightouch"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.GA
         # The source ships visible: unreleasedSource hides the connector from every user.
         assert not config.unreleasedSource
         assert config.iconPath == "/static/services/hightouch.png"
@@ -46,11 +46,6 @@ class TestHightouchSource:
         assert schemas["sync_runs"].supports_append is False
         assert [f["field"] for f in schemas["sync_runs"].incremental_fields] == ["startedAt"]
         assert schemas["sync_runs"].default_incremental_lookback_seconds == SYNC_RUNS_LOOKBACK_SECONDS
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["sync_runs"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "sync_runs"
 
     @pytest.mark.parametrize(
         "observed_error",

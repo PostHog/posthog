@@ -30,6 +30,10 @@ const pipeline = {
     cadence_days: 1,
     iteration_budget: 20,
     iteration_budget_remaining: 6,
+    iterations_per_run: 5,
+    research_interval_days: 7,
+    training_phase: 'maintain',
+    next_research_at: '2026-11-12T00:00:00Z',
     success_auc: null,
     plateau_iterations: 5,
     output_person_property: 'p_file_shared_7d',
@@ -250,6 +254,7 @@ const trainingRuns = [
     {
         id: 'training-3',
         pipeline: PIPELINE_ID,
+        kickoff_reason: 'scheduled',
         task_url: null,
         status: 'failed',
         iteration_count: 0,
@@ -267,6 +272,7 @@ const trainingRuns = [
     {
         id: 'training-2',
         pipeline: PIPELINE_ID,
+        kickoff_reason: 'explore',
         task_url: null,
         status: 'completed',
         iteration_count: 5,
@@ -290,6 +296,7 @@ const trainingRuns = [
     {
         id: 'training-1',
         pipeline: PIPELINE_ID,
+        kickoff_reason: 'manual',
         task_url: null,
         status: 'completed',
         iteration_count: 4,

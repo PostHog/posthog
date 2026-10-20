@@ -18,7 +18,6 @@ import { todaySessionSelectionLogic } from '~/layout/today/todaySessionSelection
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
@@ -577,9 +576,19 @@ const HIGHLIGHTS: HighlightsApi = {
             change_pct: 6.4,
             series: [3100, 3250, 3300, 3420, 3380, 3600, 3710, 3690, 3850, 3920, 3956, 4210],
             interval: 'week',
-            url: '/insights/wKu1pSx2',
+            url: '/dashboard/41',
             value_format: null,
             period_starts: PERIOD_STARTS(12, 'week'),
+            reason: 'dashboard',
+            dashboard_name: 'Growth',
+            opened_days: 9,
+            last_opened: '2026-09-27',
+            previous_value: 3956,
+            movers: [
+                { label: 'Paid plans', value: 2610, change_pct: 9.2 },
+                { label: 'Free plan', value: 1420, change_pct: 1.8 },
+                { label: 'Trials', value: 180, change_pct: -4.8 },
+            ],
         },
         {
             key: 'signup_event',
@@ -592,6 +601,12 @@ const HIGHLIGHTS: HighlightsApi = {
             url: KEY_METRIC_URL('$signup'),
             value_format: null,
             period_starts: PERIOD_STARTS(28, 'day'),
+            reason: 'key_metric',
+            dashboard_name: null,
+            opened_days: null,
+            last_opened: null,
+            previous_value: 1017,
+            movers: [],
         },
         {
             key: 'payment_event',
@@ -604,6 +619,12 @@ const HIGHLIGHTS: HighlightsApi = {
             url: KEY_METRIC_URL('payment_succeeded'),
             value_format: null,
             period_starts: PERIOD_STARTS(28, 'day'),
+            reason: 'key_metric',
+            dashboard_name: null,
+            opened_days: null,
+            last_opened: null,
+            previous_value: 353,
+            movers: [],
         },
         {
             key: 'activity_event',
@@ -616,6 +637,12 @@ const HIGHLIGHTS: HighlightsApi = {
             url: KEY_METRIC_URL('$pageview'),
             value_format: null,
             period_starts: PERIOD_STARTS(28, 'day'),
+            reason: 'key_metric',
+            dashboard_name: null,
+            opened_days: null,
+            last_opened: null,
+            previous_value: 18012,
+            movers: [],
         },
     ],
     items: [
@@ -697,9 +724,11 @@ const meta: Meta = {
         clearTodayStorage,
         mswDecorator({
             get: {
-                '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: 7 },
-                '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
                     const params = new URL(request.url).searchParams
+                    if (params.get('view') !== 'for_you') {
+                        return [200, { results: REPORTS, count: 7 }]
+                    }
                     const limit = Number(params.get('limit') ?? REPORTS.length)
                     const offset = Number(params.get('offset') ?? 0)
                     const excluded = new Set(params.get('exclude')?.split(',') ?? [])
@@ -860,7 +889,7 @@ export const HomeWithReportsOnly: Story = {
 export const HomeWithNoReports: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 } },
+            get: { '/api/projects/:team_id/signals/reports/': { results: [], count: 0 } },
         }),
     ],
 }
@@ -869,7 +898,7 @@ export const HomeWithoutAiAndNothingNew: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 },
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
                 '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
             },
         }),
@@ -879,7 +908,7 @@ export const HomeWithoutAiAndNothingNew: Story = {
 export const HomeWhenReportsFailToLoad: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/for_you/': () => [500, { detail: 'Server error' }] },
+            get: { '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'Server error' }] },
         }),
     ],
 }
@@ -888,7 +917,7 @@ export const HomeWithoutReportsWhenHighlightsFailToLoad: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 },
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
                 '/api/projects/:team_id/today/highlights/': () => [500, { detail: 'Server error' }],
             },
         }),
@@ -1143,30 +1172,5 @@ export const ListItemAppearanceDialog: Story = {
         todayListAppearanceLogic.actions.openAppearanceDialog()
         // The dialog opens in a portal outside the story's canvas.
         await within(document.body).findByText('Edit list item appearance')
-    },
-}
-
-export const ViewsAll: Story = {
-    parameters: { pageUrl: urls.views() },
-}
-
-export const ViewsEmpty: Story = {
-    parameters: { pageUrl: urls.views() },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/canvases/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/notebooks/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
-            },
-        }),
-    ],
-}
-
-export const ViewsNewMenu: Story = {
-    parameters: { pageUrl: urls.views() },
-    play: async ({ canvasElement }) => {
-        const [newView] = await within(canvasElement).findAllByText('New view')
-        await userEvent.click(newView)
     },
 }

@@ -123,4 +123,43 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "BalanceOver90Days": "Outstanding balance due from over 90 days ago.",
         },
     },
+    "inventory_assets": {
+        "description": "Inventory items and assets tracked for properties, units, and the company.",
+        "docs_url": "https://developer.buildium.com/#operation/ExternalApiInventoryAsset_GetInventoryAssets",
+        "columns": {
+            "Id": "Identifier for this inventory asset.",
+            "CategoryId": "Asset category of the item.",
+            "PropertyId": "Property associated with the asset, where applicable.",
+            "UnitId": "Unit associated with the asset, where applicable.",
+            "InventoryStorageId": "Inventory storage location of the asset, where applicable.",
+            "WarrantyEndDate": "Date the warranty expires, where applicable.",
+            "Quantity": "Quantity of the asset.",
+        },
+    },
+    "inventory_storages": {
+        "description": "Storage locations that hold inventory assets.",
+        "docs_url": "https://developer.buildium.com/#operation/ExternalApiInventoryStorage_GetInventoryStorages",
+        "columns": {
+            "Id": "Identifier for this inventory storage.",
+            "Name": "Name of the inventory storage.",
+        },
+    },
+    "asset_categories": {
+        "description": "Categories used to group inventory assets.",
+        "docs_url": "https://developer.buildium.com/#operation/ExternalApiAssetCategory_GetAllAssetCategories",
+        "columns": {
+            "Id": "Identifier for this asset category.",
+            "Name": "Name of the asset category.",
+        },
+    },
+    "custom_field_definitions": {
+        "description": "Custom fields defined for each Buildium entity type, such as rentals, leases, and vendors.",
+        "docs_url": "https://developer.buildium.com/#operation/ExternalApiCustomFieldsDefinitions_GetDefinitionsByEntityType",
+        "columns": {
+            "Id": "Identifier for this custom field definition.",
+            "GroupId": "Custom field group that contains the definition.",
+            "EntityTypeName": "Entity type the custom field applies to.",
+            "Configuration": "Field type and settings of the custom field.",
+        },
+    },
 }

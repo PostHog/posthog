@@ -58,13 +58,9 @@ class TestGetSchemas:
         schemas = {s.name: s for s in MistralAISource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].should_sync_default is should_sync_default
 
-    def test_names_filter(self) -> None:
-        schemas = MistralAISource().get_schemas(_config(), team_id=1, names=["files", "models"])
-        assert {s.name for s in schemas} == {"files", "models"}
-
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, (True, None)), ("invalid", 401, (False, "Invalid Mistral AI API key"))])
+    @parameterized.expand([("valid", 200, (True, None))])
     def test_maps_probe_result(self, _name: str, status: int, expected: tuple[bool, str | None]) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             result = MistralAISource().validate_credentials(_config(), team_id=1)

@@ -56,7 +56,7 @@ class AgileCRMSource(ResumableSource[AgileCRMSourceConfig, AgileCRMResumeConfig]
             name=ExternalDataSourceType.AGILECRM,
             category=DataWarehouseSourceCategory.CRM,
             label="AgileCRM",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Agile CRM credentials to pull your CRM data into the PostHog Data warehouse.
 
 Find your API key under **Admin Settings → Developers & API** in your Agile CRM account. Authenticate with the email address you log in with and that API key.
