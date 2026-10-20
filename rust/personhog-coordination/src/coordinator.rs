@@ -1285,7 +1285,7 @@ impl Coordinator {
             tracing::debug!("changelog config not seeded, skipping assignment");
             return Ok(());
         };
-        let total_partitions = changelog.partitions;
+        let (total_partitions, config_epoch) = (changelog.partitions, changelog.epoch);
 
         // K8s-aware placement policies for smarter rebalancing
         let members = match k8s_awareness {
@@ -1377,6 +1377,7 @@ impl Coordinator {
                 freeze_quorum_ref: Some(freeze_quorum_id.clone()),
                 created_at_ms: now_ms,
                 phase_entered_at_ms: now_ms,
+                config_epoch,
             })
             .collect();
 
@@ -1465,6 +1466,7 @@ impl Coordinator {
                             freeze_quorum_ref: None,
                             created_at_ms: now_ms,
                             phase_entered_at_ms: now_ms,
+                            config_epoch,
                         },
                         expected_mod_revision: mod_revision,
                     });

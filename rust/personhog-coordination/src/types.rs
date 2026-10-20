@@ -188,6 +188,9 @@ pub struct HandoffState {
     /// Zero means the record predates the field.
     #[serde(default)]
     pub phase_entered_at_ms: i64,
+    /// Changelog epoch the record was planned under.
+    #[serde(default)]
+    pub config_epoch: u64,
 }
 
 /// State machine for partition handoffs:
@@ -336,6 +339,13 @@ impl ChangelogConfig {
         }
     }
 
+    pub fn target(&self) -> ChangelogTarget {
+        ChangelogTarget {
+            topic: self.topic.clone(),
+            partitions: self.partitions,
+        }
+    }
+
     /// A flip raises the epoch. Within an epoch only a retire changes the
     /// object, and a retire only shrinks `draining`, so a same-epoch object
     /// with more generations is an older one delivered late.
@@ -343,6 +353,12 @@ impl ChangelogConfig {
         self.epoch > adopted.epoch
             || (self.epoch == adopted.epoch && self.draining.len() < adopted.draining.len())
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangelogTarget {
+    pub topic: String,
+    pub partitions: u32,
 }
 
 #[cfg(test)]
@@ -368,6 +384,7 @@ mod tests {
         assert!(h.freeze_quorum.is_none());
         assert_eq!(h.created_at_ms, 0);
         assert_eq!(h.phase_entered_at_ms, 0);
+        assert_eq!(h.config_epoch, 0);
     }
 
     #[test]
@@ -469,6 +486,7 @@ mod tests {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            config_epoch: 0,
             new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();
@@ -489,6 +507,7 @@ mod tests {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            config_epoch: 0,
             new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();

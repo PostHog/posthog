@@ -55,6 +55,7 @@ fn production_handoff(p: Partition, h: &Handoff) -> HandoffState {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        config_epoch: 0,
     }
 }
 

@@ -62,6 +62,7 @@ async fn put_handoff(
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        config_epoch: 0,
         new_owner_address: None,
     };
     // Raw put on purpose: fixtures force arbitrary handoff states,
@@ -99,6 +100,10 @@ async fn wait_for_event(events: &Arc<Mutex<Vec<HandoffEvent>>>, expected: Handof
 #[tokio::test]
 async fn pod_self_fences_locally_and_rejoins_after_lease_loss() {
     let (store, prefix) = test_store_with_prefix("pod-self-fence").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     // lease_ttl 5 → 1s heartbeat interval, so the keepalive observes the
@@ -305,6 +310,10 @@ async fn coordinator_abdicates_and_recampaigns_when_election_lease_revoked() {
 #[tokio::test]
 async fn pod_resumes_partition_when_cancelled_handoff_leaves_it_assigned() {
     let store = test_store("handoff-cancel-resume").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let pod = start_pod(Arc::clone(&store), "resume-pod-a", cancel.clone());
@@ -368,6 +377,10 @@ async fn pod_resumes_partition_when_cancelled_handoff_leaves_it_assigned() {
 #[tokio::test]
 async fn pod_releases_partition_when_cancelled_handoff_leaves_it_unassigned() {
     let store = test_store("handoff-cancel-release").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let pod = start_pod(Arc::clone(&store), "release-pod-a", cancel.clone());
@@ -407,6 +420,10 @@ async fn pod_releases_partition_when_cancelled_handoff_leaves_it_unassigned() {
 #[tokio::test]
 async fn handoff_cleanup_after_complete_does_not_resume() {
     let store = test_store("handoff-cleanup-no-resume").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let pod = start_pod(Arc::clone(&store), "cleanup-pod-a", cancel.clone());
@@ -467,6 +484,10 @@ async fn handoff_cleanup_after_complete_does_not_resume() {
 #[tokio::test]
 async fn restarted_pod_rewarms_assigned_partitions() {
     let store = test_store("restart-rewarm").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     store
@@ -513,6 +534,10 @@ async fn restarted_pod_rewarms_assigned_partitions() {
 #[tokio::test]
 async fn restarted_old_owner_serves_again_after_handoff_cancelled() {
     let store = test_store("restart-cancel-serve").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     store
@@ -563,6 +588,10 @@ async fn restarted_old_owner_serves_again_after_handoff_cancelled() {
 #[tokio::test]
 async fn restarted_old_owner_refences_when_handoff_in_warming() {
     let store = test_store("restart-refence").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     store
@@ -1312,6 +1341,10 @@ async fn freezing_handoff_advances_when_unacked_router_departs() {
 #[tokio::test]
 async fn pod_catches_up_on_existing_warming_handoff_at_startup() {
     let store = test_store("pod-startup-warm-catchup").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     // The handoff exists before the pod starts — as after a fast restart.
@@ -1344,6 +1377,10 @@ async fn pod_catches_up_on_existing_warming_handoff_at_startup() {
 #[tokio::test]
 async fn pod_catches_up_on_existing_draining_handoff_at_startup() {
     let store = test_store("pod-startup-drain-catchup").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     put_handoff(
@@ -2125,6 +2162,10 @@ impl personhog_coordination::pod::HandoffHandler for FlakyHandoffHandler {
 #[tokio::test]
 async fn a_pod_attempt_failure_preserves_registration_and_partitions() {
     let store = test_store("pod-attempt-preserves").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
@@ -2610,6 +2651,7 @@ async fn put_handoff_with_id(
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        config_epoch: 0,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.expect("write handoff");
@@ -2639,6 +2681,10 @@ async fn wait_for_warmed_ack(store: &Arc<PersonhogStore>, partition: u32, pod: &
 #[tokio::test]
 async fn concurrent_inbound_handoffs_warm_in_parallel() {
     let store = test_store("pod-parallel-warm").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let pod = start_pod_gated(Arc::clone(&store), "parallel-warm-pod", 4, cancel.clone());
@@ -2670,6 +2716,10 @@ async fn concurrent_inbound_handoffs_warm_in_parallel() {
 #[tokio::test]
 async fn convergences_for_one_partition_never_interleave() {
     let store = test_store("pod-single-flight").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let pod = start_pod_gated(Arc::clone(&store), "single-flight-pod", 4, cancel.clone());
@@ -2737,6 +2787,10 @@ async fn convergences_for_one_partition_never_interleave() {
 #[tokio::test]
 async fn concurrent_warms_are_bounded_by_warm_concurrency() {
     let store = test_store("pod-warm-bound").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let pod = start_pod_gated(Arc::clone(&store), "warm-bound-pod", 2, cancel.clone());
@@ -2795,6 +2849,10 @@ async fn concurrent_warms_are_bounded_by_warm_concurrency() {
 #[tokio::test]
 async fn lease_loss_during_attempt_backoff_self_fences_promptly() {
     let (store, prefix) = test_store_with_prefix("pod-backoff-fence").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
@@ -2858,6 +2916,10 @@ async fn lease_loss_during_attempt_backoff_self_fences_promptly() {
 #[tokio::test]
 async fn lease_loss_during_graceful_drain_self_fences_promptly() {
     let (store, prefix) = test_store_with_prefix("pod-drain-fence").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let (handler, events) = MockHandoffHandler::new();
@@ -2943,6 +3005,10 @@ async fn a_connection_blip_does_not_fence_the_pod() {
     let prefix = format!("/test-keepalive-blip-{}/", uuid::Uuid::new_v4());
     let pod_store = store_at(&proxy.endpoint, &prefix).await;
     let direct_store = store_at(ETCD_ENDPOINT, &prefix).await;
+    assert!(direct_store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
 
     let cancel = CancellationToken::new();
     let (handler, events) = MockHandoffHandler::new();
@@ -3003,6 +3069,10 @@ async fn a_sustained_outage_fences_at_the_renewal_margin() {
     let prefix = format!("/test-keepalive-margin-{}/", uuid::Uuid::new_v4());
     let pod_store = store_at(&proxy.endpoint, &prefix).await;
     let direct_store = store_at(ETCD_ENDPOINT, &prefix).await;
+    assert!(direct_store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
 
     let cancel = CancellationToken::new();
     let (handler, events) = MockHandoffHandler::new();
@@ -3060,6 +3130,10 @@ async fn a_sustained_outage_fences_at_the_renewal_margin() {
 #[tokio::test]
 async fn progress_between_failures_keeps_the_run_alive() {
     let store = test_store("pod-progress-reset").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
@@ -3124,6 +3198,10 @@ async fn progress_between_failures_keeps_the_run_alive() {
 #[tokio::test]
 async fn budget_exhaustion_fences_before_deregistering() {
     let store = test_store("pod-fatal-fence").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
@@ -3181,6 +3259,10 @@ async fn budget_exhaustion_fences_before_deregistering() {
 #[tokio::test]
 async fn pod_retries_resume_after_a_failed_attempt() {
     let store = test_store("handoff-cancel-resume-retry").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let pod = start_pod_with_flaky_resume(Arc::clone(&store), "resume-flaky-a", 1, cancel.clone());
@@ -3262,6 +3344,11 @@ async fn authority_lapses_when_renewals_stop() {
     tokio::spawn(async move { pod.run(token).await });
 
     let store = store_at(ETCD_ENDPOINT, &prefix).await;
+
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     put_handoff(&store, 0, None, "lapse-pod", HandoffPhase::Warming).await;
     wait_for_event(&events, HandoffEvent::Warmed(0)).await;
     assert!(
@@ -3327,6 +3414,10 @@ async fn authority_lapses_when_renewals_stop() {
 async fn authority_is_surrendered_when_the_registration_is_deleted() {
     let prefix = format!("/test-registration-delete-{}/", uuid::Uuid::new_v4());
     let store = store_at(ETCD_ENDPOINT, &prefix).await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
 
     let cancel = CancellationToken::new();
     let (handler, events) = MockHandoffHandler::new();
@@ -3381,6 +3472,10 @@ async fn authority_is_surrendered_when_the_registration_is_deleted() {
 async fn a_deleted_registration_starts_a_new_session() {
     let prefix = format!("/test-registration-resession-{}/", uuid::Uuid::new_v4());
     let store = store_at(ETCD_ENDPOINT, &prefix).await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
 
     let cancel = CancellationToken::new();
     let (handler, events) = MockHandoffHandler::new();
@@ -3436,6 +3531,10 @@ async fn a_deleted_registration_starts_a_new_session() {
 async fn a_foreign_deletion_under_the_pods_prefix_does_not_cost_the_session() {
     let prefix = format!("/test-registration-foreign-{}/", uuid::Uuid::new_v4());
     let store = store_at(ETCD_ENDPOINT, &prefix).await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
 
     let cancel = CancellationToken::new();
     let (handler, events) = MockHandoffHandler::new();
@@ -3509,6 +3608,10 @@ async fn a_foreign_deletion_under_the_pods_prefix_does_not_cost_the_session() {
 async fn an_operator_delete_of_a_live_registration_revokes_its_lease() {
     let prefix = format!("/test-registration-operator-del-{}/", uuid::Uuid::new_v4());
     let store = store_at(ETCD_ENDPOINT, &prefix).await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
 
     let cancel = CancellationToken::new();
     let (handler, events) = MockHandoffHandler::new();
@@ -3590,6 +3693,10 @@ async fn an_operator_delete_of_a_live_registration_revokes_its_lease() {
 #[tokio::test]
 async fn a_stuck_drain_does_not_strand_the_other_partitions_on_lease_loss() {
     let (store, prefix) = test_store_with_prefix("stuck-drain-fence").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
     let pod = start_pod_with_stuck_drain(Arc::clone(&store), "stuck-pod-0", 1, 5, cancel.clone());
 
@@ -3681,6 +3788,10 @@ async fn a_stuck_drain_does_not_strand_the_other_partitions_on_lease_loss() {
 #[tokio::test]
 async fn a_drain_that_times_out_is_a_failure_not_a_quiesce() {
     let (store, prefix) = test_store_with_prefix("hung-drain-fence").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
     let mut pod =
         start_pod_with_hanging_drain(Arc::clone(&store), "hung-pod-0", 1, 5, cancel.clone());
@@ -3758,6 +3869,10 @@ async fn a_drain_that_times_out_is_a_failure_not_a_quiesce() {
 #[tokio::test]
 async fn a_failed_drain_still_leaves_a_partition_that_can_be_resumed() {
     let (store, _prefix) = test_store_with_prefix("failed-drain-resume").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
     let pod = start_pod_with_stuck_drain(Arc::clone(&store), "stuck-pod-1", 0, 30, cancel.clone());
 
@@ -3840,6 +3955,10 @@ async fn a_failed_drain_still_leaves_a_partition_that_can_be_resumed() {
 #[tokio::test]
 async fn a_failing_release_does_not_stop_the_pod_giving_up_the_rest() {
     let (store, prefix) = test_store_with_prefix("failing-release-fence").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
     let (pod, attempts) =
         start_pod_with_failing_release(Arc::clone(&store), "failing-rel-0", 5, cancel.clone());
@@ -3915,6 +4034,10 @@ async fn a_failing_release_does_not_stop_the_pod_giving_up_the_rest() {
 #[tokio::test]
 async fn a_self_fence_that_could_not_finish_refuses_in_place_recovery() {
     let (store, prefix) = test_store_with_prefix("poisoned-self-fence").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
     let mut pod =
         start_pod_with_stuck_drain(Arc::clone(&store), "poisoned-pod-0", 0, 5, cancel.clone());
@@ -3963,6 +4086,10 @@ async fn a_self_fence_that_could_not_finish_refuses_in_place_recovery() {
 #[tokio::test]
 async fn a_failed_release_is_retried_rather_than_forgotten() {
     let (store, _prefix) = test_store_with_prefix("flaky-release").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
     let pod =
         start_pod_with_flaky_release(Arc::clone(&store), "flaky-release-pod", 1, cancel.clone());
@@ -4158,6 +4285,10 @@ impl personhog_coordination::pod::HandoffHandler for RepairProbeHandler {
 #[tokio::test]
 async fn a_repair_nudge_converges_without_waiting_for_reconcile() {
     let store = test_store("repair-request-converges").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     store
@@ -4288,6 +4419,10 @@ impl personhog_coordination::pod::HandoffHandler for PrepareProbeHandler {
 #[tokio::test]
 async fn a_pending_new_owner_is_hinted_but_not_warmed() {
     let store = test_store("pending-owner-hint").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     store
@@ -4477,6 +4612,10 @@ async fn a_standby_waits_on_the_leader_key_rather_than_campaigning() {
 #[tokio::test]
 async fn a_replaced_handoff_reaches_the_old_owner_it_no_longer_names() {
     let store = test_store("handoff-replaced-old-owner").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let pod = start_pod(Arc::clone(&store), "replaced-pod-a", cancel.clone());
@@ -4677,6 +4816,7 @@ async fn a_freeze_quorum_reference_that_is_gone_requires_every_live_router() {
         freeze_quorum_ref: Some("never-written".to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        config_epoch: 0,
     };
 
     let quorum = store
@@ -4739,6 +4879,10 @@ async fn a_freeze_quorum_reference_that_is_gone_requires_every_live_router() {
 #[tokio::test]
 async fn a_handoff_cancelled_mid_warm_reaches_the_pod_still_warming() {
     let store = test_store("cancel-mid-warm").await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let pod = start_pod_gated(Arc::clone(&store), "mid-warm-pod", 4, cancel.clone());
@@ -5175,6 +5319,10 @@ async fn a_pod_asked_to_stop_while_etcd_hangs_exits_inside_its_bounds() {
     let proxy = FlakyProxy::start("127.0.0.1:2379").await;
     let prefix = format!("/test-pod-teardown-{}/", uuid::Uuid::new_v4());
     let store = store_at(&proxy.endpoint, &prefix).await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", 4, "personhog-writer")
+        .await
+        .unwrap());
     let cancel = CancellationToken::new();
 
     let mut pod = start_pod_with_lease_ttl(Arc::clone(&store), "teardown-pod", 30, cancel.clone());
@@ -5342,6 +5490,7 @@ async fn a_recorded_membership_advances_past_a_router_outside_it() {
         freeze_quorum_ref: Some("narrow-membership".to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        config_epoch: 0,
     };
     store.put_handoff(&handoff).await.expect("write handoff");
     store
@@ -5489,6 +5638,7 @@ async fn a_cached_absent_membership_still_requires_every_live_router() {
         freeze_quorum_ref: Some("never-written".to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        config_epoch: 0,
     };
 
     let routers = [
@@ -5609,6 +5759,7 @@ async fn a_membership_already_read_is_answered_without_reading_again() {
         freeze_quorum_ref: Some(id.to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        config_epoch: 0,
     };
 
     assert_eq!(
@@ -5681,6 +5832,7 @@ async fn a_plan_past_the_server_txn_budget_still_applies() {
             freeze_quorum_ref: Some(quorum_id.to_string()),
             created_at_ms: now * 1000,
             phase_entered_at_ms: now * 1000,
+            config_epoch: 0,
         })
         .collect();
     let preconditions: Vec<AssignmentPrecondition> = (0..total)
@@ -5736,6 +5888,7 @@ async fn a_conflicted_partition_stands_down_alone() {
         freeze_quorum_ref: None,
         created_at_ms: 1_000_000,
         phase_entered_at_ms: 1_000_000,
+        config_epoch: 0,
     };
 
     // Partition 40 already has a handoff — a concurrent planner won it.
@@ -5800,6 +5953,7 @@ async fn a_swept_quorum_delete_loses_to_a_concurrent_re_put() {
         freeze_quorum_ref: Some(quorum_id.to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        config_epoch: 0,
     };
     let listed_revision = |store: Arc<personhog_coordination::store::PersonhogStore>| async move {
         store
@@ -5883,6 +6037,7 @@ async fn a_missing_membership_is_resolved_again_once_written() {
         freeze_quorum_ref: Some(quorum_id.to_string()),
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        config_epoch: 0,
     };
 
     assert!(store
@@ -5933,6 +6088,7 @@ async fn an_over_server_budget_chunk_degrades_to_per_unit_transactions() {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            config_epoch: 0,
         })
         .collect();
     let preconditions: Vec<AssignmentPrecondition> = (0..total)
