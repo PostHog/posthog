@@ -11,6 +11,7 @@ import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/O
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
+    cohortAnnotations,
     cohortFilterName,
     isCohortPropertyFilter,
     isGroupPropertyFilter,
@@ -236,13 +237,7 @@ export function TaxonomicPropertyFilter({
                         type: filter?.type,
                         label: filter?.label,
                         ...(isGroupPropertyFilter(filter) ? { group_type_index: filter.group_type_index } : {}),
-                        ...(filter.type === PropertyFilterType.Cohort
-                            ? {
-                                  cohort_name: filter.cohort_name,
-                                  cohort_deleted: filter.cohort_deleted,
-                                  cohort_missing: filter.cohort_missing,
-                              }
-                            : {}),
+                        ...(isCohortPropertyFilter(filter) ? cohortAnnotations(filter) : {}),
                     } as AnyPropertyFilter)
                 }
                 if (newOperator && newValue && !isOperatorMulti(newOperator) && !isOperatorRegex(newOperator)) {

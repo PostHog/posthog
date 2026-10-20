@@ -30,7 +30,7 @@ import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { isCohortPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { COHORT_ANNOTATION_KEYS, isCohortPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -947,9 +947,6 @@ function dismissAgentNotices(id: FeatureFlagLogicProps['id'], cache: Record<stri
 function toFeatureFlagBaseline(flag: FeatureFlagType | null): FeatureFlagType | null {
     return flag ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(flag)) as FeatureFlagType) : null
 }
-
-// The flag API reads these keys from the cohort table on every response. Nobody edits them.
-const COHORT_ANNOTATION_KEYS = ['cohort_name', 'cohort_deleted', 'cohort_missing'] as const
 
 /** Copies `source`'s cohort annotations onto `flag`'s cohort conditions that name the same cohort. */
 function withCohortAnnotationsFrom(flag: FeatureFlagType, source: FeatureFlagType): FeatureFlagType {

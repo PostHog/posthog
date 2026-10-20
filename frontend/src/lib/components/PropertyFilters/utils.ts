@@ -266,6 +266,13 @@ export function cohortFilterName(filter: CohortPropertyFilter, fallbackName?: st
     return name || `ID ${filter.value}`
 }
 
+// The flag API reads these keys from the cohort table on every response. Nobody edits them.
+export const COHORT_ANNOTATION_KEYS = ['cohort_name', 'cohort_deleted', 'cohort_missing'] as const
+
+export function cohortAnnotations(filter: CohortPropertyFilter): Partial<CohortPropertyFilter> {
+    return Object.fromEntries(COHORT_ANNOTATION_KEYS.map((key) => [key, filter[key]])) as Partial<CohortPropertyFilter>
+}
+
 export function isBehavioralPropertyFilter(filter?: AnyFilterLike | null): filter is BehavioralPropertyFilter {
     return filter?.type === PropertyFilterType.Behavioral
 }

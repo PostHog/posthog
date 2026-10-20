@@ -1184,9 +1184,9 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[_FlagFilterProperty]:
 
 def _condition_cohort_id(value: Any) -> int | None:
     """Return the cohort id a condition's value names, or None when the value is not an id."""
-    # The Rust flag evaluator (PropertyFilter::get_cohort_id) accepts only a JSON integer or a string of
-    # digits, and only when the id fits in 32 bits. It rejects a float such as 42.5, which int() would
-    # truncate to a live cohort's id.
+    # The Rust flag evaluator (PropertyFilter::get_cohort_id) accepts only a JSON integer or a string that
+    # parse::<i32>() accepts (ASCII digits with an optional sign), and only when the id fits in 32 bits.
+    # It rejects a float such as 42.5, which int() would truncate to a live cohort's id.
     # A JSON true is the Python integer 1, so the bool check must come before the int check.
     if isinstance(value, bool):
         return None
