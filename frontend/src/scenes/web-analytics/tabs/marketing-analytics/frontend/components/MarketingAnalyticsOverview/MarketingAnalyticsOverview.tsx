@@ -1,6 +1,7 @@
-import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
+import { useChartTheme } from 'lib/charts/hooks'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
@@ -14,7 +15,15 @@ import {
 import { QueryContext } from '~/queries/types'
 import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
 
+import { adPerformanceMetricKey } from 'products/marketing_analytics/frontend/adPerformanceMetrics'
+import { adPerformanceTrendsLogic } from 'products/marketing_analytics/frontend/adPerformanceTrendsLogic'
+
+import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import {
+    MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    marketingAnalyticsTilesLogic,
+} from '../../logic/marketingAnalyticsTilesLogic'
 import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
@@ -48,19 +57,36 @@ export function MarketingAnalyticsOverview(props: {
 
     const marketingOverviewQueryResponse = response as MarketingAnalyticsAggregatedQueryResponse | undefined
 
+    const { createAdPerformanceSparklineQuery } = useValues(marketingAnalyticsTilesLogic)
+    const { tileColumnSelection } = useValues(marketingAnalyticsLogic)
+    const { setTileColumnSelection } = useActions(marketingAnalyticsLogic)
+    const { sparklines } = useValues(
+        adPerformanceTrendsLogic({
+            query: createAdPerformanceSparklineQuery(props.query),
+            queryKey: `${key}-sparklines`,
+            dataNodeCollectionId: dataNodeCollectionId ?? MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
+        })
+    )
+    const sparklineTheme = useChartTheme()
     const samplingRate = marketingOverviewQueryResponse?.samplingRate
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
     const overviewItems: OverviewMetricCardItem[] = marketingOverviewQueryResponse?.results
-        ? Object.entries(marketingOverviewQueryResponse.results).map(([key, item]) => ({
-              key,
-              value: item.value,
-              previous: item.previous,
-              changeFromPreviousPct: item.changeFromPreviousPct,
-              kind: item.kind,
-              isIncreaseBad: item.isIncreaseBad,
-          }))
+        ? Object.entries(marketingOverviewQueryResponse.results).map(([key, item]) => {
+              const metric = adPerformanceMetricKey(key)
+              return {
+                  key,
+                  value: item.value,
+                  previous: item.previous,
+                  changeFromPreviousPct: item.changeFromPreviousPct,
+                  kind: item.kind,
+                  isIncreaseBad: item.isIncreaseBad,
+                  selected: metric ? tileColumnSelection === metric : undefined,
+                  onClick: metric ? () => setTileColumnSelection(metric) : undefined,
+                  sparkline: metric && typeof item.value === 'number' ? sparklines[metric] : undefined,
+              }
+          })
         : []
 
     // Calculate number of skeletons based on expected metrics
@@ -87,15 +113,28 @@ export function MarketingAnalyticsOverview(props: {
     return (
         <>
             {allWarnings.length > 0 && <MarketingAnalyticsValidationWarningBanner warnings={allWarnings} />}
-            <OverviewMetricCardGrid
-                className="grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
-                items={overviewItems.filter(filterEmptyMetrics)}
-                loading={responseLoading}
-                numSkeletons={numSkeletons}
-                emptyMessage="-"
-                samplingRate={samplingRate}
-                labelFromKey={(key) => <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>}
-            />
+            <div className="flex flex-col gap-2">
+                {[
+                    overviewItems.filter((item) => adPerformanceMetricKey(item.key)),
+                    overviewItems.filter((item) => !adPerformanceMetricKey(item.key)),
+                ].map((items, index) =>
+                    (responseLoading && index === 0) || (!responseLoading && items.length > 0) ? (
+                        <OverviewMetricCardGrid
+                            key={index}
+                            sparklineTheme={sparklineTheme}
+                            className="grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
+                            items={items.filter(filterEmptyMetrics)}
+                            loading={responseLoading}
+                            numSkeletons={numSkeletons}
+                            emptyMessage="-"
+                            samplingRate={index === 0 ? samplingRate : undefined}
+                            labelFromKey={(key) => (
+                                <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>
+                            )}
+                        />
+                    ) : null
+                )}
+            </div>
         </>
     )
 }
