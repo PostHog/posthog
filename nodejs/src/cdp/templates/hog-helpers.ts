@@ -22,7 +22,7 @@ export const hogApiErrorMessageFn = `fun apiErrorMessage(response) {
 // Each frames[i] read makes the VM measure the whole array. To stay inside the execution time limit, the
 // loop reads at most the last 50 frames and skips stacks over 2000 frames. The try block keeps a bad trace
 // from losing the ticket.
-export const hogErrorTrackingStacktraceFn = `fun errorTrackingHasSecret(text, minRunLength) {
+export const hogErrorTrackingStacktraceFn = `fun errorTrackingHasSecret(text) {
   if (match(text, '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}')) {
     return true
   }
@@ -31,7 +31,7 @@ export const hogErrorTrackingStacktraceFn = `fun errorTrackingHasSecret(text, mi
     parts := replaceAll(parts, separator, '/')
   }
   for (let part in splitByString('/', parts)) {
-    if (length(part) >= minRunLength and match(part, '[0-9]')) {
+    if (length(part) >= 16 and match(part, '[0-9]')) {
       return true
     }
   }
@@ -40,7 +40,7 @@ export const hogErrorTrackingStacktraceFn = `fun errorTrackingHasSecret(text, mi
 
 fun errorTrackingFunctionName(name) {
   let text := toString(name)
-  if (not match(text, '^[]A-Za-z0-9_$.:<>()#,[ -]{1,100}$') or errorTrackingHasSecret(text, 24)) {
+  if (not match(text, '^[]A-Za-z0-9_$.:<>()#,[ -]{1,100}$') or errorTrackingHasSecret(text)) {
     return '[redacted]'
   }
   return text
@@ -53,7 +53,7 @@ fun errorTrackingFileName(source) {
   if (not match(name, '^[A-Za-z0-9_.-]{1,64}[.](js|mjs|cjs|jsx|ts|tsx|mts|cts|vue|svelte|py|rb|php|go|java|kt|kts|scala|rs|swift|dart|ex|exs|erl|cs|c|cc|cpp|h|hpp|m|mm|lua)$')) {
     return '[redacted]'
   }
-  return errorTrackingHasSecret(name, 16) ? '[redacted]' : name
+  return errorTrackingHasSecret(name) ? '[redacted]' : name
 }
 
 fun errorTrackingStacktrace(exceptionList) {

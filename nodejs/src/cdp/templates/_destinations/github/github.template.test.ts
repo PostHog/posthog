@@ -81,7 +81,7 @@ describe('github template', () => {
                                 {
                                     source: '/home/bob/app.py',
                                     line: 7,
-                                    resolved_name: 'handler_EXAMPLE0123456789abcdefghij',
+                                    resolved_name: 'handler_EXAMPLE0123456789',
                                     resolved: true,
                                     in_app: true,
                                 },
