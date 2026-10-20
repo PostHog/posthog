@@ -7,7 +7,6 @@ name: PR housekeeping
 
 on:
     pull_request:
-        # `stacked` fires when a PR joins a stack without a push.
         types: [opened, synchronize, reopened, edited, ready_for_review, review_requested, converted_to_draft, stacked]
 
 # Keyed by event action so a new push (synchronize) cancels the previous
@@ -130,8 +129,6 @@ jobs:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     stack-depth:
-        # Only actions that can move a PR's depth. A skipped caller reports `stack-depth`, not
-        # `stack-depth / Stack depth`, so the last result stays in place.
         if: >-
             contains(fromJSON('["opened", "synchronize", "reopened", "stacked"]'), github.event.action)
             || (github.event.action == 'edited' && github.event.changes.base != null)

@@ -11,7 +11,6 @@ import {
 
 const SECTION_ID = 'stack-depth'
 
-// `stack.position` counts merged layers, so count the open ones from the bottom.
 export function openDepth(stack, prNumber) {
     const index = stack.pull_requests.findIndex((pr) => pr.number === prNumber)
     return stack.pull_requests.slice(0, index + 1).filter((pr) => pr.state === 'open').length
@@ -29,7 +28,6 @@ async function main() {
     try {
         stack = await gh(token, `/repos/${repo}/stacks/${process.env.STACK_NUMBER}`)
     } catch (err) {
-        // Fail open, so an API outage can't block every pull request.
         console.log(`::warning title=Stack depth not checked::${err.message}`)
         await updateSectionIfPresent({
             id: SECTION_ID,

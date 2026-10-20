@@ -17,9 +17,6 @@ self-hosted-runner:
 # (e.g. steps.filter.outputs.backend). Upstream dorny/paths-filter avoided this
 # only because actionlint's popular-actions database special-cases it. The
 # `{changes: string}` anchor keeps this scoped to that action's output type.
-#
-# actionlint 1.7.12 doesn't know the `stacked` activity type yet. CI lints copies
-# outside .github/workflows, so this pattern matches any path.
 paths:
     '**/*.yml':
         ignore:
