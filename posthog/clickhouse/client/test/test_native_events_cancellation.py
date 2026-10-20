@@ -50,25 +50,32 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
 
     def test_native_kill_reaches_healthy_hosts_while_another_host_stalls(self) -> None:
         job = {"operation": "native_cancel", "connection": {}, "cluster": "c", "prefix": "44_q_", "log_comment": ""}
-        killed: list[str] = []
+        killed: list[tuple[str, ...]] = []
         healthy_kill_started = Event()
 
         def execute(sql: str, params: dict, **_kwargs: object) -> object:
             if sql.startswith("SELECT"):
-                return [("down.example.com", "44_q_00000001"), ("up.example.com", "44_q_00000002")]
-            killed.append(params["query_id"])
-            if params["query_id"] == "44_q_00000001":
+                return [
+                    ("down.example.com", "44_q_00000001"),
+                    ("up.example.com", "44_q_00000002"),
+                    ("up.example.com", "44_q_00000003"),
+                ]
+            killed.append(params["query_ids"])
+            if params["query_ids"] == ("44_q_00000001",):
                 if not healthy_kill_started.wait(2):
                     raise AssertionError("the stalled host blocked the healthy host")
                 raise ConnectionError("host unreachable")
             healthy_kill_started.set()
-            return [("44_q_00000002", "finished")], [("query_id", "String"), ("kill_status", "String")]
+            return [("44_q_00000002", "finished"), ("44_q_00000003", "finished")], [
+                ("query_id", "String"),
+                ("kill_status", "String"),
+            ]
 
         with patch("posthog.clickhouse.metadata_worker.Client") as client:
             client.return_value.__enter__.return_value.execute.side_effect = execute
             with self.assertRaises(ConnectionError):
                 run_metadata_job(job)
-        self.assertCountEqual(killed, ["44_q_00000001", "44_q_00000002"])
+        self.assertCountEqual(killed, [("44_q_00000001",), ("44_q_00000002", "44_q_00000003")])
 
     def test_metadata_failure_reports_the_error_type(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "ValueError"):
@@ -289,4 +296,4 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         if native_kills:
             self.assertIn("SYNC", native_kills[0].args[0])
             self.assertNotIn("ON CLUSTER", native_kills[0].args[0])
-            self.assertEqual(native_kills[0].args[1], {"query_id": "44_example-query_12345678"})
+            self.assertEqual(native_kills[0].args[1], {"query_ids": ("44_example-query_12345678",)})
