@@ -1358,7 +1358,12 @@ async fn a_flip_in_etcd_moves_a_parked_key_to_its_new_partition() {
         NUM_PARTITIONS * 2,
     )
     .await;
-    let handler = RouterStashHandler::new(Arc::clone(&backend), Duration::from_secs(60), 4);
+    let handler = RouterStashHandler::new(
+        Arc::clone(&backend),
+        Duration::from_secs(60),
+        4,
+        Arc::clone(&store),
+    );
     let old_partition = partition_for_person(1, person.id, NUM_PARTITIONS);
     let new_partition = partition_for_person(1, person.id, NUM_PARTITIONS * 2);
 
