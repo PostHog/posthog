@@ -37,11 +37,7 @@ from products.signals.backend.emission.datadog_monitor_alerts import (
     datadog_monitor_alert_emitter,
     monitor_alert_source_id,
 )
-from products.signals.backend.emission.fetchers.grouped_warehouse import (
-    MAX_GROUP_PAGES,
-    GroupedWarehouseRecordFetcher,
-    week_period,
-)
+from products.signals.backend.emission.fetchers.grouped_warehouse import GroupedWarehouseRecordFetcher, week_period
 from products.signals.backend.emission.registry import _SIGNAL_TABLE_CONFIGS, SignalSourceTableConfig
 from products.signals.backend.emission.tests.test_datadog_monitor_alerts import MOCK_DATADOG_MONITOR_ALERT_RECORD
 from products.signals.backend.models import SignalEmissionRecord
@@ -560,8 +556,7 @@ class TestGroupedWarehouseRecordFetcher(BaseTest):
 
         assert [r["resource_name"] for r in records] == ["GET /cart"]
 
-    def test_reads_further_pages_until_it_holds_enough_new_groups(self):
-        # One page holds 4 groups. The first 5 groups are known, so the only new group is on page 2.
+    def test_reads_past_known_groups_with_one_aggregation(self):
         resources = [f"GET /r{i}" for i in range(6)]
         rows = self._span_rows(*resources)
         for row in rows[:5]:
@@ -571,18 +566,19 @@ class TestGroupedWarehouseRecordFetcher(BaseTest):
         records, _ = self._fetch(config, rows)
 
         assert [r["resource_name"] for r in records] == ["GET /r5"]
-        assert len(self.queries) == 2
+        assert len(self.queries) == 1
 
-    def test_stops_after_the_page_limit(self):
-        rows = self._span_rows(*[f"GET /r{i}" for i in range(40)])
-        for row in rows:
+    def test_considers_only_groups_inside_the_scan_limit(self):
+        rows = self._span_rows(*[f"GET /r{i}" for i in range(6)])
+        for row in rows[:4]:
             self._record_emitted(row, team=self.team)
         config = DATADOG_ERROR_SPANS_CONFIG.model_copy(update={"max_records": 1})
 
-        records, _ = self._fetch(config, rows)
+        with patch("products.signals.backend.emission.fetchers.grouped_warehouse.GROUP_SCAN_LIMIT", 4):
+            records, query = self._fetch(config, rows)
 
         assert records == []
-        assert len(self.queries) == MAX_GROUP_PAGES
+        assert query.limit.value == 4
 
     def test_keeps_only_max_records_groups_in_query_order(self):
         config = DATADOG_ERROR_SPANS_CONFIG.model_copy(update={"max_records": 2})

@@ -61,7 +61,8 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   That value is the start time of the previous sync job, so a cursor on it would skip rows that a page-capped sync left for the next sync and rows the source indexed late.
   The window makes re-reading safe because the ledger and the weekly fingerprint deduplicate groups.
   The grouped fetcher does not read `first_sync_lookback_days`, so leave it at the model default of 7.
-  It reads pages of groups from the noisiest down, drops the groups already in `SignalEmissionRecord`, and stops once it holds `max_records` new groups, so set `record_processed_outputs=True` on the config.
+  It aggregates the window once, reads up to `GROUP_SCAN_LIMIT` groups from the noisiest down, drops the groups already in `SignalEmissionRecord`, and keeps the first `max_records` new groups, so set `record_processed_outputs=True` on the config.
+  Its query runs as the signals ClickHouse user on the offline workload, like the generic fetcher.
   Hash the group key into `source_id` and keep the weight below 1.0, so one group cannot open a report on its own.
   Add `week_period(last_seen)` to the hashed key so a group that stays noisy, or returns after a fix, can emit at most once per ISO week, and again across a week boundary.
   The fetcher rejects `scope_field`, because a group has no single scope value.

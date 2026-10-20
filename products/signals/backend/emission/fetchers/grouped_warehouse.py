@@ -7,6 +7,8 @@ import structlog
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
 from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name
@@ -16,10 +18,12 @@ from products.signals.backend.models import SignalEmissionRecord
 logger = structlog.get_logger(__name__)
 
 # The ledger drops groups that already produced a signal. If the query read only `max_records` groups,
-# the noisiest recurring groups would fill the page on every sync and starve new groups ranked below
-# them. The fetcher reads pages of groups until it holds `max_records` new ones, up to a page limit.
-GROUP_PAGE_FACTOR = 4
-MAX_GROUP_PAGES = 10
+# the noisiest recurring groups would fill the result on every sync and starve new groups ranked below
+# them. One aggregation reads up to this many groups, and the ledger filter keeps the first new ones.
+# A second aggregation per page would scan the same window again for every page of known groups.
+GROUP_SCAN_LIMIT = 10_000
+# Bounds the `source_id IN (...)` list of each ledger lookup.
+LEDGER_LOOKUP_BATCH = 1_000
 
 # The fetcher reads a fixed trailing window of event time and ignores `last_synced_at`.
 # That value is the start time of the previous sync job, so a cursor on it would skip rows that a
@@ -97,8 +101,7 @@ class GroupedWarehouseRecordFetcher:
         extra: dict[str, Any] = context.get("extra", {})
         window_sql = grouped_window_clause(config, self._window_days)
         where_sql = f"{window_sql} AND {config.where_clause}" if config.where_clause else window_sql
-        page_size = config.max_records * GROUP_PAGE_FACTOR
-        # The group columns break ties, so a group cannot appear on two pages or on none.
+        # The group columns break ties, so the scan limit cuts the same groups on every sync.
         order_sql = f"{self._order_by_sql}, {self._group_by_sql}"
         logger.info(
             "Querying grouped records for signal emission",
@@ -106,40 +109,43 @@ class GroupedWarehouseRecordFetcher:
             where_clause=config.where_clause,
             window_days=self._window_days,
             max_records=config.max_records,
-            page_size=page_size,
+            scan_limit=GROUP_SCAN_LIMIT,
             signals_type="data-import-signals",
             **extra,
         )
+        query = f"""
+            SELECT {self._select_sql}
+            FROM {escape_table_name(table_name)}
+            WHERE {where_sql}
+            GROUP BY {self._group_by_sql}
+            ORDER BY {order_sql}
+            LIMIT {GROUP_SCAN_LIMIT}
+        """
+        try:
+            result = execute_hogql_query(
+                query=parse_select(query),
+                team=team,
+                query_type="EmitSignalsNewRecords",
+                bypass_warehouse_access_control=True,
+                ch_user=ClickHouseUser.SIGNALS,
+                workload=Workload.OFFLINE,
+            )
+        except Exception as e:
+            logger.exception(f"Error querying grouped records: {e}", **extra)
+            # Raise so the activity retries instead of leaving a permanent gap in emitted signals.
+            raise
+        if not result.results or not result.columns:
+            return []
+        records = [dict(zip(result.columns, row)) for row in result.results]
         new_records: list[dict[str, Any]] = []
-        for page in range(MAX_GROUP_PAGES):
-            query = f"""
-                SELECT {self._select_sql}
-                FROM {escape_table_name(table_name)}
-                WHERE {where_sql}
-                GROUP BY {self._group_by_sql}
-                ORDER BY {order_sql}
-                LIMIT {page_size} OFFSET {page * page_size}
-            """
-            try:
-                result = execute_hogql_query(
-                    query=parse_select(query),
-                    team=team,
-                    query_type="EmitSignalsNewRecords",
-                    bypass_warehouse_access_control=True,
-                )
-            except Exception as e:
-                logger.exception(f"Error querying grouped records: {e}", **extra)
-                # Raise so the activity retries instead of leaving a permanent gap in emitted signals.
-                raise
-            if not result.results or not result.columns:
-                break
-            records = [dict(zip(result.columns, row)) for row in result.results]
-            source_ids = [self._source_id_for(record) for record in records]
+        for start in range(0, len(records), LEDGER_LOOKUP_BATCH):
+            batch = records[start : start + LEDGER_LOOKUP_BATCH]
+            source_ids = [self._source_id_for(record) for record in batch]
             already_emitted = already_emitted_source_ids(team, config, source_ids)
             new_records.extend(
-                record for record, source_id in zip(records, source_ids) if source_id not in already_emitted
+                record for record, source_id in zip(batch, source_ids) if source_id not in already_emitted
             )
-            if len(new_records) >= config.max_records or len(records) < page_size:
+            if len(new_records) >= config.max_records:
                 break
         return new_records[: config.max_records]
 
@@ -155,10 +161,10 @@ def grouped_warehouse_record_fetcher(
     """Build a fetcher that collapses the recent rows of a warehouse table into one record per group.
 
     High-volume sources (error spans, error logs) store one row per occurrence, so the generic
-    fetcher would emit one signal per occurrence. This fetcher reads the rows of the trailing
-    `window_days` days of event time, walks the groups from the noisiest down, drops the groups whose
-    `source_id` is already in `SignalEmissionRecord`, and stops once it holds `max_records` new
-    groups. Pair it with `record_processed_outputs=True` on the config so the pipeline writes that
+    fetcher would emit one signal per occurrence. This fetcher aggregates the rows of the trailing
+    `window_days` days of event time once, walks up to `GROUP_SCAN_LIMIT` groups from the noisiest
+    down, drops the groups whose `source_id` is already in `SignalEmissionRecord`, and keeps the first
+    `max_records` new groups. Pair it with `record_processed_outputs=True` on the config so the pipeline writes that
     ledger.
 
     The fetcher ignores `last_synced_at`. Re-reading rows is safe because the ledger and the weekly
