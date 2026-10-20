@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     table_is_misaligned,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
+    DeltaliteFallbackRefusedError,
     DeltaWriter,
     _committed_file_count_change,
     _committed_version,
@@ -52,6 +53,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     commit_covers_batch,
 )
 
+_REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition"
+_CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 _WRITER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer"
 
 
@@ -200,6 +203,28 @@ class TestHasBatchBeenCommitted:
         ]
         with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
             assert await writer.has_batch_been_committed(run_uuid, batch_index) is expected
+
+    @parameterized.expand(
+        [
+            ("compaction_commits_do_not_use_up_the_window", [("OPTIMIZE", 120)], True),
+            ("vacuum_commits_do_not_use_up_the_window", [("VACUUM END", 120)], True),
+            ("data_commits_still_close_the_window", [("WRITE", 60)], False),
+            ("recent_writes_ahead_of_a_long_compaction", [("WRITE", 49), ("OPTIMIZE", 100)], True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_finds_the_batch_behind_later_commits(
+        self, _name: str, later: list[tuple[str, int]], expected: bool
+    ) -> None:
+        commits = [{"operation": operation} for operation, count in later for _ in range(count)] + [
+            {"operation": "WRITE", "run_uuid": "run-1", "batch_index": "5"}
+        ]
+        writer = _make_writer()
+        table = MagicMock()
+        table.history = MagicMock(side_effect=lambda limit: commits[:limit])
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
+            assert await writer.has_batch_been_committed("run-1", 5) is expected
+        assert table.history.call_count <= 3
 
 
 class TestWriteToDeltalakeCommitMetadataPassThrough:
@@ -1316,6 +1341,78 @@ class TestDeltaliteWritePath:
         ):
             wrote = await self._call(helper)
         assert wrote is False  # deltalite blew up -> caller falls through to the delta-rs MERGE
+
+    @parameterized.expand(
+        [
+            ("under_budget", {"a": 100, "b": 200}, None, False, "fallback"),
+            ("over_budget", {"a": 100, "b": 900}, None, True, "fallback_refused"),
+            ("untouched_partition_is_ignored", {"a": 100, "b": 900}, None, False, "fallback"),
+            ("size_unknown", None, RuntimeError("log unreadable"), False, "fallback"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_fallback_is_refused_above_the_merge_budget(
+        self, name: str, sizes: dict | None, measure_error: Exception | None, refused: bool, outcome: str
+    ):
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+            DELTALITE_WRITE_TOTAL,
+        )
+
+        helper = self._helper()
+        fake_table = MagicMock()
+        deltalite_error = RuntimeError("commit conflict, retries exhausted")
+        fake_table.upsert.side_effect = deltalite_error
+        fake_deltalite = MagicMock()
+        fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        touched = ["b"] if name == "over_budget" else ["a"]
+        data = pa.table({"id": pa.array([1], pa.int64()), PARTITION_KEY: touched})
+        before = DELTALITE_WRITE_TOTAL.labels(outcome=outcome)._value.get()
+        with (
+            patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+            patch(f"{_REPARTITION_MODULE}.measure_partition_bytes", side_effect=measure_error, return_value=sizes),
+            patch(f"{_CONTROLLER_MODULE}.target_partition_bytes", return_value=500),
+        ):
+            write = DeltaWriter(helper)._write_via_deltalite(
+                existing_delta_table=MagicMock(),
+                data=data,
+                normalized_primary_keys=["id"],
+                use_partitioning=True,
+                commit_metadata=None,
+            )
+            if refused:
+                with pytest.raises(DeltaliteFallbackRefusedError) as exc_info:
+                    await write
+                assert exc_info.value.__cause__ is deltalite_error
+            else:
+                assert await write is False
+        assert DELTALITE_WRITE_TOTAL.labels(outcome=outcome)._value.get() == before + 1
+
+    @pytest.mark.asyncio
+    async def test_no_size_check_when_deltalite_succeeds(self):
+        helper = self._helper()
+        fake_table = MagicMock()
+        fake_table.upsert.return_value = SimpleNamespace(version=5)
+        fake_deltalite = MagicMock()
+        fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        existing = MagicMock()
+        existing.version.return_value = 4
+        with (
+            patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+            patch(f"{_REPARTITION_MODULE}.measure_partition_bytes") as measure,
+        ):
+            wrote = await DeltaWriter(helper)._write_via_deltalite(
+                existing_delta_table=existing,
+                data=pa.table({"id": pa.array([1], pa.int64())}),
+                normalized_primary_keys=["id"],
+                use_partitioning=False,
+                commit_metadata=None,
+            )
+        assert wrote is True
+        measure.assert_not_called()
 
     @parameterized.expand([("log",), ("metric",)])
     @pytest.mark.asyncio

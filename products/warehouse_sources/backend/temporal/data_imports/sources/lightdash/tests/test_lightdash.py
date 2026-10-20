@@ -126,15 +126,15 @@ class TestGetResource:
 class TestLightdashSourceResponse:
     @parameterized.expand(
         [
-            ("projects", ["projectUuid"], "createdAt"),
-            ("spaces", ["uuid"], None),
-            ("dashboards", ["uuid"], None),
-            ("charts", ["uuid"], None),
-            ("metrics_catalog", ["catalogSearchUuid"], None),
-            ("org_users", ["userUuid"], "userCreatedAt"),
-            ("explores", ["projectUuid", "name"], None),
-            ("schedulers", ["schedulerUuid"], "createdAt"),
-            ("scheduler_runs", ["runId"], "scheduledTime"),
+            ("projects", ["projectUuid"], "createdAt", "asc"),
+            ("spaces", ["uuid"], None, None),
+            ("dashboards", ["uuid"], None, None),
+            ("charts", ["uuid"], None, None),
+            ("metrics_catalog", ["catalogSearchUuid"], None, None),
+            ("org_users", ["userUuid"], "userCreatedAt", "asc"),
+            ("explores", ["projectUuid", "name"], None, None),
+            ("schedulers", ["schedulerUuid"], "createdAt", None),
+            ("scheduler_runs", ["runId"], "scheduledTime", None),
         ]
     )
     @mock.patch(
@@ -148,6 +148,7 @@ class TestLightdashSourceResponse:
         endpoint: str,
         primary_keys: list[str],
         partition_key: str | None,
+        sort_mode: str | None,
         mock_rest_api_resources: mock.MagicMock,
         mock_rest_api_resource: mock.MagicMock,
     ) -> None:
@@ -163,6 +164,7 @@ class TestLightdashSourceResponse:
 
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
+        assert response.sort_mode == sort_mode
         if partition_key:
             assert response.partition_keys == [partition_key]
             assert response.partition_mode == "datetime"

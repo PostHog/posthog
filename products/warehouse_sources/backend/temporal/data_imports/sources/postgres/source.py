@@ -1406,6 +1406,20 @@ class PostgresSource(
                 '(PostgreSQL reported "has not been populated"). Run REFRESH MATERIALIZED VIEW on it in '
                 "your database so it contains data, then re-enable the sync."
             ),
+            # Also ObjectNotInPrerequisiteState (SQLSTATE 55000), raised while reading a selected
+            # view whose own definition queries the pg_stat_statements extension (e.g. a
+            # slow-queries monitoring view) when that extension's module isn't loaded via the
+            # server's `shared_preload_libraries` setting. Loading it needs a postgresql.conf edit
+            # and a server restart, which only the customer's database admin can do — deterministic
+            # and outside our control, so retrying just re-reads into the same error. The message is
+            # a fixed PostgreSQL string with no volatile parts to exclude.
+            "pg_stat_statements must be loaded via": (
+                "A view you're syncing queries the pg_stat_statements extension, which your "
+                "PostgreSQL server hasn't loaded (\"pg_stat_statements must be loaded via "
+                "'shared_preload_libraries'\"). Add it to shared_preload_libraries in postgresql.conf "
+                "and restart your database server, or remove that view from the sync, then re-enable "
+                "the sync."
+            ),
             # Raised by Postgres while reading a view/materialized view whose own definition calls
             # `jsonb_each()` (or `jsonb_each_text()`) on a jsonb value that isn't an object for some
             # rows (a JSON array, scalar, or `'null'`). We only ever run `SELECT ... FROM <relation>`;
@@ -1522,6 +1536,18 @@ class PostgresSource(
                 "column, change the filter value to a valid UUID. Otherwise the table is likely a view "
                 "or foreign table that converts text to uuid, so fix the data or the column type, or "
                 "remove the table from the sync. Then re-enable the sync."
+            ),
+            # Raised (DivisionByZero, SQLSTATE 22012) while Postgres evaluates a row during the main
+            # `SELECT ... FROM <relation>` read. We only ever select configured columns and apply the
+            # customer's own row filters; the division lives in the relation's own definition — a
+            # generated/computed column, or a view that divides by another column or expression that
+            # is zero for at least one row. Deterministic against the source data, so every retry
+            # re-evaluates the same relation into the same row.
+            "division by zero": (
+                "A table or view you're syncing has a computed column or definition that divides by "
+                'zero for at least one row (PostgreSQL reported "division by zero"). Guard the '
+                "division in that column or view definition (for example with a CASE or NULLIF), or "
+                "remove it from the sync, then re-enable the sync."
             ),
         }
 

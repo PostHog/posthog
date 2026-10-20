@@ -20,7 +20,13 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
 from products.experiments.backend.health.condition_changes import conditions_net_effect
-from products.experiments.backend.health.context import ConditionsChange, FlagHistory, HealthContext, ReachableCondition
+from products.experiments.backend.health.context import (
+    ConditionsChange,
+    FlagHistory,
+    HealthContext,
+    ReachableCondition,
+    VariantProperty,
+)
 from products.experiments.backend.health.pinned_share import (
     PinnedConditions,
     PinnedShareGrade,
@@ -38,6 +44,9 @@ ALL_CONDITIONS_PINNED = "all_conditions_pinned"
 # Some conditions pin a variant. The users they match count in that variant's results without random
 # assignment, so they bias the comparison unless the analysis excludes them, for example as test users.
 SOME_CONDITIONS_PINNED = "some_conditions_pinned"
+# Every condition that includes users pins the variant that one property names, so the code that sets the
+# property assigns the variants. The comparison is valid if that code assigns at random, which PostHog can't see.
+ASSIGNED_BY_PROPERTY = "assigned_by_property"
 
 
 @frozen
@@ -73,6 +82,18 @@ def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFind
     if ctx.is_running and is_single_variant_shipped(flag) and pinned_keys == [shipped_variant_key(flag)]:
         return None
     set_after_launch = _set_after_launch(ctx, pinned_numbers)
+    variant_property = _shared_variant_property(pins.pinned)
+    if variant_property is not None and len(pinned_keys) > 1:
+        return _finding(
+            subcode=ASSIGNED_BY_PROPERTY,
+            severity=ExperimentHealthFindingSeverity.INFO,
+            title="Variants are assigned outside PostHog",
+            detail=_assigned_by_property_detail(variant_property.key, set_after_launch.sentence),
+            pinned_numbers=pinned_numbers,
+            pinned_keys=pinned_keys,
+            diagnostic_ref="A7b",
+            grade_evidence={"variant_property": variant_property.key, **set_after_launch.evidence},
+        )
     return _finding(
         subcode=ALL_CONDITIONS_PINNED,
         severity=ExperimentHealthFindingSeverity.WARNING,
@@ -178,6 +199,11 @@ def _set_after_launch(ctx: HealthContext, numbers: Sequence[int]) -> _SetAfterLa
     )
 
 
+def _shared_variant_property(conditions: Sequence[ReachableCondition]) -> VariantProperty | None:
+    properties = {condition.variant_property for condition in conditions}
+    return next(iter(properties)) if len(properties) == 1 else None
+
+
 def _quoted(keys: Sequence[str]) -> str:
     return ", ".join(f'"{key}"' for key in keys)
 
@@ -221,6 +247,16 @@ def _all_pinned_detail(
     if is_draft:
         fix = f"Remove {overrides} before launch so users are assigned at random."
     return f"{fact}{set_after_launch.sentence} {why} {fix}"
+
+
+def _assigned_by_property_detail(variant_property: str, set_after_launch: str) -> str:
+    return (
+        f'Each release condition that includes users matches the users whose property "{variant_property}" holds a '
+        f'variant key, and serves them that variant. So the code that sets "{variant_property}" assigns the '
+        f"variants, not PostHog.{set_after_launch} If it assigns at random, each variant gets similar users. If it "
+        "assigns by who the users are, for example by plan or country, a difference in the results can come from "
+        "those users and not from the variant."
+    )
 
 
 def _some_pinned_detail(

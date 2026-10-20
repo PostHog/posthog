@@ -1712,11 +1712,6 @@ export class ApiRequest {
         return this.teamProjectDetail(teamId).addPathComponent('conversations').addPathComponent(id)
     }
 
-    // Max hands-free mode (ElevenLabs Scribe token proxy)
-    public maxHandsFree(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('max_hands_free')
-    }
-
     // Conversations (Support product)
     public conversationsTickets(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('conversations').addPathComponent('tickets')
@@ -2344,6 +2339,7 @@ const api = {
             createdAtGt,
             createdAtLt,
             searchNameOnly,
+            includeTags,
             signal,
         }: {
             parent?: string
@@ -2360,6 +2356,7 @@ const api = {
             createdAtGt?: string
             createdAtLt?: string
             searchNameOnly?: boolean
+            includeTags?: boolean
             signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
@@ -2379,6 +2376,7 @@ const api = {
                     created_at__gt: createdAtGt,
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
+                    include_tags: includeTags,
                 })
                 .get({ signal })
         },
@@ -6558,23 +6556,6 @@ const api = {
     schema: {
         async queryUpgrade(data: { query: Node }): Promise<{ query: Node }> {
             return await new ApiRequest().queryUpgrade().create({ data })
-        },
-    },
-
-    maxHandsFree: {
-        async token(options?: ApiMethodOptions): Promise<{ token: string }> {
-            return await api.create(
-                new ApiRequest().maxHandsFree().withAction('token').assembleFullUrl(),
-                undefined,
-                options
-            )
-        },
-        async synthesize(text: string, options?: ApiMethodOptions): Promise<Response> {
-            return await api.createResponse(
-                new ApiRequest().maxHandsFree().withAction('synthesize').assembleFullUrl(),
-                { text },
-                options
-            )
         },
     },
 
