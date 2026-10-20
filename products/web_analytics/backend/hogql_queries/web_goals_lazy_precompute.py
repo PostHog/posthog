@@ -132,6 +132,7 @@ def _check_eligible(runner: "WebGoalsQueryRunner") -> None:
         conversion_goal=None,
         sampling=query.sampling,
         modifiers=query.modifiers,
+        use_new_events_cluster=bool(runner.modifiers.useNewEventsCluster),
         properties=query.properties or [],
         resolve_date_range=lambda: (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
     )

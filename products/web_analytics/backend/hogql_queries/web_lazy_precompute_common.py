@@ -960,6 +960,7 @@ def check_common_eligibility(
     conversion_goal: Any,
     sampling: Any,
     modifiers: Any,
+    use_new_events_cluster: bool,
     properties: list,
     resolve_date_range: Callable[[], tuple[Optional[datetime], Optional[datetime]]],
     allow_channel_type_filter: bool = False,
@@ -971,11 +972,14 @@ def check_common_eligibility(
     success. The caller is responsible for any additional per-runner checks
     (e.g. PATHS requires `breakdownBy=PAGE && includeBounceRate`).
 
+    `use_new_events_cluster` is the runner's resolved choice. `modifiers` holds only what the query sets, so it
+    misses a native route that the runner received as a constructor argument.
+
     `resolve_date_range` is called lazily so the gate can reject cheap cases
     (org flag off, etc.) without touching `QueryDateRange.date_from()` —
     which can trigger a ClickHouse min-timestamp lookup for `-all` ranges.
     """
-    if modifiers and modifiers.useNewEventsCluster:
+    if use_new_events_cluster:
         raise PerQueryOptedOut()
     if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()

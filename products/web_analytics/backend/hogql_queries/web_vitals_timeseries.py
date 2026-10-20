@@ -2,6 +2,7 @@ from typing import Any, cast
 
 from posthog.schema import QueryTiming, ResolvedDateRangeResponse, TrendsQuery, TrendsQueryResponse, WebVitalsQuery
 
+from posthog.hogql_queries.query_runner import query_node_modifiers
 from posthog.schema_helpers import to_dict
 
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
@@ -38,6 +39,9 @@ class WebVitalsQueryRunner(TrendsQueryRunner):
             # sources fall through to the legacy source unwrap), so this guards
             # against direct/invalid construction, not the dispatch path.
             raise ValueError(f"WebVitalsQueryRunner requires a TrendsQuery source, got {type(source).__name__}")
+        if vitals_query.modifiers is not None:
+            # The runner reads only the source, so fold in the wrapper's modifiers, which take precedence.
+            source = source.model_copy(update={"modifiers": query_node_modifiers(vitals_query)})
         super().__init__(query=source, **kwargs)
 
     def get_cache_payload(self) -> dict:

@@ -27,9 +27,12 @@ from posthog.schema import (
     WebVitalsQuery,
 )
 
+from posthog.api.services.query import process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
-from posthog.hogql_queries.query_runner import get_query_runner_or_none
+from posthog.clickhouse.workload import Workload
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner_or_none
+from posthog.models.instance_setting import override_instance_config
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
@@ -94,6 +97,31 @@ class TestVitalsTimeseriesGate(APIBaseTest):
         self.assertIs(worker.modifiers.useNewEventsCluster, override)
         self.assertIs(worker.modifiers.useNewEventsSchema, False)
         self.assertEqual(query.model_dump(), original_payload)
+
+    @parameterized.expand([(path, outer) for path in ("runner", "source_fallback") for outer in (False, True)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_wrapper_cluster_choice_overrides_the_source(self, path: str, outer: bool) -> None:
+        query = _vitals_query(
+            modifiers=HogQLQueryModifiers(useNewEventsCluster=outer),
+            source_overrides={"modifiers": HogQLQueryModifiers(useNewEventsCluster=not outer)},
+        )
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
+        ):
+            if path == "runner":
+                runner = WebVitalsQueryRunner(query=query, team=self.team)
+                self.assertIs(bool(runner.modifiers.useNewEventsCluster), outer)
+                return
+            with patch(
+                "products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute.is_vitals_precompute_enabled_for_team",
+                return_value=False,
+            ):
+                process_query_model(self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        self.assertTrue(execute.called)
+        expected = Workload.NEW_EVENTS_CLUSTER if outer else Workload.DEFAULT
+        self.assertTrue(all(call.kwargs["workload"] == expected for call in execute.call_args_list))
 
     def test_canonical_tab_shape_is_servable(self) -> None:
         assert vitals_timeseries_percentile(_vitals_query()) == "p90"
