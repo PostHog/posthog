@@ -20,6 +20,7 @@ Attentive not-checkable:database
 Automox fail:stall-budget
 Aviator fail:stall-budget
 Awin fail:stall-budget
+AwsAthena not-checkable:schemas
 AwsCostExplorer fail:safe-point
 AwsOrganizations fail:stall-budget
 AwsWaf fail:stall-budget
