@@ -97,6 +97,13 @@ function rendersNonButton(render: ButtonPrimitive.Props['render']): boolean {
  * A disabled button keeps no destination. The browser handles a modifier click on a rendered link
  * before any click guard runs, so a kept `href` or `to` would still open in a new tab.
  */
+function rendersLink(render: ButtonPrimitive.Props['render']): boolean {
+    return (
+        React.isValidElement<{ to?: unknown; href?: unknown }>(render) &&
+        (render.props.to !== undefined || render.props.href !== undefined)
+    )
+}
+
 function withoutDestination(render: ButtonPrimitive.Props['render']): ButtonPrimitive.Props['render'] {
     if (!React.isValidElement<{ to?: unknown; href?: unknown }>(render)) {
         return render
@@ -141,6 +148,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 disabled={isDisabled}
                 nativeButton={nativeButton ?? !rendersNonButton(renderTarget)}
                 render={renderTarget}
+                // Base UI gives every non-native button role="button", which would hide a rendered link
+                // from link queries and screen readers. A caller's own role still wins.
+                {...(rendersLink(renderTarget) ? { role: 'link' } : {})}
                 // While loading, stay focusable: Base UI then renders aria-disabled instead of
                 // the native disabled attribute, keeping the button in the tab order so screen
                 // readers can reach it and announce busy. Activation stays blocked. A disabled
