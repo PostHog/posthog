@@ -2,13 +2,17 @@ import json
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
+from posthog.hogql.errors import QueryError
+
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import ExposedCHQueryError
 
 from products.logs.backend.group_by_query_runner import LogsGroupByQueryRunner
 
@@ -369,6 +373,23 @@ class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("hogql", QueryError("bad log query")),
+            ("clickhouse", ExposedCHQueryError("Limit for bytes to read exceeded", code=307)),
+        ]
+    )
+    def test_endpoint_returns_400_on_query_error(self, _name: str, error: Exception) -> None:
+        with patch.object(LogsGroupByQueryRunner, "calculate", side_effect=error):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/group-by",
+                data={"query": {"dateRange": {"date_from": "-30d"}, "groupBy": "session_id"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == str(error)
 
     def test_endpoint_rejects_missing_group_by(self) -> None:
         response = self.client.post(
