@@ -3,10 +3,8 @@ import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { isCloud } from '~/common/utils/env-utils'
 import { logger, serializeError } from '~/common/utils/logger'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { createDeletionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
@@ -24,15 +22,14 @@ export interface GetBlockParams {
     decompress?: boolean
 }
 
-export type GetBlockResult =
-    | { ok: true; data: Buffer }
-    | { ok: false; error: 'not_found' }
-    | { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
+export type RecordingDeletedResult = { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
+
+export type GetBlockResult = { ok: true; data: Buffer } | { ok: false; error: 'not_found' } | RecordingDeletedResult
 
 export type EncryptBlocksResult =
     | { ok: true; blocks: Buffer[] }
     | { ok: false; error: 'cleartext_recording' }
-    | { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
+    | RecordingDeletedResult
 
 export type DeleteRecordingResult =
     | { sessionId: string; ok: true; status: 'deleted'; deletedAt: number; deletedBy: string }
@@ -56,18 +53,9 @@ export class RecordingService {
         private metadataStore?: SessionMetadataStore,
         private featureStore?: SessionFeatureStore,
         private postgres?: PostgresRouter,
-        private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential }
+        private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential },
+        private encryptor?: RecordingEncryptor
     ) {}
-
-    private encryptor: Promise<RecordingEncryptor> | null = null
-
-    private getEncryptor(): Promise<RecordingEncryptor> {
-        if (!this.encryptor) {
-            const encryptor = getBlockEncryptor(this.keyStore)
-            this.encryptor = encryptor.start().then(() => encryptor)
-        }
-        return this.encryptor
-    }
 
     // Lets a caller write a copied recording without its own access to KMS or the key table.
     async encryptBlocks(
@@ -76,14 +64,18 @@ export class RecordingService {
         blocks: Buffer[],
         retentionDays: number
     ): Promise<EncryptBlocksResult> {
-        const encryptor = await this.getEncryptor()
-        const existingKey = await this.keyStore.getKey(sessionId, teamId)
-        // Minting a key for a pre-encryption recording would make its plaintext blocks unreadable.
-        if (existingKey.sessionState === 'cleartext' && isCloud() && (await this.recordingExists(sessionId, teamId))) {
-            return { ok: false, error: 'cleartext_recording' }
+        const encryptor = this.encryptor
+        if (!encryptor) {
+            throw new Error('Encryptor not initialized')
         }
-        // generateKey returns the existing key instead of overwriting it, so a retried copy reuses the same key.
-        const sessionKey = await this.keyStore.generateKey(sessionId, teamId, retentionDays)
+        let sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        if (sessionKey.sessionState === 'cleartext') {
+            // Minting a key for a pre-encryption recording would make its plaintext blocks unreadable.
+            if (await this.recordingExists(sessionId, teamId)) {
+                return { ok: false, error: 'cleartext_recording' }
+            }
+            sessionKey = await this.keyStore.generateKey(sessionId, teamId, retentionDays)
+        }
         if (sessionKey.sessionState === 'deleted') {
             return {
                 ok: false,

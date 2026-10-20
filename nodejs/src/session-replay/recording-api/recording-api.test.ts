@@ -6,7 +6,7 @@ import express from 'ultimate-express'
 import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PostgresRouter } from '~/common/utils/db/postgres'
-import { getBlockDecryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
+import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
@@ -45,6 +45,7 @@ jest.mock('~/ingestion/pipelines/sessionreplay/shared/keystore/cache', () => ({
 
 jest.mock('~/ingestion/pipelines/sessionreplay/shared/crypto', () => ({
     getBlockDecryptor: jest.fn(),
+    getBlockEncryptor: jest.fn(),
 }))
 
 jest.mock('~/common/utils/db/redis', () => ({
@@ -107,6 +108,7 @@ describe('RecordingApi', () => {
         } as unknown as jest.Mocked<RecordingService>
         ;(getKeyStore as jest.Mock).mockReturnValue(mockKeyStore)
         ;(getBlockDecryptor as jest.Mock).mockReturnValue(mockDecryptor)
+        ;(getBlockEncryptor as jest.Mock).mockReturnValue({ start: jest.fn().mockResolvedValue(undefined) })
         ;(RecordingService as unknown as jest.Mock).mockImplementation(() => mockService)
     })
 

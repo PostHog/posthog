@@ -2,24 +2,27 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from posthog.session_recordings.data_retention import RETENTION_PERIOD_DAYS
+
 MAX_SESSIONS_PER_COPY = 50
 
-# Mirrors ValidRetentionPeriods in the replay ingestion consumer; recording-api rejects keys under any other prefix.
-RETENTION_PERIODS: dict[int, str] = {30: "30d", 90: "90d", 365: "1y", 1825: "5y"}
+RETENTION_PERIOD_BY_DAYS: dict[int, str] = {days: period for period, days in RETENTION_PERIOD_DAYS.items()}
+
+RetentionDays = Literal[30, 90, 365, 1825]
 
 
 class CopyRecordingsInput(BaseModel):
     source_team_id: int
     target_team_id: int
     session_ids: list[str] = Field(min_length=1, max_length=MAX_SESSIONS_PER_COPY)
-    retention_days: Literal[30, 90, 365, 1825] = 365
+    retention_days: RetentionDays = 365
 
 
 class CopySessionInput(BaseModel):
     source_team_id: int
     target_team_id: int
     session_id: str
-    retention_days: Literal[30, 90, 365, 1825]
+    retention_days: RetentionDays
 
 
 class CopySessionResult(BaseModel):

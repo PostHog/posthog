@@ -1,4 +1,5 @@
 import time
+import asyncio
 import secrets
 from collections.abc import Iterator
 
@@ -18,28 +19,41 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, fetch_blocks_from_recording_api
-from posthog.temporal.session_replay.copy_recording.types import RETENTION_PERIODS, CopySessionInput, CopySessionResult
+from posthog.temporal.session_replay.copy_recording.types import (
+    RETENTION_PERIOD_BY_DAYS,
+    CopySessionInput,
+    CopySessionResult,
+)
 
 logger = structlog.get_logger(__name__)
 
 # Keeps each encrypt request under recording-api's 20mb JSON body limit after base64.
 MAX_ENCRYPT_BATCH_BYTES = 10 * 1024 * 1024
 MAX_ENCRYPT_BATCH_BLOCKS = 100
+MAX_CONCURRENT_BLOCK_FETCHES = 8
 
+# SessionReplayEvents.exists() skips expired rows, and a copy keeps the source's old start time.
 REPLAY_ROW_EXISTS_QUERY = """
 SELECT count() FROM session_replay_events
-WHERE team_id = %(team_id)s AND session_id = %(session_id)s
+WHERE team_id = %(target_team_id)s AND session_id = %(session_id)s
 """
 
-SESSION_EVENT_COUNT_QUERY = """
-SELECT count() FROM events
-WHERE team_id = %(team_id)s AND `$session_id` = %(session_id)s
+SESSION_WINDOW = """
   AND timestamp >= parseDateTime64BestEffort(%(start)s, 6, 'UTC') - INTERVAL 1 DAY
   AND timestamp <= parseDateTime64BestEffort(%(end)s, 6, 'UTC') + INTERVAL 1 DAY
 """
 
+SESSION_EVENT_COUNT_QUERY = (
+    """
+SELECT count() FROM events
+WHERE team_id = %(target_team_id)s AND `$session_id` = %(session_id)s
+"""
+    + SESSION_WINDOW
+)
+
 # dmat_* columns are per-team slot allocations, so the target team reads these properties from `properties` instead.
-COPY_EVENTS_QUERY = """
+COPY_EVENTS_QUERY = (
+    """
 INSERT INTO writable_events (
     uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at,
     person_id, person_created_at, person_properties,
@@ -55,9 +69,9 @@ SELECT
     person_mode
 FROM events
 WHERE team_id = %(source_team_id)s AND `$session_id` = %(session_id)s
-  AND timestamp >= parseDateTime64BestEffort(%(start)s, 6, 'UTC') - INTERVAL 1 DAY
-  AND timestamp <= parseDateTime64BestEffort(%(end)s, 6, 'UTC') + INTERVAL 1 DAY
 """
+    + SESSION_WINDOW
+)
 
 # AI tags, highlights and surfacing scores are left out so the copy starts unscanned.
 COPY_REPLAY_ROW_QUERY = """
@@ -100,7 +114,7 @@ def _batch_blocks(blocks: list[bytes]) -> Iterator[list[bytes]]:
 
 def _new_block_key(retention_days: int) -> str:
     # Same shape as the ingestion consumer's batch keys, which recording-api validates before serving a block.
-    return f"{settings.SESSION_RECORDING_V2_S3_PREFIX}/{RETENTION_PERIODS[retention_days]}/{int(time.time() * 1000)}-{secrets.token_hex(8)}"
+    return f"{settings.SESSION_RECORDING_V2_S3_PREFIX}/{RETENTION_PERIOD_BY_DAYS[retention_days]}/{int(time.time() * 1000)}-{secrets.token_hex(8)}"
 
 
 async def _upload(key: str, body: bytes) -> None:
@@ -120,22 +134,37 @@ def _count(query: str, params: dict) -> int:
     return int(sync_execute(query, params)[0][0])
 
 
-def _visible_event_count(team_id: int, session_id: str) -> int:
+def _visible_event_count(team_id: int, session_id: str, start: str, end: str) -> int:
     team = Team.objects.get(id=team_id)
     response = execute_hogql_query(
-        "SELECT count() FROM events WHERE $session_id = {session_id}",
-        placeholders={"session_id": ast.Constant(value=session_id)},
+        """
+        SELECT count() FROM events
+        WHERE $session_id = {session_id}
+          AND timestamp >= toDateTime64({start}, 6, 'UTC') - INTERVAL 1 DAY
+          AND timestamp <= toDateTime64({end}, 6, 'UTC') + INTERVAL 1 DAY
+        """,
+        placeholders={
+            "session_id": ast.Constant(value=session_id),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
+        },
         team=team,
     )
     return int(response.results[0][0])
 
 
 async def _copy_blocks(input: CopySessionInput, source_blocks: list[RecordingBlock]) -> list[str]:
+    fetch_slots = asyncio.Semaphore(MAX_CONCURRENT_BLOCK_FETCHES)
+
     async with recording_api_client() as client:
-        plaintext = [
-            await client.fetch_block(b.key, b.start_byte, b.end_byte, input.session_id, input.source_team_id)
-            for b in source_blocks
-        ]
+
+        async def fetch(block: RecordingBlock) -> bytes:
+            async with fetch_slots:
+                return await client.fetch_block(
+                    block.key, block.start_byte, block.end_byte, input.session_id, input.source_team_id
+                )
+
+        plaintext = await asyncio.gather(*(fetch(b) for b in source_blocks))
         encrypted: list[bytes] = []
         for batch in _batch_blocks(plaintext):
             encrypted += await client.encrypt_blocks(
@@ -161,9 +190,13 @@ async def copy_session_recording(input: CopySessionInput) -> CopySessionResult:
     # The replay row goes in last because a retry treats an existing row as a finished copy.
     tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=input.target_team_id)
     log = logger.bind(session_id=input.session_id, target_team_id=input.target_team_id)
-    target = {"team_id": input.target_team_id, "session_id": input.session_id}
+    params = {
+        "source_team_id": input.source_team_id,
+        "target_team_id": input.target_team_id,
+        "session_id": input.session_id,
+    }
 
-    if await sync_to_async(_count)(REPLAY_ROW_EXISTS_QUERY, target):
+    if await sync_to_async(_count)(REPLAY_ROW_EXISTS_QUERY, params):
         log.info("copy_recording.already_copied")
         return CopySessionResult(session_id=input.session_id, status="already_copied")
 
@@ -174,26 +207,18 @@ async def copy_session_recording(input: CopySessionInput) -> CopySessionResult:
 
     block_urls = await _copy_blocks(input, source_blocks)
 
-    window = {"start": source_blocks[0].start_timestamp, "end": source_blocks[-1].end_timestamp}
+    start, end = source_blocks[0].start_timestamp, source_blocks[-1].end_timestamp
+    window_params = {**params, "start": start, "end": end}
     # Events have no unique key, so a retry after this insert must not insert them twice.
-    if not await sync_to_async(_count)(SESSION_EVENT_COUNT_QUERY, {**target, **window}):
-        await sync_to_async(sync_execute)(
-            COPY_EVENTS_QUERY,
-            {
-                "source_team_id": input.source_team_id,
-                "target_team_id": input.target_team_id,
-                "session_id": input.session_id,
-                **window,
-            },
-        )
-    event_count = await sync_to_async(_count)(SESSION_EVENT_COUNT_QUERY, {**target, **window})
+    event_count = await sync_to_async(_count)(SESSION_EVENT_COUNT_QUERY, window_params)
+    if not event_count:
+        await sync_to_async(sync_execute)(COPY_EVENTS_QUERY, window_params)
+        event_count = await sync_to_async(_count)(SESSION_EVENT_COUNT_QUERY, window_params)
 
     await sync_to_async(sync_execute)(
         COPY_REPLAY_ROW_QUERY,
         {
-            "source_team_id": input.source_team_id,
-            "target_team_id": input.target_team_id,
-            "session_id": input.session_id,
+            **params,
             "block_first_timestamps": [b.start_timestamp for b in source_blocks],
             "block_last_timestamps": [b.end_timestamp for b in source_blocks],
             "block_urls": block_urls,
@@ -202,7 +227,7 @@ async def copy_session_recording(input: CopySessionInput) -> CopySessionResult:
     )
 
     warnings: list[str] = []
-    visible = await sync_to_async(_visible_event_count)(input.target_team_id, input.session_id)
+    visible = await sync_to_async(_visible_event_count)(input.target_team_id, input.session_id, start, end)
     if visible != event_count:
         # HogQL may read the native-JSON events table, which this copy does not write.
         warnings.append(f"HogQL sees {visible} of {event_count} copied events")

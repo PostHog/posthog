@@ -8,7 +8,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger, serializeError } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import { getBlockDecryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
+import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { RedisCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
@@ -26,7 +26,7 @@ import {
     RecordingParamsSchema,
     TeamParamsSchema,
 } from './schemas'
-import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
+import { KeyStore, RecordingApiConfig, RecordingDecryptor, RecordingEncryptor } from './types'
 
 export class RecordingApi {
     private s3Client: S3Client | null = null
@@ -34,6 +34,7 @@ export class RecordingApi {
     private s3Prefix: string | null = null
     private keyStore: KeyStore | null = null
     private decryptor: RecordingDecryptor | null = null
+    private encryptor: RecordingEncryptor | null = null
     private redisPool: RedisPool | null = null
     private clickhouseClient: ClickHouseClient | null = null
     private recordingService: RecordingService | null = null
@@ -113,6 +114,9 @@ export class RecordingApi {
         this.decryptor = getBlockDecryptor(this.keyStore)
         await this.decryptor.start()
 
+        this.encryptor = getBlockEncryptor(this.keyStore)
+        await this.encryptor.start()
+
         const metadataStore = new SessionMetadataStore(this.outputs)
         const featureStore = new SessionFeatureStore(this.outputs)
 
@@ -142,7 +146,8 @@ export class RecordingApi {
             metadataStore,
             featureStore,
             this.postgres,
-            { client: this.clickhouseClient, credential: ClickHouseCredential.fromConfig(this.config) }
+            { client: this.clickhouseClient, credential: ClickHouseCredential.fromConfig(this.config) },
+            this.encryptor
         )
 
         logger.info('[RecordingApi] Started successfully')
@@ -171,6 +176,9 @@ export class RecordingApi {
         }
         if (!this.decryptor) {
             uninitializedComponents.push('decryptor')
+        }
+        if (!this.encryptor) {
+            uninitializedComponents.push('encryptor')
         }
 
         if (uninitializedComponents.length > 0) {
@@ -207,23 +215,19 @@ export class RecordingApi {
         const deleteAuth = auth('delete')
         const writeAuth = auth('write')
 
+        // Registered before the prefix middleware so its own write scope applies instead of the delete scope.
+        router.post(encryptPath, writeAuth, asyncHandler(this.encryptBlocks))
+
         // Mounted on the whole '/api/projects' prefix, matching what the shared-secret middleware
         // exempts, rather than on the recording routes alone. Anything under the prefix that this
         // router does not handle then still needs a valid token and gets a 401, so a route added
         // later cannot ship unauthenticated. op comes from the method: GET reads, anything mutating
-        // gets the stricter delete scope, except encrypt, which needs its own write scope. Registered before
-        // the routes so it runs first.
-        router.use('/api/projects', (req, res, next) => {
-            if (req.method === 'GET') {
-                return readAuth(req, res, next)
-            }
-            return (/\/recordings\/[^/]+\/encrypt\/?$/.test(req.path) ? writeAuth : deleteAuth)(req, res, next)
-        })
+        // gets the stricter delete scope. Registered before the routes so it runs first.
+        router.use('/api/projects', (req, res, next) => (req.method === 'GET' ? readAuth : deleteAuth)(req, res, next))
 
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
-        router.post(encryptPath, asyncHandler(this.encryptBlocks))
 
         return router
     }
@@ -357,11 +361,11 @@ export class RecordingApi {
                 blocks.map((b) => Buffer.from(b, 'base64')),
                 retentionDays
             )
-            if (!result.ok && result.error === 'cleartext_recording') {
-                res.status(409).json({ error: 'cleartext_recording' })
-                return
-            }
             if (!result.ok) {
+                if (result.error === 'cleartext_recording') {
+                    res.status(409).json({ error: 'cleartext_recording' })
+                    return
+                }
                 res.status(410).json({
                     error: 'recording_deleted',
                     deleted_at: result.deletedAt,
