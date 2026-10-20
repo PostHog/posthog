@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.forecast import ForecastCall
 from posthog.hogql.functions.prompt_jev import PromptJevCall
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -177,6 +178,44 @@ class TestPromptJev(SimpleTestCase):
         with patch("httpx.AsyncClient.post") as post, self.assertRaisesRegex(QueryError, "time limit"):
             runner.evaluate(PromptJevCall.parse(node), ["refund"])
         post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("scalar_input", [123], 60, "array of numbers"),
+            ("too_many_points", [[1.0] * 8192] * 33, 60, "at most 262144 values"),
+            ("expired_deadline", [[1.0, 2.0]], -1, "time limit"),
+        ]
+    )
+    def test_forecast_rejects_before_inference(
+        self, _name: str, values: list[object], seconds_left: int, message: str
+    ) -> None:
+        node = parse_expr("forecast(v, 2)")
+        assert isinstance(node, ast.Call)
+        runner = PromptJevRunner(team_id=1, distinct_id=None)
+        runner.deadline = time.monotonic() + seconds_left
+        with (
+            patch("posthog.hogql.transforms.forecast._model") as model,
+            self.assertRaisesRegex(QueryError, message),
+        ):
+            runner.evaluate(ForecastCall.parse(node), values)
+        model.return_value.forecast.assert_not_called()
+
+    def test_forecast_batches_keep_each_row_with_its_own_result(self) -> None:
+        node = parse_expr("forecast(v, 1)")
+        assert isinstance(node, ast.Call)
+        batch_points: list[int] = []
+
+        def last_value(context: np.ndarray, horizon: int) -> np.ndarray:
+            batch_points.append(context.size)
+            return np.repeat(context[:, -1:, None], 21, axis=2)
+
+        values: list[object] = [[0.0] * (100 * (i % 7 + 1)) + [float(i)] for i in range(300)] + [None, [5.0]]
+        with patch("posthog.hogql.transforms.forecast._model") as model:
+            model.return_value.forecast.side_effect = last_value
+            results = PromptJevRunner(team_id=1, distinct_id=None).evaluate(ForecastCall.parse(node), values)
+        self.assertEqual(results, [[(float(i),) * 3] for i in range(300)] + [[], []])
+        self.assertGreater(len(batch_points), 1)
+        self.assertLessEqual(max(batch_points), 32768)
 
 
 @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")

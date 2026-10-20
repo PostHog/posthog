@@ -1,4 +1,5 @@
 import math
+import time
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,7 +21,8 @@ if TYPE_CHECKING:
 # Timestral-28M constants, from the model config and TimestralForecaster defaults.
 PATCH = 32
 BLOCK_PATCHES = 32
-MAX_CONTEXT = 32768
+# Older history barely changes a forecast, and attention cost grows with the context.
+MAX_CONTEXT = 8192
 MIN_SCALE = 1e-6
 CAP_K = 1e4
 EXTREME = 1e30
@@ -29,6 +31,9 @@ P10, P50, P90 = 2, 10, 18
 # Threads one ONNX session may use for one operator. Web processes share the pod's cores, so a forecast
 # must not take every core.
 ONNX_INTRA_OP_THREADS = 2
+# Context points per ONNX run and per query. They bound the memory of one run and the CPU time of one query.
+BATCH_POINTS = 32768
+MAX_TOTAL_POINTS = 262144
 
 
 def validate_forecast_access(team: "Team") -> None:
@@ -150,24 +155,44 @@ def _model() -> Forecaster:
     return Forecaster(onnxruntime.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"]))
 
 
-def evaluate_forecast(spec: ForecastCall, values: list[object]) -> list[object]:
+def _batches(series: dict[int, list[float]]) -> list[list[int]]:
+    """Row indexes in batches of at most BATCH_POINTS context points.
+
+    Rows are sorted by length, so each batch pads its shorter rows by little.
+    """
+    batches: list[list[int]] = []
+    for i in sorted(series, key=lambda i: len(series[i])):
+        if not batches or (len(batches[-1]) + 1) * len(series[i]) > BATCH_POINTS:
+            batches.append([])
+        batches[-1].append(i)
+    return batches
+
+
+def evaluate_forecast(spec: ForecastCall, values: list[object], deadline: float) -> list[object]:
+    if any(value is not None and not isinstance(value, list | tuple) for value in values):
+        raise QueryError("forecast values must be an array of numbers.")
     series = {
         i: [np.nan if x is None else x for x in value[-MAX_CONTEXT:]]
         for i, value in enumerate(values)
         if isinstance(value, list | tuple) and len(value) >= 2
     }
+    if sum(len(s) for s in series.values()) > MAX_TOTAL_POINTS:
+        raise QueryError(
+            f"forecast reads at most {MAX_TOTAL_POINTS} values across all rows. Use fewer rows or shorter histories."
+        )
     out: list[object] = [[] for _ in values]
-    if not series:
-        return out
-    # One batch for every row. NaN is missing, so shorter series are padded on the left.
-    width = max(len(s) for s in series.values())
-    context = np.full((len(series), width), np.nan)
-    try:
-        for row, s in enumerate(series.values()):
-            context[row, width - len(s) :] = s
-    except (TypeError, ValueError) as error:
-        raise QueryError("forecast values must be an array of numbers.") from error
-    bands = _model().forecast(context, spec.horizon)[..., [P10, P50, P90]]
-    for row, i in enumerate(series):
-        out[i] = [tuple(float(v) for v in step) for step in bands[row]]
+    for batch in _batches(series):
+        if time.monotonic() >= deadline:
+            raise QueryError("forecast exceeded its time limit. Use fewer rows or shorter histories.")
+        # NaN is missing, so shorter series are padded on the left.
+        width = len(series[batch[-1]])
+        context = np.full((len(batch), width), np.nan)
+        try:
+            for row, i in enumerate(batch):
+                context[row, width - len(series[i]) :] = series[i]
+        except (TypeError, ValueError) as error:
+            raise QueryError("forecast values must be an array of numbers.") from error
+        bands = _model().forecast(context, spec.horizon)[..., [P10, P50, P90]]
+        for row, i in enumerate(batch):
+            out[i] = [tuple(float(v) for v in step) for step in bands[row]]
     return out

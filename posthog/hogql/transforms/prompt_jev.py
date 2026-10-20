@@ -238,7 +238,7 @@ class PromptJevRunner:
 
     def evaluate(self, spec: PromptJevCall | ForecastCall, values: list[object]) -> list[object]:
         if isinstance(spec, ForecastCall):
-            return evaluate_forecast(spec, values)
+            return evaluate_forecast(spec, values, self.deadline)
         question_key = json.dumps(spec.question.to_json(), sort_keys=True)
         missing = [key.text for key in self.check_budget([(spec, values)])]
         self.input_bytes += sum(len(text.encode()) for text in missing)
