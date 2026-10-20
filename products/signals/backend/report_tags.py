@@ -5,16 +5,30 @@
 - A merge gives the survivor the union of its own tags and the sources' tags (`union_report_tags`).
 - A stack plan layer starts with the plan's tags.
 - A report never takes tags from its signals' `extra.tags`.
+- Research writes the whole set with the title and summary on each pass (`coerce_report_tags`). An
+  invalid tag from the agent is dropped with a warning, so it never fails the run.
 
 Tags live in the `SignalReport.tags` column, not in the shared `TaggedItem` system. Every reader
 filters one column with no join, `Tag` rows would show report tags in the tag picker for other
 objects, and a `TaggedItem` delete writes an activity log row on each replace.
 """
 
+from collections import Counter
 from collections.abc import Sequence
+
+import structlog
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.scout_harness.tags import slugify_tag
+
+logger = structlog.get_logger(__name__)
+
+# The research prompt shows this many of the team's most-used tags, so a run reuses a tag before it
+# invents a near duplicate.
+TEAM_TAG_VOCABULARY_SIZE = 30
+# Bounds the vocabulary query to the team's newest tagged reports, so its cost does not grow with
+# the team's report history.
+TEAM_TAG_VOCABULARY_SAMPLE = 500
 
 
 def normalize_report_tags(tags: list[str]) -> list[str]:
@@ -35,6 +49,41 @@ def normalize_report_tags(tags: list[str]) -> list[str]:
         if slug not in normalized:
             normalized.append(slug)
     return normalized
+
+
+def coerce_report_tags(tags: Sequence[object]) -> list[str]:
+    """`normalize_report_tags` for agent output, which must never fail a research run.
+
+    Drops each tag that does not normalize and keeps the first `SignalReport.MAX_TAGS`, with a warning
+    for each loss instead of a `ValueError`.
+    """
+    kept: list[str] = []
+    dropped: list[object] = []
+    for raw in tags:
+        slug = slugify_tag(raw) if isinstance(raw, str) else ""
+        if not slug or len(slug) > SignalReport.MAX_TAG_LENGTH:
+            dropped.append(raw)
+        elif slug not in kept:
+            kept.append(slug)
+    if dropped:
+        logger.warning("report tags: dropped invalid tags", dropped=[repr(raw)[:80] for raw in dropped])
+    if len(kept) > SignalReport.MAX_TAGS:
+        logger.warning("report tags: dropped tags over the cap", dropped=kept[SignalReport.MAX_TAGS :])
+        kept = kept[: SignalReport.MAX_TAGS]
+    return kept
+
+
+def team_tag_vocabulary(team_id: int) -> list[str]:
+    """The team's most-used report tags, most-used first, counted over its newest tagged reports."""
+    rows = (
+        SignalReport.objects.filter(team_id=team_id)
+        .exclude(status=SignalReport.Status.DELETED)
+        .exclude(tags=[])
+        .order_by("-created_at")
+        .values_list("tags", flat=True)[:TEAM_TAG_VOCABULARY_SAMPLE]
+    )
+    counts = Counter(tag for tags in rows for tag in tags)
+    return [tag for tag, _ in counts.most_common(TEAM_TAG_VOCABULARY_SIZE)]
 
 
 def set_report_tags(report: SignalReport, tags: list[str] | None) -> bool:
