@@ -235,6 +235,69 @@ function keepsCondition(incoming: FlagConditionGroup, source: ExistingSet): bool
     )
 }
 
+/**
+ * Two values that isDeepStrictEqual treats as equal give the same string. The string only keys a
+ * lookup. The exact comparison still runs on what the lookup finds.
+ */
+function canonicalJson(value: unknown): string {
+    const sortKeys = (_key: string, nested: unknown): unknown =>
+        isRecord(nested)
+            ? Object.fromEntries(Object.entries(nested).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+            : nested
+    return JSON.stringify(value, sortKeys) ?? 'undefined'
+}
+
+/** Sets that keepsFilters treats as having the same filters on the same keys share this signature. */
+function filterSignature(propsByKey: Map<string, FlagProperty[]>): string {
+    return JSON.stringify(
+        [...propsByKey.values()]
+            .flat()
+            .map((prop) => JSON.stringify([prop.key, prop.operator ?? 'exact', canonicalJson(prop.value)]))
+            .sort()
+    )
+}
+
+/** Sets with this signature in common type every property the same way and hold the same group properties. */
+function typingSignature(propsByKey: Map<string, FlagProperty[]>): string {
+    return JSON.stringify(
+        [...propsByKey.entries()]
+            .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+            .map(([key, props]) => [
+                key,
+                props.map((prop) => [
+                    prop.operator ?? null,
+                    canonicalJson(prop.value),
+                    prop.type ?? null,
+                    prop.group_type_index ?? null,
+                ]),
+            ])
+    )
+}
+
+/** `set` stands for every stored person set in `indexes`. */
+type SameTypingSets = { set: ExistingSet; indexes: number[] }
+
+/** A changed set compares against one stored set per typing instead of against every stored set. */
+function groupPersonSetsByFilters(existingSets: (ExistingSet | undefined)[]): Map<string, SameTypingSets[]> {
+    const byFilters = new Map<string, Map<string, SameTypingSets>>()
+    existingSets.forEach((existingSet, index) => {
+        if (!existingSet || existingSet.aggregation !== null) {
+            return
+        }
+        const filters = filterSignature(existingSet.propsByKey)
+        const byTyping = byFilters.get(filters) ?? new Map<string, SameTypingSets>()
+        byFilters.set(filters, byTyping)
+        const typing = typingSignature(existingSet.propsByKey)
+        const sameTyping = byTyping.get(typing)
+        if (sameTyping) {
+            sameTyping.indexes.push(index)
+        } else {
+            byTyping.set(typing, { set: existingSet, indexes: [index] })
+        }
+    })
+    return new Map([...byFilters].map(([filters, byTyping]) => [filters, [...byTyping.values()]]))
+}
+
 function keepsKeys(incoming: FlagConditionGroup | undefined, existingSet: ExistingSet | undefined): boolean {
     const incomingKeys = isRecord(incoming) ? indexProperties(incoming.properties) : new Map()
     return hasSameKeySet(incomingKeys, existingSet?.propsByKey ?? new Map())
@@ -486,10 +549,6 @@ export function preserveGroupTargetingFilters(
         const mixedAggregation = storedAggregations.size > 1
         const aggregatesOnPersonsOnly = storedAggregations.size === 1 && storedAggregations.has(null)
         const incomingGroups = result.groups
-        const sameKeySets = (existingSet: ExistingSet): ExistingSet[] =>
-            existingSets.filter(
-                (other): other is ExistingSet => !!other && hasSameKeySet(other.propsByKey, existingSet.propsByKey)
-            )
         const keptKeys = existingSets.map((existingSet, index) => keepsKeys(incomingGroups[index], existingSet))
         // On a single-aggregation flag a positional source cannot carry the wrong aggregation.
         const positionHolds =
@@ -500,7 +559,12 @@ export function preserveGroupTargetingFilters(
                 mixedAggregation &&
                 !!existingSet &&
                 isRecord(group) &&
-                sameKeySets(existingSet).some((other) => other.aggregation !== existingSet.aggregation) &&
+                existingSets.some(
+                    (other) =>
+                        !!other &&
+                        other.aggregation !== existingSet.aggregation &&
+                        hasSameKeySet(other.propsByKey, existingSet.propsByKey)
+                ) &&
                 !keepsFilters(group, existingSet)
             return positionHolds && keptKeys[index] && !ambiguous ? existingSet : undefined
         })
@@ -509,30 +573,34 @@ export function preserveGroupTargetingFilters(
             const group = incomingGroups[index]
             return !!existingSet && isRecord(group) && keepsCondition(group, existingSet)
         })
+        const personSetsByFilters = groupPersonSetsByFilters(existingSets)
+        const changedTypings = new Set(
+            [...personSetsByFilters.values()]
+                .flat()
+                .filter((sameTyping) => sameTyping.indexes.some((otherIndex) => !keptConditions[otherIndex]))
+        )
         const sameFilterPersonSets = personSources.map((personSource, index) => {
             const group = incomingGroups[index]
             if (!personSource || !isRecord(group)) {
                 return []
             }
-            return existingSets.flatMap((other, otherIndex) =>
-                other &&
-                otherIndex !== index &&
-                other.aggregation === null &&
-                hasSameKeySet(other.propsByKey, personSource.propsByKey) &&
-                keepsFilters(group, other)
-                    ? [{ set: other, index: otherIndex }]
-                    : []
+            return (personSetsByFilters.get(filterSignature(indexProperties(group.properties))) ?? []).filter(
+                (sameTyping) =>
+                    sameTyping.indexes.some((otherIndex) => otherIndex !== index) && keepsFilters(group, sameTyping.set)
             )
         })
-        const matchedPersonSets = sameFilterPersonSets.map((matches, index) =>
-            matches.filter((match) => !keptConditions[index] || !keptConditions[match.index]).map((match) => match.set)
+        const matchedPersonSets = sameFilterPersonSets.map((sameTypings, index) =>
+            sameTypings
+                .filter((sameTyping) => !keptConditions[index] || changedTypings.has(sameTyping))
+                .map((sameTyping) => sameTyping.set)
         )
 
         const personSetPropsFor = (index: number): (Map<string, FlagProperty[]> | undefined)[] =>
             sourceSets[index]
-                ? [personSources[index], ...(sameFilterPersonSets[index] ?? []).map((match) => match.set)].map(
-                      (personSet) => personSet?.propsByKey
-                  )
+                ? [
+                      personSources[index],
+                      ...(sameFilterPersonSets[index] ?? []).map((sameTyping) => sameTyping.set),
+                  ].map((personSet) => personSet?.propsByKey)
                 : [aggregatesOnPersonsOnly ? crossSetPropsByKey : undefined]
 
         const resolvedGroups = result.groups.map((group, index) =>
