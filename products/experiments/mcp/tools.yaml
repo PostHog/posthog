@@ -823,8 +823,8 @@ tools:
 
 
             An experiment that started too long ago cannot be recalculated. The response is then a run that is already
-            failed, and every metric in metric_errors has error_type recalculation_window_too_long. Do not retry or
-            poll it; tell the user the message from metric_errors. The earlier results stay available from
+            failed, and every metric in metric_errors has error_type recalculation_window_too_long. Do not retry or poll
+            it; tell the user the message from metric_errors. The earlier results stay available from
             experiment-metrics-recalculation-latest-retrieve.
 
 
