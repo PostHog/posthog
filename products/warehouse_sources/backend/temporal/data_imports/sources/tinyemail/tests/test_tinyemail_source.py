@@ -19,7 +19,7 @@ class TestTinyemailSource:
         assert config.name.value == "Tinyemail"
         assert config.label == "tinyEmail"
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/tinyemail"
         assert config.iconPath == "/static/services/tinyemail.png"

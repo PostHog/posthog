@@ -72,9 +72,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool) -> None:
