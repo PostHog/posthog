@@ -23,6 +23,9 @@ logs-count-ranges
 logs-patterns
 logs-patterns-diff
 logs-sparkline-query
+notebooks-add-cell
+notebooks-create-markdown
+notebooks-update-cell
 org-member-get-github-login
 pr-lifecycle
 pull-requests

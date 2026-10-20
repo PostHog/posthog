@@ -229,6 +229,13 @@ services:
             - --set redpanda.empty_seed_starts_cluster=false
             - --seeds kafka:33145
             - --set redpanda.auto_create_topics_enabled=true
+        # Redpanda refuses new partitions past its file descriptor limit divided by
+        # `topic_fds_per_partition` (5). At a 1024 soft limit that is about 200 partitions, fewer
+        # than one cohort-stream-processor integration test creates.
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
         volumes:
             - redpanda-data:/var/lib/redpanda/data
         environment:

@@ -226,7 +226,6 @@ def _to_contract(row: WarehouseSuggestion, access: SubjectAccess, payload: Sugge
         evidence_window_start=row.evidence_window_start,
         evidence_window_end=row.evidence_window_end,
         last_seen_at=row.last_seen_at,
-        score=row.score,
         status=WarehouseSuggestionStatus(row.status),
         surfaced_at=row.surfaced_at,
         reviewed_by=_to_reviewer(row),

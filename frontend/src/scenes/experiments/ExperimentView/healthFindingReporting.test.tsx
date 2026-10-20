@@ -194,11 +194,11 @@ describe('health finding reporting', () => {
 
         const shown = captureSpy.mock.calls
             .filter(([event]) => event === 'experiment health finding shown')
-            .map(([, properties]) => [properties.finding_code, properties.finding_variant])
+            .map(([, properties]) => [properties.finding_code, properties.finding_variant, properties.finding_severity])
         expect(shown).toEqual([
-            ['flag_off_while_running', 'running_but_flag_disabled'],
-            ['srm', null],
-            ['bias_risk_multiple_excluded', null],
+            ['flag_off_while_running', 'running_but_flag_disabled', 'warning'],
+            ['srm', null, 'warning'],
+            ['bias_risk_multiple_excluded', null, 'warning'],
         ])
     })
 

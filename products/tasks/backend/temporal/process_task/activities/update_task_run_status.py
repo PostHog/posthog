@@ -10,11 +10,16 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import asyncify
 
+from products.signals.backend.facade.spend import complete_task_spend
 from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
-from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
+from products.tasks.backend.metrics import (
+    observe_prewarmed_unused_if_never_activated,
+    observe_task_run_terminal,
+    observe_wizard_run_unbound,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
@@ -104,12 +109,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             if marker in _TERMINAL_STATE_MARKERS:
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
                 task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
-            if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
-                task_run.completed_at = timezone.now()
-            elif (
-                input.status == TaskRun.Status.CANCELLED
-                and task_run.environment == TaskRun.Environment.CLOUD
-                and not task_run.completed_at
+            if not task_run.completed_at and (
+                input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]
+                or (input.status == TaskRun.Status.CANCELLED and task_run.environment == TaskRun.Environment.CLOUD)
             ):
                 task_run.completed_at = timezone.now()
             task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
@@ -125,6 +127,15 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     if input.status == TaskRun.Status.FAILED:
         input = replace(input, error_type=(task_run.state or {}).get("failure_error_type") or input.error_type)
+
+    # Counted before the fallible side effects below. A retry after one of them raises sees the
+    # row already terminal and skips this block, so a later count would be lost.
+    if input.status in _TERMINAL_STATUSES and old_status != input.status:
+        observe_task_run_terminal(
+            task_run,
+            error_type=input.error_type,
+            termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
+        )
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     if input.status in _TERMINAL_STATUSES:
@@ -166,6 +177,14 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         status=input.status,
         termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
     )
+
+
+@activity.defn
+@asyncify
+def complete_signal_spend(run_id: str) -> None:
+    run = TaskRun.objects.only("team_id", "status").get(id=run_id)
+    if run.status in _TERMINAL_STATUSES:
+        complete_task_spend(team_id=run.team_id, run_id=run_id)
 
 
 def _capture_posthog_ai_chat_analytics(

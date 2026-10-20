@@ -20,10 +20,11 @@ import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDe
 import { ReportDetailLegacy, ReportDetailSkeletonLegacy } from './components/detail/ReportDetailLegacy'
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
-import { InboxWelcome } from './components/onboarding/InboxWelcome'
+import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { InboxListViewLegacy } from './components/shell/InboxListViewLegacy'
 import { InboxTabBar } from './components/shell/InboxTabBar'
+import { InboxValueSummary } from './components/shell/InboxValueSummary'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { SettingsTab } from './components/tabs/SettingsTab'
@@ -125,7 +126,7 @@ function InboxListView(): JSX.Element {
                         <CardSkeleton count={4} variant="cards" />
                     </div>
                 ) : onboarding ? (
-                    <InboxWelcome />
+                    <InboxOnboardingEntry />
                 ) : (
                     <ActiveTabBody tab={activeTab} />
                 )}
@@ -297,6 +298,9 @@ export function InboxScene(): JSX.Element {
                         isn't set up, the list view itself swaps in the welcome page; the banner sits
                         above the otherwise-normal inbox when there's already work to keep. */}
                     {onboardingMode === 'banner' && <InboxOnboardingBanner />}
+                    {onboardingMode !== 'takeover' && onboardingMode !== 'pending' && (
+                        <InboxValueSummary visible={!showDetail} />
+                    )}
                     {isRedesign ? <InboxListView /> : <InboxListViewLegacy />}
                 </div>
             </div>

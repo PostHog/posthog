@@ -8,14 +8,12 @@ use std::time::{Duration, Instant};
 
 use ingestion_consumer::batcher::packer::{PackTargets, Packer};
 use ingestion_consumer::batcher::retry_policy::RetryPolicy;
-use ingestion_consumer::batcher::state_machine::BatcherStateMachine;
+use ingestion_consumer::batcher::state_machine::{BatcherStateMachine, RequestBudget};
 use ingestion_consumer::batcher::worker_assigner::WorkerAssigner;
+use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
 use ingestion_consumer::batcher::{Batcher, BatcherOutputs};
-use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::GrpcTransport;
 use ingestion_consumer::routing::Router;
-use ingestion_consumer::scheduler::SchedulerKind;
-use lifecycle::Handle;
 
 pub const PRODUCTION_PACK_TARGETS: PackTargets = PackTargets {
     events: NonZeroUsize::new(500),
@@ -29,52 +27,16 @@ pub const ONE_MESSAGE_PER_REQUEST: PackTargets = PackTargets {
     latency_budget: Duration::ZERO,
 };
 
+/// A batcher over `pool_source`'s workers, with the transport's un-acked cap
+/// as its per-worker request cap.
 pub fn batcher(
-    kind: SchedulerKind,
-    dispatcher: &Arc<Dispatcher>,
-    transport: Arc<GrpcTransport>,
-    handle: Handle,
-    stall_timeout: Duration,
-    retry_delay: Duration,
-    pack_targets: PackTargets,
-) -> (Batcher, BatcherOutputs) {
-    match kind {
-        SchedulerKind::PinStash => {
-            Batcher::new(Arc::clone(dispatcher), transport, handle, stall_timeout)
-        }
-        SchedulerKind::KeyTable => packing_key_table_batcher(
-            dispatcher,
-            transport,
-            stall_timeout,
-            retry_delay,
-            pack_targets,
-        ),
-    }
-}
-
-pub fn key_table_batcher(
-    dispatcher: &Dispatcher,
-    transport: Arc<GrpcTransport>,
-    stall_timeout: Duration,
-    retry_delay: Duration,
-) -> (Batcher, BatcherOutputs) {
-    packing_key_table_batcher(
-        dispatcher,
-        transport,
-        stall_timeout,
-        retry_delay,
-        ONE_MESSAGE_PER_REQUEST,
-    )
-}
-
-fn packing_key_table_batcher(
-    dispatcher: &Dispatcher,
+    pool_source: WorkerPoolSource,
     transport: Arc<GrpcTransport>,
     stall_timeout: Duration,
     retry_delay: Duration,
     pack_targets: PackTargets,
+    budget: Option<RequestBudget>,
 ) -> (Batcher, BatcherOutputs) {
-    let pool_source = dispatcher.worker_pool_source();
     let assigner =
         WorkerAssigner::new(Router::new(pool_source.strategy()), transport.max_unacked())
             .expect("valid request cap");
@@ -86,6 +48,24 @@ fn packing_key_table_batcher(
         stall_timeout,
         Instant::now(),
     )
-    .expect("valid stall timeout");
-    Batcher::with_state_machine(state_machine, pool_source, transport)
+    .expect("valid stall timeout")
+    .with_request_budget(budget);
+    Batcher::new(state_machine, pool_source, transport, None)
+}
+
+/// A batcher that sends every message in its own request.
+pub fn one_message_batcher(
+    pool_source: WorkerPoolSource,
+    transport: Arc<GrpcTransport>,
+    stall_timeout: Duration,
+    retry_delay: Duration,
+) -> (Batcher, BatcherOutputs) {
+    batcher(
+        pool_source,
+        transport,
+        stall_timeout,
+        retry_delay,
+        ONE_MESSAGE_PER_REQUEST,
+        None,
+    )
 }

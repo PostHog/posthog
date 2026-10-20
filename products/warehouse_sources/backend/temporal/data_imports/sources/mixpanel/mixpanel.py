@@ -115,6 +115,10 @@ def _export_base(region: str) -> str:
     return _hosts(region).export_base
 
 
+def _ingestion_base(region: str) -> str:
+    return _hosts(region).ingestion_base
+
+
 def _export_url(region: str, api_version: str) -> str:
     # A pin is honored verbatim, so an unknown/future label can reach here; fall back to
     # Mixpanel's only raw-export path (`2.0`) rather than raising on the lookup.
@@ -451,6 +455,28 @@ def _fetch_annotations(
         yield rows
 
 
+def _fetch_lexicon_schemas(
+    region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_query_base(region)}/api/app/projects/{project_id}/schemas"
+    response = _request("GET", url, username=username, secret=secret, logger=logger)
+    data = response.json()
+    rows = data.get("results", []) if isinstance(data, dict) else []
+    if rows:
+        yield rows
+
+
+def _fetch_lookup_tables(
+    region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_ingestion_base(region)}/lookup-tables"
+    response = _request("GET", url, username=username, secret=secret, logger=logger, params={"project_id": project_id})
+    data = response.json()
+    rows = data.get("results", []) if isinstance(data, dict) else []
+    if rows:
+        yield rows
+
+
 def _fetch_funnel_list(
     region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
 ) -> list[dict[str, Any]]:
@@ -631,6 +657,10 @@ def get_rows(
         yield from _fetch_cohorts(region, username, secret, project_id, logger)
     elif endpoint == "annotations":
         yield from _fetch_annotations(region, username, secret, project_id, logger)
+    elif endpoint == "lexicon_schemas":
+        yield from _fetch_lexicon_schemas(region, username, secret, project_id, logger)
+    elif endpoint == "lookup_tables":
+        yield from _fetch_lookup_tables(region, username, secret, project_id, logger)
     elif endpoint == "funnels":
         yield from _fetch_funnels(region, username, secret, project_id, logger)
     elif endpoint in ("funnel_steps", "retention"):

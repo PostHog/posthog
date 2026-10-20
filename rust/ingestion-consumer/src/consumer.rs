@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -19,7 +19,9 @@ use crate::commit_monitor::spawn_commit_monitor;
 use crate::commit_pacer::ImmediateCommitPacer;
 use crate::commit_sentinel::{CommitSentinel, CommitViolation};
 use crate::config::Config;
-use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
+use crate::debug_recorder::{
+    record_if, DebugEventKind, DebugRecorder, PartitionOffset, PartitionOffsets,
+};
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
@@ -76,6 +78,9 @@ struct PartitionDeliveries {
     delivered: u32,
     covered: u32,
     accepted: u32,
+    /// The offsets a completion covered. Keyed by offset rather than by
+    /// position in `span`, because a poll can span an offset gap.
+    credited: HashSet<i64, ahash::RandomState>,
 }
 
 impl PartitionDeliveries {
@@ -90,7 +95,19 @@ impl PartitionDeliveries {
             delivered: 1,
             covered: 0,
             accepted: 0,
+            credited: HashSet::default(),
         }
+    }
+
+    fn credit(&mut self, offset: i64) {
+        self.credited.insert(offset);
+    }
+
+    fn uncredited_charge(&self) -> Option<Offset> {
+        self.charges
+            .iter()
+            .map(|(offset, _)| *offset)
+            .find(|offset| !self.credited.contains(&offset.0))
     }
 
     /// Record one more delivery. `generation` is consulted only when
@@ -165,6 +182,18 @@ impl InFlightPoll {
     fn is_complete(&self) -> bool {
         self.covered >= self.message_count
     }
+
+    /// A charged offset that no completion covered. A complete poll can still
+    /// have one, because one offset credited twice fills `covered` as well.
+    fn uncredited_charge(&self) -> Option<(&TopicPartition, Offset)> {
+        self.partitions
+            .iter()
+            .find_map(|(topic_partition, deliveries)| {
+                deliveries
+                    .uncredited_charge()
+                    .map(|offset| (topic_partition, offset))
+            })
+    }
 }
 
 /// A partition revocation stamped with the ledger generation started by the
@@ -177,28 +206,25 @@ struct RevokedPartition {
 }
 
 /// The consumer's revocation hook: purge the batcher, and record the revoked
-/// partitions when the batcher's purge means their polls never complete.
+/// partitions, because the purge means their polls never complete.
 fn revoke_hook(
     revoker: Revoker,
     ledger: Arc<TopicOffsetLedger>,
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 ) -> RevokeHook {
-    let records_revocations = revoker.drops_revoked_polls();
     Box::new(move |partitions| {
         revoker.purge_revoked(partitions);
-        if records_revocations {
-            revoked_partitions
-                .lock()
-                .unwrap()
-                .extend(partitions.iter().map(|(topic, partition)| {
-                    let topic_partition = TopicPartition::new(topic, *partition);
-                    let generation = ledger.generation(&topic_partition);
-                    RevokedPartition {
-                        topic_partition,
-                        generation,
-                    }
-                }));
-        }
+        revoked_partitions
+            .lock()
+            .unwrap()
+            .extend(partitions.iter().map(|(topic, partition)| {
+                let topic_partition = TopicPartition::new(topic, *partition);
+                let generation = ledger.generation(&topic_partition);
+                RevokedPartition {
+                    topic_partition,
+                    generation,
+                }
+            }));
     })
 }
 
@@ -271,6 +297,7 @@ fn apply_completion(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCom
                     poll.accepted += u32::from(is_accepted);
                     deliveries.covered += 1;
                     deliveries.accepted += u32::from(is_accepted);
+                    deliveries.credit(offset.0);
                     continue 'offsets;
                 }
             }
@@ -286,6 +313,29 @@ fn apply_completion(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCom
             "Discarding completion offsets that match no in-flight poll"
         );
     }
+}
+
+/// Pops the front poll for its commit. A complete poll commits only when
+/// workers accepted all of it and a completion covered every charged offset.
+fn pop_committable(in_flight: &mut VecDeque<InFlightPoll>) -> anyhow::Result<InFlightPoll> {
+    let poll = in_flight.pop_front().expect("front is present");
+    if poll.accepted < poll.message_count {
+        anyhow::bail!(
+            "accepted {}/{} messages — not committing offsets",
+            poll.accepted,
+            poll.message_count
+        );
+    }
+    if let Some((topic_partition, offset)) = poll.uncredited_charge() {
+        counter!("ingestion_consumer_commit_violations_total", "kind" => "uncredited").increment(1);
+        anyhow::bail!(
+            "offset {} of {}/{} has no completion — not committing offsets",
+            offset.0,
+            topic_partition.topic,
+            topic_partition.partition
+        );
+    }
+    Ok(poll)
 }
 
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
@@ -330,7 +380,7 @@ pub struct IngestionConsumer {
     /// partitions on rebalance.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Partitions revoked since the loop last looked, fed by the rebalance
-    /// callback. Only populated under the key-table scheduler.
+    /// callback.
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 }
 
@@ -586,11 +636,6 @@ impl IngestionConsumer {
         } = collected;
         let message_count = accumulator.message_count();
         let poll_id = make_batch_id();
-        record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
-            batch_id: poll_id.clone(),
-            messages: message_count,
-            partitions: debug_partition_offsets(&partitions),
-        });
         emit_poll_stats(
             &stats,
             &partitions,
@@ -601,6 +646,13 @@ impl IngestionConsumer {
         );
 
         let assignment_epoch = self.batcher.submit(accumulator);
+        record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
+            batch_id: poll_id.clone(),
+            messages: message_count,
+            partitions: debug_partition_offsets(&partitions),
+            assignment_epoch,
+            spans: debug_partition_spans(&partitions),
+        });
 
         info!(
             batch_id = %poll_id,
@@ -659,14 +711,7 @@ impl IngestionConsumer {
             }
         }
 
-        let poll = in_flight_polls.pop_front().expect("front is present");
-        if poll.accepted < poll.message_count {
-            return Err(Failure::Batch(anyhow::anyhow!(
-                "accepted {}/{} messages — not committing offsets",
-                poll.accepted,
-                poll.message_count
-            )));
-        }
+        let poll = pop_committable(in_flight_polls).map_err(Failure::Batch)?;
 
         self.settle_poll(&poll.partitions);
         if let Some(offsets) = self.commit_sentinel.take_due() {
@@ -1088,6 +1133,20 @@ fn debug_partition_offsets(
         .collect()
 }
 
+/// Per-partition offset ranges, so the debug UI can match requests to polls.
+fn debug_partition_spans(
+    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
+) -> Vec<PartitionOffsets> {
+    partitions
+        .iter()
+        .map(|(topic_partition, partition)| PartitionOffsets {
+            topic: topic_partition.topic.clone(),
+            partition: topic_partition.partition,
+            ranges: vec![(partition.span.first, partition.span.last)],
+        })
+        .collect()
+}
+
 /// One delivered message's cost against the ledger: one event, and the bytes
 /// the process holds for the message. The byte count is a memory bound, so it
 /// is the payload plus the key plus every header key and value, not only the
@@ -1154,12 +1213,15 @@ mod tests {
                 span: OffsetSpan { first, last },
                 generation: 0,
                 generations_version_seen: 0,
-                charges: Vec::new(),
+                charges: (first..=last)
+                    .map(|offset| (MessageOffset(offset), Charge::ZERO))
+                    .collect(),
                 latest_kafka_ts: 0,
                 max_lag_ms: None,
                 delivered: count,
                 covered: 0,
                 accepted: 0,
+                credited: HashSet::default(),
             },
         );
         InFlightPoll {
@@ -1226,6 +1288,40 @@ mod tests {
     }
 
     #[test]
+    fn a_complete_poll_with_a_charged_offset_no_completion_covered_is_not_committable() {
+        let mut in_flight = VecDeque::from([poll(1, 0, 10, 12, 3)]);
+
+        apply_completion(&mut in_flight, completion(1, 0, &[10, 12, 12], 3));
+
+        assert!(in_flight[0].is_complete());
+        let error = pop_committable(&mut in_flight)
+            .err()
+            .expect("offset 11 has no completion");
+        assert!(error.to_string().contains("offset 11 "), "{error}");
+    }
+
+    #[test]
+    fn a_poll_whose_deliveries_span_an_offset_gap_commits() {
+        // A compacted or transactional topic skips offsets, so a span can far
+        // exceed the poll's message count.
+        let mut gapped = poll(1, 0, 0, 0, 2);
+        let deliveries = gapped
+            .partitions
+            .get_mut(&TopicPartition::new("test", 0))
+            .unwrap();
+        deliveries.span.last = i64::MAX;
+        deliveries
+            .charges
+            .push((MessageOffset(i64::MAX), Charge::ZERO));
+        let mut in_flight = VecDeque::from([gapped]);
+
+        apply_completion(&mut in_flight, completion(1, 0, &[0, i64::MAX], 2));
+
+        assert!(in_flight[0].is_complete());
+        assert!(pop_committable(&mut in_flight).is_ok());
+    }
+
+    #[test]
     fn strip_revoked_partitions_keeps_the_other_partitions_slices() {
         // A cooperative rebalance revokes one partition of a two-partition
         // poll. The kept partition's slice must stay accounted, or its
@@ -1246,6 +1342,7 @@ mod tests {
                 delivered: 2,
                 covered: 0,
                 accepted: 0,
+                credited: HashSet::default(),
             },
         );
         two.partitions
@@ -1276,6 +1373,7 @@ mod tests {
         apply_completion(&mut in_flight, completion(1, 0, &[0, 1], 2));
         assert!(in_flight[0].is_complete());
         assert_eq!(in_flight[0].accepted, 2);
+        assert!(pop_committable(&mut in_flight).is_ok());
     }
 
     #[test]
@@ -1365,7 +1463,8 @@ mod tests {
 
         apply_completion(&mut in_flight, completion(1, 0, &[10, 10], 2));
         assert!(in_flight[0].is_complete());
-        let reassigned = in_flight.pop_front().unwrap();
+        let reassigned = pop_committable(&mut in_flight)
+            .expect("an offset credited twice still counts as credited");
         let retained = reassigned.partitions.get(&topic_partition).unwrap();
         ledger
             .settle(
@@ -1448,6 +1547,7 @@ mod tests {
             delivered: (last - first + 1) as u32,
             covered: 0,
             accepted: 0,
+            credited: HashSet::default(),
         };
         ledger
             .charge(

@@ -2,7 +2,7 @@ import { MessageDraft, messageDraftEmail } from '../MessageAudience/messageDraft
 import type { HogFlow, HogFlowAction } from './hogflows/types'
 import type { WorkflowTriggerConfig } from './workflowTriggerPrefill'
 
-const EMAIL_ACTION_ID = 'action_function_email_prefilled'
+export const EMAIL_ACTION_ID = 'action_function_email_prefilled'
 // The same "One time" setting as the trigger's frequency picker, so the editor shows it selected.
 const ONCE_PER_PERSON_MASKING = { hash: '{person.id}', ttl: null, threshold: null }
 
@@ -43,7 +43,6 @@ export function prefilledWorkflow(base: HogFlow, trigger: WorkflowTriggerConfig,
                         replyTo: '',
                         cc: '',
                         bcc: '',
-                        preheader: '',
                         ...content,
                     },
                 },
@@ -58,6 +57,39 @@ export function prefilledWorkflow(base: HogFlow, trigger: WorkflowTriggerConfig,
             { from: withTrigger.id, to: emailAction.id, type: 'continue' },
             { from: emailAction.id, to: exitAction.id, type: 'continue' },
         ],
+    }
+}
+
+export function prefilledEmailContent(
+    workflow: HogFlow
+): { subject: string; preheader: string; html: string; text: string } | null {
+    const action = workflow.actions.find((action) => action.id === EMAIL_ACTION_ID)
+    const value = (action?.config as Record<string, any> | undefined)?.inputs?.email?.value
+    return value
+        ? { subject: value.subject, preheader: value.preheader ?? '', html: value.html, text: value.text }
+        : null
+}
+
+export function withPrefilledEmail(workflow: HogFlow, email: MessageDraft): HogFlow {
+    const content = messageDraftEmail(email)
+    return {
+        ...workflow,
+        actions: workflow.actions.map((action) => {
+            const config = action.config as Record<string, any>
+            if (action.id !== EMAIL_ACTION_ID || !config?.inputs?.email?.value) {
+                return action
+            }
+            return {
+                ...action,
+                config: {
+                    ...config,
+                    inputs: {
+                        ...config.inputs,
+                        email: { ...config.inputs.email, value: { ...config.inputs.email.value, ...content } },
+                    },
+                },
+            } as HogFlowAction
+        }),
     }
 }
 

@@ -91,6 +91,7 @@ export function toAudienceCohort(id: number, cohort: CohortApi): AudienceCohort 
         name: cohort.name ?? `Cohort ${id}`,
         isStatic: !!cohort.is_static,
         isCalculating: !!cohort.is_calculating,
+        calculatedBefore: !!cohort.last_calculation,
         failed: (cohort.errors_calculating ?? 0) > 0 && !cohort.is_calculating,
         count: cohort.count ?? null,
         importTotal: cohort.last_import_total_count ?? null,
@@ -101,11 +102,13 @@ export function toAudienceCohort(id: number, cohort: CohortApi): AudienceCohort 
 /**
  * Why a cohort in the audience stops a launch. A batch sends to the members a cohort has when it runs, so an
  * uploaded list that is still matching would reach only part of the list. A dynamic cohort keeps its members
- * while it recalculates, so it never blocks.
+ * while it recalculates, so it blocks only before its first calculation, when a send can find no one in it.
  */
 export function audienceCohortLaunchError(cohort: AudienceCohort): string | null {
     if (!cohort.isStatic) {
-        return null
+        return cohort.isCalculating && !cohort.calculatedBefore
+            ? `"${cohort.name}" is still calculating who's in it. You can launch when it finishes.`
+            : null
     }
     if (cohort.isCalculating) {
         return `"${cohort.name}" is still matching people. You can launch when it finishes.`
@@ -114,6 +117,22 @@ export function audienceCohortLaunchError(cohort: AudienceCohort): string | null
         return `"${cohort.name}" couldn't match its people. Remove it from the recipients, or upload the list again.`
     }
     return null
+}
+
+export interface AudienceCohortLaunchError {
+    cohortId: number
+    message: string
+}
+
+/**
+ * The launch errors that still stop a send. A realtime cohort the send waits for doesn't, because its run
+ * starts on its own once the cohort finishes calculating.
+ */
+export function blockingCohortLaunchErrors(
+    errors: AudienceCohortLaunchError[],
+    realtimeCohortId: number | null | undefined
+): string[] {
+    return errors.filter((error) => error.cohortId !== realtimeCohortId).map((error) => error.message)
 }
 
 /** What an upload added, and which rows it skipped and why, so a short list is never a surprise. */

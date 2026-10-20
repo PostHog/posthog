@@ -11,16 +11,16 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from products.wizard.backend.facade.contracts import RecordWizardScanInput, WizardScanResult, WizardScanTool
 from products.wizard.backend.models import WizardDetectedTool, WizardScan
 from products.wizard.backend.observability.config import (
-    WIZARD_COMPETITOR_DETECTED_EVENT,
-    WIZARD_COMPETITOR_REMOVED_EVENT,
+    WIZARD_POSTHOG_ALTERNATIVE_DETECTED_EVENT,
+    WIZARD_POSTHOG_ALTERNATIVE_REMOVED_EVENT,
 )
 from products.wizard.backend.tool_catalog.catalog import classify_tool
 
 
 @frozen
-class _CompetitorSighting:
+class _PostHogAlternativeSighting:
     kind: str
-    competes_with: tuple[str, ...]
+    alternative_to: tuple[str, ...]
     first_detection: bool
     # Seen again after a scan of the workspace no longer found it.
     returned: bool
@@ -28,15 +28,15 @@ class _CompetitorSighting:
 
 
 @frozen
-class _CompetitorRemoval:
+class _PostHogAlternativeRemoval:
     kind: str
-    competes_with: tuple[str, ...]
+    alternative_to: tuple[str, ...]
 
 
 @frozen
 class _ScanChanges:
-    sightings: tuple[_CompetitorSighting, ...]
-    removals: tuple[_CompetitorRemoval, ...]
+    sightings: tuple[_PostHogAlternativeSighting, ...]
+    removals: tuple[_PostHogAlternativeRemoval, ...]
 
 
 def _signals_json(tool: WizardScanTool) -> list[dict[str, str | None]]:
@@ -46,7 +46,7 @@ def _signals_json(tool: WizardScanTool) -> list[dict[str, str | None]]:
 def _classify(row: WizardDetectedTool) -> None:
     classification = classify_tool(row.kind)
     row.warehouse_source_type = classification.warehouse_source_type if classification else None
-    row.competes_with = list(classification.competes_with) if classification else []
+    row.alternative_to = list(classification.alternative_to) if classification else []
 
 
 def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
@@ -96,7 +96,7 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
             # robust: the scan is already stored, so an analytics failure must not turn the request into a 500.
             # A lambda rather than functools.partial, because Django logs a robust callback's failure through
             # its __qualname__, which a partial does not have.
-            transaction.on_commit(lambda: _report_competitor_changes(scan, changes), robust=True)
+            transaction.on_commit(lambda: _report_posthog_alternative_changes(scan, changes), robust=True)
 
     return WizardScanResult(id=scan.id, created=True)
 
@@ -117,8 +117,8 @@ def _apply_scan(
     scanned_at: datetime = scan.scanned_at
     to_create: list[WizardDetectedTool] = []
     to_update: list[WizardDetectedTool] = []
-    sightings: list[_CompetitorSighting] = []
-    removals: list[_CompetitorRemoval] = []
+    sightings: list[_PostHogAlternativeSighting] = []
+    removals: list[_PostHogAlternativeRemoval] = []
 
     for kind, tool in tools.items():
         row = existing.get(kind)
@@ -140,11 +140,11 @@ def _apply_scan(
         row.removed_in_scan = None
         row.removed_at = None
         _classify(row)
-        if row.competes_with:
+        if row.alternative_to:
             sightings.append(
-                _CompetitorSighting(
+                _PostHogAlternativeSighting(
                     kind=kind,
-                    competes_with=tuple(row.competes_with),
+                    alternative_to=tuple(row.alternative_to),
                     first_detection=kind not in existing,
                     returned=returned,
                     signal_sources=tuple(sorted({signal.source for signal in tool.signals})),
@@ -156,11 +156,11 @@ def _apply_scan(
             row.removed_in_scan = scan
             row.removed_at = scanned_at
             to_update.append(row)
-            if row.competes_with:
+            if row.alternative_to:
                 removals.append(
-                    _CompetitorRemoval(
+                    _PostHogAlternativeRemoval(
                         kind=kind,
-                        competes_with=tuple(row.competes_with),
+                        alternative_to=tuple(row.alternative_to),
                     )
                 )
 
@@ -172,7 +172,7 @@ def _apply_scan(
         [
             "signals",
             "warehouse_source_type",
-            "competes_with",
+            "alternative_to",
             "last_seen_scan",
             "last_seen_at",
             "removed_in_scan",
@@ -182,7 +182,7 @@ def _apply_scan(
     return _ScanChanges(sightings=tuple(sightings), removals=tuple(removals))
 
 
-def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
+def _report_posthog_alternative_changes(scan: WizardScan, changes: _ScanChanges) -> None:
     if not changes.sightings and not changes.removals:
         return
     team = Team.objects.select_related("organization").get(id=scan.team_id)
@@ -206,10 +206,10 @@ def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
 
     for sighting in changes.sightings:
         report(
-            WIZARD_COMPETITOR_DETECTED_EVENT,
+            WIZARD_POSTHOG_ALTERNATIVE_DETECTED_EVENT,
             {
                 "kind": sighting.kind,
-                "competes_with": list(sighting.competes_with),
+                "alternative_to": list(sighting.alternative_to),
                 "first_detection": sighting.first_detection,
                 "returned": sighting.returned,
                 "signal_sources": list(sighting.signal_sources),
@@ -217,10 +217,10 @@ def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
         )
     for removal in changes.removals:
         report(
-            WIZARD_COMPETITOR_REMOVED_EVENT,
+            WIZARD_POSTHOG_ALTERNATIVE_REMOVED_EVENT,
             {
                 "kind": removal.kind,
-                "competes_with": list(removal.competes_with),
+                "alternative_to": list(removal.alternative_to),
             },
         )
 

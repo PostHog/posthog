@@ -79,7 +79,7 @@ class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
         pub=("optimizely_flutter_sdk",),
         rubygems=("optimizely-sdk",),
         swiftpm=("github.com/optimizely/swift-sdk",),
-        competes_with=(ProductKey.EXPERIMENTS,),
+        alternative_to=(ProductKey.EXPERIMENTS,),
     )
 
     supported_versions = ("v2",)
@@ -115,7 +115,7 @@ class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
 An admin can generate a personal access token in Optimizely under Account Settings > API Access. Tokens are non-expiring. Project-scoped data (experiments, audiences, events, pages, campaigns) is synced across all projects the token can access.""",
             iconPath="/static/services/optimizely.com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/optimizely",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

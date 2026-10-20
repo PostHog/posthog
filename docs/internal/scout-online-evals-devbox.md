@@ -68,7 +68,9 @@ Trial scout deadlines include five minutes for startup and log reads, plus time 
 
 Trial plans and evaluation documents keep one complete adopted reference each and exclude suggestion-generation history. The judge reads that same adopted reference from its evidence attachment.
 
-Suggestion generation captures the complete scout instructions and reference files for judging, while keeping the generator's prompt bounded. If an older saved reference is incomplete, generate suggestions again, review and use the new reference, then save. You can keep your existing criteria.
+Suggestion generation captures the complete scout instructions and reference files, attaches them to its sandbox, and uses read-only MCP tools to inspect relevant past runs, reports and live project data. It can read the files in sections instead of relying on shortened prompt excerpts. Past behavior informs suggestions but does not change the scout's assignment. A new scout can receive suggestions without run history, and unavailable evidence is noted in the summary. Generation does not change project data or saved criteria; review and save the suggestions you want.
+
+If an older saved reference is incomplete, generate suggestions again, review and use the new reference, then save. You can keep your existing criteria.
 The generator flags unresolved conflicts in the source instructions in its summary instead of choosing a stricter rule. Wording updates to shared defaults affect unsaved rubrics only; saved criteria stay fixed.
 
 Variants and retries share a saved copy of the project's scout memory, notes and recent scout runs. This starting context lives in private object storage and can exceed the 16 MiB limit on launch settings without being shortened.

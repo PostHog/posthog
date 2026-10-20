@@ -1,6 +1,6 @@
-import { Survey } from '~/types'
+import { Survey, SurveyEventsWithProperties } from '~/types'
 
-import { SURVEY_SDK_REQUIREMENTS, SurveySdkType } from './surveyVersionRequirements'
+import { SURVEY_SDK_REQUIREMENTS, SurveySdkType, getSurveyWarnings } from './surveyVersionRequirements'
 
 const ALL_SDK_TYPES: SurveySdkType[] = [
     'posthog-js',
@@ -23,6 +23,22 @@ describe('SURVEY_SDK_REQUIREMENTS', () => {
             expect(missing).toEqual([])
         }
     )
+
+    it.each([
+        { field: 'events', operator: 'gte', warns: true },
+        { field: 'cancelEvents', operator: 'lte', warns: true },
+        { field: 'events', operator: 'gt', warns: false },
+    ] as const)('warns about $operator filters on $field: $warns', ({ field, operator, warns }) => {
+        const triggerEvent = {
+            name: 'checkout completed',
+            propertyFilters: { order_total: { values: ['100'], operator } },
+        } as unknown as SurveyEventsWithProperties
+        const survey = { questions: [], conditions: { [field]: { values: [triggerEvent] } } } as unknown as Survey
+
+        const features = getSurveyWarnings(survey, { 'posthog-js': '1.400.0' }).map((w) => w.feature)
+
+        expect(features.includes('Event filters using ≥ or ≤')).toBe(warns)
+    })
 
     it.each([
         ['an intro that renders', { displayIntroScreen: true, introScreenHeader: 'Welcome' }, true],

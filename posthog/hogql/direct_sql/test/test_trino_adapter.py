@@ -49,6 +49,7 @@ def test_execute_returns_rows_and_types(
     request = MagicMock()
     request.sql = request_sql
     request.values = request_values
+    request.cancellation_token = None
     request.team.pk = 1
     request.source.id = "source-id"
     request.settings.max_execution_time = 30
@@ -76,3 +77,54 @@ def test_execute_returns_rows_and_types(
     assert result.results == [(1, True)]
     assert result.print_columns == ["id", "active"]
     assert result.types == [("id", "Nullable(Int64)"), ("active", "Nullable(Bool)")]
+
+
+def test_cancellation_during_prepare_prevents_starting_the_main_query() -> None:
+    import json
+    import threading
+    from contextlib import nullcontext
+
+    import requests
+    from trino.dbapi import connect
+
+    from posthog.hogql.direct_sql.trino_adapter import TrinoQueryRequest, execute_trino_query
+    from posthog.hogql.timings import HogQLTimings
+
+    polled = threading.Event()
+    statements: list[str] = []
+    session = requests.Session()
+
+    def cancelled(*args: object) -> bool:
+        polled.set()
+        return True
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        body = request.body
+        statements.append(body.decode() if isinstance(body, bytes) else str(body))
+        assert polled.wait(2)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(
+            {"id": "prepare", "infoUri": "https://trino.example.com/query", "stats": {}, "data": []}
+        ).encode()
+        return response
+
+    connection = connect(host="trino.example.com", user="test", http_session=session, legacy_prepared_statements=True)
+    with (
+        patch.object(session, "send", side_effect=send),
+        patch("posthog.hogql.direct_sql.trino_adapter.is_direct_query_cancellation_requested", side_effect=cancelled),
+        pytest.raises(ExposedHogQLError, match="Trino query was canceled"),
+    ):
+        execute_trino_query(
+            TrinoQueryRequest(
+                sql="SELECT %(value)s",
+                values={"value": 1},
+                timeout_seconds=10,
+                timings=HogQLTimings(),
+                team_id=1,
+                cancellation_token="token",
+            ),
+            nullcontext(connection),
+        )
+    assert len(statements) == 1
+    assert statements[0].startswith("PREPARE ")

@@ -16,13 +16,18 @@ export const dashboardsSetupLogic = createSetupDetectionLogic({
     path: ['products', 'dashboards', 'frontend', 'emptyState', 'dashboardsSetupLogic'],
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
-        const response = await dashboardsList(projectId, { limit: 1 })
+        const response = await dashboardsList(projectId, { limit: 1, exclude_generated: true })
         return response.count > 0 ? 'has-data' : 'needs-setup'
     },
-    // The empty state creates the first dashboard in a modal, and its "open after
-    // creation" field defaults to off, so the usual path leaves the user on this scene
-    // with no remount to re-run detection.
-    recheckActionTypes: () => [dashboardsModel.actionTypes.addDashboardSuccess],
+    // Creation and deletion can leave this scene mounted, so its setup status must follow entity changes.
+    recheckActionTypes: () => [
+        dashboardsModel.actionTypes.addDashboardSuccess,
+        dashboardsModel.actionTypes.deleteDashboardSuccess,
+        dashboardsModel.actionTypes.restoreDashboardSuccess,
+        dashboardsModel.actionTypes.bulkDeleteDashboardsSuccess,
+        dashboardsModel.actionTypes.reloadDashboardsSuccess,
+    ],
+    allowReturnToSetup: true,
     cacheHasData: true,
     revalidateCachedHasData: true,
 })
