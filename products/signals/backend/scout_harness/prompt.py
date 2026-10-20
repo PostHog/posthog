@@ -927,7 +927,7 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
     # The only grant that changes what end users of the product see, because launch and pause turn
     # the experiment's feature flag on and off.
     experiment_reach = (
-        "\n- **Experiment lifecycle changes reach real users.** Launch, pause, resume, end, and reset change who sees which variant, or which results count. Make one only when your skill body or a person tells you to, for that experiment. Edits to names, descriptions, and metrics do not change what users see. You cannot delete an experiment (archive an ended one instead), copy one to another project, or ship a variant: end it and say in your report which variant to ship."
+        "\n- **Experiment lifecycle changes reach real users.** Launch, pause, resume, end, and reset change who sees which variant, or which results count. Make one only when your skill body or a person tells you to, for that experiment. Edits to names, descriptions, and metrics do not change what users see. You cannot delete an experiment (archive an ended one instead), copy one to another project, migrate a legacy one, or open a flag cleanup pull request. You cannot ship a variant or change the variants or rollout once an experiment has launched: end it and say in your report which variant to ship."
         if "experiment:write" in write_scopes
         else ""
     )

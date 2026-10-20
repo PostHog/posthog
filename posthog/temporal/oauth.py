@@ -260,12 +260,15 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          feature flag on and off, so unlike every other entry here this scope
 #                          CHANGES WHAT END USERS SEE. It is grantable because a person turns it on
 #                          for one scout on purpose, and the picker says so.
-#                          `products/experiments/backend/scout_writes.py` narrows it for scouts: no
-#                          delete (archive instead), no copy to another project, and no ship variant
-#                          without `feature_flag:write`, because a ship rewrites the flag's rollout.
-#                          The extra scopes in `dangerously_get_required_scopes` still apply, so the
-#                          grant alone cannot disable a flag on archive, open a cleanup PR, or set
-#                          the team default repository. It can also create an exposure cohort.
+#                          `products/experiments/backend/presentation/scout_writes.py` narrows it
+#                          for scouts: no delete (archive instead), no copy to another project, no
+#                          migration (it creates shared metrics), and no flag cleanup PR (a scout
+#                          already holds `task:write`). Without `feature_flag:write` a scout also
+#                          cannot ship a variant or change the variants, rollout, or holdout of a
+#                          launched experiment or a live flag, because each of those rewrites the
+#                          rollout. The extra scopes in `dangerously_get_required_scopes` still
+#                          apply, so the grant alone cannot disable a flag on archive or set the
+#                          team default repository. It can also create an exposure cohort.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is

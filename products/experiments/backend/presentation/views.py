@@ -11,6 +11,7 @@ This will be refactored incrementally in subsequent PRs to match the product arc
 import json
 import asyncio
 import logging
+from collections.abc import Mapping
 from typing import Any, Literal, cast
 
 from django.conf import settings
@@ -98,6 +99,16 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
 )
+from products.experiments.backend.presentation.scout_writes import (
+    is_true,
+    refuse_scout_cleanup_pr,
+    refuse_scout_experiment_copy_to_project,
+    refuse_scout_experiment_delete,
+    refuse_scout_experiment_migrate,
+    refuse_scout_live_flag_config_change,
+    refuse_scout_ship_variant_without_flag_write,
+    update_carries_flag_config,
+)
 from products.experiments.backend.presentation.serializers import (
     ArchiveExperimentSerializer,
     CopyExperimentToProjectSerializer,
@@ -147,11 +158,6 @@ from products.experiments.backend.running_time_calculator import (
     calculate_sample_size,
     calculate_variance,
     calculate_variance_from_stats,
-)
-from products.experiments.backend.scout_writes import (
-    refuse_scout_experiment_copy_to_project,
-    refuse_scout_experiment_delete,
-    refuse_scout_ship_variant_without_flag_write,
 )
 from products.experiments.backend.session_buckets import (
     ExperimentSessionBucket,
@@ -514,15 +520,29 @@ class EnterpriseExperimentsViewSet(
         return ExperimentSerializer
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # The API has no hard delete, so `deleted: true` on an update is the delete a scout must not make.
-        if request.data.get("deleted", False) in serializers.BooleanField.TRUE_VALUES:
-            refuse_scout_experiment_delete(is_scout_sandbox_request(request))
+        if is_scout_sandbox_request(request) and isinstance(request.data, Mapping):
+            self._check_scout_update(request)
         # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
         # and retry precisely; the default exception handler would flatten it to a plain string.
         try:
             return super().update(request, *args, **kwargs)
         except ExperimentVersionConflict as err:
             return Response(err.response_data(), status=err.status_code)
+
+    def _check_scout_update(self, request: Request) -> None:
+        # The API has no hard delete, so `deleted: true` on an update is the delete a scout must not make.
+        if is_true(request.data.get("deleted", False)):
+            refuse_scout_experiment_delete(True)
+        if update_carries_flag_config(
+            request.data, legacy_flag_config_keys=ExperimentService.FEATURE_FLAG_CONFIG_KEYS
+        ) and not self._token_can_write_feature_flag(request):
+            experiment: Experiment = self.get_object()
+            refuse_scout_live_flag_config_change(
+                True,
+                can_write_feature_flag=False,
+                flag_is_live=not experiment.is_draft
+                or (experiment.feature_flag is not None and experiment.feature_flag.active),
+            )
 
     @tracer.start_as_current_span("ExperimentViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -783,6 +803,9 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = EndExperimentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        refuse_scout_cleanup_pr(
+            is_scout_sandbox_request(request), open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"]
+        )
         if request_serializer.validated_data["set_repository_as_team_default"]:
             self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
@@ -833,6 +856,9 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = ShipVariantSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        refuse_scout_cleanup_pr(
+            is_scout_sandbox_request(request), open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"]
+        )
         if request_serializer.validated_data["set_repository_as_team_default"]:
             self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
@@ -1218,6 +1244,7 @@ class EnterpriseExperimentsViewSet(
 
         Returns 400 if the experiment already uses the new engine.
         """
+        refuse_scout_experiment_migrate(is_scout_sandbox_request(request))
         experiment: Experiment = self.get_object()
 
         if not experiment_has_legacy_metrics(experiment):

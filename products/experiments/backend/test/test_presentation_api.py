@@ -10170,8 +10170,30 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(stale_config_edit.json()["running_time_calculation"]["minimum_detectable_effect"], 10)
 
 
+_SHIP_TEST_VARIANT = {
+    "feature_flag": {
+        "filters": {
+            "multivariate": {
+                "variants": [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]
+            }
+        }
+    },
+    "update_feature_flag_params": True,
+}
+
+_SHIP_TEST_VARIANT_LEGACY = {
+    "parameters": {
+        "feature_flag_variants": [
+            {"key": "control", "rollout_percentage": 0},
+            {"key": "test", "rollout_percentage": 100},
+        ]
+    },
+    "update_feature_flag_params": True,
+}
+
+
 class TestExperimentScoutCallerRules(APILicensedTest):
-    def _running_experiment(self) -> Experiment:
+    def _experiment(self, *, launched: bool) -> Experiment:
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -10189,8 +10211,9 @@ class TestExperimentScoutCallerRules(APILicensedTest):
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{response.json()['id']}/launch/")
-        assert launch.status_code == status.HTTP_200_OK, launch.json()
+        if launched:
+            launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{response.json()['id']}/launch/")
+            assert launch.status_code == status.HTTP_200_OK, launch.json()
         return Experiment.objects.get(id=response.json()["id"])
 
     def _authenticate(self, scope: str) -> None:
@@ -10216,18 +10239,36 @@ class TestExperimentScoutCallerRules(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("scout_soft_delete", "patch", "", {"deleted": True}, True, False, 403),
-            ("scout_copy_to_project", "post", "copy_to_project/", {}, True, False, 403),
-            ("scout_ship_variant", "post", "ship_variant/", {"variant_key": "test"}, True, False, 403),
-            ("scout_ship_variant_with_flag_write", "post", "ship_variant/", {"variant_key": "test"}, True, True, 200),
-            ("scout_pause", "post", "pause/", {}, True, False, 200),
-            ("non_scout_soft_delete", "patch", "", {"deleted": True}, False, False, 200),
-            ("non_scout_ship_variant", "post", "ship_variant/", {"variant_key": "test"}, False, False, 200),
+            ("scout_soft_delete", True, "patch", "", {"deleted": True}, True, False, 403),
+            ("scout_unhashable_deleted", True, "patch", "", {"deleted": [True]}, True, False, 400),
+            ("scout_copy_to_project", True, "post", "copy_to_project/", {}, True, False, 403),
+            ("scout_migrate", True, "post", "migrate/", {}, True, False, 403),
+            ("scout_end_with_cleanup_pr", True, "post", "end/", {"open_cleanup_pr": True}, True, False, 403),
+            ("scout_ship_variant", True, "post", "ship_variant/", {"variant_key": "test"}, True, False, 403),
+            (
+                "scout_ship_variant_with_flag_write",
+                True,
+                "post",
+                "ship_variant/",
+                {"variant_key": "test"},
+                True,
+                True,
+                200,
+            ),
+            ("scout_live_flag_rollout", True, "patch", "", _SHIP_TEST_VARIANT, True, False, 403),
+            ("scout_live_flag_rollout_legacy", True, "patch", "", _SHIP_TEST_VARIANT_LEGACY, True, False, 403),
+            ("scout_live_flag_rollout_with_flag_write", True, "patch", "", _SHIP_TEST_VARIANT, True, True, 200),
+            ("scout_draft_flag_rollout", False, "patch", "", _SHIP_TEST_VARIANT, True, False, 200),
+            ("scout_pause", True, "post", "pause/", {}, True, False, 200),
+            ("non_scout_soft_delete", True, "patch", "", {"deleted": True}, False, False, 200),
+            ("non_scout_ship_variant", True, "post", "ship_variant/", {"variant_key": "test"}, False, False, 200),
+            ("non_scout_live_flag_rollout", True, "patch", "", _SHIP_TEST_VARIANT, False, False, 200),
         ]
     )
     def test_scout_experiment_writes(
         self,
         _name: str,
+        launched: bool,
         method: str,
         path: str,
         body: dict[str, Any],
@@ -10235,12 +10276,13 @@ class TestExperimentScoutCallerRules(APILicensedTest):
         with_flag_write: bool,
         expected_status: int,
     ) -> None:
-        experiment = self._running_experiment()
+        experiment = self._experiment(launched=launched)
         assert experiment.feature_flag is not None
         flag_filters_before = experiment.feature_flag.filters
         scopes = ["experiment:read", "experiment:write"]
         if is_scout:
-            scopes.append("signal_scout_internal:write")
+            # A real scout token also carries `task:write` from INTERNAL_SCOPES.
+            scopes += ["signal_scout_internal:write", "task:write"]
         if with_flag_write:
             scopes.append("feature_flag:write")
         self._authenticate(" ".join(scopes))
@@ -10252,7 +10294,7 @@ class TestExperimentScoutCallerRules(APILicensedTest):
         assert response.status_code == expected_status, response.json()
         experiment.refresh_from_db()
         experiment.feature_flag.refresh_from_db()
-        if expected_status == 403:
+        if expected_status >= 400:
             assert not experiment.deleted
             assert experiment.end_date is None
             assert experiment.feature_flag.filters == flag_filters_before

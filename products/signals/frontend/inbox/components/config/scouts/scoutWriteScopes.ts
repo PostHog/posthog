@@ -120,7 +120,7 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         group: 'Experiments',
         label: 'Experiments',
         description:
-            'Create and edit any experiment in the project, and launch, pause, resume, and end it. Launching and pausing change what your users see. Scouts cannot delete experiments, copy them to another project, or ship a variant',
+            'Create and edit any experiment in the project, and launch, pause, resume, and end it. Launching and pausing change what your users see. Scouts cannot delete experiments, copy them to another project, ship a variant, or change the rollout once an experiment has launched',
     },
 ]
 
