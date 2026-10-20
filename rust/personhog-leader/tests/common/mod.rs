@@ -257,7 +257,6 @@ pub fn test_warming_config(
         kafka,
         pod_name: pod_name.to_string(),
         writer_consumer_group: "personhog-writer".to_string(),
-        lookback_offsets: 0,
         committed_offsets_timeout: Duration::from_secs(5),
         fetch_watermarks_timeout: Duration::from_secs(5),
         recv_timeout: Duration::from_secs(10),

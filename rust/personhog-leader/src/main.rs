@@ -536,7 +536,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             kafka: config.kafka.clone(),
             pod_name: config.pod_name.clone(),
             writer_consumer_group: config.writer_consumer_group.clone(),
-            lookback_offsets: config.warm_lookback_offsets,
             committed_offsets_timeout: Duration::from_secs(
                 config.warm_committed_offsets_timeout_secs,
             ),

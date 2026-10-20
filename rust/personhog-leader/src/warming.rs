@@ -100,9 +100,6 @@ pub struct WarmingConfig {
     /// for the partition to find "everything at or after this offset has
     /// not yet been written to PG."
     pub writer_consumer_group: String,
-    /// Number of offsets to rewind past the writer's committed offset as a
-    /// safety margin. Bounded by Kafka's earliest-available offset.
-    pub lookback_offsets: i64,
     /// Timeout for the OffsetFetch metadata call.
     pub committed_offsets_timeout: Duration,
     /// Timeout for the per-partition `fetch_watermarks` call.
@@ -398,23 +395,10 @@ pub async fn fetch_writer_committed_offsets(
     result
 }
 
-/// Decide where to start consuming for a partition.
-///
-/// The writer's committed offset is the authoritative "everything up to
-/// here is durable in PG" marker. Messages at or after it need to be warmed
-/// into the leader's cache — otherwise a cache miss for a key in that
-/// range would fall through to PG and return a stale value (PG hasn't seen
-/// the update yet).
-///
-/// We rewind an extra `lookback` offsets as a safety margin against races
-/// between the writer's commit and our read of it, and clamp to the
-/// earliest available offset so we don't seek past Kafka's retention.
-fn resolve_start_offset(committed: Option<i64>, earliest: i64, lookback: i64) -> i64 {
-    let lookback = lookback.max(0);
-    match committed {
-        Some(c) => (c - lookback).max(earliest),
-        None => earliest,
-    }
+/// The writer commits an offset only after PG holds every record below it,
+/// so a warm replays from the commit, clamped to Kafka's retention.
+fn resolve_start_offset(committed: Option<i64>, earliest: i64) -> i64 {
+    committed.map_or(earliest, |c| c.max(earliest))
 }
 
 /// One warm sub-span sample. The spans share the warm bucket ladder and
@@ -472,7 +456,8 @@ async fn warm_source(
     dirty_index: &DirtyIndex,
     partition: u32,
     source: &WarmSource,
-) -> CoordResult<(u64, u64)> {
+    committed_offset: Option<i64>,
+) -> CoordResult<u64> {
     let partition_i32 = i32::try_from(source.partition).map_err(|_| {
         CoordError::invalid_state(format!("partition {} exceeds i32::MAX", source.partition))
     })?;
@@ -490,22 +475,8 @@ async fn warm_source(
     let consumer = Arc::new(pools.warming.checkout()?);
     record_warm_span("checkout", span_start);
 
-    // The two offset queries are independent — the writer's committed
-    // position comes from the offsets pool, the watermarks from this
-    // consumer — so they run concurrently; each keeps its own retry
-    // policy. The committed query uses a separate, short-lived client to
-    // keep the long-lived warming consumer isolated from the writer's
-    // consumer group. `fetch_watermarks` is synchronous in rdkafka and
-    // may block for the full timeout, so it runs on the blocking pool.
-    let committed_fut = with_warm_retry("committed_offset", partition, cfg.retry, || async {
-        fetch_writer_committed_offset(
-            &pools.offsets,
-            &source.topic,
-            source.partition,
-            cfg.committed_offsets_timeout,
-        )
-        .await
-    });
+    // `fetch_watermarks` is synchronous in rdkafka and may block for the
+    // full timeout, so it runs on the blocking pool.
     let watermarks_fut = with_warm_retry("fetch_watermarks", partition, cfg.retry, || {
         let consumer = Arc::clone(&consumer);
         let topic = Arc::clone(&source.topic);
@@ -521,30 +492,12 @@ async fn warm_source(
         }
     });
     let span_start = Instant::now();
-    let (committed_res, watermarks_res) = tokio::join!(committed_fut, watermarks_fut);
+    // A failed watermark call leaves this consumer doubtful, so the pool's
+    // drop-doubtful-clients contract applies: it is not given back.
+    let (low, hwm) = watermarks_fut.await?;
     record_warm_span("metadata", span_start);
-    let (low, hwm) = match watermarks_res {
-        Ok(marks) => marks,
-        // The watermark call failed on this consumer, so the pool's
-        // drop-doubtful-clients contract applies: fall through without
-        // giving it back.
-        Err(e) => return Err(e),
-    };
-    let committed_offset = match committed_res {
-        Ok(offset) => offset,
-        Err(e) => {
-            // The committed-offset query runs on the offsets pool's
-            // client; this consumer did nothing and is sound. Returning
-            // it keeps reconcile-driven warm retries from rebuilding a
-            // Kafka client per attempt.
-            if let Ok(consumer) = Arc::try_unwrap(consumer) {
-                pools.warming.give_back(consumer);
-            }
-            return Err(e);
-        }
-    };
 
-    let start_offset = resolve_start_offset(committed_offset, low, cfg.lookback_offsets);
+    let start_offset = resolve_start_offset(committed_offset, low);
 
     tracing::info!(
         partition,
@@ -554,7 +507,6 @@ async fn warm_source(
         committed = ?committed_offset,
         earliest = low,
         hwm,
-        lookback = cfg.lookback_offsets,
         start_offset,
         "computed warming range"
     );
@@ -564,7 +516,7 @@ async fn warm_source(
         if let Ok(consumer) = Arc::try_unwrap(consumer) {
             pools.warming.give_back(consumer);
         }
-        return Ok((0, 0));
+        return Ok(0);
     }
 
     let span_start = Instant::now();
@@ -577,7 +529,6 @@ async fn warm_source(
         .map_err(|e| CoordError::invalid_state(format!("consumer assign: {e}")))?;
 
     let mut consumed: u64 = 0;
-    let mut seeded = 0u64;
     let mut last_offset: i64 = -1;
 
     // A transactionally-produced range can end in control records
@@ -698,31 +649,19 @@ async fn warm_source(
                 }
             }
             consumed += 1;
-            // Records at or past the writer's committed offset are not
-            // yet in PG: mark before insert, so if the build evicts this
-            // person a later miss recovers from the changelog instead of
-            // trusting a stale PG row.
-            if committed_offset.is_none_or(|committed| offset >= committed) {
-                dirty_index.mark(
-                    key.clone(),
-                    DirtyMark {
-                        version: cached.version,
-                        offset,
-                        partition,
-                        stream: stream.clone(),
-                        is_deleted: cached.is_deleted,
-                    },
-                );
-                seeded += 1;
-                cache.warm_put(partition, key, cached);
-            } else if cached.is_deleted {
-                // An applied death record leaves no residue: unmarked it
-                // would answer forever, and its predecessor in the build
-                // would resurrect the destroyed person's data.
-                cache.warm_remove(partition, &key);
-            } else {
-                cache.warm_put(partition, key, cached);
-            }
+            // PG may not hold a replayed record yet: mark before insert, so a
+            // miss after an eviction recovers from the changelog, not PG.
+            dirty_index.mark(
+                key.clone(),
+                DirtyMark {
+                    version: cached.version,
+                    offset,
+                    partition,
+                    stream: stream.clone(),
+                    is_deleted: cached.is_deleted,
+                },
+            );
+            cache.warm_put(partition, key, cached);
         } else {
             // The writer never produces null-payload (tombstone) records
             // to `personhog_updates` today. If one ever appears it would
@@ -755,7 +694,7 @@ async fn warm_source(
         pools.warming.give_back(consumer);
     }
 
-    Ok((consumed, seeded))
+    Ok(consumed)
 }
 
 /// Every source is sealed or fenced, so each replay runs to a known end.
@@ -768,6 +707,24 @@ pub async fn warm_from_sources(
     sources: &[WarmSource],
 ) -> CoordResult<()> {
     let start = Instant::now();
+    // Every writer position is read before any replay: a live position read
+    // after the writer left an old generation would skip records newer than
+    // that generation's marked tail.
+    let mut committed = Vec::with_capacity(sources.len());
+    for source in sources {
+        committed.push(
+            with_warm_retry("committed_offset", partition, cfg.retry, || async {
+                fetch_writer_committed_offset(
+                    &pools.offsets,
+                    &source.topic,
+                    source.partition,
+                    cfg.committed_offsets_timeout,
+                )
+                .await
+            })
+            .await?,
+        );
+    }
     // The build is invisible and evicts under the serving budget until the publish.
     cache.begin_warm_partition(partition);
     let mut cleanup = WarmCleanup {
@@ -777,11 +734,9 @@ pub async fn warm_from_sources(
         armed: true,
     };
     let mut consumed = 0u64;
-    let mut seeded = 0u64;
-    for source in sources {
-        let (c, s) = warm_source(cfg, pools, cache, dirty_index, partition, source).await?;
-        consumed += c;
-        seeded += s;
+    for (source, committed) in sources.iter().zip(committed) {
+        consumed +=
+            warm_source(cfg, pools, cache, dirty_index, partition, source, committed).await?;
     }
 
     let resident_bytes = cache.warm_usage_bytes(partition) as u64;
@@ -796,7 +751,6 @@ pub async fn warm_from_sources(
         sources = sources.len(),
         messages = consumed,
         resident_bytes,
-        dirty_seeded = seeded,
         elapsed_ms = elapsed.as_millis() as u64,
         "warmed partition from kafka"
     );
@@ -933,29 +887,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_uses_committed_minus_lookback() {
-        assert_eq!(resolve_start_offset(Some(500), 0, 100), 400);
-    }
-
-    #[test]
-    fn resolve_clamps_to_earliest() {
-        // Lookback would take us to 50, but earliest is 200.
-        assert_eq!(resolve_start_offset(Some(100), 200, 50), 200);
-    }
-
-    #[test]
-    fn resolve_falls_back_to_earliest_when_no_commit() {
-        assert_eq!(resolve_start_offset(None, 42, 100), 42);
-    }
-
-    #[test]
-    fn resolve_treats_negative_lookback_as_zero() {
-        assert_eq!(resolve_start_offset(Some(500), 0, -10), 500);
-    }
-
-    #[test]
-    fn resolve_handles_zero_lookback() {
-        assert_eq!(resolve_start_offset(Some(500), 0, 0), 500);
+    fn resolve_starts_at_the_commit_clamped_to_earliest() {
+        assert_eq!(resolve_start_offset(Some(500), 0), 500);
+        assert_eq!(resolve_start_offset(Some(100), 200), 200);
+        assert_eq!(resolve_start_offset(None, 42), 42);
     }
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]

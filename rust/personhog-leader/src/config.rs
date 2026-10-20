@@ -149,14 +149,6 @@ pub struct Config {
     #[envconfig(default = "personhog-writer")]
     pub writer_consumer_group: String,
 
-    /// How many offsets to rewind past the writer's committed offset when
-    /// warming. Pure safety margin — any non-negative value is correct, but
-    /// a larger value is more forgiving of momentary races between the
-    /// writer's commit and our observation of it. Bounded above by Kafka's
-    /// earliest available offset.
-    #[envconfig(default = "1000")]
-    pub warm_lookback_offsets: i64,
-
     /// Timeout for the OffsetFetch round-trip that asks the writer's
     /// consumer group for its committed offset.
     #[envconfig(default = "5")]
