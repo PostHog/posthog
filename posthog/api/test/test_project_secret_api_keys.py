@@ -7,7 +7,12 @@ from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_T
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
+from posthog.models.utils import (
+    ai_credential_value,
+    generate_random_token_personal,
+    generate_random_token_secret,
+    hash_key_value,
+)
 
 
 class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
@@ -338,6 +343,8 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         key_id = data["id"]
         original_mask = data["mask_value"]
         original_secure_value = ProjectSecretAPIKey.objects.get(id=key_id).secure_value
+        assert original_secure_value is not None
+        assert data["ai_credential"] == ai_credential_value(original_secure_value)
 
         response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll")
         assert response.status_code == 200
@@ -350,8 +357,12 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert rolled["value"] is not None
         assert rolled["value"].startswith("phs_")
 
-        key = ProjectSecretAPIKey.objects.get(id=key_id)
-        assert key.secure_value != original_secure_value
+        rolled_secure_value = ProjectSecretAPIKey.objects.get(id=key_id).secure_value
+        assert rolled_secure_value is not None
+        assert rolled_secure_value != original_secure_value
+        # The gateway attribution follows the secret, so a rolled key reports a new value.
+        assert rolled["ai_credential"] == ai_credential_value(rolled_secure_value)
+        assert rolled["ai_credential"] != data["ai_credential"]
 
     def test_list_only_current_team_keys(self):
         self.client.post(

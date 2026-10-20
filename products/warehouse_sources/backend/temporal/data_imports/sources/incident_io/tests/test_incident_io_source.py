@@ -52,8 +52,8 @@ class TestIncidentIoSource:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only the incidents list exposes server-side timestamp filters with a sortable order.
-        assert incremental == {"incidents"}
+        # Only lists with server-side timestamp filters and a stable oldest-first order are incremental.
+        assert incremental == {"incidents", "actions"}
 
     @pytest.mark.parametrize(
         "pinned, expected_url",

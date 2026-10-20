@@ -3,8 +3,16 @@
 `POST /api/projects/{team_id}/tasks/` creates a task without starting a run by default.
 Set `start_run` to `true` to create the task and start its first background run in one request.
 This mode uses the `tasks-mcp-agent-run-start` feature flag and the internal-project restriction.
-Sandbox tokens cannot start another cloud run.
-This restriction also applies to warm creation, warm activation, warm resumes, and cloud resumes.
+A sandbox token can start a background agent run through `start_run` or the task `run` endpoint, within these rules:
+
+- The token must be bound to a run of a task that the token's user created. Otherwise the response is `403` with code `no_actor`.
+- A run that a sandbox started cannot start more runs, and neither can a resume of that run. A sandbox also cannot start a run of its own task. These cases return `403` with code `nested`.
+- Every other gate runs as the token's user: the internal project, the `tasks-mcp-agent-run-start` feature flag, Desktop access, usage limits, and task visibility.
+- One parent run can start up to 10 runs. A start that fails gives its slot back. Past the cap, the response is `429` with code `agent_run_fanout_cap`.
+- Each user has hourly and daily limits on runs that sandboxes start. Past them, the response is `429` with code `agent_run_rate_limited`.
+- The new run is always a background run. Its state records `agent_parent_task_id` and `agent_parent_run_id`, and callers cannot change or remove them.
+
+Sandbox tokens still cannot start runs through warm creation, warm activation, warm resumes, cloud resumes, or the endpoints under `/tasks/{task_id}/runs/`.
 Requests through a PostHog connection keep the sandbox origin and the same run restrictions.
 The origin marker does not grant sandbox access.
 PostHog Desktop access, runtime access, and usage limits still apply.
@@ -44,6 +52,12 @@ Run state updates cannot change or remove the run source or base branch.
 The `state` field must be a JSON object.
 
 Run responses omit internal cost accounting, including gateway request IDs.
+
+GitHub credentials that require user action fail the run without retrying. Fresh runs and resumed sandboxes preserve the actionable error, and Temporal does not report these expected failures to error tracking.
+
+Sandbox GitHub tokens are scoped to the repositories requested by the run. When GitHub rejects a repository scope, the run refreshes installation access and resolves renamed repositories by their GitHub ID. Public repositories outside the installation can be cloned anonymously; private or missing repositories require the user to check repository access. Public-only access results are cached for five minutes before checking again. GitHub outages and connection failures remain retryable, including failures during token refresh.
+
+Without an authenticated GitHub token, the agent can still read public repositories and repository files already in its workspace. It asks the user to connect GitHub when the work requires unavailable private repository or publishing access.
 
 ## Model selection
 
@@ -97,5 +111,5 @@ Other task streams include the effective summary.
 - `tasks-run-create` starts a run for an existing task.
 
 The two run-start tools require the agent-run feature flag.
-They are not available to sandbox tokens.
+Sandbox tokens can use them only within the sandbox rules above.
 These operations are not idempotent. If a response is lost, inspect the task and its runs before you retry.

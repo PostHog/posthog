@@ -4359,7 +4359,7 @@ def _start_mention_workflow(
     _start_posthog_code_workflow(
         SlackAppMentionProcessingWorkflow,
         workflow_inputs,
-        id_prefix="posthog-code-mention",
+        id_prefix="slack-app-mention-processing",
         slack_team_id=slack_team_id,
         event=event,
         event_id=event_id,

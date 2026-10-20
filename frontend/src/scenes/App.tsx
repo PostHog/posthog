@@ -96,6 +96,8 @@ export function App(): JSX.Element | null {
 
     useThemedHtml()
 
+    useLayoutEffect(() => markBootPhase('app_first_render'), [])
+
     // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
     // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.
     if (window.location.pathname === '/oauth/callback') {

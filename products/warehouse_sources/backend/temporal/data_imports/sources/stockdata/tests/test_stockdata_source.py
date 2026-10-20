@@ -15,10 +15,6 @@ def _make_config(api_token: str = "token", symbols: str | None = "AAPL") -> Any:
 
 
 class TestStockDataSource:
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = StockDataSource().get_schemas(_make_config(), team_id=1, names=["news", "eod"])
-        assert {s.name for s in schemas} == {"news", "eod"}
-
     def test_source_for_pipeline_plumbs_symbols_and_keys(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "eod"

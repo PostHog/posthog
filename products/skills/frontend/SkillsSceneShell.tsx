@@ -46,7 +46,7 @@ export function SkillsSceneShell({
     const tabs: LemonTab<string>[] = [
         {
             key: DEFAULT_SKILLS_TAB_KEY,
-            label: 'Uncategorized skills',
+            label: 'Skills',
             link: skillTabUrl(DEFAULT_SKILLS_TAB_KEY),
         },
         ...visibleCategoryTabs(categoryCounts, activeTabKey).map((tab) => ({

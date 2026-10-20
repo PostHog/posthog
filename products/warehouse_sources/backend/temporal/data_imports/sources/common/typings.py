@@ -118,6 +118,9 @@ class SourceResponse:
     a final checkpoint without opening a crash window before the pipeline flushes its last batch."""
     destination_reset_required: bool = False
     """Whether source metadata discovered during setup requires rebuilding the destination table."""
+    reset_handed_over: bool = False
+    """Whether the source passed this run's reset to another process, so this run must not delete the
+    destination table. Wins over `destination_reset_required` and the reset the run was asked for."""
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""

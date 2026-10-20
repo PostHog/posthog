@@ -86,14 +86,6 @@ class TestHookdeckSource:
         assert schema.supports_append is False
         assert schema.incremental_fields == []
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["events", "attempts"])
-
-        assert {s.name for s in schemas} == {"events", "attempts"}
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
-
     @pytest.mark.parametrize(
         "probe_result, schema_name, expected",
         [

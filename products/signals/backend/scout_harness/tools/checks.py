@@ -187,6 +187,7 @@ def record_check_result(
         # report's log names what produced the verdict rather than the system that scheduled it.
         attribution=_run_attribution(run),
         run_id=str(run.id),
+        lane_can_emit_report=_run_can_emit_report(run),
     )
     check.refresh_from_db()
     return RecordCheckResultResult(
@@ -380,6 +381,18 @@ def _run_attribution(run: SignalScoutRun) -> ArtefactAttribution:
     """Attribute a write to the run's task, the way every other scout write is attributed."""
     task_id = _resolve_task_id(run)
     return ArtefactAttribution.from_task(task_id) if task_id else ArtefactAttribution.system()
+
+
+def _run_can_emit_report(run: SignalScoutRun) -> bool | None:
+    """Whether the run held `emit_report`, read off the channel the runner stamped when it started.
+
+    Read from the stamp rather than the skill, because a skill's `allowed_tools` can be edited mid-run
+    and the prompt this run got was built from the old list. None for a run without the stamp.
+    """
+    channel = (run.metadata or {}).get("report_channel")
+    if channel is None:
+        return None
+    return channel in ("emit", "both")
 
 
 def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> ScoutCheckSummary:

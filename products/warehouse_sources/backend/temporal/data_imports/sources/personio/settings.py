@@ -13,7 +13,7 @@ _UPDATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class PersonioEndpointConfig:
     name: str
     path: str
@@ -24,8 +24,9 @@ class PersonioEndpointConfig:
     # endpoint: persons use strict `.gt`, the period endpoints use `.gte`.
     incremental_param: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Max page size the endpoint accepts (persons cap at 50, periods at 100).
-    page_size: int = 100
+    # Max page size the endpoint accepts (persons cap at 50, periods at 100). None for
+    # unpaginated endpoints, which then get no `limit` param.
+    page_size: Optional[int] = 100
     # Stable creation-time field used for datetime partitioning.
     partition_key: Optional[str] = None
 
@@ -65,6 +66,21 @@ PERSONIO_ENDPOINTS: dict[str, PersonioEndpointConfig] = {
         name="cost_centers",
         path="/v2/cost-centers",
         scope="personio:cost-centers:read",
+    ),
+    # Recruiting jobs support `updated_at.gt`, but their updated_at/created_at are
+    # {"date-time", "timezone"} objects that can't serve as a cursor or partition column, and the
+    # listing is newest-first — so full refresh only.
+    "recruiting_jobs": PersonioEndpointConfig(
+        name="recruiting_jobs",
+        path="/v2/recruiting/jobs",
+        scope="personio:recruiting:read",
+        page_size=200,
+    ),
+    "recruiting_categories": PersonioEndpointConfig(
+        name="recruiting_categories",
+        path="/v2/recruiting/categories",
+        scope="personio:recruiting:read",
+        page_size=None,
     ),
 }
 

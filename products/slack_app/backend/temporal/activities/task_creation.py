@@ -2,7 +2,7 @@ import re
 import uuid
 import textwrap
 from dataclasses import field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import models
 
@@ -34,6 +34,9 @@ from products.slack_app.backend.temporal.attachments import (
 from products.slack_app.backend.temporal.helpers import block_if_team_over_quota, safe_react
 from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 
+if TYPE_CHECKING:
+    from products.slack_app.backend.models import SlackThreadTaskMapping
+
 logger = structlog.get_logger(__name__)
 
 _RESUME_ERROR_MSG = "Sorry, I ran into an internal error restarting the agent. Please try again in a minute."
@@ -43,6 +46,7 @@ _SLACK_RECOVERY_STRATEGY_RETRY = "retry"
 _SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 _SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
+_SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB = "reconnect_github"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
@@ -530,6 +534,9 @@ def build_thread_context_update(
     return ThreadContextUpdate(block=block, watermark=new_watermark, messages=in_window)
 
 
+MENTION_WORKFLOW_ID_PREFIX = "slack-app-mention-processing-"
+
+
 def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str:
     """Construct the dispatch workflow id from webhook inputs.
 
@@ -545,7 +552,7 @@ def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) ->
         suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
     if inputs.untagged_followup_confirmed:
         suffix = f"{suffix}:confirmed"
-    return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
+    return f"{MENTION_WORKFLOW_ID_PREFIX}{inputs.slack_team_id}:{suffix}"
 
 
 @activity.defn
@@ -871,6 +878,34 @@ def create_posthog_code_task_for_repo_activity(
         )
 
 
+def _followup_task_mappings(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, event_text: str
+) -> "models.QuerySet[SlackThreadTaskMapping] | None":
+    """The mapping a follow-up forwards to, or ``None`` when the message cannot be a follow-up."""
+    from products.slack_app.backend.api import parse_rules_command
+    from products.slack_app.backend.models import SlackThreadTaskMapping
+
+    if parse_rules_command(event_text):
+        return None
+    return SlackThreadTaskMapping.objects.filter(
+        integration_id=inputs.integration_id, channel=channel, thread_ts=thread_ts
+    )
+
+
+@activity.defn
+@close_db_connections
+def posthog_code_thread_has_task_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
+) -> bool:
+    """Whether `forward_posthog_code_followup_activity` will handle this message.
+
+    It reads the same mapping, so the workflow knows a new thread early enough to run the
+    new-thread steps at the same time as the model override classifier.
+    """
+    mappings = _followup_task_mappings(inputs, channel, thread_ts, inputs.event.get("text", ""))
+    return mappings is not None and mappings.exists()
+
+
 @activity.defn
 @close_db_connections
 def forward_posthog_code_followup_activity(
@@ -894,20 +929,12 @@ def forward_posthog_code_followup_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.slack_app.backend.api import parse_rules_command, resolve_slack_user
-    from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.api import resolve_slack_user
     from products.tasks.backend.facade import api as tasks_facade
 
-    if parse_rules_command(event_text):
-        return False
-
-    try:
-        mapping = SlackThreadTaskMapping.objects.select_related("task_run", "task__created_by").get(
-            integration_id=inputs.integration_id,
-            channel=channel,
-            thread_ts=thread_ts,
-        )
-    except SlackThreadTaskMapping.DoesNotExist:
+    mappings = _followup_task_mappings(inputs, channel, thread_ts, event_text)
+    mapping = mappings.select_related("task_run", "task__created_by").first() if mappings is not None else None
+    if mapping is None:
         logger.info("posthog_code_followup_not_handled", channel=channel, thread_ts=thread_ts)
         return False
 
@@ -1284,6 +1311,7 @@ def _terminal_recovery_strategy(previous_run: Any) -> str | None:
             _SLACK_RECOVERY_STRATEGY_RETRY,
             _SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN,
             _SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN,
+            _SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB,
         }:
             return strategy
         return _SLACK_RECOVERY_STRATEGY_RETRY
@@ -1319,6 +1347,11 @@ def _build_terminal_recovery_prompt(previous_run: Any, user_text: str) -> str:
         _SLACK_RECOVERY_STRATEGY_CANCELLED: (
             "The previous sandbox was intentionally stopped. Resume only the work the user asks for now, and "
             "preserve any useful prior artifact or PR context."
+        ),
+        _SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB: (
+            "GitHub rejected the acting user's personal credentials on the previous run. Resolve them again "
+            "before executing. If the connection now works, re-plan and continue. If it still does not, say so "
+            "and ask the acting user to reconnect their personal GitHub in PostHog settings."
         ),
     }
 

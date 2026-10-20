@@ -176,6 +176,7 @@ TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_M
     "is_demo",
     "app_urls",
     "access_control",
+    "logo_media",
     # Renaming a project/environment is admin-only (the settings UI gates TeamDisplayName behind
     # useRestrictedArea(Admin)). Excluded from the create-time gate below so members allowed to
     # create projects can still name them.
@@ -324,14 +325,9 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         if self.parent:
             return value
         # Support raises a project past the ceiling in Django admin; clients that echo the whole
-        # config must be able to send that value back unchanged. Read the row fresh: the
-        # `Team.workflows_config` accessor is cached per process and can be stale.
+        # config must be able to send that value back unchanged.
         if value is not None and value > ceiling:
-            stored = (
-                TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values_list(field, flat=True).first()
-                if self.instance is not None
-                else None
-            )
+            stored = getattr(self.instance, field, None)
             if stored != value:
                 raise serializers.ValidationError(f"Contact support to go above {ceiling} tasks a day.")
         return value
@@ -378,10 +374,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         cap_fields = ("marketing_frequency_cap_max_messages", "marketing_frequency_cap_window_days")
         cap = {field: attrs[field] for field in cap_fields if field in attrs}
         if len(cap) == 1 and self.instance is not None:
-            # Read the stored row, because `Team.workflows_config` is a cached_property on the Team instance
-            # and can hold values from before an earlier update.
-            stored = TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values(*cap_fields).first() or {}
-            cap = {**stored, **cap}
+            cap = {field: cap.get(field, getattr(self.instance, field)) for field in cap_fields}
         # The worker treats either null as no cap, so a half-set cap would save but never apply.
         if cap:
             missing = [field for field in cap_fields if cap.get(field) is None]

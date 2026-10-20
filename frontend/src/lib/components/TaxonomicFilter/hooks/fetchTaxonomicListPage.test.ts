@@ -35,4 +35,22 @@ describe('fetchTaxonomicListPage exclude_stale', () => {
         const url = apiGet.mock.calls[0][0] as string
         expect(url.includes('exclude_stale=true')).toBe(present)
     })
+    it.each([
+        ['sample', false],
+        ['sample@', true],
+    ])('fetches %s only when the group accepts the query', async (searchQuery, shouldFetch) => {
+        const searchGroup = {
+            ...group(TaxonomicFilterGroupType.EmailAddresses),
+            shouldSearch: (query: string): boolean => query.includes('@'),
+        }
+        const page = await fetchTaxonomicListPage({
+            group: searchGroup,
+            searchQuery,
+            offset: 0,
+            limit: 100,
+            isExpanded: false,
+        })
+        expect(apiGet).toHaveBeenCalledTimes(shouldFetch ? 1 : 0)
+        expect(page).toMatchObject({ searchQuery, results: [], count: 0 })
+    })
 })
