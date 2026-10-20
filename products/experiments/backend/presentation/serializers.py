@@ -48,6 +48,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
     HealthExposureInputsStatus,
 )
@@ -3148,47 +3149,72 @@ class ExperimentHealthInputsFlagSerializer(serializers.Serializer):
         many=True, help_text="The flag's release conditions, in evaluation order."
     )
     variants = ExperimentHealthInputsVariantSerializer(many=True, help_text="The flag's variants and their split.")
-
-
-class ExperimentHealthInputsSplitChangeSerializer(serializers.Serializer):
-    changed_at = serializers.DateTimeField(help_text="When the flag's split changed.")
-    before = ExperimentHealthInputsVariantSerializer(many=True, help_text="The split before the change.")
-    after = ExperimentHealthInputsVariantSerializer(many=True, help_text="The split after the change.")
-    counted = serializers.BooleanField(
-        help_text=(
-            "Whether the split-change check counts this change: it and every later change count from the first "
-            "with an exposure before it, or an unknown answer. False for every change when not checked."
-        )
+    split_text = serializers.CharField(
+        help_text="The split as text, in the form of a change's before and after, such as 'control 50%, test 50%'."
     )
 
 
-class ExperimentHealthInputsSplitHistorySerializer(serializers.Serializer):
+_COUNTED_HELP = (
+    "Whether the checks count this change: every change counts from the first change, of any kind, with an "
+    "exposure before it, or an unknown answer. False for every change when not checked."
+)
+
+
+_FLAG_CHANGE_KIND_HELP = (
+    "The kind of change. A bucketing change is a change of a setting that decides the variant draw."
+)
+
+
+class ExperimentHealthInputsFlagChangeSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=ExperimentHealthFlagChangeKind.choices, help_text=_FLAG_CHANGE_KIND_HELP)
+    changed_at = serializers.DateTimeField(help_text="When the flag changed.")
+    changed = serializers.CharField(help_text="What changed, as the staff view names it, such as 'Split' or 'Key'.")
+    before = serializers.CharField(
+        help_text="The value before the change as text, such as 'control 50%, test 50%' or 'device_id'. 'none' when unset."
+    )
+    after = serializers.CharField(help_text="The value after the change, in the same form.")
+    counted = serializers.BooleanField(help_text=_COUNTED_HELP)
+
+
+class ExperimentHealthInputsExposedBetweenSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=ExperimentHealthFlagChangeKind.choices, help_text=_FLAG_CHANGE_KIND_HELP)
+    question = serializers.CharField(help_text="What was asked, as the staff view names it.")
+    exposed = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether anyone was exposed between the first and the last counted change of this kind. Asked only when "
+            "the last sets back what the first changed. Null when not asked or unknown."
+        ),
+    )
+
+
+class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
     checked = serializers.BooleanField(
-        help_text="Whether the split changes were compared with the exposures. False when not_checked_reason is set."
+        help_text="Whether the changes were compared with the exposures. False when not_checked_reason is set."
     )
     not_checked_reason = serializers.CharField(
         allow_null=True,
         help_text=(
-            "Why the split changes were not compared with the exposures: 'no_history_access', 'no_query_access', "
+            "Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', "
             "'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were."
         ),
     )
     launched_at = serializers.DateTimeField(help_text="When the experiment launched.")
-    team_timezone = serializers.CharField(help_text="The project's time zone, which the finding uses for times.")
-    changes = ExperimentHealthInputsSplitChangeSerializer(
+    team_timezone = serializers.CharField(help_text="The project's time zone, which the findings use for times.")
+    changes = ExperimentHealthInputsFlagChangeSerializer(
         many=True,
-        help_text="Every split change since launch. Empty for 'no_history_access', which does not read them.",
+        help_text=(
+            "Every change since launch that can move exposed people, of every kind, in time order. A bucketing change "
+            "is one per setting and save. A rollout change alone is no release-condition change. Empty for "
+            "'no_history_access', which does not read them."
+        ),
     )
     exposed_before_first = serializers.BooleanField(
         allow_null=True,
         help_text="Whether anyone was exposed before the first counted change. Null when unknown or not checked.",
     )
-    exposed_between = serializers.BooleanField(
-        allow_null=True,
-        help_text=(
-            "Whether anyone was exposed between the first and the last change. Asked only when the last change "
-            "restores the split from before the first. Null when not asked or unknown."
-        ),
+    exposed_between = ExperimentHealthInputsExposedBetweenSerializer(
+        many=True, help_text="One entry for each kind of change with a counted change, in the order of the kinds."
     )
 
 
@@ -3212,20 +3238,27 @@ class ExperimentHealthInputsConditionSetTrafficSerializer(serializers.Serializer
             "server SDK and a bootstrapped value name none."
         )
     )
+    people_assigned_outside = serializers.IntegerField(
+        help_text=(
+            "The people who got a variant from a call without a flag version that is no local evaluation in a server "
+            "SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% "
+            "rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`."
+        )
+    )
 
 
 class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):
     can_read_flag_history = serializers.BooleanField(
-        help_text="Whether the reader may read the flag's history, which the split-change check needs."
+        help_text="Whether the reader may read the flag's history, which the flag-change checks need."
     )
     can_query_events = serializers.BooleanField(
-        help_text="Whether the reader may query events, which the split-change and forced-variant checks need."
+        help_text="Whether the reader may query events, which the flag-change and forced-variant checks need."
     )
     denied_event_properties = serializers.ListField(
         child=serializers.CharField(),
         help_text=(
-            "Event properties the reader is denied. The forced-variant check skips its scan when one of them is a "
-            "flag call property it reads."
+            "Event properties the reader is denied. The forced-variant and release-condition checks skip their scan "
+            "when one of them is a flag call property it reads."
         ),
     )
 
@@ -3306,11 +3339,11 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
     flag = ExperimentHealthInputsFlagSerializer(
         allow_null=True, help_text="The experiment's feature flag. Null when it has none."
     )
-    split_history = ExperimentHealthInputsSplitHistorySerializer(
+    flag_history = ExperimentHealthInputsFlagHistorySerializer(
         allow_null=True,
         help_text=(
-            "The changes of the flag's split since launch. Null when the experiment is not running, is archived, "
-            "its flag is missing or deleted, or the read failed."
+            "The changes of the flag since launch that can move exposed people. Null when the experiment is not "
+            "running, is archived, its flag is missing or deleted, or the read failed."
         ),
     )
     condition_set_traffic_status = serializers.ChoiceField(
@@ -3318,7 +3351,8 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
         help_text=(
             "Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the "
             "experiment is launched and some but not all release conditions pin a variant that has a share of the "
-            "split and is not excluded from the analysis."
+            "split and is not excluded from the analysis. The release-condition check needs it when such an "
+            "override was removed after launch."
         ),
     )
     condition_set_traffic = ExperimentHealthInputsConditionSetTrafficSerializer(

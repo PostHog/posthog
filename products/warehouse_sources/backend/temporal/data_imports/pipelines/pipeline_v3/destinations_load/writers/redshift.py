@@ -214,13 +214,12 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
         # The stage was created from the destination, so both share this order. Only the name
         # in each field is read, which is why the types are left empty.
         final_table_fields: Fields = [(name, "") for name in await client.aget_table_columns(self._schema, target)]
-        merge_key: Fields = [(key, "") for key in primary_keys]
 
         await cast(RedshiftClient, client).amerge_tables(
             final_table_name=target,
             stage_table_name=stage,
             schema=self._schema,
-            merge_key=merge_key,
+            merge_key=primary_keys,
             # Only read to build the delete that `skip_delete` suppresses.
             update_key=[],
             final_table_fields=final_table_fields,

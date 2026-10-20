@@ -290,14 +290,108 @@ class TestPagination:
         assert first.param("startDateTime") is None
         assert first.param("orderBy") is None
 
+    @parameterized.expand(
+        [
+            (
+                "product_review_summaries",
+                f"/v1/private/product-reviews/business-units/{BUSINESS_UNIT_ID}/summaries",
+                "summaries",
+                "sku",
+                "100",
+                {},
+            ),
+            (
+                "catalog_products",
+                f"/v1/private/business-units/{BUSINESS_UNIT_ID}/catalog/products",
+                "products",
+                "productId",
+                "1000",
+                {
+                    "sortBy": "createdAt",
+                    "sortOrder": "asc",
+                    "returnAllLocales": "true",
+                    "returnAllMarkets": "true",
+                    "includeMatchingProductCount": "false",
+                },
+            ),
+            # The locations endpoint documents only `page`, so no perPage is sent.
+            ("locations", f"/v1/private/business-units/{BUSINESS_UNIT_ID}/locations", "locations", "id", None, {}),
+        ]
+    )
+    def test_list_endpoint_walks_pages_with_documented_params(
+        self,
+        endpoint: str,
+        expected_path: str,
+        key: str,
+        id_field: str,
+        expected_per_page: str | None,
+        expected_params: dict[str, str],
+    ) -> None:
+        result = _run(
+            _serve(
+                _reviews_response([{id_field: "a"}], key=key),
+                _reviews_response([{id_field: "b"}], key=key),
+                _reviews_response([], key=key),
+            ),
+            endpoint=endpoint,
+        )
+
+        assert [r[id_field] for r in result.rows] == ["a", "b"]
+        requests = [r for r in result.requests if r.path == expected_path]
+        assert [r.param("page") for r in requests] == ["1", "2", "3"]
+        assert requests[0].param("perPage") == expected_per_page
+        for name, value in expected_params.items():
+            assert requests[0].param(name) == value
+
+
+class TestProductReviewConversations:
+    def test_fetches_only_referenced_conversations_and_skips_missing_ones(self) -> None:
+        reviews: list[dict[str, Any]] = [
+            {"id": "r1", "conversationId": "c1"},
+            {"id": "r2", "conversationId": None},
+            {"id": "r3"},
+            {"id": "r4", "conversationId": "c-gone"},
+        ]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/business-units/find"):
+                return _json({"id": BUSINESS_UNIT_ID})
+            if request.path.endswith("/accesstoken"):
+                return _json({"access_token": "tok", "expires_in": 3600})
+            if request.path.endswith("/reviews"):
+                page = request.param("page")
+                return _json(_reviews_response(reviews if page == "1" else [], key="productReviews"))
+            if request.path.endswith("/conversations/c1"):
+                return _json({"id": "c1", "sourceId": "r1", "comments": [{"commentId": "m1", "content": "Thanks"}]})
+            if request.path.endswith("/conversations/c-gone"):
+                return _json({"details": "not found"}, status=404)
+            raise UnexpectedRequest(f"unexpected request {request.url}")
+
+        result = _run(respond, endpoint="product_review_conversations")
+
+        assert [r["id"] for r in result.rows] == ["c1"]
+        conversation_paths = [r.path for r in result.requests if "/conversations/" in r.path]
+        assert conversation_paths == ["/v1/private/conversations/c1", "/v1/private/conversations/c-gone"]
+        review_request = next(r for r in result.requests if r.path.endswith("/reviews"))
+        assert review_request.path == f"/v1/private/product-reviews/business-units/{BUSINESS_UNIT_ID}/reviews"
+        assert review_request.param("perPage") == "100"
+
 
 class TestPaginatorQueryCap:
-    def test_stops_and_warns_at_query_cap(self, caplog: pytest.LogCaptureFixture) -> None:
-        paginator = TrustpilotPaginator()
+    @pytest.mark.parametrize(
+        "maximum_page, expect_next",
+        [
+            pytest.param(MAX_PAGES, False, id="review_endpoint_capped"),
+            # Catalog, locations and summaries document no record cap, so they page past it.
+            pytest.param(None, True, id="uncapped_endpoint"),
+        ],
+    )
+    def test_query_cap(self, maximum_page: int | None, expect_next: bool, caplog: pytest.LogCaptureFixture) -> None:
+        paginator = TrustpilotPaginator(maximum_page)
         paginator.page = MAX_PAGES
 
         with caplog.at_level(logging.WARNING):
             paginator.update_state(mock.MagicMock(), data=[{"id": "r1"}])
 
-        assert paginator.has_next_page is False
-        assert any("query cap" in record.message for record in caplog.records)
+        assert paginator.has_next_page is expect_next
+        assert any("query cap" in record.message for record in caplog.records) is not expect_next

@@ -46,11 +46,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
     BigQueryBatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -595,6 +596,21 @@ def _is_contention_exception(exc: Exception) -> bool:
     return "concurrent update" in str(exc)
 
 
+def _quote_bigquery_identifier(identifier: str) -> str:
+    escaped = identifier.translate(
+        {
+            ord("\\"): r"\\",
+            ord("`"): r"\`",
+            ord("\n"): r"\n",
+            ord("\r"): r"\r",
+            ord("\t"): r"\t",
+            ord("\b"): r"\b",
+            ord("\f"): r"\f",
+        }
+    )
+    return f"`{escaped}`"
+
+
 class BigQueryClient:
     """Async client to interact with BigQuery.
 
@@ -791,7 +807,7 @@ class BigQueryClient:
         """Attempt to SELECT from table to check for query permissions."""
         if isinstance(table, BigQueryTable) and "timestamp" in table:
             query = f"""
-            SELECT 1 FROM  `{table.fully_qualified_name}` TABLESAMPLE SYSTEM (0.0001 PERCENT) WHERE timestamp IS NOT NULL
+            SELECT 1 FROM  {_quote_bigquery_identifier(table.fully_qualified_name)} TABLESAMPLE SYSTEM (0.0001 PERCENT) WHERE timestamp IS NOT NULL
             """
 
             if table.time_partitioning is not None and table.time_partitioning.field == "timestamp":
@@ -802,7 +818,7 @@ class BigQueryClient:
 
         else:
             query = f"""
-            SELECT 1 FROM  `{table.fully_qualified_name}` TABLESAMPLE SYSTEM (0.0001 PERCENT) LIMIT 1
+            SELECT 1 FROM  {_quote_bigquery_identifier(table.fully_qualified_name)} TABLESAMPLE SYSTEM (0.0001 PERCENT) LIMIT 1
             """
 
         try:
@@ -875,7 +891,7 @@ class BigQueryClient:
         stage: list[BigQueryTable],
     ):
         """Insert data from one or more `stage` tables into `final`."""
-        into_table_fields = ",".join(f"`{field.name}`" for field in final.fields)
+        into_table_fields = ",".join(_quote_bigquery_identifier(field.name) for field in final.fields)
 
         fields_to_cast = {
             field.name
@@ -894,7 +910,7 @@ class BigQueryClient:
               REGEXP_REPLACE(
                 REGEXP_REPLACE(
                   REGEXP_REPLACE(
-                    `{field.name}`,
+                    {_quote_bigquery_identifier(field.name)},
                     r'(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
                     '\\\\1'
                   ),
@@ -908,16 +924,17 @@ class BigQueryClient:
             )
             """
             if field.name in fields_to_cast
-            else f"`{field.name}`"
+            else _quote_bigquery_identifier(field.name)
             for field in final.fields
         )
 
         query = f"""
-        INSERT INTO `{final.fully_qualified_name}`
+        INSERT INTO {_quote_bigquery_identifier(final.fully_qualified_name)}
             ({into_table_fields})
         """
         query += "\nUNION ALL\n".join(
-            f"SELECT {stage_table_fields} FROM `{table.fully_qualified_name}`" for table in stage
+            f"SELECT {stage_table_fields} FROM {_quote_bigquery_identifier(table.fully_qualified_name)}"
+            for table in stage
         )
 
         self.logger.info(
@@ -954,15 +971,18 @@ class BigQueryClient:
         for n, field_name in enumerate(final.primary_key):
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f"final.`{field_name}` = stage.`{field_name}`"
+            quoted_field = _quote_bigquery_identifier(field_name)
+            merge_condition += f"final.{quoted_field} = stage.{quoted_field}"
 
-        update_condition = "AND ("
+        update_condition = ""
 
         for index, field_name in enumerate(final.version_key):
             if index > 0:
                 update_condition += " OR "
-            update_condition += f"final.`{field_name}` < stage.`{field_name}`"
-        update_condition += ")"
+            quoted_field = _quote_bigquery_identifier(field_name)
+            update_condition += f"final.{quoted_field} < stage.{quoted_field}"
+        if update_condition:
+            update_condition = f"AND ({update_condition})"
 
         update_clause = ""
         values = ""
@@ -985,7 +1005,7 @@ class BigQueryClient:
                   REGEXP_REPLACE(
                     REGEXP_REPLACE(
                       REGEXP_REPLACE(
-                        stage.`{field.name}`,
+                        stage.{_quote_bigquery_identifier(field.name)},
                         r'(\\\\u[dD][89A-Ba-b][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
                         '\\\\1'
                       ),
@@ -999,24 +1019,31 @@ class BigQueryClient:
                 )
                 """
                 if field.name in fields_to_cast
-                else f"stage.`{field.name}`"
+                else f"stage.{_quote_bigquery_identifier(field.name)}"
             )
 
-            update_clause += f"final.`{field.name}` = {stage_field}"
-            field_names += f"`{field.name}`"
+            update_clause += f"final.{_quote_bigquery_identifier(field.name)} = {stage_field}"
+            field_names += _quote_bigquery_identifier(field.name)
             values += stage_field
 
         if not update_clause:
             raise ValueError("Empty update clause")
 
-        inner_union_query = "\nUNION ALL\n".join(f"SELECT * FROM `{table.fully_qualified_name}`" for table in stage)
+        inner_union_query = "\nUNION ALL\n".join(
+            f"SELECT * FROM {_quote_bigquery_identifier(table.fully_qualified_name)}" for table in stage
+        )
+        order_by = (
+            "ORDER BY " + ",".join(f"{_quote_bigquery_identifier(field_name)} DESC" for field_name in final.version_key)
+            if final.version_key
+            else ""
+        )
 
         union_query = f"""
         SELECT
             *,
             ROW_NUMBER() OVER (
-              PARTITION BY {",".join(field_name for field_name in final.primary_key)}
-              ORDER BY {",".join(f"{field_name} DESC" for field_name in final.version_key)}
+              PARTITION BY {",".join(_quote_bigquery_identifier(field_name) for field_name in final.primary_key)}
+              {order_by}
               ) row_num
         FROM (
             {inner_union_query}
@@ -1024,7 +1051,7 @@ class BigQueryClient:
         """
 
         merge_query = f"""
-        MERGE `{final.fully_qualified_name}` final
+        MERGE {_quote_bigquery_identifier(final.fully_qualified_name)} final
         USING (
             SELECT * FROM
             (
@@ -1427,31 +1454,6 @@ async def merge_all_consumer_tables(
         )
 
 
-class MergeSettings(typing.NamedTuple):
-    primary_key: collections.abc.Sequence[str]
-    version_key: collections.abc.Sequence[str]
-
-
-def _get_merge_settings(
-    model: BatchExportModel | None,
-) -> MergeSettings | None:
-    """Return merge settings for models that require merging."""
-    if isinstance(model, BatchExportModel):
-        if model.name == "persons":
-            primary_key: collections.abc.Sequence[str] = ("team_id", "distinct_id")
-            version_key: collections.abc.Sequence[str] = ("person_version", "person_distinct_id_version")
-        elif model.name == "sessions":
-            primary_key = ("team_id", "session_id")
-            version_key = ("end_timestamp",)
-        # TODO: Support merges in 'events'?
-        else:
-            return None
-    else:
-        return None
-
-    return MergeSettings(primary_key, version_key)
-
-
 @dataclasses.dataclass(frozen=False, kw_only=True)
 class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
@@ -1528,7 +1530,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
     )
 
     async with Heartbeater():
-        model = inputs.batch_export_model
+        model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1569,14 +1571,14 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         else:
             json_fields = set()
 
-        merge_settings = _get_merge_settings(model)
+        requires_merge = model.incremental_mode == IncrementalMode.MERGE
         target_table = BigQueryTable.from_arrow_schema(
             record_batch_schema,
             table_id=inputs.table_id,
             project_id=project_id,
             dataset_id=inputs.dataset_id,
-            primary_key=merge_settings.primary_key if merge_settings else (),
-            version_key=merge_settings.version_key if merge_settings else (),
+            primary_key=model.primary_key if requires_merge else (),
+            version_key=model.version_key if requires_merge else (),
         )
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
@@ -1697,7 +1699,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                 run_consumer(
                                     client=bq_client,
                                     consumer_table=consumer_table,
-                                    model=model.name if isinstance(model, BatchExportModel) else "events",
+                                    model=model.name,
                                     file_format=file_format,
                                     queue=queue,
                                     transformer=transformer,

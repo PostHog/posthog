@@ -44,7 +44,7 @@ describe('replayVisionScanner', () => {
             {
                 name: 'a default exposure event',
                 exposure_criteria: undefined,
-                expectedFilterTestAccounts: false,
+                expectedFilterTestAccounts: true,
             },
             {
                 name: 'a custom exposure event',
@@ -55,12 +55,12 @@ describe('replayVisionScanner', () => {
                         properties: [],
                     },
                 } satisfies ExperimentExposureCriteria as ExperimentExposureCriteria,
-                expectedFilterTestAccounts: false,
+                expectedFilterTestAccounts: true,
             },
             {
-                name: 'an experiment that filters test accounts',
-                exposure_criteria: { filterTestAccounts: true } satisfies ExperimentExposureCriteria,
-                expectedFilterTestAccounts: true,
+                name: 'an experiment that keeps test accounts',
+                exposure_criteria: { filterTestAccounts: false } satisfies ExperimentExposureCriteria,
+                expectedFilterTestAccounts: false,
             },
         ])(
             'saves an experiment scanner that waits for launch, with no filters: $name',

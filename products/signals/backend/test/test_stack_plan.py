@@ -6,6 +6,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     PullRequestLink,
@@ -256,14 +258,17 @@ class TestStackPlan(BaseTest):
         assert second == []
         assert SignalReport.objects.filter(team=self.team).count() == 4
 
-    def test_only_the_first_layer_starts_with_the_plan(self):
+    @parameterized.expand([("web", ClickHouseUser.DEFAULT), ("pipeline", ClickHouseUser.SIGNALS)])
+    def test_only_the_first_layer_starts_with_the_plan(self, _name: str, ch_user: ClickHouseUser):
         child_ids = self._create_layers()
 
         with patch(AUTOSTART, new_callable=AsyncMock) as autostart:
-            started = start_unblocked_layers_of_plan(team_id=self.team.id, parent_report_id=str(self.parent.id))
+            started = start_unblocked_layers_of_plan(
+                team_id=self.team.id, parent_report_id=str(self.parent.id), ch_user=ch_user
+            )
 
         assert started == [child_ids[0]]
-        autostart.assert_awaited_once_with(team_id=self.team.id, report_id=child_ids[0])
+        autostart.assert_awaited_once_with(team_id=self.team.id, report_id=child_ids[0], ch_user=ch_user)
 
     def test_a_failed_layer_start_raises_after_its_siblings_are_tried(self):
         with transaction.atomic():
@@ -290,7 +295,7 @@ class TestStackPlan(BaseTest):
             self._attach_pull_request(child_ids[0], 1, SignalReportPullRequest.State.OPEN)
             assert start_dependent_layers(team_id=self.team.id, report_id=child_ids[0]) == [child_ids[1]]
 
-        autostart.assert_awaited_once_with(team_id=self.team.id, report_id=child_ids[1])
+        autostart.assert_awaited_once_with(team_id=self.team.id, report_id=child_ids[1], ch_user=ClickHouseUser.SIGNALS)
 
     def test_an_archived_layer_does_not_start_when_its_dependency_opens_a_pull_request(self):
         child_ids = self._create_layers()

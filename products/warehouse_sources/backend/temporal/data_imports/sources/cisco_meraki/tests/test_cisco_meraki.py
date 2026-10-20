@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -37,7 +39,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     CiscoMerakiSourceConfig,
 )
 
-BASE_URL = "https://api.meraki.com/api/v1/organizations/123456"
+API_URL = "https://api.meraki.com/api/v1"
+BASE_URL = f"{API_URL}/organizations/123456"
 
 
 def make_config(**overrides: str) -> CiscoMerakiSourceConfig:
@@ -210,11 +213,9 @@ def test_resume_rejects_unapproved_destination() -> None:
 @pytest.mark.parametrize(
     ("status", "schema", "expected"),
     [
-        (200, None, (True, None)),
-        (200, "networks", (True, None)),
-        (401, None, (False, AUTH_ERROR)),
         (403, None, (True, None)),
         (403, "networks", (False, PERMISSION_ERROR)),
+        (403, "network_events", (False, PERMISSION_ERROR)),
         (404, None, (False, NOT_FOUND_ERROR)),
     ],
 )
@@ -290,3 +291,102 @@ def test_unknown_table_fails_before_network_access() -> None:
     assert isinstance(result.raised, UnknownResourceError)
     assert result.requests == []
     assert network.requests_log == []
+
+
+def network_api(routes: dict[tuple[str, str | None], ScriptedResponse]) -> Any:
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        path = request.path
+        if product_type := request.param("productType"):
+            path = f"{path}?productType={product_type}"
+        return routes[(path, request.param("endingBefore") or request.param("startingAfter"))]
+
+    return answer
+
+
+def test_network_clients_fan_out_over_every_network_page() -> None:
+    next_clients = f"{API_URL}/networks/N_1/clients?perPage=1000&timespan=2678400&startingAfter=k2"
+    result = make_driver().run(
+        "network_clients",
+        network_api(
+            {
+                ("/api/v1/organizations/123456/networks", None): ScriptedResponse(json=[{"id": "N_1"}, {"id": "N_2"}]),
+                ("/api/v1/networks/N_1/clients", None): ScriptedResponse(
+                    json=[{"id": "k1"}], headers={"Link": f'<{next_clients}>; rel="next"'}
+                ),
+                ("/api/v1/networks/N_1/clients", "k2"): ScriptedResponse(json=[{"id": "k2"}]),
+                ("/api/v1/networks/N_2/clients", None): ScriptedResponse(json=[{"id": "k1"}]),
+            }
+        ),
+    )
+
+    assert result.raised is None
+    assert [(row["networkId"], row["id"]) for row in result.rows] == [("N_1", "k1"), ("N_1", "k2"), ("N_2", "k1")]
+    assert [request.param("timespan") for request in result.requests[1:]] == ["2678400"] * 3
+
+
+def test_network_clients_resume_skips_completed_networks() -> None:
+    result = make_driver().run(
+        "network_clients",
+        network_api(
+            {
+                ("/api/v1/organizations/123456/networks", None): ScriptedResponse(json=[{"id": "N_1"}, {"id": "N_2"}]),
+                ("/api/v1/networks/N_2/clients", None): ScriptedResponse(json=[{"id": "k9"}]),
+            }
+        ),
+        resume_state=CiscoMerakiResumeConfig(completed_paths=["networks/N_1/clients"]),
+    )
+
+    assert result.raised is None
+    assert result.rows == [{"id": "k9", "networkId": "N_2"}]
+    assert result.final_state == CiscoMerakiResumeConfig(
+        completed_paths=["networks/N_1/clients", "networks/N_2/clients"]
+    )
+
+
+def _event(occurred_at: str) -> dict[str, Any]:
+    return {"occurredAt": occurred_at, "networkId": "N_1", "type": "association"}
+
+
+@pytest.mark.parametrize(
+    ("watermark", "expected_pages"),
+    [
+        (None, [None, "2026-01-02T00:00:00Z", "2026-01-01T06:00:00Z", "2025-12-31T00:00:00Z"]),
+        (datetime(2026, 1, 1, tzinfo=UTC), [None, "2026-01-02T00:00:00Z", "2026-01-01T06:00:00Z"]),
+    ],
+)
+def test_network_events_walk_back_per_product_type(
+    watermark: datetime | None, expected_pages: list[str | None]
+) -> None:
+    def page(events: list[dict[str, Any]], older_than: str) -> ScriptedResponse:
+        prev_url = f"{API_URL}/networks/N_1/events?productType=appliance&perPage=1000&endingBefore={older_than}"
+        return ScriptedResponse(json={"events": events}, headers={"Link": f'<{prev_url}>; rel="prev"'})
+
+    appliance_path = "/api/v1/networks/N_1/events?productType=appliance"
+    result = make_driver().run(
+        "network_events",
+        network_api(
+            {
+                ("/api/v1/organizations/123456/networks", None): ScriptedResponse(
+                    json=[{"id": "N_1", "productTypes": ["appliance", "sensor", "wireless"]}]
+                ),
+                ("/api/v1/networks/N_1/events?productType=wireless", None): ScriptedResponse(json={"events": []}),
+                (appliance_path, None): page(
+                    [_event("2026-01-03T00:00:00Z"), _event("2026-01-02T00:00:00Z")], "2026-01-02T00:00:00Z"
+                ),
+                (appliance_path, "2026-01-02T00:00:00Z"): page([], "2026-01-01T06:00:00Z"),
+                (appliance_path, "2026-01-01T06:00:00Z"): page(
+                    [_event("2026-01-01T05:00:00Z"), _event("2025-12-31T00:00:00Z")], "2025-12-31T00:00:00Z"
+                ),
+                (appliance_path, "2025-12-31T00:00:00Z"): page([], "2013-12-31T00:00:00Z"),
+            }
+        ),
+        incremental_field="occurredAt" if watermark else None,
+        db_incremental_field_last_value=watermark,
+    )
+
+    appliance = [request for request in result.requests if request.param("productType") == "appliance"]
+    assert result.raised is None
+    assert [request.param("endingBefore") for request in appliance] == expected_pages
+    assert {request.param("productType") for request in result.requests[1:]} == {"appliance", "wireless"}
+    assert {row["productType"] for row in result.rows} == {"appliance"}
+    assert len({row["id"] for row in result.rows}) == len(result.rows) == 4

@@ -1,6 +1,8 @@
 import json
 import time
 import base64
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from unittest.mock import patch
@@ -14,6 +16,7 @@ from posthog.clickhouse.client.connection import (
     RefreshingChPool,
     Workload,
     default_client,
+    default_workload_from_settings,
     get_clickhouse_creds,
     get_http_client,
     get_http_kwargs,
@@ -23,6 +26,9 @@ from posthog.clickhouse.client.connection import (
     set_default_clickhouse_workload_type,
 )
 from posthog.clickhouse.client.execute import sync_execute
+
+if TYPE_CHECKING:
+    from pytest_django.fixtures import Settings
 
 
 def _file_backed_default(monkeypatch, path, *, fallback="fallback"):
@@ -71,6 +77,21 @@ def test_connection_pool_creation_with_offline_cluster(settings):
     assert get_pool(Workload.DEFAULT) is offline_pool
 
 
+@pytest.mark.parametrize("value,expected", [("ONLINE", Workload.ONLINE), ("OFFLINE", Workload.OFFLINE)])
+def test_default_workload_from_settings(settings, value, expected):
+    settings.CLICKHOUSE_DEFAULT_WORKLOAD = value
+
+    assert default_workload_from_settings() == expected
+
+
+@pytest.mark.parametrize("value", ["LOGS", "ENDPOINTS", "DEFAULT", "offline-ish"])
+def test_default_workload_from_settings_rejects_other_workloads(settings, value):
+    settings.CLICKHOUSE_DEFAULT_WORKLOAD = value
+
+    with pytest.raises(ValueError):
+        default_workload_from_settings()
+
+
 def test_connection_pool_creation_with_team_id(settings):
     settings.CLICKHOUSE_PER_TEAM_SETTINGS = {}
 
@@ -88,6 +109,38 @@ def test_connection_pool_creation_with_team_id(settings):
 
     assert online_pool.connection_args["host"] == settings.CLICKHOUSE_HOST
     assert team_pool.connection_args["host"] == "clicky"
+
+
+@pytest.mark.parametrize("user", [ClickHouseUser.SIGNALS, ClickHouseUser.DEFAULT, ClickHouseUser.ERROR_TRACKING])
+def test_signals_readonly_queries_keep_dedicated_credentials_and_offline_host(
+    settings: "Settings", monkeypatch: pytest.MonkeyPatch, tmp_path: Path, user: ClickHouseUser
+) -> None:
+    settings.READONLY_CLICKHOUSE_USER = "shared-readonly"
+    settings.READONLY_CLICKHOUSE_PASSWORD = "shared-password"
+    settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = "offline.example.com"
+    token = tmp_path / "signals-token"
+    token.write_text("signals-token-value")
+    monkeypatch.setattr(
+        connection,
+        "__user_dict",
+        {
+            ClickHouseUser.SIGNALS: ClickHouseCredentials(user="signals", password="", password_file=str(token)),
+            ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="default-password"),
+            ClickHouseUser.ERROR_TRACKING: ClickHouseCredentials(user="error_tracking", password="error-password"),
+        },
+    )
+
+    kwargs = get_http_kwargs(Workload.OFFLINE, readonly=True, ch_user=user)
+
+    if user == ClickHouseUser.SIGNALS:
+        assert kwargs == {
+            "user": "signals",
+            "password": "signals-token-value",
+            "host": "offline.example.com",
+            "verify": False,
+        }
+    else:
+        assert kwargs == {"user": "shared-readonly", "password": "shared-password"}
 
 
 def test_native_events_pool_is_separate_from_legacy_pool(settings, monkeypatch):
@@ -196,24 +249,49 @@ def test_read_password_uses_static_only_for_an_armed_user_with_an_expired_token(
     assert creds.read_password() == (password if expect_static else token)
 
 
-def test_password_file_env_registers_file_backed_user(monkeypatch, tmp_path):
+@pytest.mark.parametrize("user", [ClickHouseUser.COHORTS, ClickHouseUser.SIGNALS])
+def test_password_file_env_registers_file_backed_user(monkeypatch, tmp_path, user):
     token = tmp_path / "cohorts-token"
     token.write_text("cohorts-token-value")
-    monkeypatch.setenv("CLICKHOUSE_COHORTS_USER", "cohorts")
-    monkeypatch.setenv("CLICKHOUSE_COHORTS_PASSWORD_FILE", str(token))
-    monkeypatch.delenv("CLICKHOUSE_COHORTS_PASSWORD", raising=False)
+    monkeypatch.setenv(f"CLICKHOUSE_{user.name}_USER", user.value)
+    monkeypatch.setenv(f"CLICKHOUSE_{user.name}_PASSWORD_FILE", str(token))
+    monkeypatch.delenv(f"CLICKHOUSE_{user.name}_PASSWORD", raising=False)
 
-    creds = init_clickhouse_users()[ClickHouseUser.COHORTS]
-    assert creds.user == "cohorts"
+    creds = init_clickhouse_users()[user]
+    assert creds.user == user.value
     assert creds.read_password() == "cohorts-token-value"
 
 
-def test_business_knowledge_credentials_do_not_fall_back_to_default(monkeypatch):
+@pytest.mark.parametrize(
+    "debug,test,explicit_user,expected_user",
+    [
+        (False, False, None, None),
+        (True, False, None, "signals"),
+        (False, True, None, "signals"),
+        (True, False, "custom-signals", None),
+    ],
+)
+def test_signals_development_credentials_do_not_mask_deployment_config(
+    monkeypatch: pytest.MonkeyPatch, debug: bool, test: bool, explicit_user: str | None, expected_user: str | None
+) -> None:
+    monkeypatch.setattr(connection.data_stores, "DEBUG", debug)
+    monkeypatch.setattr(connection.data_stores, "TEST", test)
+    for suffix in ("USER", "PASSWORD", "PASSWORD_FILE"):
+        monkeypatch.delenv(f"CLICKHOUSE_SIGNALS_{suffix}", raising=False)
+    if explicit_user is not None:
+        monkeypatch.setenv("CLICKHOUSE_SIGNALS_USER", explicit_user)
+
+    creds = init_clickhouse_users().get(ClickHouseUser.SIGNALS)
+    assert (creds.user if creds else None) == expected_user
+
+
+@pytest.mark.parametrize("user", [ClickHouseUser.BUSINESS_KNOWLEDGE, ClickHouseUser.SIGNALS])
+def test_dedicated_credentials_do_not_fall_back_to_default(monkeypatch, user):
     default_creds = ClickHouseCredentials(user="default", password="default-password")
     monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: default_creds})
 
-    with pytest.raises(RuntimeError, match="CLICKHOUSE_BUSINESS_KNOWLEDGE_USER"):
-        get_clickhouse_creds(ClickHouseUser.BUSINESS_KNOWLEDGE)
+    with pytest.raises(RuntimeError, match=f"CLICKHOUSE_{user.name}_USER"):
+        get_clickhouse_creds(user)
 
 
 def test_deletion_executor_credentials_do_not_fall_back_to_default(monkeypatch):
@@ -290,11 +368,13 @@ def test_default_client_sends_the_pod_token_only_without_explicit_credentials(
     assert (client.connection.user, client.connection.password) == (expected_user, expected_password)
 
 
-def test_refreshing_pool_stamps_current_credential(tmp_path):
+@pytest.mark.parametrize("failure", [None, "missing", "empty"])
+def test_refreshing_pool_stamps_current_credential(tmp_path: Path, failure: str | None) -> None:
     token = tmp_path / "token"
     token.write_text("tok-0")
+    creds = ClickHouseCredentials(user="signals", password="", password_file=str(token), require_password=True)
     pool = RefreshingChPool(
-        credential_provider=lambda: token.read_text().strip(),
+        credential_provider=creds.read_password,
         host="localhost",
         port=1,
         connections_min=1,
@@ -304,6 +384,16 @@ def test_refreshing_pool_stamps_current_credential(tmp_path):
     client = pool.pull()
     assert client.connection.password == "tok-0"
     pool.push(client)
+
+    if failure is not None:
+        if failure == "missing":
+            token.unlink()
+        else:
+            token.write_text("")
+        for _ in range(3):
+            with pytest.raises(RuntimeError, match="signals"):
+                with pool.get_client():
+                    pytest.fail("Missing credentials must fail closed")
 
     token.write_text("tok-1")
     client = pool.pull()

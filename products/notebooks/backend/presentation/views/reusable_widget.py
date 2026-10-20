@@ -20,7 +20,6 @@ from products.notebooks.backend.facade.widgets import (
     discard_reusable_widget_version,
     get_reusable_widget,
     get_reusable_widget_status,
-    is_notebook_widget_enabled,
     list_reusable_widget_versions,
     list_reusable_widgets,
     read_reusable_widget_demo_frame,
@@ -60,9 +59,9 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
             raise PermissionDenied("You need query access to read or edit widget demo data.")
 
-    def _require_feature(self) -> None:
+    def _require_user(self) -> None:
         user = self.request.user
-        if not isinstance(user, User) or not is_notebook_widget_enabled(user):
+        if not isinstance(user, User):
             raise Http404()
 
     def _widget_id(self) -> UUID:
@@ -94,7 +93,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ],
     )
     def list(self, request: Request, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         query = ReusableWidgetCatalogQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         result = list_reusable_widgets(
@@ -110,7 +109,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: ReusableWidgetDetailSerializer, 404: WidgetErrorSerializer},
     )
     def retrieve(self, request: Request, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         try:
             result = get_reusable_widget(team_id=self.team_id, widget_id=self._widget_id())
         except WidgetError as error:
@@ -124,7 +123,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["GET"], detail=True, required_scopes=["notebook:read"])
     def versions(self, request: Request, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         query = WidgetVersionQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         try:
@@ -151,7 +150,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["POST"], detail=True, required_scopes=["notebook:write"])
     def restore(self, request: Request, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         if not isinstance(request.user, User):
             raise PermissionDenied("A user is required to make a reusable widget version latest.")
         serializer = ReusableWidgetRestoreRequestSerializer(data=request.data)
@@ -195,7 +194,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["notebook:read", "query:read"],
     )
     def demo_frame(self, request: Request, frame_name: str | None = None, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         self._require_query_access()
         if frame_name is None:
             raise Http404()
@@ -225,7 +224,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=True, url_path="demo-data", required_scopes=["notebook:write", "query:read"])
     def update_demo_data(self, request: Request, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         self._require_query_access()
         serializer = ReusableWidgetDemoDataRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -256,7 +255,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["GET"], detail=True, required_scopes=["notebook:read"])
     def source(self, request: Request, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         query = WidgetSourceQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         try:
@@ -283,7 +282,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["POST"], detail=True, required_scopes=["notebook:write"])
     def generate(self, request: Request, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         user = request.user
         if not isinstance(user, User):
             raise PermissionDenied("A user is required to change a reusable widget.")
@@ -327,7 +326,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=True, url_path="save-version", required_scopes=["notebook:write"])
     def save_version(self, request: Request, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         user = request.user
         if not isinstance(user, User):
             raise PermissionDenied("A user is required to save a reusable widget version.")
@@ -358,7 +357,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=True, url_path="discard-version", required_scopes=["notebook:write"])
     def discard_version(self, request: Request, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         if not isinstance(request.user, User):
             raise PermissionDenied("A user is required to discard a reusable widget draft.")
         serializer = ReusableWidgetReviewRequestSerializer(data=request.data)
@@ -382,7 +381,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["GET"], detail=True, required_scopes=["notebook:read"])
     def status(self, request: Request, **kwargs) -> Response:
-        self._require_feature()
+        self._require_user()
         try:
             result = get_reusable_widget_status(team_id=self.team_id, widget_id=self._widget_id())
         except WidgetError as error:
