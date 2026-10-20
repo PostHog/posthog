@@ -121,6 +121,8 @@ describe('LiquidRenderer', () => {
             ['{{ 1234.5 | currency: "en", "EUR" }}', '€1,234.50'],
             ['{{ 1234.5 | currency: "de-DE" }}', '1.234,50 €'],
             ['{{ 10 | currency: "zz-QQ" }}', '10'],
+            ['{{ 10 | currency: "qxy-QQ", "USD" }}', '10'],
+            ['{{ 10 | currency: "en-us" }}', '$10.00'],
             ['{{ missing | default: "ERROR" | currency: "USD" }}', 'ERROR'],
             ['{{ missing | currency: "USD" }}', ''],
             ['{{ 10 | currency: "not-a-code" }}', '10'],
