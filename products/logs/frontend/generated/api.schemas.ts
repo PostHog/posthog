@@ -2800,10 +2800,10 @@ export interface LogsSamplingRuleReorderApi {
 }
 
 /**
- * * `none` - None
- * * `previous_period` - Previous Period
- * * `previous_day` - Previous Day
- * * `previous_week` - Previous Week
+ * * `none` - No baseline
+ * * `previous_period` - Previous period
+ * * `previous_day` - Same window a day earlier
+ * * `previous_week` - Same window a week earlier
  */
 export type LogsCompareModeEnumApi = (typeof LogsCompareModeEnumApi)[keyof typeof LogsCompareModeEnumApi]
 
@@ -2837,10 +2837,10 @@ export interface _LogsServicesBodyApi {
     environment?: string
     /** Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.
      *
-     * * `none` - None
-     * * `previous_period` - Previous Period
-     * * `previous_day` - Previous Day
-     * * `previous_week` - Previous Week */
+     * * `none` - No baseline
+     * * `previous_period` - Previous period
+     * * `previous_day` - Same window a day earlier
+     * * `previous_week` - Same window a week earlier */
     compare?: LogsCompareModeEnumApi
 }
 
@@ -2852,13 +2852,13 @@ export interface _LogsServicesRequestApi {
 }
 
 /**
- * * `ok` - Ok
- * * `degraded` - Degraded
- * * `regressed` - Regressed
- * * `improved` - Improved
- * * `recovered` - Recovered
- * * `new` - New
- * * `silent` - Silent
+ * * `ok` - OK
+ * * `degraded` - Error rate 5% or more
+ * * `regressed` - Error rate worse than the baseline
+ * * `improved` - Error rate better than the baseline
+ * * `recovered` - No longer degraded
+ * * `new` - No logs in the baseline
+ * * `silent` - Logs stopped
  */
 export type LogsServiceStatusEnumApi = (typeof LogsServiceStatusEnumApi)[keyof typeof LogsServiceStatusEnumApi]
 
@@ -2890,13 +2890,13 @@ export interface _LogsServiceAggregateApi {
     service_name: string
     /** ok, degraded (error rate of 5% or more), regressed or improved (error rate up or down by 1 pp and 2x), recovered (back under 5%), new (no baseline logs) or silent (baseline logs, none in the window).
      *
-     * * `ok` - Ok
-     * * `degraded` - Degraded
-     * * `regressed` - Regressed
-     * * `improved` - Improved
-     * * `recovered` - Recovered
-     * * `new` - New
-     * * `silent` - Silent */
+     * * `ok` - OK
+     * * `degraded` - Error rate 5% or more
+     * * `regressed` - Error rate worse than the baseline
+     * * `improved` - Error rate better than the baseline
+     * * `recovered` - No longer degraded
+     * * `new` - No logs in the baseline
+     * * `silent` - Logs stopped */
     status?: LogsServiceStatusEnumApi
     /** Short reason for the status, e.g. "error rate 0.4% → 3.1%". */
     reason?: string

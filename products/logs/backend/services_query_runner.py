@@ -193,23 +193,23 @@ SILENT_MIN_BASELINE_LOGS = 10
 
 
 class LogsCompareMode(LabeledStrEnum):
-    NONE = "none"
-    PREVIOUS_PERIOD = "previous_period"
-    PREVIOUS_DAY = "previous_day"
-    PREVIOUS_WEEK = "previous_week"
+    NONE = "none", "No baseline"
+    PREVIOUS_PERIOD = "previous_period", "Previous period"
+    PREVIOUS_DAY = "previous_day", "Same window a day earlier"
+    PREVIOUS_WEEK = "previous_week", "Same window a week earlier"
 
 
 COMPARE_MODES = LogsCompareMode.values
 
 
 class LogsServiceStatus(LabeledStrEnum):
-    OK = "ok"
-    DEGRADED = "degraded"
-    REGRESSED = "regressed"
-    IMPROVED = "improved"
-    RECOVERED = "recovered"
-    NEW = "new"
-    SILENT = "silent"
+    OK = "ok", "OK"
+    DEGRADED = "degraded", "Error rate 5% or more"
+    REGRESSED = "regressed", "Error rate worse than the baseline"
+    IMPROVED = "improved", "Error rate better than the baseline"
+    RECOVERED = "recovered", "No longer degraded"
+    NEW = "new", "No logs in the baseline"
+    SILENT = "silent", "Logs stopped"
 
 
 class LogsServicesSource(LabeledStrEnum):

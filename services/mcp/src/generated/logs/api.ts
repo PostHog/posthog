@@ -6773,11 +6773,11 @@ export const LogsServicesCreateBody = () => zod.object({
             compare: zod
                 .enum(['none', 'previous_period', 'previous_day', 'previous_week'])
                 .describe(
-                    '\* `none` - None\n\* `previous_period` - Previous Period\n\* `previous_day` - Previous Day\n\* `previous_week` - Previous Week'
+                    '\* `none` - No baseline\n\* `previous_period` - Previous period\n\* `previous_day` - Same window a day earlier\n\* `previous_week` - Same window a week earlier'
                 )
                 .default(logsServicesCreateBodyQueryOneCompareDefault)
                 .describe(
-                    'Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.\n\n\* `none` - None\n\* `previous_period` - Previous Period\n\* `previous_day` - Previous Day\n\* `previous_week` - Previous Week'
+                    'Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.\n\n\* `none` - No baseline\n\* `previous_period` - Previous period\n\* `previous_day` - Same window a day earlier\n\* `previous_week` - Same window a week earlier'
                 ),
         })
         .describe('The services aggregation query to execute.'),
