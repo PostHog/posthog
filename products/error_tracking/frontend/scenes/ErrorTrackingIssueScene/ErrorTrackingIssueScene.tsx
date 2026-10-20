@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconRewindPlay, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -68,6 +68,10 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp } }) => ({ id, fingerprint, timestamp }),
 }
 
+function isDisplayed(element: HTMLElement | null): boolean {
+    return !!element && getComputedStyle(element).display !== 'none'
+}
+
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue, issueId, issueIdValid, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
         useValues(errorTrackingIssueSceneLogic)
@@ -77,6 +81,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
+    // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
+    const [emailInOverflow, setEmailInOverflow] = useState(true)
 
     // Jump to the session replay list filtered to this issue. Captured so we can measure how often
     // people watch recordings themselves, the baseline the Replay vision cross-sell is weighed against.
@@ -187,7 +194,15 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                             View recordings
                                                             <IconRewindPlay />
                                                         </Button>
-                                                        <DropdownMenu>
+                                                        <DropdownMenu
+                                                            onOpenChange={(open) => {
+                                                                if (open) {
+                                                                    setEmailInOverflow(
+                                                                        !isDisplayed(inlineEmailMenuRef.current)
+                                                                    )
+                                                                }
+                                                            }}
+                                                        >
                                                             <DropdownMenuTrigger
                                                                 render={
                                                                     <Button
@@ -210,16 +225,16 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                                     <IconSparkles className="text-ai" />
                                                                     Set up a scanner to watch these
                                                                 </DropdownMenuItem>
-                                                                {!messageAudienceAccessDisabledReason() && (
-                                                                    <>
-                                                                        <DropdownMenuSeparator className="@6xl/main-content:hidden" />
-                                                                        <IssueEmailMenuItems
-                                                                            issueId={issue.id}
-                                                                            issueName={issue.name}
-                                                                            className="@6xl/main-content:hidden"
-                                                                        />
-                                                                    </>
-                                                                )}
+                                                                {emailInOverflow &&
+                                                                    !messageAudienceAccessDisabledReason() && (
+                                                                        <>
+                                                                            <DropdownMenuSeparator />
+                                                                            <IssueEmailMenuItems
+                                                                                issueId={issue.id}
+                                                                                issueName={issue.name}
+                                                                            />
+                                                                        </>
+                                                                    )}
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
                                                     </ButtonGroup>
@@ -237,6 +252,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                     issueId={issue.id}
                                                     issueName={issue.name}
                                                     collapseWhenNarrow={!!issue.name}
+                                                    wrapperRef={inlineEmailMenuRef}
                                                 />
                                                 <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                             </div>

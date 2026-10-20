@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { RefObject } from 'react'
 
 import { IconChevronDown, IconSend } from '@posthog/icons'
 
@@ -21,14 +22,15 @@ import { IssueAffectedBroadcastModal } from './ScenePanel/IssueAffectedBroadcast
 export interface IssueEmailMenuProps extends IssueAffectedBroadcastLogicProps {
     /** Hides the button on a narrow scene, where the header menu next to it carries the same items. */
     collapseWhenNarrow?: boolean
+    wrapperRef?: RefObject<HTMLDivElement>
 }
 
-export function IssueEmailMenu({ collapseWhenNarrow, ...props }: IssueEmailMenuProps): JSX.Element {
+export function IssueEmailMenu({ collapseWhenNarrow, wrapperRef, ...props }: IssueEmailMenuProps): JSX.Element {
     const accessDisabledReason = messageAudienceAccessDisabledReason()
 
     return (
         <>
-            <div className={clsx(collapseWhenNarrow ? 'hidden @6xl/main-content:flex' : 'flex')}>
+            <div ref={wrapperRef} className={clsx(collapseWhenNarrow ? 'hidden @6xl/main-content:flex' : 'flex')}>
                 {accessDisabledReason ? (
                     <Tooltip>
                         <TooltipTrigger render={<Button variant="outline" disabled />}>
