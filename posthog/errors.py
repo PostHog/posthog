@@ -140,9 +140,9 @@ def _unreadable_type_advice(unreadable_type: str) -> str:
 
 def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType":
     unreadable_type = err.message.removeprefix("Unknown type ")
+    advice = _unreadable_type_advice(unreadable_type)
     return CHQueryErrorUnknownType(
-        f"This query returns a column of type `{unreadable_type}`, which PostHog can't send back in results. "
-        f"{_unreadable_type_advice(unreadable_type)}",
+        f"This query returns a column of type `{unreadable_type}`, which PostHog can't send back in results. {advice}",
         code=err.code,
         code_name="unknown_type",
     )
