@@ -18,6 +18,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
@@ -155,12 +156,22 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["POST"], detail=False)
     def expire_previous(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         with transaction.atomic():
+            # Team lock first: a legacy rotation racing this expiry would rewrite the
+            # backup column between the comparison below and the deletion.
+            locked_team = Team.objects.select_for_update(no_key=True).get(pk=self.team_id)
             row = SigningSecret.objects.for_team(self.team_id).select_for_update().first()
             if row and row.previous_secret:
                 expired = row.previous_secret
                 row.previous_secret = None
                 row.previous_secret_rotated_at = None
                 row.save(update_fields=["previous_secret", "previous_secret_rotated_at"])
+                # A legacy rotation leaves the same credential in the backup column,
+                # where it keeps verifying (and authenticating) while the legacy
+                # verifiers are on. Expiry is a revocation, so it must cover that copy.
+                if locked_team.secret_api_token_backup == expired:
+                    locked_team.delete_secret_token_backup_and_save(
+                        user=cast(User, request.user), is_impersonated_session=is_impersonated(request)
+                    )
                 log_activity(
                     organization_id=self.team.organization_id,
                     team_id=self.team_id,

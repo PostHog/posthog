@@ -101,6 +101,35 @@ class TestSigningSecretAPI(APIBaseTest):
         )
         assert "phs_old_secret" not in str(log.detail)
 
+    @parameterized.expand(
+        [
+            # Expiry is a revocation: the same credential sitting in the legacy backup
+            # column must die with it, or "Expire now" reports success while the key
+            # keeps verifying through the legacy fallback.
+            ("backup_holds_the_expired_secret", "phs_legacy_token", None),
+            ("unrelated_backup_is_kept", "phs_some_other_backup", "phs_some_other_backup"),
+        ]
+    )
+    def test_expire_previous_revokes_the_matching_legacy_backup(self, _name, backup, expected_backup_after):
+        self._make_admin()
+        self.team.secret_api_token = "phs_current_token"
+        self.team.secret_api_token_backup = backup
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret="phs_current_token",
+            previous_secret="phs_legacy_token",
+            previous_secret_rotated_at=timezone.now(),
+        )
+
+        response = self.client.post(self._url("expire_previous/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        self.team.refresh_from_db()
+        assert self.team.secret_api_token_backup == expected_backup_after
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        assert row.previous_secret is None
+
     def test_rotate_requires_admin(self):
         response = self.client.post(self._url("rotate/"))
         assert response.status_code == status.HTTP_403_FORBIDDEN
