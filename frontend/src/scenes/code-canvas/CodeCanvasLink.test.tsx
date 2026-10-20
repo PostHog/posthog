@@ -33,7 +33,7 @@ describe('CodeCanvasLink', () => {
         )
 
         expect(window.location.href).toBe('posthog-code://canvas/channel-1/canvas-1')
-        expect(screen.getByText('open it in your browser').closest('a')).toHaveAttribute(
+        expect(screen.getByText('Open in browser').closest('a')).toHaveAttribute(
             'href',
             expect.stringMatching(/\/canvases\/canvas-1$/)
         )
@@ -47,6 +47,6 @@ describe('CodeCanvasLink', () => {
             </Provider>
         )
 
-        expect(screen.queryByText('open it in your browser')).not.toBeInTheDocument()
+        expect(screen.queryByText('Open in browser')).not.toBeInTheDocument()
     })
 })

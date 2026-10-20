@@ -15,7 +15,7 @@ export interface DesktopBridgeBodyProps {
 /**
  * Shared body for the desktop-app bridge scenes (canvas/channel/task/loop links): an explanation,
  * a manual "open" button (in case the browser blocks the auto-redirect the scene fires on mount),
- * a download link for visitors without the app installed, and a browser link when the item also has a web view.
+ * an "open in browser" button when the item also has a web view, and a download link for visitors without the app.
  */
 export function DesktopBridgeBody({ subject, deepLink, webUrl }: DesktopBridgeBodyProps): JSX.Element {
     return (
@@ -24,11 +24,8 @@ export function DesktopBridgeBody({ subject, deepLink, webUrl }: DesktopBridgeBo
             <h2 className="text-xl font-semibold m-0">Opening in PostHog Desktop…</h2>
             {webUrl ? (
                 <p className="text-muted mb-0">
-                    {subject} should open in the PostHog Desktop app if it's installed. You can also{' '}
-                    <Link to={webUrl} data-attr="desktop-bridge-open-in-browser">
-                        open it in your browser
-                    </Link>
-                    .
+                    {subject} should open in the PostHog Desktop app if it's installed. You can also open it in your
+                    browser.
                 </p>
             ) : (
                 <p className="text-muted mb-0">
@@ -36,7 +33,7 @@ export function DesktopBridgeBody({ subject, deepLink, webUrl }: DesktopBridgeBo
                     didn't, use the button below, or download the app.
                 </p>
             )}
-            <div className="flex flex-col items-center gap-2">
+            <div className="flex flex-wrap justify-center gap-2">
                 {deepLink && (
                     <LemonButton
                         type="primary"
@@ -44,13 +41,18 @@ export function DesktopBridgeBody({ subject, deepLink, webUrl }: DesktopBridgeBo
                             window.location.href = deepLink
                         }}
                     >
-                        Open in PostHog Desktop
+                        Open in desktop app
                     </LemonButton>
                 )}
-                <LemonButton type="secondary" to="https://posthog.com/desktop" targetBlank>
-                    Download PostHog Desktop
-                </LemonButton>
+                {webUrl && (
+                    <LemonButton type="secondary" to={webUrl} data-attr="desktop-bridge-open-in-browser">
+                        Open in browser
+                    </LemonButton>
+                )}
             </div>
+            <Link to="https://posthog.com/desktop" target="_blank">
+                Download PostHog Desktop
+            </Link>
         </div>
     )
 }
