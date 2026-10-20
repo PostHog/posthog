@@ -211,8 +211,6 @@ TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
-WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
-
 # Runtime posture for a setup-wizard cloud run, applied in create_wizard_cloud_run. The model is
 # pinned because these runs route to the unbilled `onboarding` gateway product, which allowlists a
 # narrow model set; the string form avoids pulling the temporal RuntimeAdapter enum onto this path.
@@ -2346,6 +2344,7 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
+        _observe_claimed_terminal(run, error_type=None)
     return True
 
 
@@ -2366,8 +2365,19 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_failed(error, error_type=error_type)
+        _observe_claimed_terminal(run, error_type=error_type)
         resume_workflow_step_for_run(run)
     return True
+
+
+def _observe_claimed_terminal(run: TaskRun, *, error_type: str | None) -> None:
+    # The conditional update already wrote the terminal status, so mark_* sees a terminal run and
+    # skips its own count. The claim winner counts the transition here instead.
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_task_run_terminal,
+    )
+
+    observe_task_run_terminal(run, error_type=error_type, termination_reason=None)
 
 
 def redispatch_task_run(run_id: str | UUID) -> str:
@@ -2906,7 +2916,6 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # sandbox and re-enabling the run-log mirror with the rollout off).
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
-        "agent_proxy_keep_stream_open",
         "overlap_clone_boot_enabled",
         "use_modal_network_allowlist",
         "stream_presence_gated",
@@ -3306,28 +3315,6 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
         logger.exception("task_run_slack_update_for_pr_failed for run %s", run.id)
 
 
-def _is_wizard_pr_ready_email_enabled(run: TaskRun) -> bool:
-    user = run.task.created_by
-    if user is None or not user.distinct_id:
-        return False
-    try:
-        team = Team.objects.only("id", "uuid", "organization_id").get(id=run.team_id)
-        organization_id = str(team.organization_id)
-        return bool(
-            posthoganalytics.feature_enabled(
-                WIZARD_PR_READY_EMAIL_FEATURE_FLAG,
-                user.distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("wizard_pr_ready_email_feature_flag_check_failed", extra={"run_id": str(run.id)})
-        return False
-
-
 def _is_github_pull_request_url_for_repository(pr_url: str, repository: str | None) -> bool:
     if not repository:
         return False
@@ -3365,8 +3352,6 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
             "wizard_pr_ready_email_invalid_pr_url",
             extra={"run_id": str(run.id), "task_id": str(run.task_id), "repository": run.task.repository},
         )
-        return
-    if not _is_wizard_pr_ready_email_enabled(run):
         return
 
     if not run.task.mark_pr_ready_email_queued(pr_url):
@@ -3493,6 +3478,7 @@ def update_task_run(
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
         observe_prewarmed_unused_if_never_activated,
+        observe_task_run_terminal,
         observe_wizard_run_unbound,
     )
 
@@ -3633,6 +3619,13 @@ def update_task_run(
         run.publish_stream_state_event()
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        # This PATCH performed the transition, so the status-update activity skips its count.
+        observe_task_run_terminal(
+            run,
+            error_type=validated_data.get("error_type")
+            or ("agent_reported" if new_status == TaskRun.Status.FAILED else None),
+            termination_reason=None,
+        )
         try:
             if run.environment == TaskRun.Environment.CLOUD:
                 refresh_task_run_cost(run_id=run.id, team_id=run.team_id)
@@ -7772,6 +7765,9 @@ def create_task(
     """
     from posthog.models import Team  # noqa: PLC0415
 
+    from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        is_pull_request_run_request,
+    )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
         record_report_task,
@@ -7926,7 +7922,12 @@ def create_task(
                     {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}, reason
                 )
             report_reservation = (
-                _reserve_report_warm_activation(team, warm_task, relationship=signal_report_task_relationship)
+                _reserve_report_warm_activation(
+                    team,
+                    warm_task,
+                    relationship=signal_report_task_relationship,
+                    description=validated_data.get("description"),
+                )
                 if report_discussion
                 else None
             )
@@ -8079,9 +8080,12 @@ def create_task(
     )
     if signal_report_id:
         enforce_self_driving_pr_quota(team, report_id=signal_report_id)
-        # Only Create PR is held back on a trial. Discuss keeps working, and a Discuss run can still
-        # open a PR that billing never counts. That is an accepted risk of a sales trial.
-        if signal_report_task_relationship in (None, "implementation"):
+        # Create PR and the discussions that push to the report's PR are held back on a trial. Other
+        # discussions keep working, and one can still open a PR that billing never counts. That is
+        # an accepted risk of a sales trial.
+        if signal_report_task_relationship in (None, "implementation") or is_pull_request_run_request(
+            validated_data.get("description")
+        ):
             enforce_self_driving_free_trial(team, report_id=signal_report_id)
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
@@ -8096,6 +8100,7 @@ def create_task(
                 team_id=team_id,
                 report_id=signal_report_id,
                 relationship=signal_report_task_relationship,
+                description=validated_data.get("description"),
             )
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
@@ -8898,7 +8903,12 @@ def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool)
     return integration.id if integration is not None else None
 
 
-def _reserve_report_warm_activation(team: Team, task: Task, *, relationship: str | None) -> Model:
+def _reserve_report_warm_activation(
+    team: Team, task: Task, *, relationship: str | None, description: str | None = None
+) -> Model:
+    from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        is_pull_request_run_request,
+    )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
         record_report_task,
@@ -8906,8 +8916,12 @@ def _reserve_report_warm_activation(team: Team, task: Task, *, relationship: str
 
     report_id = str(task.signal_report_id)
     enforce_self_driving_pr_quota(team, report_id=report_id)
+    if is_pull_request_run_request(description):
+        enforce_self_driving_free_trial(team, report_id=report_id)
     with transaction.atomic():
-        enforce_report_task_cap(team_id=task.team_id, report_id=report_id, relationship=relationship)
+        enforce_report_task_cap(
+            team_id=task.team_id, report_id=report_id, relationship=relationship, description=description
+        )
         return record_report_task(
             team_id=task.team_id, report_id=report_id, task_id=str(task.id), relationship=relationship
         )

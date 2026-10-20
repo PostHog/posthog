@@ -152,6 +152,8 @@ export const SignalsReportsListParams = () => zod.object({
 })
 
 export const signalsReportsListQueryCountOnlyDefault = false
+export const signalsReportsListQueryExcludeMax = 100
+
 export const signalsReportsListQueryIncludeSourceMetadataDefault = true
 
 export const SignalsReportsListQueryParams = () => zod.object({
@@ -187,6 +189,13 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('ISO 8601 datetime. Keeps reports created at or after this time.'),
+    exclude: zod
+        .array(zod.string())
+        .max(signalsReportsListQueryExcludeMax)
+        .optional()
+        .describe(
+            'Report ids to leave out of `results` and `count`, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.'
+        ),
     has_implementation_pr: zod
         .boolean()
         .optional()
@@ -288,7 +297,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which."
+            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which."
         ),
 })
 
@@ -340,7 +349,7 @@ export const SignalsReportsPartialUpdateBody = () => zod
     )
 
 /**
- * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
  * @summary List the report actions that start an agent run
  */
 export const SignalsReportsActionsListParams = () => zod.object({
@@ -369,10 +378,12 @@ export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
 
 export const SignalsReportsActionsRunCreateBody = () => zod.object({
     action: zod
-        .enum(['get_it_merged', 'suggested_prompt'])
-        .describe('\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt')
+        .enum(['get_it_merged', 'make_it_green', 'suggested_prompt'])
         .describe(
-            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt'
+            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt'
+        )
+        .describe(
+            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt'
         ),
     suggested_prompt_index: zod
         .number()
@@ -3781,7 +3792,7 @@ export const SignalsScoutReportCheckListQueryParams = () => zod.object({
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = () => zod.object({
@@ -3840,6 +3851,12 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
         .max(signalsScoutScratchpadSearchQueryLimitMax)
         .optional()
         .describe('Max rows to return (default 20, hard cap 1000).'),
+    skill_name: zod
+        .string()
+        .optional()
+        .describe(
+            'Return only the entries this writer created, matched against `created_by_skill` (a scout skill name or a `pipeline:\*` identity). Omit to return entries from every writer.'
+        ),
     text: zod
         .string()
         .optional()

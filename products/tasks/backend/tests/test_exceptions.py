@@ -10,6 +10,7 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
+    GatewayTokenUnavailableError,
     SandboxControlPlaneUnavailableError,
     SandboxNotRunningError,
     SandboxRateLimitedError,
@@ -33,6 +34,7 @@ def test_temporal_failure_type_defaults_to_class_name():
         SandboxRateLimitedError("x", {}),
         SandboxControlPlaneUnavailableError("x", {}),
         CredentialUnavailableError("x", {}),
+        GatewayTokenUnavailableError("x", {}),
     ],
 )
 def test_expected_errors_are_not_reported_by_the_activity_interceptor(error: Exception) -> None:

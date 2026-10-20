@@ -37,7 +37,6 @@ import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
-import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import {
     TaskAgentMyPreferenceSettings,
     TaskAgentProjectDefaultSettings,
@@ -310,9 +309,10 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'display-name',
                 title: 'Project details',
-                description: 'Name this project and label it so you can group and find it across your organization.',
+                description:
+                    'Name this project, add a logo and label it so you can group and find it across your organization.',
                 component: <ProjectDetails />,
-                keywords: ['name', 'rename', 'label', 'tag', 'tags'],
+                keywords: ['name', 'rename', 'logo', 'icon', 'image', 'label', 'tag', 'tags'],
             },
             {
                 id: 'date-and-time',
@@ -1791,15 +1791,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
                 keywords: ['bounce', 'pageview', 'url', 'calculation'],
-            },
-            {
-                id: 'session-join-mode',
-                title: 'Session join mode',
-                description:
-                    "Choose which join mode to use for sessions. Don't change this unless you know what you're doing.",
-                component: <SessionsV2JoinModeSettings />,
-                flag: 'SETTINGS_SESSIONS_V2_JOIN',
-                keywords: ['session', 'join', 'string', 'uuid'],
             },
             {
                 id: 'web-analytics-pre-aggregated-tables',
